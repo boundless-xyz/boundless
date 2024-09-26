@@ -14,20 +14,42 @@ The `compose.yml` file defines all the services within the Bento. Here you can c
 
 Under the `exec_agent` service you can configure the segment size with the `--segment-po2` flag. Bigger segments are preferable for performance but do impact the proving systems conjectured security bits slightly. In order to pick the right segment po2 for your GPU VRAM see [reports -> datasheet](https://reports.risczero.com/) for details.
 
-Services can be run on other hosts, as long as the IP addresses for things link Postgres / redis / minio are updated on the remote host.
+Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host.
 
-Additionally `NVCC_APPEND_FLAGS` should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/)
+Additionally, `NVCC_APPEND_FLAGS` should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/)
 
 <div class="warning">
 TODO: Write more here about how to do multi-host services like gpu-agent / exec-agent
 </div>
 
+## Host setup
+
+At this time Ubuntu is the only supported Operating system. Other operating systems _should_ work, but driver support (host Nvidia drivers matching container drivers etc.), compile dependencies, and testing fall to the user to complete.
+
+For a quick set up of boundless host dependencies on Ubuntu, please run:
+
+```bash
+scripts/setup.sh
+```
+
 ## Running
 
-To build and spin up a Bento cluster:
+To build and spin up a Bento cluster locally using docker:
 
 ```bash
 docker compose --env-file ./.env-compose up --build
+```
+
+Optionally you can use the startup script included in this repo:
+
+```bash
+scripts/boundless_service.sh start
+```
+
+To stop the boundless service:
+
+```bash
+scripts/boundless_service.sh stop
 ```
 
 ## Sending a sample proof to the cluster
