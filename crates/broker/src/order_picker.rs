@@ -644,7 +644,15 @@ mod tests {
 
         assert!(logs_contain("Found 1 orders currently pricing to resume"));
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // Try and wait for the order to complete pricing
+        for _ in 0..4 {
+            let db_order = db.get_order(order_id).await.unwrap().unwrap();
+            if db_order.status != OrderStatus::Pricing {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+
         let db_order = db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
         assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));

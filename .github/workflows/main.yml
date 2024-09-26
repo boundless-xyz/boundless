@@ -18,7 +18,7 @@ env:
 
 jobs:
   rust:
-    runs-on: [self-hosted, prod, Linux, X64, cpu]
+    runs-on: boundless-linux-x64-01
     services:
       postgres:
         image: postgres:latest
@@ -156,7 +156,7 @@ jobs:
         working-directory: contracts
 
   examples:
-    runs-on: [self-hosted, prod, Linux, X64, cpu]
+    runs-on: boundless-linux-x64-01
     strategy:
       matrix:
         workspace:
