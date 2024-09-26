@@ -24,10 +24,10 @@ TODO: Write more here about how to do multi-host services like gpu-agent / exec-
 
 ## Running
 
-To build and spin up a Bento cluster:
+To build and spin up a Bento cluster locally:
 
 ```bash
-docker compose --env-file ./.env-compose up --build
+scripts/boundless_service.sh start
 ```
 
 ## Sending a sample proof to the cluster
