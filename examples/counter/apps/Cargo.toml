@@ -18,3 +18,7 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
+
+[dev-dependencies]
+broker = { path = "../../../crates/broker" }
+tracing-test = "0.2"

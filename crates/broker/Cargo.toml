@@ -30,6 +30,7 @@ risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = [ "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs"] }
 toml = "0.8"
@@ -46,5 +47,4 @@ guest-util = { workspace = true }
 hex = { workspace = true }
 httpmock = "0.7"
 risc0-zkvm = { workspace = true, default-features = true }
-tempfile = { workspace = true }
 tracing-test = "0.2"
