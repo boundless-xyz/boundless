@@ -114,7 +114,7 @@ jobs:
           version: '=1.6'
           locked: true
 
-      - run: cargo bininstall -y --force lychee@0.15.1
+      - run: cargo binstall -y --force lychee@0.15.1
 
       - name: run lychee
         # lychee does not respect the .gitignore natively
@@ -145,7 +145,7 @@ jobs:
           version: '=1.6'
           locked: true
 
-      - run: cargo bininstall -y --force dprint@0.47.2
+      - run: cargo binstall -y --force dprint@0.47.2
 
       - run: dprint check
 
