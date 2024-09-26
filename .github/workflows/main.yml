@@ -45,8 +45,8 @@ jobs:
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
 
-      - name: install sccache
-        uses: risc0/risc0/.github/actions/sccache@main
+      # - name: install sccache
+      #   uses: risc0/risc0/.github/actions/sccache@main
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
@@ -90,15 +90,15 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
 
-      - name: sccache stats
-        run: sccache --show-stats
+      # - name: sccache stats
+      #   run: sccache --show-stats
 
   link-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: install sccache
-        uses: risc0/risc0/.github/actions/sccache@main
+      # - name: install sccache
+      #   uses: risc0/risc0/.github/actions/sccache@main
 
       - name: restore lychee cache
         uses: actions/cache@v4
@@ -107,7 +107,15 @@ jobs:
           key: cache-lychee-${{ github.sha }}
           restore-keys: cache-lychee-
 
-      - run: cargo install --locked lychee
+      - name: install cargo-binstall
+        uses: risc0/cargo-install@v3
+        with:
+          crate: cargo-binstall
+          version: '=1.6'
+          locked: true
+
+      - run: cargo bininstall -y --force lychee@0.15.1
+
       - name: run lychee
         # lychee does not respect the .gitignore natively
         # https://github.com/lycheeverse/lychee/issues/470#issuecomment-1094690229
@@ -120,21 +128,29 @@ jobs:
           path: .lycheecache
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
-      - name: sccache stats
-        run: sccache --show-stats
+      # - name: sccache stats
+      #   run: sccache --show-stats
 
   format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: install sccache
-        uses: risc0/risc0/.github/actions/sccache@main
+      # - name: install sccache
+      #   uses: risc0/risc0/.github/actions/sccache@main
 
-      - run: cargo install --locked dprint
+      - name: install cargo-binstall
+        uses: risc0/cargo-install@v3
+        with:
+          crate: cargo-binstall
+          version: '=1.6'
+          locked: true
+
+      - run: cargo bininstall -y --force dprint@0.47.2
+
       - run: dprint check
 
-      - name: sccache stats
-        run: sccache --show-stats
+      # - name: sccache stats
+      #   run: sccache --show-stats
 
   foundry:
     runs-on: ubuntu-latest
@@ -175,8 +191,8 @@ jobs:
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
 
-      - name: install sccache
-        uses: risc0/risc0/.github/actions/sccache@main
+      # - name: install sccache
+      #   uses: risc0/risc0/.github/actions/sccache@main
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
@@ -227,8 +243,8 @@ jobs:
         env:
           RISC0_DEV_MODE: 1
 
-      - name: sccache stats
-        run: sccache --show-stats
+      # - name: sccache stats
+      #   run: sccache --show-stats
 
   docker:
     runs-on: ubuntu-latest
