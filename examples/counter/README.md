@@ -38,7 +38,7 @@ export COUNTER_ADDRESS=#COPY COUNTER ADDRESS FROM DEPLOY LOGS
 
 ## Run the example
 
-Running this example requires having access to a Boundless market deployment. You can set a local one up by following the [local devnet](../../docs/src/broker/local_devnet.md) instructions. Alternatively, you can use the [Sepolia deployment](../../docs/src/broker/sepolia.md).
+Running this example requires having access to a Boundless market deployment. You can set a local one up by following the [local devnet](../../docs/src/broker/local_devnet.md) instructions.
 
 To run the example run:
 
@@ -48,9 +48,9 @@ RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin example-counter -- --counter-addr
 
 By setting the `RISC0_DEV_MODE` env variable, a temporary file storage provider will be used.
 
-Alternatively, you can also use am IPFS provider. We suggest using [Pinata](https://www.pinata.cloud).
+Alternatively, you can also use an IPFS or AWS S3 provider. For IPFS, we suggest using [Pinata](https://www.pinata.cloud) as a pinning service, and have implemented builtin support for uploading files there.
 
-Just export the following env variables:
+To use IPFS via Pinata, just export the following env variables:
 
 ```bash
 # The JWT from your Pinata account, used to host guest binaries.
