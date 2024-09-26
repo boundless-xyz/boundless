@@ -32,8 +32,8 @@ export COUNTER_ADDRESS=#COPY COUNTER ADDRESS FROM DEPLOY LOGS
 > ```bash
 > export COUNTER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "Counter") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
 > ```
-> 
-> This command reads the Counter address from the broadcast logs generated when deploying to Anvil, using as default chain ID `31337`; 
+>
+> This command reads the Counter address from the broadcast logs generated when deploying to Anvil, using as default chain ID `31337`;
 > you can modify the chain ID if instead you are deploying to a different chain, e.g., on Sepolia use `11155111`.
 
 ## Run the example
