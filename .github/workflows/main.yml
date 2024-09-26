@@ -1,0 +1,243 @@
+name: Lint / Format / Test
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  rust:
+    runs-on: [self-hosted, prod, Linux, X64, cpu]
+    services:
+      postgres:
+        image: postgres:latest
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: password
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required by license-check.py
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: install foundry
+        uses: risc0/foundry-toolchain@2fe7e70b520f62368a0e3c464f997df07ede420f
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-1.1
+
+      - name: install sccache
+        uses: risc0/risc0/.github/actions/sccache@main
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '1.1.1'
+          toolchain-version: 'r0.1.79.0-2'
+
+      - name: install cargo-sort
+        uses: risc0/cargo-install@v3
+        with:
+          crate: cargo-sort
+          version: "=1.0.9"
+          locked: true
+
+      - name: cargo Sort
+        run: cargo sort --workspace --check
+
+      - name: cargo format
+        run: cargo fmt --all -- --check
+
+      - name: license check
+        run: python license-check.py
+
+      - name: forge build
+        run: forge build
+        working-directory: contracts
+
+      - name: cargo check
+        run: cargo check
+
+      - name: Install sqlx-cli
+        run: cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+
+      - name: run taskdb migrations
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+        run: sqlx migrate run --source ./crates/taskdb/migrations/
+
+      - name: cargo test
+        run: cargo test --workspace --all-targets
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install sccache
+        uses: risc0/risc0/.github/actions/sccache@main
+
+      - name: restore lychee cache
+        uses: actions/cache@v4
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
+
+      - run: cargo install --locked lychee
+      - name: run lychee
+        # lychee does not respect the .gitignore natively
+        # https://github.com/lycheeverse/lychee/issues/470#issuecomment-1094690229
+        run: git ls-files '*.md' | xargs lychee --base . --cache --
+
+      - name: save lychee cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .lycheecache
+          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install sccache
+        uses: risc0/risc0/.github/actions/sccache@main
+
+      - run: cargo install --locked dprint
+      - run: dprint check
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  foundry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install foundry
+        uses: risc0/foundry-toolchain@2fe7e70b520f62368a0e3c464f997df07ede420f
+
+      - name: forge fmt
+        run: forge fmt --check
+        working-directory: contracts
+
+      - name: forge test
+        run: forge test -vvv
+        working-directory: contracts
+
+  examples:
+    runs-on: [self-hosted, prod, Linux, X64, cpu]
+    strategy:
+      matrix:
+        workspace:
+          - examples/eigen-withdrawal
+          - examples/counter
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required by license-check.py
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: install foundry
+        uses: risc0/foundry-toolchain@2fe7e70b520f62368a0e3c464f997df07ede420f
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-1.1
+
+      - name: install sccache
+        uses: risc0/risc0/.github/actions/sccache@main
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '1.1.1'
+          toolchain-version: 'r0.1.79.0-2'
+
+      - name: install cargo-sort
+        uses: risc0/cargo-install@v3
+        with:
+          crate: cargo-sort
+          version: "=1.0.9"
+          locked: true
+
+      - name: cargo Sort
+        run: cargo sort --workspace --check
+        working-directory: ${{ matrix.workspace }}
+
+      - name: cargo format
+        run: cargo fmt --all -- --check
+        working-directory: ${{ matrix.workspace }}
+
+      - name: forge build
+        run: forge build
+        working-directory: contracts
+
+      - name: cargo build
+        run: cargo build
+        working-directory: ${{ matrix.workspace }}
+
+      - name: cargo clippy
+        run: cargo clippy --workspace
+        working-directory: ${{ matrix.workspace }}
+        env:
+          RISC0_SKIP_BUILD: 1
+
+      - name: forge fmt
+        run: forge fmt --check
+        working-directory: ${{ matrix.workspace }}/contracts
+
+      - name: forge test
+        run: forge test -vvv
+        working-directory: ${{ matrix.workspace }}/contracts
+
+      - name: cargo test
+        run: cargo test
+        working-directory: ${{ matrix.workspace }}
+        env:
+          RISC0_DEV_MODE: 1
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: docker-compose lint
+        run: docker compose --profile broker --env-file ./.env-compose config

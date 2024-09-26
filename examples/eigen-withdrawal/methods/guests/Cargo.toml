@@ -1,0 +1,15 @@
+[package]
+name = "eigen-withdrawal"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+alloy-sol-types = { version = "0.7", default-features = false }
+eigen = { path = "../../eigen" }
+risc0-zkvm = { version = "1.0", default-features = false, features = ["std"] }
+
+[patch.crates-io]
+# use optimized risc0 circuit
+sha2 = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2-v0.10.8-risczero.0" }

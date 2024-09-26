@@ -1,0 +1,50 @@
+[package]
+name = "broker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aggregation-set = { workspace = true }
+alloy = { workspace = true, features = ["network", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "rpc", "rpc-types"] }
+alloy-chains = "0.1"
+anyhow = { workspace = true }
+assessor = { workspace = true }
+async-channel = "2.3"
+async-trait = { workspace = true }
+bincode = { workspace = true }
+bonsai-sdk = { workspace = true }
+boundless-market = { workspace = true }
+bytemuck = { workspace = true }
+cfg-if = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { workspace = true }
+futures = "0.3"
+futures-util = { workspace = true }
+# TEMP:
+guest-assessor = { workspace = true }
+http = "1.1"
+notify = "6.1"
+reqwest = { workspace = true }
+risc0-ethereum-contracts = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["std", "client"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = [ "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs"] }
+toml = "0.8"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
+uuid = { workspace = true }
+workflow-common = { workspace = true }
+
+[dev-dependencies]
+alloy = { workspace = true, features = ["node-bindings"] }
+guest-assessor = { workspace = true }
+guest-util = { workspace = true }
+hex = { workspace = true }
+httpmock = "0.7"
+risc0-zkvm = { workspace = true, default-features = true }
+tempfile = { workspace = true }
+tracing-test = "0.2"

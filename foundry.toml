@@ -1,0 +1,19 @@
+[profile.default]
+src = "contracts/src"
+out = "contracts/out"
+libs = ["lib"]
+script = "contract/scripts"
+test = "contracts/test"
+ffi = true
+evm_version = 'cancun'
+via_ir = true
+optimizer = true
+# Use 10k runs because it doesn't seem to slow down compilation, and does shave off a bit of gas.
+optimizer_runs = 10000
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+[fmt]
+line_length = 120
+tab_width = 4
+quote_style = "double"

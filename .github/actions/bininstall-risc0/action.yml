@@ -1,0 +1,37 @@
+name: risczero toolchain install
+description: Install risczero toolchain
+
+inputs:
+  risczero-version:
+    description: 'Version of the RISC Zero zkvm to install'
+    required: false
+    default: '1.0.1'
+    type: string
+
+  toolchain-version:
+    description: 'Version of the RISC Zero toolchains to install'
+    required: false
+    default: 'v2024-04-22.0'
+    type: string
+
+runs:
+  using: composite
+  steps:
+    - name: install rust
+      uses: risc0/risc0/.github/actions/rustup@release-1.1
+
+    - uses: risc0/cargo-install@v3
+      with:
+        crate: cargo-binstall
+        version: '=1.6'
+        locked: true
+
+    - run: cargo binstall -y --force cargo-risczero@${{ inputs.risczero-version }}
+      shell: bash
+
+    - run: cargo risczero install --version "${{ inputs.toolchain-version }}"
+      shell: bash
+
+    - name: test risczero
+      shell: bash
+      run: cargo risczero --version

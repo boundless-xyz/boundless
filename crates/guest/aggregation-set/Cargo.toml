@@ -1,0 +1,11 @@
+[package]
+name = "guest-aggregation-set"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+risc0-build = { workspace = true }
+risc0-build-ethereum = { workspace = true }
+
+[package.metadata.risc0]
+methods = ["aggregation-set-guest"]
