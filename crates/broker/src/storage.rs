@@ -244,6 +244,7 @@ mod tests {
     async fn max_size_limit() {
         let handler =
             UriHandlerBuilder::new("https://risczero.com/").set_max_size(1).build().unwrap();
+
         assert!(!handler.exists());
 
         let _data = handler.fetch().await.unwrap();
