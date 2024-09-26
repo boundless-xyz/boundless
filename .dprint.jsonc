@@ -1,0 +1,22 @@
+{
+  "markdown": {
+    "ignoreDirective": "prettier-ignore",
+    "ignoreFileDirective": "prettier-ignore-file",
+    "ignoreStartDirective": "prettier-ignore-start",
+    "ignoreEndDirective": "prettier-ignore-end"
+  },
+  // Install more plugins: https://dprint.dev/plugins
+  // "json": {
+  // },
+  // "toml": {
+  // },
+  // "dockerfile": {
+  // },
+  "excludes": [
+    "./docs/book",
+    "lib",
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/markdown-0.17.8.wasm"
+  ]
+}

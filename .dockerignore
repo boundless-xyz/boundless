@@ -1,0 +1,12 @@
+target
+.git
+.gitignore
+.gitmodules
+compose.yml
+.env
+contracts/out
+broadcast
+cache
+.github
+scripts
+examples

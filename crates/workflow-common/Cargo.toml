@@ -1,0 +1,10 @@
+[package]
+name = "workflow-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+bincode = { workspace = true }
+serde = { workspace = true }

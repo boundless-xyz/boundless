@@ -1,0 +1,36 @@
+# Compiler files
+cache/
+out/
+
+# Ignores development broadcast logs
+/broadcast
+/broadcast/*/31337/
+/broadcast/*/11155111/
+/broadcast/**/dry-run/
+
+# Dotenv file
+# .env
+
+# Cargo
+target/
+
+# Misc
+.DS_Store
+.idea
+
+# Ignore generated files
+contracts/src/AggregationSetImageID.sol
+contracts/src/AssessorImageID.sol
+contracts/src/EchoImageID.sol
+contracts/src/ResolveImageID.sol
+contracts/src/UtilImageID.sol
+contracts/test/AggregationSetElf.sol
+contracts/test/AssessorElf.sol
+contracts/test/EchoElf.sol
+contracts/test/ResolveElf.sol
+contracts/test/UtilElf.sol
+
+# Lints & Format Caches
+.lycheecache
+# Ignore sccache install location created in CI
+sccache-v0.*

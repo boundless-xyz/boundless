@@ -1,0 +1,21 @@
+[package]
+name = "assessor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy-primitives = { workspace = true, features = ["k256"] }
+alloy-sol-types = { workspace = true, features = ["eip712-serde"] }
+anyhow = { workspace = true }
+boundless-market = { workspace = true }
+postcard = { workspace = true, features = ["alloc"] }
+risc0-zkvm = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+aggregation-set = { workspace = true }
+alloy = { workspace = true }
+guest-assessor = { workspace = true }
+guest-util = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["client"] }
+test-log = { workspace = true }
