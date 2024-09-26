@@ -160,7 +160,6 @@ jobs:
     strategy:
       matrix:
         workspace:
-          - examples/eigen-withdrawal
           - examples/counter
     steps:
       - name: checkout code

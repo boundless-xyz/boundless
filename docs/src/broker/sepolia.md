@@ -21,7 +21,6 @@ Ensure the following software is installed on your machine before proceeding:
 | `SetVerifier`            | 0x6a89661977CBd8825dDB8F0b2429eBf773444dFa <!-- TODO link to contract -->                                                     |
 | `RiscZeroVerifierRouter` | [0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187](https://sepolia.etherscan.io/address/0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187) |
 | `Counter` example        | 0xC7f3135fBC0Aeca1Fd2cFB04319996efea53Eb7a <!-- TODO link to contract -->                                                     |
-| `EigenPod` example       | 0x18E0Dc75c318e88dc3f397e41fa715dbE7D41436 <!-- TODO link to contract -->                                                     |
 
 ### L1 Sepolia
 

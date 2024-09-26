@@ -21,4 +21,4 @@
 
 # Examples
 
-- [EigenLayer withdrawal example](./examples/eigen.md)
+> TODO: Document counter example here

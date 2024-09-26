@@ -22,8 +22,7 @@ SKIP_PATHS = [
     # ImageID.sol is automatically generated.
     str(Path.cwd()) + "/contracts/src/AggregationSetImageID.sol",
     str(Path.cwd()) + "/contracts/src/AssessorImageID.sol",
-    str(Path.cwd()) + "/contracts/src/UtilImageID.sol",
-    str(Path.cwd()) + "/examples/eigen-withdrawal/contracts/src/ImageID.sol"
+    str(Path.cwd()) + "/contracts/src/UtilImageID.sol"
 ]
 
 
