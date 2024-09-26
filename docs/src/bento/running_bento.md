@@ -32,10 +32,22 @@ scripts/setup.sh
 
 ## Running
 
-To build and spin up a Bento cluster locally:
+To build and spin up a Bento cluster locally using docker:
 
 ```bash
 docker compose --env-file ./.env-compose up --build
+```
+
+Optionally you can use the startup script included in this repo:
+
+```bash
+scripts/boundless_service.sh start
+```
+
+To stop the boundless service:
+
+```bash
+scripts/boundless_service.sh stop
 ```
 
 ## Sending a sample proof to the cluster
