@@ -319,7 +319,13 @@ mod tests {
         proving_service.find_and_monitor_proofs().await.unwrap();
 
         // Sleep long enough for the tokio tasks to pickup and complete the order in the DB
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        for _ in 0..4 {
+            let db_order = db.get_order(order_id).await.unwrap().unwrap();
+            if db_order.status != OrderStatus::Proving {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
 
         let order = db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingAgg);
