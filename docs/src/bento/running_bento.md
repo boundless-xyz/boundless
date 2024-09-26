@@ -24,7 +24,9 @@ TODO: Write more here about how to do multi-host services like gpu-agent / exec-
 
 ## Host setup
 
-At this time Ubuntu is the only supported Operating system. To set up boundless host dependencies from a fresh Ubuntu install locally, please run:
+At this time Ubuntu is the only supported Operating system. Other operating systems _should_ work, but driver support (host Nvidia drivers matching container drivers etc.), compile dependencies, and testing fall to the user to complete.
+
+For a quick set up of boundless host dependencies on Ubuntu, please run:
 
 ```bash
 scripts/setup.sh
