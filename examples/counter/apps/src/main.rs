@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
     network::EthereumWallet,
-    primitives::{utils::parse_units, Address, B256},
+    primitives::{aliases::U96, utils::parse_units, Address, B256},
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
@@ -111,12 +111,12 @@ async fn main() -> Result<()> {
     let current_block = provider.get_block_number().await?;
     let timeout = 1625190000;
     let offer = Offer {
-        minPrice: price.try_into()?,
-        maxPrice: price.try_into()?,
+        minPrice: U96::from(price.get_absolute()),
+        maxPrice: U96::from(price.get_absolute()),
         biddingStart: current_block,
         rampUpPeriod: 0,
         timeout,
-        lockinStake: parse_units("0.001", "ether").unwrap().try_into()?,
+        lockinStake: U96::from(parse_units("0.001", "ether")?.get_absolute()),
     };
 
     // Upload the guest code to the default storage provider.

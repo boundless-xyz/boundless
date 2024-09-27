@@ -9,6 +9,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "hex",
  "risc0-binfmt",
  "risc0-zkvm",
  "serde",

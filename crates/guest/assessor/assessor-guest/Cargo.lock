@@ -25,6 +25,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "guest-aggregation-set",
+ "hex",
  "risc0-binfmt",
  "risc0-zkvm",
  "serde",
