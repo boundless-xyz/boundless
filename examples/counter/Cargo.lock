@@ -2619,7 +2619,6 @@ dependencies = [
  "guest-util",
  "risc0-zkvm",
  "serde",
- "sha2",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.18",

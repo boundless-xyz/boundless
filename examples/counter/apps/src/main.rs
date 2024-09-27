@@ -22,7 +22,6 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ExecutorEnv,
 };
-use sha2::{Digest as _, Sha256};
 use url::Url;
 
 /// Timeout for the transaction to be confirmed.
@@ -162,7 +161,7 @@ async fn run(
     // Wait for the request to be fulfilled by the market. The market will return the journal and
     // seal.
     tracing::info!("Waiting for request {} to be fulfilled", request_id);
-    let (journal, seal) = boundless_client
+    let (_journal, seal) = boundless_client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
@@ -174,7 +173,7 @@ async fn run(
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.
     let counter = ICounterInstance::new(counter_address, boundless_client.provider().clone());
-    let journal_digest = B256::try_from(Sha256::digest(&journal).as_slice())?;
+    let journal_digest = B256::try_from(journal.digest().as_bytes())?;
     let image_id = B256::try_from(Digest::from(ECHO_ID).as_bytes())?;
     let call_increment =
         counter.increment(seal, image_id, journal_digest).from(boundless_client.caller());
