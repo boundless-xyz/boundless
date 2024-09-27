@@ -362,7 +362,6 @@ library MerkleProofish {
     // Compute the root of the Merkle tree given all of its leaves.
     // Assumes that the array of leaves is no longer needed, and can be overwritten.
     function processTree(bytes32[] memory leaves) internal pure returns (bytes32 root) {
-        // If there are no leaves, return zero
         require(leaves.length > 0, "Leaves array must contain at least one element");
 
         // If there's only one leaf, the root is the leaf itself
