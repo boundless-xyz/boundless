@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
     dotenvy::dotenv()?;
     let args = Args::parse();
 
+    // NOTE: Using a separate `run` function to facilitate testing below.
     run(
         args.wallet_private_key,
         args.rpc_url,
@@ -101,11 +102,14 @@ async fn run(
     // Dry run the ECHO ELF with the input to get the journal and cycle count.
     // This can be useful to estimate the cost of the proving request.
     // It can also be useful to ensure the guest can be executed correctly and we do not send into
-    // the market unprovable proving requests.
-    let (journal, _mcycle_count) = dry_run(ECHO_ELF, &input)?;
+    // the market unprovable proving requests. If you have a different mechanism to get the expected journal and set a price, you can skip this step.
+    let env = ExecutorEnv::builder().write_slice(input).build()?;
+    let session_info = default_executor().execute(env, elf)?;
+    let _mcycles_count: u32 = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u32>() / 1_000_000;
+    let journal = session_info.journal;
 
     // Create a proving request with the image, input, requirements and offer.
-    // The image (or elf) is specified by the image URL.
+    // The ELF (i.e. image) is specified by the image URL.
     // The input can be specified by an URL, as in this example, or can be posted on chain by using
     // the `with_inline` method with the input bytes.
     // The requirements are the ECHO_ID and the digest of the journal. In this way, the market can
@@ -127,6 +131,7 @@ async fn run(
         .with_offer(
             Offer::default()
                 .with_min_price(parse_ether("0.001")?.try_into()?)
+                // NOTE: If your offer is not being accepted, try increasing the max price.
                 .with_max_price(parse_ether("0.002")?.try_into()?)
                 .with_timeout(1000),
         );
@@ -177,7 +182,7 @@ async fn run(
     Ok(())
 }
 
-// Encode the input for the Boundless market.
+// Encode the input as expected by the echo guest.
 fn encode_input(input: &[u8]) -> Result<Vec<u8>> {
     Ok(bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(input)?))
 }
