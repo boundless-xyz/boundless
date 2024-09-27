@@ -8,10 +8,10 @@ alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
 guest-aggregation-set = { workspace = true, optional = true }
+hex = { workspace = true }
 risc0-binfmt = { workspace = true }
 risc0-zkvm = { workspace = true }
 serde = { workspace = true }
-hex = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
