@@ -42,7 +42,8 @@ where
             self.provider.get_block_number().await.context("failed to get current block")?;
 
         let mut timestamps = vec![];
-        for i in current_block - BLOCK_TIME_SAMPLE_SIZE..current_block {
+        let sample_start = current_block - std::cmp::min(current_block, BLOCK_TIME_SAMPLE_SIZE);
+        for i in sample_start..current_block {
             let block = self
                 .provider
                 .get_block_by_number(i.into(), false)
