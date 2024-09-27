@@ -22,3 +22,7 @@
 # Examples
 
 > TODO: Document counter example here
+
+# Reference
+
+- [Glossary](./glossary.md)
