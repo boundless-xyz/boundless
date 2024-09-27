@@ -35,6 +35,11 @@ main {
     overflow-wrap: break-word;
 }
 
+hr {
+  border-color: hsl(20, 5.88%, 90%);
+  border-width: 0.5px;
+}
+
 .menu-title {
   text-transform: uppercase;
 }
@@ -127,6 +132,8 @@ h6:target::before {
 }
 
 table {
+    width: 100%;
+    background-color: var(--bg);
     margin: 0 auto;
     border-collapse: collapse;
 }
