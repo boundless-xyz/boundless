@@ -13,20 +13,17 @@ use alloy::{
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
-
-use alloy_sol_types::{eip712_domain, Eip712Domain};
-
 use alloy_primitives::{
     aliases::{U160, U192},
-    Address, Bytes, U256,
+    Address, Bytes, B256, U256,
 };
-
-use risc0_zkvm::sha::Digest;
-
+use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
-
 #[cfg(not(target_os = "zkvm"))]
 use thiserror::Error;
+use url::Url;
+
+use risc0_zkvm::sha::Digest;
 
 // proof_market.rs is a copy of IProofMarket.sol with alloy derive statements added.
 // See the build.rs script in this crate for more details.
@@ -125,6 +122,37 @@ impl ProvingRequest {
     pub fn with_offer(self, offer: Offer) -> Self {
         Self { offer, ..self }
     }
+
+    /// Check that the request is valid and internally consistent.
+    ///
+    /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min
+    /// price) this function will return an error.
+    // TODO: Should this function be replaced with a proper builder that checks the ProvingRequest
+    // before it finalizes the construction?
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.imageUrl.is_empty() {
+            anyhow::bail!("Image URL must not be empty");
+        };
+        Url::parse(&self.imageUrl).map(|_| ())?;
+
+        if self.requirements.imageId == B256::default() {
+            anyhow::bail!("Image ID must not be ZERO");
+        };
+        if self.offer.timeout == 0 {
+            anyhow::bail!("Offer timeout must be greater than 0");
+        };
+        if self.offer.maxPrice == 0 {
+            anyhow::bail!("Offer maxPrice must be greater than 0");
+        };
+        if self.offer.maxPrice < self.offer.minPrice {
+            anyhow::bail!("Offer maxPrice must be greater than or equal to minPrice");
+        }
+        if self.offer.biddingStart == 0 {
+            anyhow::bail!("Offer biddingStart must be greater than 0");
+        };
+
+        Ok(())
+    }
 }
 
 #[cfg(not(target_os = "zkvm"))]
@@ -163,7 +191,7 @@ impl Requirements {
 impl Predicate {
     /// Returns a predicate to match the journal digest. This ensures that the proving request's
     /// fulfillment will contain a journal with the same digest.
-    pub fn with_digest_match(digest: impl Into<Digest>) -> Self {
+    pub fn digest_match(digest: impl Into<Digest>) -> Self {
         Self {
             predicateType: PredicateType::DigestMatch,
             data: digest.into().as_bytes().to_vec().into(),
@@ -172,25 +200,20 @@ impl Predicate {
 
     /// Returns a predicate to match the journal prefix. This ensures that the proving request's
     /// fulfillment will contain a journal with the same prefix.
-    pub fn with_prefix_match(prefix: impl Into<Bytes>) -> Self {
+    pub fn prefix_match(prefix: impl Into<Bytes>) -> Self {
         Self { predicateType: PredicateType::PrefixMatch, data: prefix.into() }
     }
 }
 
 impl Input {
-    /// Creates a new input with the given data.
-    pub fn new(input_type: InputType, data: impl Into<Bytes>) -> Self {
-        Self { inputType: input_type, data: data.into() }
-    }
-
     /// Sets the input type to inline and the data to the given bytes.
-    pub fn with_inline(data: impl Into<Bytes>) -> Self {
+    pub fn inline(data: impl Into<Bytes>) -> Self {
         Self { inputType: InputType::Inline, data: data.into() }
     }
 
     /// Sets the input type to URL and the data to the given URL.
-    pub fn with_url(url: &str) -> Self {
-        Self { inputType: InputType::Url, data: url.to_string().into() }
+    pub fn url(url: impl Into<String>) -> Self {
+        Self { inputType: InputType::Url, data: url.into().into() }
     }
 }
 
@@ -245,6 +268,8 @@ impl Offer {
     }
 }
 
+// TODO: These are not so much "default" as they are "empty". Default is not quite the right
+// semantics here. This would be replaced by a builder or an `empty` function.
 impl Default for ProvingRequest {
     fn default() -> Self {
         Self {

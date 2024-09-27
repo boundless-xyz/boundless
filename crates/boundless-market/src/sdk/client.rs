@@ -34,8 +34,6 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::Client as HttpClient;
 use url::Url;
 
-use super::validate_request;
-
 type ProviderWallet = FillProvider<
     JoinFill<
         JoinFill<JoinFill<JoinFill<Identity, GasFiller>, NonceFiller>, ChainIdFiller>,
@@ -132,7 +130,7 @@ where
                 .context("Failed to get current block number")?
         };
 
-        validate_request(&request)?;
+        request.validate()?;
 
         Ok(self.proof_market.submit_request(&request, &self.signer.clone()).await?)
     }

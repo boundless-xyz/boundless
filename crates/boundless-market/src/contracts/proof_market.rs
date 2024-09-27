@@ -506,7 +506,7 @@ where
     /// Returns journal and seal if the request is fulfilled.
     ///
     /// This method will poll the status of the request until it is Fulfilled or Expired.
-    /// Polling is done at intervals of [retry_interval] until the request is Fulfilled, Expired or
+    /// Polling is done at intervals of `retry_interval` until the request is Fulfilled, Expired or
     /// the optional timeout is reached.
     pub async fn wait_for_request_fulfillment(
         &self,

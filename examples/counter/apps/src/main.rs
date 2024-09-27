@@ -132,10 +132,10 @@ async fn run(
     //   request is not fulfilled before the timeout, the prover can be slashed.
     let request = ProvingRequest::default()
         .with_image_url(&image_url)
-        .with_input(Input::with_url(&input_url))
+        .with_input(Input::url(&input_url))
         .with_requirements(Requirements::new(
             ECHO_ID,
-            Predicate::with_digest_match(journal.digest()),
+            Predicate::digest_match(journal.digest()),
         ))
         .with_offer(
             Offer::default()

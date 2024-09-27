@@ -88,7 +88,7 @@ struct SubmitOfferArgs {
     /// Wait until the request is fulfilled
     #[clap(short, long, default_value = "false")]
     wait: bool,
-    /// Use risc0_zkvm::serde to encode the input as a Vec<u8>
+    /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
     /// Send the input inline (i.e. in the transaction calldata) rather than uploading it.

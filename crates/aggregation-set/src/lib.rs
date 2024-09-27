@@ -38,7 +38,7 @@ where
 {
     /// Claim containing information about the computation that this receipt proves.
     ///
-    /// The standard claim type is [ReceiptClaim][crate::ReceiptClaim], which represents a RISC-V
+    /// The standard claim type is [ReceiptClaim], which represents a RISC-V
     /// zkVM execution.
     pub claim: MaybePruned<Claim>,
 
@@ -216,7 +216,7 @@ mod verify {
     };
 
     impl Default for SetInclusionReceiptVerifierParameters {
-        /// Default set of parameters used to verify a [SetInclusionReceipt].
+        /// Default set of parameters used to verify a [SetInclusionReceipt][super::SetInclusionReceipt].
         fn default() -> Self {
             Self { image_id: AGGREGATION_SET_GUEST_ID.into() }
         }
