@@ -6,7 +6,7 @@ use std::{borrow::Cow, fs::File, io::BufReader, path::PathBuf, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{utils::parse_ether, Address, Bytes, B256, U256},
+    primitives::{aliases::U192, utils::parse_ether, Address, Bytes, B256, U256},
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer, SignerSync},
     transports::Transport,
@@ -352,7 +352,7 @@ where
     );
 
     // Use the original request id if it was set
-    if request_yaml.id != U256::ZERO {
+    if request_yaml.id != U192::ZERO {
         request.id = request_yaml.id;
     }
 

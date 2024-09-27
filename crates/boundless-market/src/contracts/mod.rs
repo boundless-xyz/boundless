@@ -82,7 +82,7 @@ impl ProvingRequest {
         offer: Offer,
     ) -> Self {
         Self {
-            id: request_id(addr, id),
+            id: U192::from(request_id(addr, id)),
             requirements,
             imageUrl: image_url.to_string(),
             input,
@@ -91,7 +91,7 @@ impl ProvingRequest {
     }
 
     pub fn client_address(&self) -> Address {
-        let shifted_id: U256 = self.id >> 32;
+        let shifted_id: U256 = U256::from(self.id) >> 32;
         let shifted_bytes: [u8; 32] = shifted_id.to_be_bytes();
         let addr_bytes: [u8; 20] =
             shifted_bytes[12..32].try_into().expect("Failed to extract address bytes");
@@ -257,7 +257,8 @@ pub mod test_utils {
         providers::{
             ext::AnvilApi,
             fillers::{
-                ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, WalletFiller,
+                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+                WalletFiller,
             },
             Identity, ProviderBuilder, RootProvider,
         },
@@ -291,7 +292,10 @@ pub mod test_utils {
     // Note: I was completely unable to solve this with generics or trait objects
     type ProviderWallet = FillProvider<
         JoinFill<
-            JoinFill<JoinFill<JoinFill<Identity, GasFiller>, NonceFiller>, ChainIdFiller>,
+            JoinFill<
+                Identity,
+                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+            >,
             WalletFiller<EthereumWallet>,
         >,
         RootProvider<BoxTransport>,

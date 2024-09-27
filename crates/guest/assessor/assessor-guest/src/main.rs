@@ -10,7 +10,7 @@ extern crate alloc;
 use aggregation_set::AGGREGATION_SET_GUEST_ID;
 use aggregation_set::{merkle_root, GuestOutput};
 use alloc::{vec, vec::Vec};
-use alloy_primitives::U256;
+use alloy_primitives::aliases::U192;
 use alloy_sol_types::SolValue;
 use assessor::AssessorInput;
 use boundless_market::contracts::AssessorJournal;
@@ -30,7 +30,7 @@ fn main() {
     let input: AssessorInput = postcard::from_bytes(&bytes).expect("failed to deserialize input");
 
     // list of request ids
-    let mut ids: Vec<U256> = Vec::with_capacity(input.fills.len());
+    let mut ids: Vec<U192> = Vec::with_capacity(input.fills.len());
     // list of ReceiptClaim digests used as leaves in the aggregation set
     let mut leaves: Vec<Digest> = Vec::with_capacity(input.fills.len());
 

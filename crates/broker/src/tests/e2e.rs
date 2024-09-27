@@ -4,7 +4,7 @@
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, B256},
+    primitives::{aliases::U96, utils, B256, U256},
     providers::Provider,
 };
 use httpmock::prelude::*;
@@ -89,12 +89,12 @@ async fn simple_e2e() {
             data: encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().into(),
         },
         Offer {
-            minPrice: 20000000000000,
-            maxPrice: 40000000000000,
+            minPrice: U96::from(20000000000000u64),
+            maxPrice: U96::from(40000000000000u64),
             biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
             timeout: 100,
             rampUpPeriod: 1,
-            lockinStake: 10,
+            lockinStake: U96::from(10),
         },
     );
 
@@ -102,7 +102,7 @@ async fn simple_e2e() {
 
     ctx.customer_market
         .wait_for_request_fulfillment(
-            request.id,
+            U256::from(request.id),
             Duration::from_secs(1),
             Some(Duration::from_secs(60)),
         )

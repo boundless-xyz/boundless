@@ -183,7 +183,10 @@ mod tests {
         provers::{encode_input, MockProver},
         OrderStatus,
     };
-    use alloy::primitives::{Bytes, B256};
+    use alloy::primitives::{
+        aliases::{U192, U96},
+        Bytes, B256,
+    };
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
@@ -219,7 +222,7 @@ mod tests {
             updated_at: Utc::now(),
             target_block: Some(0),
             request: ProvingRequest {
-                id: U256::ZERO,
+                id: U192::ZERO,
                 requirements: Requirements {
                     imageId: B256::ZERO,
                     predicate: Predicate {
@@ -230,12 +233,12 @@ mod tests {
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
-                    minPrice: min_price,
-                    maxPrice: max_price,
+                    minPrice: U96::from(min_price),
+                    maxPrice: U96::from(max_price),
                     biddingStart: 4,
                     rampUpPeriod: 1,
                     timeout: 100,
-                    lockinStake: 10,
+                    lockinStake: U96::from(10),
                 },
             },
             image_id: Some(image_id),
@@ -277,7 +280,7 @@ mod tests {
         let proving_service =
             ProvingService::new(db.clone(), prover, config.clone()).await.unwrap();
 
-        let order_id = U256::ZERO;
+        let order_id = U192::ZERO;
         let min_price = 2;
         let max_price = 4;
 
@@ -286,7 +289,7 @@ mod tests {
             updated_at: Utc::now(),
             target_block: Some(0),
             request: ProvingRequest {
-                id: U256::ZERO,
+                id: order_id,
                 requirements: Requirements {
                     imageId: B256::ZERO,
                     predicate: Predicate {
@@ -297,12 +300,12 @@ mod tests {
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
-                    minPrice: min_price,
-                    maxPrice: max_price,
+                    minPrice: U96::from(min_price),
+                    maxPrice: U96::from(max_price),
                     biddingStart: 4,
                     rampUpPeriod: 1,
                     timeout: 100,
-                    lockinStake: 10,
+                    lockinStake: U96::from(10),
                 },
             },
             image_id: Some(image_id),
@@ -314,6 +317,7 @@ mod tests {
             lock_price: None,
             error_msg: None,
         };
+        let order_id = U256::from(order_id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
         proving_service.find_and_monitor_proofs().await.unwrap();

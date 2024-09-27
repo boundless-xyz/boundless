@@ -506,7 +506,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Keccak256, B256},
+        primitives::{aliases::U96, Keccak256, B256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
@@ -636,12 +636,12 @@ mod tests {
             "http://risczero.com/image".into(),
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
-                minPrice: min_price,
-                maxPrice: 4,
+                minPrice: U96::from(min_price),
+                maxPrice: U96::from(4),
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: 10,
+                lockinStake: U96::from(10),
             },
         );
 
@@ -676,7 +676,7 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
         };
-        let order_id = order.request.id;
+        let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
         // Order 1
@@ -693,12 +693,12 @@ mod tests {
             "http://risczero.com/image".into(),
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
-                minPrice: min_price,
-                maxPrice: 4,
+                minPrice: U96::from(min_price),
+                maxPrice: U96::from(4),
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: 10,
+                lockinStake: U96::from(10),
             },
         );
 
@@ -721,7 +721,7 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
         };
-        let order_id = order.request.id;
+        let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
         aggregator.aggregate_proofs().await.unwrap();
@@ -784,7 +784,7 @@ mod tests {
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
         let chain_id = provider.get_chain_id().await.unwrap();
 
-        let min_price = 200000000000000000;
+        let min_price = 200000000000000000u64;
         let order_request = ProvingRequest::new(
             0,
             &customer_signer.address(),
@@ -798,12 +798,12 @@ mod tests {
             "http://risczero.com/image".into(),
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
-                minPrice: min_price,
-                maxPrice: 250000000000000000,
+                minPrice: U96::from(min_price),
+                maxPrice: U96::from(250000000000000000u64),
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: 10,
+                lockinStake: U96::from(10),
             },
         );
 
@@ -826,7 +826,7 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
         };
-        let order_id = order.request.id;
+        let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
         aggregator.aggregate_proofs().await.unwrap();

@@ -5,8 +5,12 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use alloy::{
-    network::Ethereum, primitives::Address, providers::Provider, rpc::types::Filter,
-    sol_types::SolEvent, transports::Transport,
+    network::Ethereum,
+    primitives::{Address, U256},
+    providers::Provider,
+    rpc::types::Filter,
+    sol_types::SolEvent,
+    transports::Transport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{proof_market::ProofMarketService, IProofMarket, ProofStatus};
@@ -105,7 +109,8 @@ where
         let mut order_count = 0;
         for log in decoded_logs {
             let event = &log.inner.data;
-            let order_exists = match db.order_exists(event.request.id).await {
+            let request_id = U256::from(event.request.id);
+            let order_exists = match db.order_exists(request_id).await {
                 Ok(val) => val,
                 Err(err) => {
                     tracing::error!("Failed to check if order exists in db: {err:?}");
@@ -116,7 +121,7 @@ where
                 continue;
             }
 
-            let req_status = match market.get_status(event.request.id).await {
+            let req_status = match market.get_status(request_id).await {
                 Ok(val) => val,
                 Err(err) => {
                     tracing::warn!("Failed to get request status: {err:?}");
@@ -136,7 +141,7 @@ where
             tracing::info!("Found open order: {}", event.request.id);
             if let Err(err) = db
                 .add_order(
-                    event.request.id,
+                    request_id,
                     Order::new(event.request.clone(), event.clientSignature.clone()),
                 )
                 .await
@@ -168,7 +173,7 @@ where
                         tracing::info!("Detected new request {:x}", event.request.id);
                         if let Err(err) = db
                             .add_order(
-                                event.request.id,
+                                U256::from(event.request.id),
                                 Order::new(event.request, event.clientSignature),
                             )
                             .await
@@ -223,7 +228,10 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Address, B256, U256},
+        primitives::{
+            aliases::{U192, U96},
+            Address, B256, U256,
+        },
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
     };
@@ -251,7 +259,7 @@ mod tests {
         let min_price = 1;
         let max_price = 10;
         let proving_request = ProvingRequest {
-            id: U256::ZERO,
+            id: U192::ZERO,
             requirements: Requirements {
                 imageId: B256::ZERO,
                 predicate: Predicate {
@@ -262,12 +270,12 @@ mod tests {
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },
             offer: Offer {
-                minPrice: min_price,
-                maxPrice: max_price,
+                minPrice: U96::from(min_price),
+                maxPrice: U96::from(max_price),
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
-                lockinStake: 0,
+                lockinStake: U96::from(0),
             },
         };
 

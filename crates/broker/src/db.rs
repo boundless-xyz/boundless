@@ -957,7 +957,7 @@ impl BrokerDb for SqliteDb {
 mod tests {
     use super::*;
     use crate::ProvingRequest;
-    use alloy::primitives::{Address, Bytes};
+    use alloy::primitives::{aliases::U96, Address, Bytes};
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, Requirements,
     };
@@ -981,12 +981,12 @@ mod tests {
                 "http://risczero.com",
                 Input { inputType: InputType::Inline, data: "".into() },
                 Offer {
-                    minPrice: 1,
-                    maxPrice: 2,
+                    minPrice: U96::from(1),
+                    maxPrice: U96::from(2),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: 0,
+                    lockinStake: U96::from(0),
                 },
             ),
             image_id: None,

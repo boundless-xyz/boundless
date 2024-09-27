@@ -725,4 +725,14 @@ contract ProofMarketTest is Test {
     function testBenchFulfillBatch128() public {
         benchFulfillBatch(128);
     }
+
+    function testProcessTree() public {
+        bytes32[] memory leaves = new bytes32[](3);
+        leaves[0] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
+        leaves[1] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
+        leaves[2] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
+
+        bytes32 root = MerkleProofish.processTree(leaves);
+        assertEq(root, 0xe004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef);
+    }
 }
