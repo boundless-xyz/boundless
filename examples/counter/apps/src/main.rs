@@ -13,11 +13,15 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
-    sdk::{client::Client, dry_run},
+    sdk::client::Client,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
-use risc0_zkvm::sha::{Digest, Digestible};
+use risc0_zkvm::{
+    default_executor,
+    sha::{Digest, Digestible},
+    ExecutorEnv,
+};
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
@@ -102,10 +106,15 @@ async fn run(
     // Dry run the ECHO ELF with the input to get the journal and cycle count.
     // This can be useful to estimate the cost of the proving request.
     // It can also be useful to ensure the guest can be executed correctly and we do not send into
-    // the market unprovable proving requests. If you have a different mechanism to get the expected journal and set a price, you can skip this step.
-    let env = ExecutorEnv::builder().write_slice(input).build()?;
-    let session_info = default_executor().execute(env, elf)?;
-    let _mcycles_count: u32 = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u32>() / 1_000_000;
+    // the market unprovable proving requests. If you have a different mechanism to get the expected
+    // journal and set a price, you can skip this step.
+    let env = ExecutorEnv::builder().write_slice(&input).build()?;
+    let session_info = default_executor().execute(env, ECHO_ELF)?;
+    // NOTE: Since the default segment size is one million cycles, we can approximate by just
+    // counting them. Alternatively, you can sum the total mcycles of each segment with
+    // something like:
+    // session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u32>() / 1_000_000;
+    let mcycles_count: u32 = session_info.segments.len() as u32;
     let journal = session_info.journal;
 
     // Create a proving request with the image, input, requirements and offer.
@@ -117,8 +126,8 @@ async fn run(
     // journal. The offer specifies the price range and the timeout for the request.
     // Additionally, the offer can also specify:
     // - the bidding start time: the block number when the bidding starts;
-    // - the ramp up period: the number of blocks before the price start increasing until the
-    //   maxPrice, starting from the the bidding start;
+    // - the ramp up period: the number of blocks before the price start increasing until reaches
+    //   the maxPrice, starting from the the bidding start;
     // - the lockin price: the price at which the request can be locked in by a prover, if the
     //   request is not fulfilled before the timeout, the prover can be slashed.
     let request = ProvingRequest::default()
@@ -130,9 +139,18 @@ async fn run(
         ))
         .with_offer(
             Offer::default()
-                .with_min_price(parse_ether("0.001")?.try_into()?)
+                // The market uses a reverse Dutch auction mechanism to match requests with provers.
+                // Each request has a price range that a prover can bid on. One way to set the price
+                // is to choose a desired (min and max) price per million cycles and multiply it
+                // by the number of cycles. Alternatively, you can use the `with_min_price` and
+                // `with_max_price` methods to set the price directly.
+                .with_min_price_per_mcycle(parse_ether("0.001")?.try_into()?, mcycles_count)
                 // NOTE: If your offer is not being accepted, try increasing the max price.
-                .with_max_price(parse_ether("0.002")?.try_into()?)
+                .with_max_price_per_mcycle(parse_ether("0.002")?.try_into()?, mcycles_count)
+                // The timeout is the maximum number of blocks the request can stay
+                // unfulfilled in the market before it expires. If a prover locks in
+                // the request and does not fulfill it before the timeout, the prover can be
+                // slashed.
                 .with_timeout(1000),
         );
 

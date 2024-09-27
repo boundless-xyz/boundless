@@ -107,23 +107,23 @@ impl ProvingRequest {
     }
 
     /// Sets the input data to be fetched from the given URL.
-    pub fn with_image_url(&self, image_url: &str) -> Self {
-        Self { imageUrl: image_url.to_string(), ..self.clone() }
+    pub fn with_image_url(self, image_url: &str) -> Self {
+        Self { imageUrl: image_url.to_string(), ..self }
     }
 
     /// Sets the requirements for the proving request.
-    pub fn with_requirements(&self, requirements: Requirements) -> Self {
-        Self { requirements, ..self.clone() }
+    pub fn with_requirements(self, requirements: Requirements) -> Self {
+        Self { requirements, ..self }
     }
 
     /// Sets the guest's input for the proving request.
-    pub fn with_input(&self, input: Input) -> Self {
-        Self { input, ..self.clone() }
+    pub fn with_input(self, input: Input) -> Self {
+        Self { input, ..self }
     }
 
     /// Sets the offer for the proving request.
-    pub fn with_offer(&self, offer: Offer) -> Self {
-        Self { offer, ..self.clone() }
+    pub fn with_offer(self, offer: Offer) -> Self {
+        Self { offer, ..self }
     }
 }
 
@@ -150,13 +150,13 @@ impl Requirements {
     }
 
     /// Sets the image ID.
-    pub fn with_image_id(&self, image_id: impl Into<Digest>) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), ..self.clone() }
+    pub fn with_image_id(self, image_id: impl Into<Digest>) -> Self {
+        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), ..self }
     }
 
     /// Sets the predicate.
-    pub fn with_predicate(&self, predicate: Predicate) -> Self {
-        Self { predicate, ..self.clone() }
+    pub fn with_predicate(self, predicate: Predicate) -> Self {
+        Self { predicate, ..self }
     }
 }
 
@@ -196,52 +196,52 @@ impl Input {
 
 impl Offer {
     /// Sets the offer minimum price.
-    pub fn with_min_price(&self, min_price: u128) -> Self {
-        Self { minPrice: min_price, ..self.clone() }
+    pub fn with_min_price(self, min_price: u128) -> Self {
+        Self { minPrice: min_price, ..self }
     }
 
     /// Sets the offer maximum price.
-    pub fn with_max_price(&self, max_price: u128) -> Self {
-        Self { maxPrice: max_price, ..self.clone() }
+    pub fn with_max_price(self, max_price: u128) -> Self {
+        Self { maxPrice: max_price, ..self }
     }
 
     /// Sets the offer lock-in stake.
-    pub fn with_lockin_stake(&self, lockin_stake: u128) -> Self {
-        Self { lockinStake: lockin_stake, ..self.clone() }
+    pub fn with_lockin_stake(self, lockin_stake: u128) -> Self {
+        Self { lockinStake: lockin_stake, ..self }
     }
 
     /// Sets the offer bidding start as block number.
-    pub fn with_bidding_start(&self, bidding_start: u64) -> Self {
-        Self { biddingStart: bidding_start, ..self.clone() }
+    pub fn with_bidding_start(self, bidding_start: u64) -> Self {
+        Self { biddingStart: bidding_start, ..self }
     }
 
     /// Sets the offer timeout as number of blocks from the bidding start before expiring.
-    pub fn with_timeout(&self, timeout: u32) -> Self {
-        Self { timeout, ..self.clone() }
+    pub fn with_timeout(self, timeout: u32) -> Self {
+        Self { timeout, ..self }
     }
 
     /// Sets the offer ramp-up period as number of blocks from the bidding start before the price
     /// starts to increase until the maximum price.
-    pub fn with_ramp_up_period(&self, ramp_up_period: u32) -> Self {
-        Self { rampUpPeriod: ramp_up_period, ..self.clone() }
+    pub fn with_ramp_up_period(self, ramp_up_period: u32) -> Self {
+        Self { rampUpPeriod: ramp_up_period, ..self }
     }
 
     /// Sets the offer minimum price based on the desired price per million cycles.
-    pub fn with_min_price_per_mcycle(&self, mcycle_price: u128, mcycle: u32) -> Self {
+    pub fn with_min_price_per_mcycle(self, mcycle_price: u128, mcycle: u32) -> Self {
         let min_price = mcycle_price * mcycle as u128;
-        Self { minPrice: min_price, ..self.clone() }
+        Self { minPrice: min_price, ..self }
     }
 
     /// Sets the offer maximum price based on the desired price per million cycles.
-    pub fn with_max_price_per_mcycle(&self, mcycle_price: u128, mcycle: u32) -> Self {
+    pub fn with_max_price_per_mcycle(self, mcycle_price: u128, mcycle: u32) -> Self {
         let max_price = mcycle_price * mcycle as u128;
-        Self { maxPrice: max_price, ..self.clone() }
+        Self { maxPrice: max_price, ..self }
     }
 
     /// Sets the offer lock-in stake based on the desired price per million cycles.
-    pub fn with_lockin_stake_per_mcycle(&self, mcycle_price: u128, mcycle: u32) -> Self {
+    pub fn with_lockin_stake_per_mcycle(self, mcycle_price: u128, mcycle: u32) -> Self {
         let lockin_stake = mcycle_price * mcycle as u128;
-        Self { lockinStake: lockin_stake, ..self.clone() }
+        Self { lockinStake: lockin_stake, ..self }
     }
 }
 
