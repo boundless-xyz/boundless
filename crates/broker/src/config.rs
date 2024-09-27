@@ -148,7 +148,6 @@ impl Config {
     }
 
     /// Write the config to disk
-    #[cfg(test)]
     pub async fn write(&self, path: &Path) -> Result<()> {
         let data = toml::to_string(&self).context("Failed to serialize config")?;
         fs::write(path, data).await.context("Failed to write Config to disk")

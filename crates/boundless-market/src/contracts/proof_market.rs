@@ -570,9 +570,7 @@ where
     /// It does not guarantee that the ID is not in use by the time the caller uses it.
     pub async fn gen_random_id(&self) -> Result<u32> {
         loop {
-            // TODO(#157): currently, indexes must be less than 80;
-            // we'll extend this to fully use the 32bit space
-            let id = rand::random::<u32>() % 80;
+            let id = rand::random::<u32>();
             let request_id = request_id(&self.caller, id);
             match self.get_status(request_id).await? {
                 ProofStatus::Unknown => return Ok(id),

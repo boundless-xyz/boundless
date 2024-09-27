@@ -68,6 +68,18 @@ async fn main() -> Result<()> {
     dotenvy::dotenv()?;
     let args = Args::parse();
 
+    run(args.wallet_private_key, args.rpc_url, args.proof_market_address, args.counter_address)
+        .await?;
+
+    Ok(())
+}
+
+async fn run(
+    wallet_private_key: PrivateKeySigner,
+    rpc_url: Url,
+    proof_market_address: Address,
+    counter_address: Address,
+) -> Result<()> {
     // We use a timestamp as input to the ECHO guest code as the Counter contract
     // accepts only unique proofs. Using the same input twice would result in the same proof.
     let image_id = B256::try_from(Digest::from(ECHO_ID).as_bytes())?;
@@ -82,12 +94,12 @@ async fn main() -> Result<()> {
     let journal_digest = session_info.journal.digest();
 
     // Setup to interact with the Market contract
-    let caller = args.wallet_private_key.address();
-    let signer = args.wallet_private_key.clone();
-    let wallet = EthereumWallet::from(args.wallet_private_key);
+    let caller = wallet_private_key.address();
+    let signer = wallet_private_key.clone();
+    let wallet = EthereumWallet::from(wallet_private_key);
     let provider =
-        ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(args.rpc_url);
-    let market = ProofMarketService::new(args.proof_market_address, provider.clone(), caller);
+        ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
+    let market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
 
     // We create a proving request with the requirements and offer to send to the market.
     // The request requires to specify some requirements, e.g., the image id of the guest code
@@ -116,7 +128,7 @@ async fn main() -> Result<()> {
         biddingStart: current_block,
         rampUpPeriod: 0,
         timeout,
-        lockinStake: U96::from(parse_units("0.001", "ether")?.get_absolute()),
+        lockinStake: U96::from(parse_units("0", "ether")?.get_absolute()),
     };
 
     // Upload the guest code to the default storage provider.
@@ -146,13 +158,18 @@ async fn main() -> Result<()> {
     // We wait for the request to be fulfilled by the market. The market will return the journal and
     // seal.
     tracing::info!("Waiting for request {} to be fulfilled", request_id);
-    let (journal, seal) =
-        market.wait_for_request_fulfillment(request_id, Duration::from_secs(5), None).await?;
+    let (journal, seal) = market
+        .wait_for_request_fulfillment(
+            request_id,
+            Duration::from_secs(5), // check every 5 seconds
+            None,                   // no timeout
+        )
+        .await?;
     tracing::info!("Request {} fulfilled", request_id);
 
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.
-    let counter = ICounterInstance::new(args.counter_address, provider.clone());
+    let counter = ICounterInstance::new(counter_address, provider.clone());
     let journal_digest = B256::try_from(Sha256::digest(&journal).as_slice())?;
     let call_increment = counter.increment(seal, image_id, journal_digest).from(caller);
 
@@ -176,4 +193,85 @@ async fn main() -> Result<()> {
     tracing::info!("Counter value for address: {:?} is {:?}", caller, count);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::{
+        network::EthereumWallet,
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::Address,
+        providers::ProviderBuilder,
+        signers::local::PrivateKeySigner,
+    };
+    use boundless_market::contracts::test_utils::TestCtx;
+    use broker::broker_from_test_ctx;
+    use tokio::time::timeout;
+    use tracing_test::traced_test;
+
+    use super::*;
+
+    alloy::sol!(
+        #![sol(rpc)]
+        Counter,
+        "../contracts/out/Counter.sol/Counter.json"
+    );
+
+    async fn deploy_counter(anvil: &AnvilInstance, test_ctx: &TestCtx) -> Result<Address> {
+        let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let deployer_provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(EthereumWallet::from(deployer_signer))
+            .on_builtin(&anvil.endpoint())
+            .await
+            .unwrap();
+        let counter = Counter::deploy(&deployer_provider, test_ctx.set_verifier_addr).await?;
+
+        Ok(*counter.address())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    // This test should run in dev mode, otherwise a storage provider and a prover backend are
+    // required. To run in dev mode, set the `RISC0_DEV_MODE` environment variable to `true`,
+    // e.g.: `RISC0_DEV_MODE=true cargo test`
+    async fn test_main() {
+        // Setup anvil and deploy contracts
+        let anvil = Anvil::new().spawn();
+        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
+
+        // Start a broker
+        let broker = broker_from_test_ctx(&ctx, anvil.endpoint_url()).await.unwrap();
+        let broker_task = tokio::spawn(async move {
+            broker.start_service().await.unwrap();
+        });
+
+        // Run the main function with a timeout of 60 seconds
+        let result = timeout(
+            Duration::from_secs(60),
+            run(ctx.customer_signer, anvil.endpoint_url(), ctx.proof_market_addr, counter_address),
+        )
+        .await;
+
+        // Check the result of the timeout
+        match result {
+            Ok(run_result) => {
+                // If the run completed, check for errors
+                run_result.unwrap();
+            }
+            Err(_) => {
+                // If timeout occurred, abort the broker task and fail the test
+                broker_task.abort();
+                panic!("The run function did not complete within 60 seconds.");
+            }
+        }
+
+        // Check for a broker panic
+        if broker_task.is_finished() {
+            broker_task.await.unwrap();
+        } else {
+            broker_task.abort();
+        }
+    }
 }

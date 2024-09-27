@@ -30,15 +30,36 @@ export COUNTER_ADDRESS=#COPY COUNTER ADDRESS FROM DEPLOY LOGS
 > You can also use the following command to set the contract address if you have `jq` installed:
 >
 > ```bash
-> export COUNTER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "Counter") | .contractAddress' ./broadcast/Deploy.s.sol/900/run-latest.json)
+> export COUNTER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "Counter") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
 > ```
+>
+> This command reads the Counter address from the broadcast logs generated when deploying to Anvil, using as default chain ID `31337`;
+> you can modify the chain ID if instead you are deploying to a different chain, e.g., on Sepolia use `11155111`.
 
 ## Run the example
 
-> **Note**: This example uses IPFS to upload the ELF; We suggest using [Pinata](https://www.pinata.cloud) as the IPFS provider.
+Running this example requires having access to a Boundless market deployment. You can set a local one up by following the [local devnet](../../docs/src/broker/local_devnet.md) instructions.
 
 To run the example run:
 
 ```bash
-PINATA_JWT=${PINATA_JWT:?} RUST_LOG=info cargo run --bin example-counter -- --counter-address ${COUNTER_ADDRESS:?}
+RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin example-counter -- --counter-address ${COUNTER_ADDRESS:?}
+```
+
+By setting the `RISC0_DEV_MODE` env variable, a temporary file storage provider will be used.
+
+Alternatively, you can also use an IPFS or AWS S3 provider. For IPFS, we suggest using [Pinata](https://www.pinata.cloud) as a pinning service, and have implemented builtin support for uploading files there.
+
+To use IPFS via Pinata, just export the following env variables:
+
+```bash
+# The JWT from your Pinata account, used to host guest binaries.
+export PINATA_JWT="YOUR_PINATA_JWT"
+# Optional: the IPFS Gateway URL, e.g., https://silver-adjacent-louse-491.mypinata.cloud
+# default value is: https://dweb.link
+export IPFS_GATEWAY_URL="YOUR_IPFS_GATEWAY_URL"
+```
+
+```bash
+RUST_LOG=info cargo run --bin example-counter -- --counter-address ${COUNTER_ADDRESS:?}
 ```

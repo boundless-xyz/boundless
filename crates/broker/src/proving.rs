@@ -100,7 +100,8 @@ impl ProvingService {
                 continue;
             };
             // TODO: Manage these tasks in a joinset?
-            // They should all be fail-able without triggering a larger failure so it should be fine.
+            // They should all be fail-able without triggering a larger failure so it should be
+            // fine.
             tokio::spawn(async move {
                 match prove_serv.monitor_proof(order_id, proof_id).await {
                     Ok(_) => tracing::info!("Successfully complete order proof {order_id:x}"),
@@ -128,7 +129,8 @@ impl RetryTask for ProvingService {
         Box::pin(async move {
             tracing::info!("Starting proving service");
 
-            // First search the DB for any existing dangling proofs and kick off their concurrent monitors
+            // First search the DB for any existing dangling proofs and kick off their concurrent
+            // monitors
             proving_service_copy.find_and_monitor_proofs().await.map_err(SupervisorErr::Fault)?;
 
             // Start monitoring for new proofs
