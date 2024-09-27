@@ -102,7 +102,7 @@
     --color-scheme: dark;
 }
 
-.light {
+.boundless {
   --bg: hsl(51.43, 100%, 97.25%);
   --fg: hsl(0, 1.43%, 27.45%);
 
@@ -143,7 +143,7 @@
   --searchresults-li-bg: #f5f5f5; /* Very light gray background for search result items */
   --search-mark-bg: #ffff00; /* Yellow highlight for search terms */
 
-  --color-scheme: light;
+  --color-scheme: boundless;
 }
 
 .navy {

@@ -4,3 +4,31 @@ language = "en"
 multilingual = false
 src = "src"
 title = "Boundless"
+description = "Boundless: The Verifiable Compute Layer. This book contains materials to understand and use the Boundless Market."
+
+[rust]
+edition = "2021"                  # the default edition for code blocks
+
+[build]
+build-dir = "book"                # the directory where the output is placed
+create-missing = false            # opt out of helper to create missing stub files, we want to fail if the SUMMARY.md is incorrect.
+use-default-preprocessors = true  # use the default preprocessors
+extra-watch-dirs = []             # directories to watch for triggering builds
+
+[output.html]
+# site-url = "/boundless-xyz"      # needed for gh-pages, MUST match repo name on github!
+git-repository-url = "https://github.com/boundless-xyz/boundless"
+edit-url-template = "https://github.com/boundless-xyz/boundless/edit/main/{path}"
+default-theme = "Boundless"
+preferred-dark-theme = "Ayu"
+fold.enable = true                # Sidebar collapses automatically
+print.enable = false              # Disclude support for printable output
+
+[output.html.search]
+limit-results = 20
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 2
+boost-paragraph = 1
+expand = true
+heading-split-level = 2
