@@ -103,47 +103,47 @@
 }
 
 .light {
-    --bg: hsl(0, 0%, 100%);
-    --fg: hsl(0, 0%, 0%);
+  --bg: hsl(51.43, 100%, 97.25%);
+  --fg: hsl(0, 1.43%, 27.45%);
 
-    --sidebar-bg: #fafafa;
-    --sidebar-fg: hsl(0, 0%, 0%);
-    --sidebar-non-existant: #aaaaaa;
-    --sidebar-active: #1f1fff;
-    --sidebar-spacer: #f4f4f4;
+  --sidebar-bg: hsl(51.43, 100%, 97.25%); /* Light gray for sidebar */
+  --sidebar-fg: hsl(0, 1.43%, 27.45%); /* text in sidebar */
+  --sidebar-non-existant: #999999; /* Lighter gray for non-existent items */
+  --sidebar-active: #0066cc; /* Blue for active items, matching the site's accent color */
+  --sidebar-spacer: #e0e0e0; /* Slightly darker gray for spacers */
 
-    --scrollbar: #8F8F8F;
+  --scrollbar: unset;
 
-    --icons: #747474;
-    --icons-hover: #000000;
+  --icons: var(--fg); /* Dark gray for icons */
+  --icons-hover: #0066cc; /* Blue for icon hover, matching accent color */
 
-    --links: #20609f;
+  --links: #0066cc; /* Blue for links, matching the site's accent color */
 
-    --inline-code-color: #301900;
+  --inline-code-color: #0066cc; /* Blue for inline code, matching accent color */
 
-    --theme-popup-bg: #fafafa;
-    --theme-popup-border: #cccccc;
-    --theme-hover: #e6e6e6;
+  --theme-popup-bg: #ffffff; /* White background for popups */
+  --theme-popup-border: #e0e0e0; /* Light gray border for popups */
+  --theme-hover: #f0f0f0; /* Very light gray for hover effects */
 
-    --quote-bg: hsl(197, 37%, 96%);
-    --quote-border: hsl(197, 37%, 91%);
+  --quote-bg: #f9f9f9; /* Very light gray for quote backgrounds */
+  --quote-border: #e0e0e0; /* Light gray for quote borders */
 
-    --warning-border: #ff8e00;
+  --warning-border: #ff6600; /* Orange for warnings, complementing the blue */
 
-    --table-border-color: hsl(0, 0%, 95%);
-    --table-header-bg: hsl(0, 0%, 80%);
-    --table-alternate-bg: hsl(0, 0%, 97%);
+  --table-border-color: #e0e0e0; /* Light gray for table borders */
+  --table-header-bg: #f0f0f0; /* Slightly darker gray for table headers */
+  --table-alternate-bg: #f9f9f9; /* Very light gray for alternating table rows */
 
-    --searchbar-border-color: #aaa;
-    --searchbar-bg: #fafafa;
-    --searchbar-fg: #000;
-    --searchbar-shadow-color: #aaa;
-    --searchresults-header-fg: #666;
-    --searchresults-border-color: #888;
-    --searchresults-li-bg: #e4f2fe;
-    --search-mark-bg: #a2cff5;
+  --searchbar-border-color: #cccccc; /* Light gray for searchbar border */
+  --searchbar-bg: #ffffff; /* White background for searchbar */
+  --searchbar-fg: #000000; /* Black text in searchbar */
+  --searchbar-shadow-color: #e0e0e0; /* Light gray shadow for searchbar */
+  --searchresults-header-fg: #666666; /* Dark gray for search results header */
+  --searchresults-border-color: #e0e0e0; /* Light gray border for search results */
+  --searchresults-li-bg: #f5f5f5; /* Very light gray background for search result items */
+  --search-mark-bg: #ffff00; /* Yellow highlight for search terms */
 
-    --color-scheme: light;
+  --color-scheme: light;
 }
 
 .navy {

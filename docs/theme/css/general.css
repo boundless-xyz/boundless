@@ -7,11 +7,15 @@
 }
 
 html {
-    font-family: "Open Sans", sans-serif;
+    font-family: "Cera Pro", sans-serif;
     color: var(--fg);
     background-color: var(--bg);
     text-size-adjust: none;
     -webkit-text-size-adjust: none;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: "Gotham", sans-serif;
 }
 
 body {
@@ -29,6 +33,10 @@ code {
 /* make long words/inline code not x overflow */
 main {
     overflow-wrap: break-word;
+}
+
+.menu-title {
+  text-transform: uppercase;
 }
 
 /* make wide tables scroll if they overflow */
