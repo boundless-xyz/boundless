@@ -31,7 +31,6 @@ It is **not** a comprehensive protocol reference, nor does it delve into detaile
 
   A prover must provide a Merkle inclusion path to a verified root to complete an order.
 
-- Buying proofs does not require holding RISC Zero tokens.
 - STARK proofs are not posted on-chain, or to any DA solution.
 
   We are actively working toward the components needed for composition with Groth16 proofs, so the primary advantage of posting STARKs publicly will be diminished.
