@@ -61,7 +61,7 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Submitted Merkle root {}: {:#}", root, tx_hash);
+        tracing::info!("Submitted Merkle root {}: {}", root, tx_hash);
 
         Ok(())
     }

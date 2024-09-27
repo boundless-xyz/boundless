@@ -137,7 +137,7 @@ where
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted deposit {:#}", tx_hash);
+        tracing::debug!("Submitted deposit {}", tx_hash);
 
         Ok(())
     }
@@ -153,7 +153,7 @@ where
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted withdraw {:#}", tx_hash);
+        tracing::debug!("Submitted withdraw {}", tx_hash);
 
         Ok(())
     }
@@ -258,7 +258,7 @@ where
             anyhow::bail!("LockinRequest failed [{}], possibly outbid", receipt.transaction_hash);
         }
 
-        tracing::info!("Registered request {}: {:#}", request.id, receipt.transaction_hash);
+        tracing::info!("Registered request {}: {}", request.id, receipt.transaction_hash);
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -304,7 +304,7 @@ where
             anyhow::bail!("LockinRequest failed [{}], possibly outbid", receipt.transaction_hash);
         }
 
-        tracing::info!("Registered request {}: {:#}", request.id, receipt.transaction_hash);
+        tracing::info!("Registered request {}: {}", request.id, receipt.transaction_hash);
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -345,7 +345,7 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Submitted proof for request {}: {:#}", fulfillment.id, tx_hash);
+        tracing::info!("Submitted proof for request {}: {}", fulfillment.id, tx_hash);
 
         Ok(())
     }
@@ -357,7 +357,7 @@ where
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
     ) -> Result<()> {
-        tracing::debug!("Calling fulfillBatch({:?})", fulfillments);
+        tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_seal:x})");
         let call = self.instance.fulfillBatch(fulfillments, assessor_seal).from(self.caller);
         // tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -369,7 +369,7 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Submitted proof for batch {:#}", tx_hash);
+        tracing::info!("Submitted proof for batch {}", tx_hash);
 
         Ok(())
     }

@@ -140,6 +140,7 @@ where
         let input = GuestInput::Singleton { self_image_id: self.agg_set_guest_id, claim };
 
         let (new_id, output) = self.prove_sot("singleton", &input, vec![proof_id]).await?;
+        tracing::debug!("Singleton(order={order_id:x}): {}", output.root());
 
         Ok(Node::singleton(new_id, order_id, output.root()))
     }
@@ -158,6 +159,13 @@ where
                 vec![left.proof_id().to_string(), right.proof_id().to_string()],
             )
             .await?;
+
+        tracing::debug!(
+            "Join(left={}, right={}, root={})",
+            left.root(),
+            right.root(),
+            output.root()
+        );
 
         Ok(Node::join(new_id, left.height() + 1, left, right, output.root()))
     }
@@ -227,7 +235,6 @@ where
         // Run singleton proof:
         let mut node =
             self.prove_singleton(order_id, proof_id).await.context("Failed to prove singleton")?;
-        tracing::debug!("Singleton(order={}): {}", order_id, node.root());
 
         let mut peaks =
             self.db.get_batch_peaks(batch_id).await.context("Failed to get DB batch peaks")?;
@@ -235,7 +242,6 @@ where
         while let Some(peak) = peaks.pop() {
             if peak.height() == node.height() {
                 node = self.prove_join(peak, node).await.context("Failed to prove join")?;
-                tracing::debug!("Join: {}", node.root());
             } else {
                 peaks.push(peak);
                 break;
@@ -293,6 +299,7 @@ where
             .await
             .context("Failed to prove singleton of assessor")?;
 
+        tracing::info!("Assessor merkle node: {}", assessor_singleton.root());
         let batch_root = self
             .prove_join(
                 root,

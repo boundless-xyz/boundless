@@ -95,7 +95,7 @@ where
 
         let mut fulfillments = vec![];
         for order_id in batch.orders.iter() {
-            tracing::info!("Submitting order {order_id}");
+            tracing::info!("Submitting order {order_id:x}");
 
             let (order_proof_id, order_img_id, order_path) = match self
                 .db
@@ -105,12 +105,12 @@ where
                 Ok(res) => res,
                 Err(err) => {
                     tracing::error!(
-                        "Failed to order {order_id} path from DB, order NOT finalized: {err:?}"
+                        "Failed to order {order_id:x} path from DB, order NOT finalized: {err:?}"
                     );
                     if let Err(db_err) =
                         self.db.set_order_failure(*order_id, format!("{err:?}")).await
                     {
-                        tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
+                        tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
                         continue;
                     }
                     continue;
@@ -120,11 +120,11 @@ where
             let order_journal = match self.prover.get_journal(&order_proof_id).await {
                 Ok(res) => res,
                 Err(err) => {
-                    tracing::error!("Failed to order journal {order_id} from prover: {err:?}");
+                    tracing::error!("Failed to order journal {order_id:x} from prover: {err:?}");
                     if let Err(db_err) =
                         self.db.set_order_failure(*order_id, format!("{err:?}")).await
                     {
-                        tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
+                        tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
                     }
                     continue;
                 }
@@ -140,6 +140,7 @@ where
                 continue;
             };
 
+            tracing::debug!("Order path {order_id:x} - {order_path:x?}");
             let set_inclusion_receipt = SetInclusionReceipt::from_path(
                 ReceiptClaim::ok(order_img_id.0, MaybePruned::Pruned(order_journal.digest())),
                 order_path,
@@ -189,7 +190,7 @@ where
                     self.db.set_order_failure(fulfillment.id, format!("{err:?}")).await
                 {
                     tracing::error!(
-                        "Failed to set order failure during proof submission: {} {db_err:?}",
+                        "Failed to set order failure during proof submission: {:x} {db_err:?}",
                         fulfillment.id
                     );
                 }
@@ -200,12 +201,12 @@ where
         for fulfillment in fulfillments.iter() {
             if let Err(db_err) = self.db.set_order_complete(fulfillment.id).await {
                 tracing::error!(
-                    "Failed to set order complete during proof submission: {} {db_err:?}",
+                    "Failed to set order complete during proof submission: {:x} {db_err:?}",
                     fulfillment.id
                 );
                 continue;
             }
-            tracing::info!("✨ Completed order {} ✨", fulfillment.id);
+            tracing::info!("✨ Completed order {:x} ✨", fulfillment.id);
         }
 
         Ok(())
@@ -256,9 +257,7 @@ where
         Box::pin(async move {
             tracing::info!("Starting Submitter service");
             loop {
-                if !obj_clone.process_next_batch().await? {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                }
+                obj_clone.process_next_batch().await?;
 
                 // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

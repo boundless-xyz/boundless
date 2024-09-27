@@ -31,7 +31,7 @@ impl ProvingService {
         self.db
             .set_aggregation_status(order_id)
             .await
-            .with_context(|| format!("Failed to set the DB record to aggregation {order_id}"))?;
+            .with_context(|| format!("Failed to set the DB record to aggregation {order_id:x}"))?;
 
         tracing::info!("Customer Proof complete, cycles: {}", proof_res.stats.total_cycles);
 
@@ -95,7 +95,7 @@ impl ProvingService {
                     .set_order_failure(order_id, "Proving status missing proof_id".into())
                     .await
                 {
-                    tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
+                    tracing::error!("Failed to set order {order_id:x} failure: {inner_err:?}");
                 }
                 continue;
             };
@@ -103,14 +103,14 @@ impl ProvingService {
             // They should all be fail-able without triggering a larger failure so it should be fine.
             tokio::spawn(async move {
                 match prove_serv.monitor_proof(order_id, proof_id).await {
-                    Ok(_) => tracing::info!("Successfully complete order proof {order_id}"),
+                    Ok(_) => tracing::info!("Successfully complete order proof {order_id:x}"),
                     Err(err) => {
                         tracing::error!("FATAL: Order failed to prove: {err:?}");
                         if let Err(inner_err) =
                             prove_serv.db.set_order_failure(order_id, format!("{err:?}")).await
                         {
                             tracing::error!(
-                                "Failed to set order {order_id} failure: {inner_err:?}"
+                                "Failed to set order {order_id:x} failure: {inner_err:?}"
                             );
                         }
                     }
