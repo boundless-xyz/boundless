@@ -106,20 +106,20 @@
   --bg: hsl(51.43, 100%, 97.25%);
   --fg: hsl(0, 1.43%, 27.45%);
 
-  --sidebar-bg: hsl(51.43, 100%, 97.25%); /* Light gray for sidebar */
+  --sidebar-bg: hsl(50, 50%, 90%); /* Light gray for sidebar */
   --sidebar-fg: hsl(0, 1.43%, 27.45%); /* text in sidebar */
   --sidebar-non-existant: #999999; /* Lighter gray for non-existent items */
-  --sidebar-active: #0066cc; /* Blue for active items, matching the site's accent color */
+  --sidebar-active: #55a8fb; /* Blue for active items, matching the site's accent color */
   --sidebar-spacer: #e0e0e0; /* Slightly darker gray for spacers */
 
   --scrollbar: unset;
 
   --icons: var(--fg); /* Dark gray for icons */
-  --icons-hover: #0066cc; /* Blue for icon hover, matching accent color */
+  --icons-hover: #55a8fb; /* Blue for icon hover, matching accent color */
 
-  --links: #0066cc; /* Blue for links, matching the site's accent color */
+  --links: #55a8fb; /* Blue for links, matching the site's accent color */
 
-  --inline-code-color: #0066cc; /* Blue for inline code, matching accent color */
+  --inline-code-color: #55a8fb; /* Blue for inline code, matching accent color */
 
   --theme-popup-bg: #ffffff; /* White background for popups */
   --theme-popup-border: #e0e0e0; /* Light gray border for popups */
@@ -128,7 +128,7 @@
   --quote-bg: #f9f9f9; /* Very light gray for quote backgrounds */
   --quote-border: #e0e0e0; /* Light gray for quote borders */
 
-  --warning-border: #ff6600; /* Orange for warnings, complementing the blue */
+  --warning-border: #c33812; /* Orange for warnings, complementing the blue */
 
   --table-border-color: #e0e0e0; /* Light gray for table borders */
   --table-header-bg: #f0f0f0; /* Slightly darker gray for table headers */
@@ -141,7 +141,7 @@
   --searchresults-header-fg: #666666; /* Dark gray for search results header */
   --searchresults-border-color: #e0e0e0; /* Light gray border for search results */
   --searchresults-li-bg: #f5f5f5; /* Very light gray background for search result items */
-  --search-mark-bg: #ffff00; /* Yellow highlight for search terms */
+  --search-mark-bg: #dede6f; /* Yellow highlight for search terms */
 
   --color-scheme: boundless;
 }
