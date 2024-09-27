@@ -110,11 +110,12 @@ async fn run(
     // journal and set a price, you can skip this step.
     let env = ExecutorEnv::builder().write_slice(&input).build()?;
     let session_info = default_executor().execute(env, ECHO_ELF)?;
-    // NOTE: Since the default segment size is one million cycles, we can approximate by just
-    // counting them. Alternatively, you can sum the total mcycles of each segment with
-    // something like:
-    // session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u32>() / 1_000_000;
-    let mcycles_count: u32 = session_info.segments.len() as u32;
+    let mcycles_count = session_info
+        .segments
+        .iter()
+        .map(|segment| 1 << segment.po2)
+        .sum::<u32>()
+        .div_ceil(1_000_000);
     let journal = session_info.journal;
 
     // Create a proving request with the image, input, requirements and offer.
