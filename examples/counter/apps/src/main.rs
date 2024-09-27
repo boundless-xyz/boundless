@@ -6,28 +6,18 @@ use std::time::{Duration, SystemTime};
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
-    network::EthereumWallet,
-    primitives::{utils::parse_units, Address, B256},
-    providers::{Provider, ProviderBuilder},
+    primitives::{utils::parse_ether, Address, B256},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{
-        proof_market::ProofMarketService, Input, InputType, Offer, Predicate, PredicateType,
-        ProvingRequest, Requirements,
-    },
-    storage::{storage_provider_from_env, StorageProvider},
+    contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
+    sdk::{client::Client, dry_run},
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
-use risc0_zkvm::{
-    default_executor,
-    serde::to_vec,
-    sha::{Digest, Digestible},
-    ExecutorEnv,
-};
+use risc0_zkvm::sha::{Digest, Digestible};
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
@@ -54,6 +44,9 @@ struct Args {
     /// Address of the Counter contract.
     #[clap(short, long, env)]
     counter_address: Address,
+    /// Address of the SetVerifier contract.
+    #[clap(short, long, env)]
+    set_verifier_address: Address,
     /// Address of the ProofMarket contract.
     #[clap(short, long, env)]
     proof_market_address: Address,
@@ -68,8 +61,14 @@ async fn main() -> Result<()> {
     dotenvy::dotenv()?;
     let args = Args::parse();
 
-    run(args.wallet_private_key, args.rpc_url, args.proof_market_address, args.counter_address)
-        .await?;
+    run(
+        args.wallet_private_key,
+        args.rpc_url,
+        args.proof_market_address,
+        args.set_verifier_address,
+        args.counter_address,
+    )
+    .await?;
 
     Ok(())
 }
@@ -78,87 +77,68 @@ async fn run(
     wallet_private_key: PrivateKeySigner,
     rpc_url: Url,
     proof_market_address: Address,
+    set_verifier_address: Address,
     counter_address: Address,
 ) -> Result<()> {
+    // Create a Boundless client from the provided parameters.
+    let boundless_client =
+        Client::from_parts(wallet_private_key, rpc_url, proof_market_address, set_verifier_address)
+            .await?;
+
+    // Upload the ECHO ELF to the storage provider so that it can be fetched by the market.
+    let image_url = boundless_client.upload_image(ECHO_ELF).await?;
+    tracing::info!("Uploaded image to {}", image_url);
+
     // We use a timestamp as input to the ECHO guest code as the Counter contract
     // accepts only unique proofs. Using the same input twice would result in the same proof.
-    let image_id = B256::try_from(Digest::from(ECHO_ID).as_bytes())?;
     let timestamp = format! {"{:?}", SystemTime::now()};
-    let input = timestamp.as_bytes();
 
-    // Dry run with executor to ensure the guest can be executed correctly and we do not send into
-    // the market unprovable requests. We also get the expected journal value here.
-    let env = ExecutorEnv::builder().write(&input)?.build()?;
-    let executor = default_executor();
-    let session_info = executor.execute(env, ECHO_ELF)?;
-    let journal_digest = session_info.journal.digest();
+    // Encode the input and upload it to the storage provider.
+    let input = encode_input(&timestamp.as_bytes())?;
+    let input_url = boundless_client.upload_input(&input).await?;
+    tracing::info!("Uploaded input to {}", input_url);
 
-    // Setup to interact with the Market contract
-    let caller = wallet_private_key.address();
-    let signer = wallet_private_key.clone();
-    let wallet = EthereumWallet::from(wallet_private_key);
-    let provider =
-        ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
-    let market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
+    // Dry run the ECHO ELF with the input to get the journal and cycle count.
+    // This can be useful to estimate the cost of the proving request.
+    // It can also be useful to ensure the guest can be executed correctly and we do not send into
+    // the market unprovable proving requests.
+    let (journal, _mcycle_count) = dry_run(ECHO_ELF, &input)?;
 
-    // We create a proving request with the requirements and offer to send to the market.
-    // The request requires to specify some requirements, e.g., the image id of the guest code
-    // to prove as well as a predicate to satisfy. Currently we support two predcate types:
-    // - 0: Digest match: the journal digest must be exactly the given bytes.
-    // - 1: Prefix match: the journal must start with the given bytes.
-    // In this example we provide the expected journal digest.
-    let requirements = Requirements {
-        imageId: image_id,
-        predicate: Predicate {
-            predicateType: PredicateType::DigestMatch,
-            data: journal_digest.as_bytes().to_vec().into(),
-        },
-    };
-
-    // The offer specifies the amount of tokens to pay for the proof [in wei], the expiration time
-    // of the offer [in number of blocks], the lockin timeout [in number of blocks] and the
-    // lockin stake [in wei]. The lockin stake is the amount of tokens to lockin by the broker that
-    // wishes to acquire the exclusivity rights for the offer.
-    let price = parse_units("0.001", "ether").unwrap();
-    let current_block = provider.get_block_number().await?;
-    let timeout = 1625190000;
-    let offer = Offer {
-        minPrice: price.try_into()?,
-        maxPrice: price.try_into()?,
-        biddingStart: current_block,
-        rampUpPeriod: 0,
-        timeout,
-        lockinStake: parse_units("0", "ether").unwrap().try_into()?,
-    };
-
-    // Upload the guest code to the default storage provider.
-    // It uses a temporary file storage provider if `RISC0_DEV_MODE` is set;
-    // or if you'd like to use Pinata or S3 instead, you can set the appropriate env variables.
-    let storage_provider = storage_provider_from_env().await?;
-    let elf_url = storage_provider.upload_image(ECHO_ELF).await?;
-
-    // Construct the request from its individual parts.
-    let request = ProvingRequest::new(
-        market.gen_random_id().await?,
-        &caller,
-        requirements,
-        &elf_url,
-        Input {
-            inputType: InputType::Inline,
-            data: bytemuck::pod_collect_to_vec(&to_vec(&input)?).into(),
-        },
-        offer,
-    );
+    // Create a proving request with the image, input, requirements and offer.
+    // The image (or elf) is specified by the image URL.
+    // The input can be specified by an URL, as in this example, or can be posted on chain by using
+    // the `with_inline` method with the input bytes.
+    // The requirements are the ECHO_ID and the digest of the journal. In this way, the market can
+    // verify that the proof is correct by checking both the committed image id and digest of the
+    // journal. The offer specifies the price range and the timeout for the request.
+    // Additionally, the offer can also specify:
+    // - the bidding start time: the block number when the bidding starts;
+    // - the ramp up period: the number of blocks before the price start increasing until the
+    //   maxPrice, starting from the the bidding start;
+    // - the lockin price: the price at which the request can be locked in by a prover, if the
+    //   request is not fulfilled before the timeout, the prover can be slashed.
+    let request = ProvingRequest::default()
+        .with_image_url(&image_url)
+        .with_input(Input::with_url(&input_url))
+        .with_requirements(Requirements::new(
+            ECHO_ID,
+            Predicate::with_digest_match(journal.digest()),
+        ))
+        .with_offer(
+            Offer::default()
+                .with_min_price(parse_ether("0.001")?.try_into()?)
+                .with_max_price(parse_ether("0.002")?.try_into()?)
+                .with_timeout(1000),
+        );
 
     // Send the request and wait for it to be completed.
-    tracing::info!("Submitting request {} to the proof market", request.id);
-    let request_id = market.submit_request(&request, &signer).await?;
+    let request_id = boundless_client.submit_request(&request).await?;
     tracing::info!("Request {} submitted", request_id);
 
-    // We wait for the request to be fulfilled by the market. The market will return the journal and
+    // Wait for the request to be fulfilled by the market. The market will return the journal and
     // seal.
     tracing::info!("Waiting for request {} to be fulfilled", request_id);
-    let (journal, seal) = market
+    let (journal, seal) = boundless_client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
@@ -169,9 +149,11 @@ async fn run(
 
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.
-    let counter = ICounterInstance::new(counter_address, provider.clone());
+    let counter = ICounterInstance::new(counter_address, boundless_client.provider().clone());
     let journal_digest = B256::try_from(Sha256::digest(&journal).as_slice())?;
-    let call_increment = counter.increment(seal, image_id, journal_digest).from(caller);
+    let image_id = B256::try_from(Digest::from(ECHO_ID).as_bytes())?;
+    let call_increment =
+        counter.increment(seal, image_id, journal_digest).from(boundless_client.caller());
 
     // By calling the increment function, we verify the seal against the published roots
     // of the SetVerifier contract.
@@ -182,17 +164,22 @@ async fn run(
         pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await.context("failed to confirm tx")?;
     tracing::info!("Tx {:?} confirmed", tx_hash);
 
-    // We query the counter value for the caller address to check that the counter has been
+    // Query the counter value for the caller address to check that the counter has been
     // increased.
     let count = counter
-        .getCount(caller)
+        .getCount(boundless_client.caller())
         .call()
         .await
         .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?
         ._0;
-    tracing::info!("Counter value for address: {:?} is {:?}", caller, count);
+    tracing::info!("Counter value for address: {:?} is {:?}", boundless_client.caller(), count);
 
     Ok(())
+}
+
+// Encode the input for the Boundless market.
+fn encode_input(input: &[u8]) -> Result<Vec<u8>> {
+    Ok(bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(input)?))
 }
 
 #[cfg(test)]
@@ -250,7 +237,13 @@ mod tests {
         // Run the main function with a timeout of 60 seconds
         let result = timeout(
             Duration::from_secs(60),
-            run(ctx.customer_signer, anvil.endpoint_url(), ctx.proof_market_addr, counter_address),
+            run(
+                ctx.customer_signer,
+                anvil.endpoint_url(),
+                ctx.proof_market_addr,
+                ctx.set_verifier_addr,
+                counter_address,
+            ),
         )
         .await;
 

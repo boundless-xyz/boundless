@@ -13,6 +13,7 @@ clap = { workspace = true }
 dotenvy = { workspace = true }
 guest-util = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
+serde = {workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
