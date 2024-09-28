@@ -6,8 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
-    network::EthereumWallet,
-    primitives::{utils::parse_units, Address, B256},
+    primitives::{utils::parse_ether, Address, B256},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
