@@ -12,18 +12,20 @@ use alloy::{
     transports::Transport,
 };
 use alloy_sol_types::SolEvent;
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use thiserror::Error;
 
 use super::{
     request_id, Fulfillment,
     IProofMarket::{self, IProofMarketErrors, IProofMarketInstance},
-    Offer, ProofStatus, ProvingRequest,
+    Offer, ProofStatus, ProvingRequest, TxnErr,
 };
 
 /// Proof market errors.
 #[derive(Error, Debug)]
 pub enum MarketError {
+    #[error("Transaction error: {0}")]
+    TxnError(#[from] TxnErr),
     #[error("Request is not fulfilled {0}")]
     RequestNotFulfilled(U256),
     #[error("Request has expired {0}")]
@@ -31,20 +33,14 @@ pub enum MarketError {
     #[error("Proof not found {0}")]
     ProofNotFound(U256),
     #[error("Market error: {0}")]
-    Generic(anyhow::Error),
+    Error(#[from] anyhow::Error),
     #[error("Timeout: {0}")]
     TimeoutReached(U256),
 }
 
-impl From<anyhow::Error> for MarketError {
-    fn from(err: anyhow::Error) -> Self {
-        MarketError::Generic(err)
-    }
-}
-
 impl From<alloy::contract::Error> for MarketError {
     fn from(err: alloy::contract::Error) -> Self {
-        MarketError::Generic(err.into())
+        MarketError::Error(err.into())
     }
 }
 
@@ -127,7 +123,7 @@ where
     }
 
     /// Deposit Ether into the proof market to pay for proof and/or lockin stake.
-    pub async fn deposit(&self, value: U256) -> Result<()> {
+    pub async fn deposit(&self, value: U256) -> Result<(), MarketError> {
         tracing::debug!("Calling deposit() value: {value}");
         let call = self.instance.deposit().value(value);
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -143,7 +139,7 @@ where
     }
 
     /// Withdraw Ether from the proof market.
-    pub async fn withdraw(&self, amount: U256) -> Result<()> {
+    pub async fn withdraw(&self, amount: U256) -> Result<(), MarketError> {
         tracing::debug!("Calling withdraw({amount})");
         let call = self.instance.withdraw(amount);
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -159,7 +155,7 @@ where
     }
 
     /// Returns the balance, in Ether, of the given account.
-    pub async fn balance_of(&self, account: Address) -> Result<U256> {
+    pub async fn balance_of(&self, account: Address) -> Result<U256, MarketError> {
         tracing::debug!("Calling balanceOf({account})");
         let balance = self
             .instance
@@ -178,10 +174,10 @@ where
         &self,
         request: &ProvingRequest,
         signer: &(impl Signer + SignerSync),
-    ) -> Result<U256> {
+    ) -> Result<U256, MarketError> {
         tracing::debug!("Calling submitRequest({:?})", request);
         let provider = self.instance.provider();
-        let chain_id = provider.get_chain_id().await?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)
             .context("Failed to sign proving request")?;
@@ -198,7 +194,9 @@ where
             .get_receipt()
             .await
             .context("failed to confirm tx")?;
-        let [log] = receipt.inner.logs() else { bail!("call must emit exactly one event") };
+        let [log] = receipt.inner.logs() else {
+            return Err(MarketError::Error(anyhow!("call must emit exactly one event")));
+        };
         let log = log.log_decode::<IProofMarket::RequestSubmitted>().with_context(|| {
             format!("call did not emit {}", IProofMarket::RequestSubmitted::SIGNATURE)
         })?;
@@ -217,12 +215,12 @@ where
         request: &ProvingRequest,
         client_sig: &Bytes,
         _priority_gas: Option<u128>,
-    ) -> Result<u64> {
+    ) -> Result<u64, MarketError> {
         tracing::debug!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
             self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
         if is_locked_in {
-            bail!("request is already locked-in");
+            return Err(MarketError::Error(anyhow!("request is already locked-in")));
         }
 
         tracing::debug!("Calling lockin({:?}, {:?})", request, client_sig);
@@ -255,7 +253,10 @@ where
 
         if !receipt.status() {
             // TODO: Get + print revertReason
-            anyhow::bail!("LockinRequest failed [{}], possibly outbid", receipt.transaction_hash);
+            return Err(MarketError::Error(anyhow!(
+                "LockinRequest failed [{}], possibly outbid",
+                receipt.transaction_hash
+            )));
         }
 
         tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
@@ -275,12 +276,12 @@ where
         client_sig: &Bytes,
         prover_sig: &Bytes,
         _priority_gas: Option<u128>,
-    ) -> Result<u64> {
+    ) -> Result<u64, MarketError> {
         tracing::debug!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
             self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
         if is_locked_in {
-            bail!("request is already locked-in");
+            return Err(MarketError::Error(anyhow!("request is already locked-in")));
         }
 
         tracing::debug!("Calling lockinWithSig({:?}, {:?}, {:?})", request, client_sig, prover_sig);
@@ -301,7 +302,10 @@ where
 
         if !receipt.status() {
             // TODO: Get + print revertReason
-            anyhow::bail!("LockinRequest failed [{}], possibly outbid", receipt.transaction_hash);
+            return Err(MarketError::Error(anyhow!(
+                "LockinRequest failed [{}], possibly outbid",
+                receipt.transaction_hash
+            )));
         }
 
         tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
@@ -311,7 +315,7 @@ where
 
     /// When a prover fails to fulfill a request by the deadline, this function can be used to burn
     /// the associated prover stake.
-    pub async fn slash(&self, request_id: U256) -> Result<U256> {
+    pub async fn slash(&self, request_id: U256) -> Result<U256, MarketError> {
         tracing::debug!("Calling slash({:?})", request_id);
         let call = self.instance.slash(U192::from(request_id)).from(self.caller);
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -322,7 +326,9 @@ where
             .get_receipt()
             .await
             .context("failed to confirm tx")?;
-        let [log] = receipt.inner.logs() else { bail!("call must emit exactly one event") };
+        let [log] = receipt.inner.logs() else {
+            return Err(MarketError::Error(anyhow!("call must emit exactly one event")));
+        };
         let log = log.log_decode::<IProofMarket::LockinStakeBurned>().with_context(|| {
             format!("call did not emit {}", IProofMarket::LockinStakeBurned::SIGNATURE)
         })?;
@@ -332,7 +338,11 @@ where
 
     /// Fulfill a locked request by delivering the proof for the application.
     /// Upon proof verification, the prover will be paid.
-    pub async fn fulfill(&self, fulfillment: &Fulfillment, market_seal: &Bytes) -> Result<()> {
+    pub async fn fulfill(
+        &self,
+        fulfillment: &Fulfillment,
+        market_seal: &Bytes,
+    ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfill({:?},{:?})", fulfillment, market_seal);
         let call =
             self.instance.fulfill(fulfillment.clone(), market_seal.clone()).from(self.caller);
@@ -356,7 +366,7 @@ where
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
-    ) -> Result<()> {
+    ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_seal:x})");
         let call = self.instance.fulfillBatch(fulfillments, assessor_seal).from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
@@ -375,7 +385,7 @@ where
     }
 
     /// Checks if a request is locked in.
-    pub async fn is_locked_in(&self, request_id: U256) -> Result<bool> {
+    pub async fn is_locked_in(&self, request_id: U256) -> Result<bool, MarketError> {
         tracing::debug!("Calling requestIsLocked({})", request_id);
         let res = self
             .instance
@@ -388,7 +398,7 @@ where
     }
 
     /// Checks if a request is fulfilled.
-    pub async fn is_fulfilled(&self, request_id: U256) -> Result<bool> {
+    pub async fn is_fulfilled(&self, request_id: U256) -> Result<bool, MarketError> {
         tracing::debug!("Calling requestIsFulfilled({})", request_id);
         let res = self
             .instance
@@ -420,12 +430,13 @@ where
         Ok(ProofStatus::Unknown)
     }
 
-    async fn get_latest_block(&self) -> Result<u64> {
-        self.instance
+    async fn get_latest_block(&self) -> Result<u64, MarketError> {
+        Ok(self
+            .instance
             .provider()
             .get_block_number()
             .await
-            .context("Failed to get latest block number")
+            .context("Failed to get latest block number")?)
     }
 
     /// Query the RequestFulfilled event based on request ID and block options.
@@ -495,7 +506,7 @@ where
     /// Returns journal and seal if the request is fulfilled.
     ///
     /// This method will poll the status of the request until it is Fulfilled or Expired.
-    /// Polling is done at intervals of [retry_interval] until the request is Fulfilled, Expired or
+    /// Polling is done at intervals of `retry_interval` until the request is Fulfilled, Expired or
     /// the optional timeout is reached.
     pub async fn wait_for_request_fulfillment(
         &self,
@@ -517,6 +528,12 @@ where
                     return self.query_fulfilled_event(request_id, None, None).await;
                 }
                 _ => {
+                    tracing::info!(
+                        "Request {} status: {:?}. Retrying in {:?}",
+                        request_id,
+                        status,
+                        retry_interval
+                    );
                     tokio::time::sleep(retry_interval).await;
                     continue;
                 }
@@ -525,12 +542,12 @@ where
     }
 
     /// Calculates the block number at which the price will be at the given price.
-    pub fn block_at_price(&self, offer: &Offer, price: U256) -> Result<u64> {
+    pub fn block_at_price(&self, offer: &Offer, price: U256) -> Result<u64, MarketError> {
         let max_price = U256::from(offer.maxPrice);
         let min_price = U256::from(offer.minPrice);
 
         if price > U256::from(max_price) {
-            anyhow::bail!("Price cannot exceed max price");
+            return Err(MarketError::Error(anyhow::anyhow!("Price cannot exceed max price")));
         }
 
         if price <= min_price {
@@ -546,12 +563,12 @@ where
     }
 
     /// Calculates the price at the given block number.
-    pub fn price_at_block(&self, offer: &Offer, block_numb: u64) -> Result<U256> {
+    pub fn price_at_block(&self, offer: &Offer, block_numb: u64) -> Result<U256, MarketError> {
         let max_price = U256::from(offer.maxPrice);
         let min_price = U256::from(offer.minPrice);
 
         if block_numb < offer.biddingStart {
-            anyhow::bail!("Block number before bidding start");
+            return Err(MarketError::Error(anyhow!("Block number before bidding start")));
         }
 
         if block_numb < offer.biddingStart + offer.rampUpPeriod as u64 {
@@ -568,7 +585,7 @@ where
     /// Generates a random request ID that is not in use.
     ///
     /// It does not guarantee that the ID is not in use by the time the caller uses it.
-    pub async fn gen_random_id(&self) -> Result<u32> {
+    pub async fn gen_random_id(&self) -> Result<u32, MarketError> {
         loop {
             let id = rand::random::<u32>();
             let request_id = request_id(&self.caller, id);
