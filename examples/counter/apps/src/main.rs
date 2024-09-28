@@ -114,7 +114,7 @@ async fn run(
         .segments
         .iter()
         .map(|segment| 1 << segment.po2)
-        .sum::<u32>()
+        .sum::<u64>()
         .div_ceil(1_000_000);
     let journal = session_info.journal;
 

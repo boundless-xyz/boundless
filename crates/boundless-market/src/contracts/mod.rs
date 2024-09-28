@@ -14,7 +14,7 @@ use alloy::{
     transports::TransportError,
 };
 use alloy_primitives::{
-    aliases::{U160, U192},
+    aliases::{U160, U192, U96},
     Address, Bytes, B256, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
@@ -65,10 +65,9 @@ impl EIP721DomainSaltless {
     }
 }
 
-pub(crate) fn request_id(addr: &Address, id: u32) -> U256 {
+pub(crate) fn request_id(addr: &Address, id: u32) -> U192 {
     let addr = U160::try_from(*addr).unwrap();
-    let id = U256::from((U192::from(addr) << 32) | U192::from(id));
-    id
+    (U192::from(addr) << 32) | U192::from(id)
 }
 
 impl ProvingRequest {
@@ -129,7 +128,8 @@ impl ProvingRequest {
     /// price) this function will return an error.
     // TODO: Should this function be replaced with a proper builder that checks the ProvingRequest
     // before it finalizes the construction?
-    pub fn validate(&self) -> anyhow::Result<()> {
+    #[cfg_attr(target_os = "zkvm", allow(dead_code))]
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
         if self.imageUrl.is_empty() {
             anyhow::bail!("Image URL must not be empty");
         };
@@ -141,7 +141,7 @@ impl ProvingRequest {
         if self.offer.timeout == 0 {
             anyhow::bail!("Offer timeout must be greater than 0");
         };
-        if self.offer.maxPrice == 0 {
+        if self.offer.maxPrice == U96::ZERO {
             anyhow::bail!("Offer maxPrice must be greater than 0");
         };
         if self.offer.maxPrice < self.offer.minPrice {
@@ -219,17 +219,17 @@ impl Input {
 
 impl Offer {
     /// Sets the offer minimum price.
-    pub fn with_min_price(self, min_price: u128) -> Self {
+    pub fn with_min_price(self, min_price: U96) -> Self {
         Self { minPrice: min_price, ..self }
     }
 
     /// Sets the offer maximum price.
-    pub fn with_max_price(self, max_price: u128) -> Self {
+    pub fn with_max_price(self, max_price: U96) -> Self {
         Self { maxPrice: max_price, ..self }
     }
 
     /// Sets the offer lock-in stake.
-    pub fn with_lockin_stake(self, lockin_stake: u128) -> Self {
+    pub fn with_lockin_stake(self, lockin_stake: U96) -> Self {
         Self { lockinStake: lockin_stake, ..self }
     }
 
@@ -250,20 +250,20 @@ impl Offer {
     }
 
     /// Sets the offer minimum price based on the desired price per million cycles.
-    pub fn with_min_price_per_mcycle(self, mcycle_price: u128, mcycle: u32) -> Self {
-        let min_price = mcycle_price * mcycle as u128;
+    pub fn with_min_price_per_mcycle(self, mcycle_price: U96, mcycle: u64) -> Self {
+        let min_price = mcycle_price * U96::from(mcycle);
         Self { minPrice: min_price, ..self }
     }
 
     /// Sets the offer maximum price based on the desired price per million cycles.
-    pub fn with_max_price_per_mcycle(self, mcycle_price: u128, mcycle: u32) -> Self {
-        let max_price = mcycle_price * mcycle as u128;
+    pub fn with_max_price_per_mcycle(self, mcycle_price: U96, mcycle: u64) -> Self {
+        let max_price = mcycle_price * U96::from(mcycle);
         Self { maxPrice: max_price, ..self }
     }
 
     /// Sets the offer lock-in stake based on the desired price per million cycles.
-    pub fn with_lockin_stake_per_mcycle(self, mcycle_price: u128, mcycle: u32) -> Self {
-        let lockin_stake = mcycle_price * mcycle as u128;
+    pub fn with_lockin_stake_per_mcycle(self, mcycle_price: U96, mcycle: u64) -> Self {
+        let lockin_stake = mcycle_price * U96::from(mcycle);
         Self { lockinStake: lockin_stake, ..self }
     }
 }
@@ -273,7 +273,7 @@ impl Offer {
 impl Default for ProvingRequest {
     fn default() -> Self {
         Self {
-            id: U256::ZERO,
+            id: U192::ZERO,
             requirements: Default::default(),
             imageUrl: Default::default(),
             input: Default::default(),

@@ -9,7 +9,10 @@ use alloy::{
     network::{Ethereum, EthereumWallet},
     primitives::{Address, Bytes, U256},
     providers::{
-        fillers::{ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, WalletFiller},
+        fillers::{
+            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+            WalletFiller,
+        },
         Identity, Provider, RootProvider, WalletProvider,
     },
     signers::local::PrivateKeySigner,
@@ -603,7 +606,13 @@ pub async fn broker_from_test_ctx(
         BoxTransport,
         FillProvider<
             JoinFill<
-                JoinFill<JoinFill<JoinFill<Identity, GasFiller>, NonceFiller>, ChainIdFiller>,
+                JoinFill<
+                    Identity,
+                    JoinFill<
+                        GasFiller,
+                        JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>,
+                    >,
+                >,
                 WalletFiller<EthereumWallet>,
             >,
             RootProvider<BoxTransport>,

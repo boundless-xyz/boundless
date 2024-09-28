@@ -18,9 +18,12 @@ use crate::{
 };
 use alloy::{
     network::Ethereum,
-    primitives::{Address, Bytes, U256},
+    primitives::{aliases::U192, Address, Bytes, U256},
     providers::{
-        fillers::{ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, WalletFiller},
+        fillers::{
+            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+            WalletFiller,
+        },
         network::EthereumWallet,
         Identity, Provider, ProviderBuilder, RootProvider,
     },
@@ -36,7 +39,10 @@ use url::Url;
 
 type ProviderWallet = FillProvider<
     JoinFill<
-        JoinFill<JoinFill<JoinFill<Identity, GasFiller>, NonceFiller>, ChainIdFiller>,
+        JoinFill<
+            Identity,
+            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+        >,
         WalletFiller<EthereumWallet>,
     >,
     RootProvider<Http<HttpClient>>,
@@ -119,7 +125,7 @@ where
     {
         let mut request = request.clone();
 
-        if request.id == U256::default() {
+        if request.id == U192::ZERO {
             request.id = request_id(&self.caller(), self.proof_market.gen_random_id().await?)
         };
         if request.offer.biddingStart == 0 {

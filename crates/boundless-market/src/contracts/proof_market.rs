@@ -589,7 +589,7 @@ where
         loop {
             let id = rand::random::<u32>();
             let request_id = request_id(&self.caller, id);
-            match self.get_status(request_id).await? {
+            match self.get_status(U256::from(request_id)).await? {
                 ProofStatus::Unknown => return Ok(id),
                 _ => continue,
             }
