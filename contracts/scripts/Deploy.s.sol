@@ -19,15 +19,14 @@ import {ImageID as AggImgId} from "../src/AggregationSetImageID.sol";
 contract Deploy is Script, RiscZeroCheats {
     function run() external {
         // load ENV variables first
-        uint256 adminKey = vm.envUint("ADMIN_PRIVATE_KEY");
-        // Aggregator guest ELF url compiled with reproducible build and uploaded to IPFS
-        string memory setOfTruthElfUrl = "https://example.com/";
+        uint256 adminKey = vm.envUint("WALLET_PRIVATE_KEY");
 
         vm.startBroadcast(adminKey);
 
         IRiscZeroVerifier verifier = deployRiscZeroVerifier();
 
-        RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, setOfTruthElfUrl);
+        // TODO: Provide a set builder ELF URL
+        RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, "");
         console2.log("Deployed SetVerifier to,", address(setVerifier));
 
         ProofMarket market = new ProofMarket(setVerifier, AssesorImgId.ASSESSOR_GUEST_ID);

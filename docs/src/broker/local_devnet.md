@@ -27,6 +27,7 @@ git submodule update --init
    ```
 
 3. Start anvil
+
    ```console
    anvil -b 2
    ```
@@ -39,30 +40,34 @@ git submodule update --init
 
    ```console
    source .env
-   forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
+   RISC0_DEV_MODE=1 forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
    ```
 
-5. Deposit funds and start the broker
+   > NOTE: Starting from a fresh Anvil instance, the deployed contract addresses will match the values in `.env`.
+   > If you need to deploy again, restart Anvil first or change the `.env` file to match your newly deployed contract addresses.
+
+5. Deposit Prover funds and start the Broker
 
    Optionally, by setting the environment variable `RISC0_DEV_MODE`, a mock prover will be used by the broker.
 
    ```console
-   RUST_LOG=info cargo run --bin cli -- --wallet-private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 deposit 10
+   RUST_LOG=info cargo run --bin cli -- --wallet-private-key ${PROVER_PRIVATE_KEY:?} deposit 10
    ```
 
-   The broker can use both Bonsai and Bento as backend. You can export the BONSAI_API_URL and BONSAI_API_KEY in the first case or refer to
-   [Running Bento](../bento/running_bento.md) to use that.
+   Here we will use a mock prover by setting `RISC0_DEV_MODE`.
+   The Broker can use either Bonsai or Bento as backend.
+   To use Bonsai, export the `BONSAI_API_URL` and  `BONSAI_API_KEY` and run without `RISC0_DEV_MODE`.
+   To use Bento, refer to the [Running Bento](../bento/running_bento.md) guide.
 
    ```console
-   export BONSAI_API_URL=<BONSAI_URL> BONSAI_API_KEY=<BONSAI_KEY>
-   RUST_LOG=info cargo run --bin broker -- --priv-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --proof-market-addr 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 --set-verifier-addr 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+   RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?}
    ```
 
 6. Test your deployment with the client cli.
    You can read more about the client on the [proving request](../market/proving_request.md) page.
 
    ```console
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
+   RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
    ```
 
 Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
