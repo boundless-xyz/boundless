@@ -68,26 +68,9 @@ git submodule update --init
    RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
    ```
 
-   > <details>
-   > <summary>
-   > If you see "Error: Market error: Failed to check fulfillment status"
-   > </summary>
-   >
-   > ```
-   > Error: Market error: Failed to check fulfillment status
-   >
-   > Caused by:
-   >     0: Failed to check fulfillment status
-   >     1: Transaction error: contract error: buffer overrun while deserializing
-   >     2: contract error: buffer overrun while deserializing
-   >     3: buffer overrun while deserializing
-   >     4: buffer overrun while deserializing
-   > ```
-   >
-   > Check the deployment logs from running `forge script` and ensure it matches the addresses listed in `.env`
+   > If you see "Error: Market error: Failed to check fulfillment status",
+   > check the deployment logs from running `forge script` and ensure it matches the addresses listed in `.env`
    > If they don't match, adjust the `.env` file or try restarting anvil and deploying again.
-   >
-   > </details>
 
 Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
 
