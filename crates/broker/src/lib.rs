@@ -588,7 +588,6 @@ async fn upload_input_uri(prover: &ProverObj, order: &Order, max_size: usize) ->
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
-    
 
     use aggregation_set::AGGREGATION_SET_GUEST_PATH;
     use alloy::{
@@ -600,24 +599,18 @@ pub mod test_utils {
             },
             Identity, RootProvider,
         },
-        transports::{BoxTransport},
+        transports::BoxTransport,
     };
-    use anyhow::{Result};
+    use anyhow::Result;
     use boundless_market::contracts::test_utils::TestCtx;
-    
-    
-    
+
     use guest_assessor::ASSESSOR_GUEST_PATH;
-    
-    
+
     use tempfile::NamedTempFile;
-    
+
     use url::Url;
 
-    use crate::{
-        config::{Config},
-        Args, Broker,
-    };
+    use crate::{config::Config, Args, Broker};
 
     /// Create a new broker from a test context.
     pub async fn broker_from_test_ctx(
