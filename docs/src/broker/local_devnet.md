@@ -46,19 +46,19 @@ git submodule update --init
 5. Deposit Prover funds and start the Broker
 
    The Broker is the service that watches the chain for proving requests, evaluates them, and orchestrates proving the jobs with the proving backend.
-   It needs to have funds deposited on the Boundless market contract to cover [lockin-stake][rfc-order-matching] on requests.
-
-   ```console
-   RUST_LOG=info cargo run --bin cli -- --wallet-private-key ${PROVER_PRIVATE_KEY:?} deposit 10
-   ```
 
    Here we will use a mock prover by setting `RISC0_DEV_MODE`.
-   The Broker can use either Bonsai or Bento as backend.
-   To use Bonsai, export the `BONSAI_API_URL` and `BONSAI_API_KEY` and run without `RISC0_DEV_MODE`.
-   To use Bento, refer to the [Running Bento](../bento/running_bento.md) guide.
+   The Broker can use either Bonsai or Bento as backend, remove `RISC0_DEV_MODE` and:
+
+   - To use Bonsai, export the `BONSAI_API_URL` and `BONSAI_API_KEY` env vars, or the the associated CLI flags.
+   - To use Bento, export the `BENTO_API_URL` env var or use the `--bento-api-url` CLI flag.
+     Also, refer to the [Running Bento](../bento/running_bento.md) guide.
+
+   The Broker needs to have funds deposited on the Boundless market contract to cover [lockin-stake][rfc-order-matching] on requests.
+   Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
    ```console
-   RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?}
+   RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
    ```
 
 6. Test your deployment with the client CLI.
