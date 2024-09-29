@@ -4,9 +4,6 @@ Ensure the following software is installed on your machine before proceeding:
 
 - **[Rust](https://www.rust-lang.org/tools/install) version 1.79 or higher**
 - **[Foundry](https://book.getfoundry.sh/getting-started/installation) version 0.2 or higher**
-- **[Docker](https://docs.docker.com/engine/install/)**
-- **Python version 3.10 or higher**
-- **jq**
 
 Before starting, ensure you have cloned with recursive submodules, or pull them with:
 
@@ -36,7 +33,7 @@ git submodule update --init
 
    This will deploy the market contracts.
    Configuration environment variables are read from the [.env](../../../.env) file.
-   Optionally, by setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
+   By setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
 
    ```console
    source .env
@@ -48,7 +45,8 @@ git submodule update --init
 
 5. Deposit Prover funds and start the Broker
 
-   Optionally, by setting the environment variable `RISC0_DEV_MODE`, a mock prover will be used by the broker.
+   The Broker is the service that watches the chain for proving requests, evaluates them, and orchestrates proving the jobs with the proving backend.
+   It needs to have funds deposited on the Boundless market contract to cover [lockin-stake][rfc-order-matching] on requests.
 
    ```console
    RUST_LOG=info cargo run --bin cli -- --wallet-private-key ${PROVER_PRIVATE_KEY:?} deposit 10
@@ -63,13 +61,40 @@ git submodule update --init
    RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?}
    ```
 
-6. Test your deployment with the client cli.
+6. Test your deployment with the client CLI.
    You can read more about the client on the [proving request](../market/proving_request.md) page.
 
    ```console
-   RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
+   RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
    ```
+
+   > <details>
+   > <summary>
+   > If you see "Error: Market error: Failed to check fulfillment status"
+   > </summary>
+   >
+   > ```
+   > Error: Market error: Failed to check fulfillment status
+   >
+   > Caused by:
+   >     0: Failed to check fulfillment status
+   >     1: Transaction error: contract error: buffer overrun while deserializing
+   >     2: contract error: buffer overrun while deserializing
+   >     3: buffer overrun while deserializing
+   >     4: buffer overrun while deserializing
+   > ```
+   >
+   > Check the deployment logs from running `forge script` and ensure it matches the addresses listed in `.env`
+   > If they don't match, adjust the `.env` file or try restarting anvil and deploying again.
+   >
+   > </details>
 
 Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
 
-Check out the [counter example](../../../examples/counter/README.md) for an example of how to run and application using the prover market.
+Check out the is-even example in the [Boundless Foundry template][boundless-foundry-template] for an example of how to run and application using the prover market.
+
+You can also try editing `request.yaml` to send a request with different values.
+Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
+
+[rfc-order-matching]: /market/prover_market_rfc.html#order-placement-and-matching
+[boundless-foundry-template]: https://github.com/boundless-xyz/boundless-foundry-template/
