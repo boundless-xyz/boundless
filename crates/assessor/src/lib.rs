@@ -74,7 +74,7 @@ mod tests {
         GuestInput, GuestOutput, AGGREGATION_SET_GUEST_ELF, AGGREGATION_SET_GUEST_ID,
     };
     use alloy::{
-        primitives::{Address, B256},
+        primitives::{aliases::U96, Address, B256},
         signers::local::PrivateKeySigner,
         sol_types::SolValue,
     };
@@ -109,12 +109,12 @@ mod tests {
             &"test".to_string(),
             Input { inputType: InputType::Url, data: Default::default() },
             Offer {
-                minPrice: 1,
-                maxPrice: 10,
+                minPrice: U96::from(1),
+                maxPrice: U96::from(10),
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
-                lockinStake: 0,
+                lockinStake: U96::from(0),
             },
         )
     }

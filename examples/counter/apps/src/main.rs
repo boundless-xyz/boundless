@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
-    primitives::{utils::parse_ether, Address, B256},
+    primitives::{aliases::U96, utils::parse_ether, Address, B256},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
@@ -113,7 +113,7 @@ async fn run(
         .segments
         .iter()
         .map(|segment| 1 << segment.po2)
-        .sum::<u32>()
+        .sum::<u64>()
         .div_ceil(1_000_000);
     let journal = session_info.journal;
 
@@ -141,9 +141,15 @@ async fn run(
                 // is to choose a desired (min and max) price per million cycles and multiply it
                 // by the number of cycles. Alternatively, you can use the `with_min_price` and
                 // `with_max_price` methods to set the price directly.
-                .with_min_price_per_mcycle(parse_ether("0.001")?.try_into()?, mcycles_count)
+                .with_min_price_per_mcycle(
+                    U96::from::<u128>(parse_ether("0.001")?.try_into()?),
+                    mcycles_count,
+                )
                 // NOTE: If your offer is not being accepted, try increasing the max price.
-                .with_max_price_per_mcycle(parse_ether("0.002")?.try_into()?, mcycles_count)
+                .with_max_price_per_mcycle(
+                    U96::from::<u128>(parse_ether("0.002")?.try_into()?),
+                    mcycles_count,
+                )
                 // The timeout is the maximum number of blocks the request can stay
                 // unfulfilled in the market before it expires. If a prover locks in
                 // the request and does not fulfill it before the timeout, the prover can be

@@ -362,30 +362,34 @@ library MerkleProofish {
     // Compute the root of the Merkle tree given all of its leaves.
     // Assumes that the array of leaves is no longer needed, and can be overwritten.
     function processTree(bytes32[] memory leaves) internal pure returns (bytes32 root) {
-        require(leaves.length > 0, "Leaves list is empty, cannot compute Merkle root");
+        require(leaves.length > 0, "Leaves array must contain at least one element");
 
-        uint256 currentLevelSize = leaves.length;
-
-        // Build the tree level by level until we get the root
-        while (currentLevelSize > 1) {
-            uint256 nextLevelSize = (currentLevelSize + 1) / 2;
-
-            for (uint256 i = 0; i < nextLevelSize; i++) {
-                uint256 leftIndex = i * 2;
-                uint256 rightIndex = leftIndex + 1;
-
-                bytes32 leftHash = leaves[leftIndex];
-                bytes32 rightHash = (rightIndex < currentLevelSize) ? leaves[rightIndex] : leftHash;
-
-                // Store the combined hash in the current position
-                leaves[i] = _hashPair(leftHash, rightHash);
-            }
-
-            // Update the size for the next level
-            currentLevelSize = nextLevelSize;
+        // If there's only one leaf, the root is the leaf itself
+        if (leaves.length == 1) {
+            return leaves[0];
         }
 
-        // The final root is at the first position
+        uint256 n = leaves.length;
+
+        // Process the leaves array in pairs, iteratively computing the hash of each pair
+        while (n > 1) {
+            uint256 nextLevelLength = (n + 1) / 2; // Upper bound of next level (handles odd number of elements)
+
+            // Hash the current level's pairs and place results at the start of the array
+            for (uint256 i = 0; i < n / 2; i++) {
+                leaves[i] = _hashPair(leaves[2 * i], leaves[2 * i + 1]);
+            }
+
+            // If there's an odd number of elements, propagate the last element directly
+            if (n % 2 == 1) {
+                leaves[n / 2] = leaves[n - 1];
+            }
+
+            // Move to the next level (the computed hashes are now the new "leaves")
+            n = nextLevelLength;
+        }
+
+        // The root is now the single element left in the array
         root = leaves[0];
     }
 

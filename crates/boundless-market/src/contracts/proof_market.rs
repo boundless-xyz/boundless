@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use alloy::{
     network::Ethereum,
-    primitives::{Address, Bytes, U256},
+    primitives::{aliases::U192, Address, Bytes, U256},
     providers::Provider,
     signers::{Signer, SignerSync},
     transports::Transport,
@@ -133,7 +133,7 @@ where
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted deposit {:#}", tx_hash);
+        tracing::debug!("Submitted deposit {}", tx_hash);
 
         Ok(())
     }
@@ -149,7 +149,7 @@ where
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted withdraw {:#}", tx_hash);
+        tracing::debug!("Submitted withdraw {}", tx_hash);
 
         Ok(())
     }
@@ -201,7 +201,7 @@ where
             format!("call did not emit {}", IProofMarket::RequestSubmitted::SIGNATURE)
         })?;
 
-        Ok(log.inner.data.request.id)
+        Ok(U256::from(log.inner.data.request.id))
     }
 
     /// Lock the proving request to the prover, giving them exclusive rights to be paid to
@@ -216,7 +216,7 @@ where
         client_sig: &Bytes,
         _priority_gas: Option<u128>,
     ) -> Result<u64, MarketError> {
-        tracing::debug!("Calling requestIsLocked({})", request.id);
+        tracing::debug!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
             self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
         if is_locked_in {
@@ -259,7 +259,7 @@ where
             )));
         }
 
-        tracing::info!("Registered request {}: {:#}", request.id, receipt.transaction_hash);
+        tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -277,7 +277,7 @@ where
         prover_sig: &Bytes,
         _priority_gas: Option<u128>,
     ) -> Result<u64, MarketError> {
-        tracing::debug!("Calling requestIsLocked({})", request.id);
+        tracing::debug!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
             self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
         if is_locked_in {
@@ -308,7 +308,7 @@ where
             )));
         }
 
-        tracing::info!("Registered request {}: {:#}", request.id, receipt.transaction_hash);
+        tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -317,7 +317,7 @@ where
     /// the associated prover stake.
     pub async fn slash(&self, request_id: U256) -> Result<U256, MarketError> {
         tracing::debug!("Calling slash({:?})", request_id);
-        let call = self.instance.slash(request_id).from(self.caller);
+        let call = self.instance.slash(U192::from(request_id)).from(self.caller);
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -355,7 +355,7 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Submitted proof for request {}: {:#}", fulfillment.id, tx_hash);
+        tracing::info!("Submitted proof for request {}: {}", fulfillment.id, tx_hash);
 
         Ok(())
     }
@@ -367,9 +367,9 @@ where
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
     ) -> Result<(), MarketError> {
-        tracing::debug!("Calling fulfillBatch({:?})", fulfillments);
+        tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_seal:x})");
         let call = self.instance.fulfillBatch(fulfillments, assessor_seal).from(self.caller);
-        // tracing::debug!("Calldata: {}", call.calldata());
+        tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -379,7 +379,7 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Submitted proof for batch {:#}", tx_hash);
+        tracing::info!("Submitted proof for batch {}", tx_hash);
 
         Ok(())
     }
@@ -389,7 +389,7 @@ where
         tracing::debug!("Calling requestIsLocked({})", request_id);
         let res = self
             .instance
-            .requestIsLocked(request_id)
+            .requestIsLocked(U192::from(request_id))
             .call()
             .await
             .map_err(IProofMarketErrors::decode_error)?;
@@ -402,7 +402,7 @@ where
         tracing::debug!("Calling requestIsFulfilled({})", request_id);
         let res = self
             .instance
-            .requestIsFulfilled(request_id)
+            .requestIsFulfilled(U192::from(request_id))
             .call()
             .await
             .map_err(IProofMarketErrors::decode_error)?;
@@ -422,7 +422,7 @@ where
             return Ok(ProofStatus::Locked);
         }
 
-        let deadline = self.instance.requestDeadline(request_id).call().await?._0;
+        let deadline = self.instance.requestDeadline(U192::from(request_id)).call().await?._0;
         if block_number > deadline && deadline > 0 {
             return Ok(ProofStatus::Expired);
         };
@@ -589,7 +589,7 @@ where
         loop {
             let id = rand::random::<u32>();
             let request_id = request_id(&self.caller, id);
-            match self.get_status(request_id).await? {
+            match self.get_status(U256::from(request_id)).await? {
                 ProofStatus::Unknown => return Ok(id),
                 _ => continue,
             }
@@ -611,7 +611,11 @@ mod tests {
     };
     use alloy::{
         node_bindings::Anvil,
-        primitives::{utils::parse_ether, Address, Bytes, B256, U256},
+        primitives::{
+            aliases::{U192, U96},
+            utils::parse_ether,
+            Address, Bytes, B256, U256,
+        },
         providers::{Provider, ProviderBuilder},
         sol_types::{eip712_domain, Eip712Domain, SolValue},
     };
@@ -626,12 +630,12 @@ mod tests {
 
     fn test_offer() -> Offer {
         Offer {
-            minPrice: ether("1"),
-            maxPrice: ether("2"),
+            minPrice: U96::from(ether("1")),
+            maxPrice: U96::from(ether("2")),
             biddingStart: 100,
             rampUpPeriod: 100,
             timeout: 500,
-            lockinStake: ether("1"),
+            lockinStake: U96::from(ether("1")),
         }
     }
 
@@ -653,12 +657,12 @@ mod tests {
             "http://image_uri.null",
             Input { inputType: InputType::Inline, data: Bytes::default() },
             Offer {
-                minPrice: 20000000000000,
-                maxPrice: 40000000000000,
+                minPrice: U96::from(20000000000000u64),
+                maxPrice: U96::from(40000000000000u64),
                 biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: 10,
+                lockinStake: U96::from(10),
             },
         )
     }
@@ -676,7 +680,7 @@ mod tests {
         let app_claim_digest = app_receipt_claim.digest();
 
         let assessor_journal = AssessorJournal {
-            requestIds: vec![request_id],
+            requestIds: vec![U192::from(request_id)],
             root: to_b256(app_claim_digest),
             eip712DomainSeparator: eip712_domain.separator(),
         };
@@ -704,7 +708,7 @@ mod tests {
         .unwrap();
 
         let fulfillment = Fulfillment {
-            id: request_id,
+            id: U192::from(request_id),
             imageId: to_b256(Digest::from(ECHO_ID)),
             journal: app_journal.bytes.into(),
             seal: set_inclusion_seal.into(),
@@ -810,7 +814,7 @@ mod tests {
 
         let (_, log) = logs.first().unwrap();
         let log = log.log_decode::<IProofMarket::RequestSubmitted>().unwrap();
-        assert!(log.inner.data.request.id == request_id);
+        assert!(log.inner.data.request.id == U192::from(request_id));
     }
 
     #[tokio::test]

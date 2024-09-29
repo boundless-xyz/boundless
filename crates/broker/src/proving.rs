@@ -31,7 +31,7 @@ impl ProvingService {
         self.db
             .set_aggregation_status(order_id)
             .await
-            .with_context(|| format!("Failed to set the DB record to aggregation {order_id}"))?;
+            .with_context(|| format!("Failed to set the DB record to aggregation {order_id:x}"))?;
 
         tracing::info!("Customer Proof complete, cycles: {}", proof_res.stats.total_cycles);
 
@@ -95,7 +95,7 @@ impl ProvingService {
                     .set_order_failure(order_id, "Proving status missing proof_id".into())
                     .await
                 {
-                    tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
+                    tracing::error!("Failed to set order {order_id:x} failure: {inner_err:?}");
                 }
                 continue;
             };
@@ -104,14 +104,14 @@ impl ProvingService {
             // fine.
             tokio::spawn(async move {
                 match prove_serv.monitor_proof(order_id, proof_id).await {
-                    Ok(_) => tracing::info!("Successfully complete order proof {order_id}"),
+                    Ok(_) => tracing::info!("Successfully complete order proof {order_id:x}"),
                     Err(err) => {
                         tracing::error!("FATAL: Order failed to prove: {err:?}");
                         if let Err(inner_err) =
                             prove_serv.db.set_order_failure(order_id, format!("{err:?}")).await
                         {
                             tracing::error!(
-                                "Failed to set order {order_id} failure: {inner_err:?}"
+                                "Failed to set order {order_id:x} failure: {inner_err:?}"
                             );
                         }
                     }
@@ -185,7 +185,10 @@ mod tests {
         provers::{encode_input, MockProver},
         OrderStatus,
     };
-    use alloy::primitives::{Bytes, B256};
+    use alloy::primitives::{
+        aliases::{U192, U96},
+        Bytes, B256,
+    };
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
@@ -221,7 +224,7 @@ mod tests {
             updated_at: Utc::now(),
             target_block: Some(0),
             request: ProvingRequest {
-                id: U256::ZERO,
+                id: U192::ZERO,
                 requirements: Requirements {
                     imageId: B256::ZERO,
                     predicate: Predicate {
@@ -232,12 +235,12 @@ mod tests {
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
-                    minPrice: min_price,
-                    maxPrice: max_price,
+                    minPrice: U96::from(min_price),
+                    maxPrice: U96::from(max_price),
                     biddingStart: 4,
                     rampUpPeriod: 1,
                     timeout: 100,
-                    lockinStake: 10,
+                    lockinStake: U96::from(10),
                 },
             },
             image_id: Some(image_id),
@@ -279,7 +282,7 @@ mod tests {
         let proving_service =
             ProvingService::new(db.clone(), prover, config.clone()).await.unwrap();
 
-        let order_id = U256::ZERO;
+        let order_id = U192::ZERO;
         let min_price = 2;
         let max_price = 4;
 
@@ -288,7 +291,7 @@ mod tests {
             updated_at: Utc::now(),
             target_block: Some(0),
             request: ProvingRequest {
-                id: U256::ZERO,
+                id: order_id,
                 requirements: Requirements {
                     imageId: B256::ZERO,
                     predicate: Predicate {
@@ -299,12 +302,12 @@ mod tests {
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
-                    minPrice: min_price,
-                    maxPrice: max_price,
+                    minPrice: U96::from(min_price),
+                    maxPrice: U96::from(max_price),
                     biddingStart: 4,
                     rampUpPeriod: 1,
                     timeout: 100,
-                    lockinStake: 10,
+                    lockinStake: U96::from(10),
                 },
             },
             image_id: Some(image_id),
@@ -316,6 +319,7 @@ mod tests {
             lock_price: None,
             error_msg: None,
         };
+        let order_id = U256::from(order_id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
         proving_service.find_and_monitor_proofs().await.unwrap();

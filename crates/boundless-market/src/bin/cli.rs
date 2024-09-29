@@ -6,7 +6,7 @@ use std::{borrow::Cow, fs::File, io::BufReader, path::PathBuf, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{utils::parse_ether, Address, Bytes, B256, U256},
+    primitives::{aliases::U192, utils::parse_ether, Address, Bytes, B256, U256},
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer, SignerSync},
     transports::Transport,
@@ -182,7 +182,7 @@ async fn main() -> Result<()> {
         }
         Command::Slash { request_id } => {
             market.slash(request_id).await?;
-            tracing::info!("Request slashed: {}", request_id);
+            tracing::info!("Request slashed: {request_id:x}");
         }
         Command::GetProof { request_id, wait } => {
             let (journal, seal) = if wait {
@@ -298,8 +298,7 @@ where
 
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
-        "Submitted request ID {}, bidding start at block number {}",
-        request_id,
+        "Submitted request ID {request_id:x}, bidding start at block number {}",
         offer.biddingStart
     );
 
@@ -343,7 +342,6 @@ where
         request_yaml.offer = Offer { biddingStart: latest_block, ..request_yaml.offer };
     }
 
-    tracing::info!("Client addr: {}", signer.address());
     let mut request = ProvingRequest::new(
         id,
         &signer.address(),
@@ -354,7 +352,7 @@ where
     );
 
     // Use the original request id if it was set
-    if request_yaml.id != U256::ZERO {
+    if request_yaml.id != U192::ZERO {
         request.id = request_yaml.id;
     }
 
@@ -362,8 +360,7 @@ where
 
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
-        "Proving request ID {}, bidding start at block number {}",
-        request_id,
+        "Proving request ID {request_id:x}, bidding start at block number {}",
         request.offer.biddingStart
     );
 
