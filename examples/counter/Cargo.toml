@@ -15,12 +15,12 @@ guest-util = { path = "../../crates/guest/util" }
 boundless-market = { path = "../../crates/boundless-market" }
 
 # risc0 monorepo dependencies.
-risc0-build = { version = "1.0", features = ["docker"] }
-risc0-zkvm = { version = "1.0", default-features = false }
+risc0-build = { version = "1.1", features = ["docker"] }
+risc0-zkvm = { version = "1.1", default-features = false }
 
 # risc0-ethereum dependencies.
-risc0-build-ethereum = { version = "1.0" }
-risc0-ethereum-contracts = { git = "https://github.com/risc0/risc0-ethereum", tag = "v1.0.0" }
+risc0-build-ethereum = { version = "1.1" }
+risc0-ethereum-contracts = { git = "https://github.com/risc0/risc0-ethereum", tag = "v1.1.1" }
 
 alloy = { version = "0.2" }
 alloy-primitives = { version = "0.7", default-features = false, features = ["rlp", "serde", "std"] }
