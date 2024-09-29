@@ -588,41 +588,34 @@ async fn upload_input_uri(prover: &ProverObj, order: &Order, max_size: usize) ->
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
-    use std::{path::PathBuf, sync::Arc};
+    
 
     use aggregation_set::AGGREGATION_SET_GUEST_PATH;
     use alloy::{
         network::{Ethereum, EthereumWallet},
-        primitives::{Address, Bytes, U256},
         providers::{
             fillers::{
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
                 WalletFiller,
             },
-            Identity, Provider, RootProvider, WalletProvider,
+            Identity, RootProvider,
         },
-        signers::local::PrivateKeySigner,
-        transports::{BoxTransport, Transport},
+        transports::{BoxTransport},
     };
-    use anyhow::{ensure, Context, Result};
+    use anyhow::{Result};
     use boundless_market::contracts::test_utils::TestCtx;
-    use boundless_market::contracts::{
-        set_verifier::SetVerifierService, InputType, ProvingRequest,
-    };
-    use chrono::{serde::ts_seconds, DateTime, Utc};
-    use clap::Parser;
+    
+    
+    
     use guest_assessor::ASSESSOR_GUEST_PATH;
-    use risc0_zkvm::sha::Digest;
-    use serde::{Deserialize, Serialize};
+    
+    
     use tempfile::NamedTempFile;
-    use tokio::task::JoinSet;
+    
     use url::Url;
 
     use crate::{
-        config::{Config, ConfigWatcher},
-        db::{DbObj, SqliteDb},
-        provers::ProverObj,
-        storage::UriHandlerBuilder,
+        config::{Config},
         Args, Broker,
     };
 
