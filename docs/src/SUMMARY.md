@@ -17,7 +17,9 @@
 
 - [Run a broker node](./broker/broker_node.md)
 - [Play with a local devnet](./broker/local_devnet.md)
+
 <!-- TODO add back the link to the Sepolia doc when ready -->
+
 - [Play with Sepolia]()
 
 # Examples
