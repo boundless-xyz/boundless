@@ -16,9 +16,9 @@ use alloy::{
     transports::{BoxTransport, Transport},
 };
 use anyhow::{ensure, Context, Result};
-use boundless_market::contracts::{
-    set_verifier::SetVerifierService, test_utils::TestCtx, InputType, ProvingRequest,
-};
+#[cfg(feature = "test-utils")]
+use boundless_market::contracts::test_utils::TestCtx;
+use boundless_market::contracts::{set_verifier::SetVerifierService, InputType, ProvingRequest};
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 use config::{Config, ConfigWatcher};
@@ -595,6 +595,7 @@ async fn upload_input_uri(prover: &ProverObj, order: &Order, max_size: usize) ->
 }
 
 /// Create a new broker from a test context.
+#[cfg(feature = "test-utils")]
 pub async fn broker_from_test_ctx(
     ctx: &TestCtx,
     rpc_url: Url,
