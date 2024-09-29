@@ -435,7 +435,6 @@ pub fn encode_seal(receipt: &risc0_zkvm::Receipt) -> anyhow::Result<Vec<u8>> {
 }
 
 #[cfg(feature = "test-utils")]
-#[cfg(not(target_os = "zkvm"))]
 pub mod test_utils {
     use aggregation_set::AGGREGATION_SET_GUEST_ID;
     use alloy::{

@@ -5,30 +5,22 @@
 use std::{path::PathBuf, sync::Arc};
 
 use alloy::{
-    network::{Ethereum, EthereumWallet},
+    network::Ethereum,
     primitives::{Address, Bytes, U256},
-    providers::{
-        fillers::{
-            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-            WalletFiller,
-        },
-        Identity, Provider, RootProvider, WalletProvider,
-    },
+    providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
-    transports::{BoxTransport, Transport},
+    transports::Transport,
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::contracts::{set_verifier::SetVerifierService, InputType, ProvingRequest};
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
-use config::{Config, ConfigWatcher};
+use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
-use guest_assessor::ASSESSOR_GUEST_PATH;
 use provers::ProverObj;
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 use storage::UriHandlerBuilder;
-use tempfile::NamedTempFile;
 use tokio::task::JoinSet;
 use url::Url;
 
@@ -598,6 +590,7 @@ async fn upload_input_uri(prover: &ProverObj, order: &Order, max_size: usize) ->
 pub mod test_utils {
     use std::{path::PathBuf, sync::Arc};
 
+    use aggregation_set::AGGREGATION_SET_GUEST_PATH;
     use alloy::{
         network::{Ethereum, EthereumWallet},
         primitives::{Address, Bytes, U256},
@@ -618,16 +611,20 @@ pub mod test_utils {
     };
     use chrono::{serde::ts_seconds, DateTime, Utc};
     use clap::Parser;
-    use config::{Config, ConfigWatcher};
-    use db::{DbObj, SqliteDb};
     use guest_assessor::ASSESSOR_GUEST_PATH;
-    use provers::ProverObj;
     use risc0_zkvm::sha::Digest;
     use serde::{Deserialize, Serialize};
-    use storage::UriHandlerBuilder;
     use tempfile::NamedTempFile;
     use tokio::task::JoinSet;
     use url::Url;
+
+    use crate::{
+        config::{Config, ConfigWatcher},
+        db::{DbObj, SqliteDb},
+        provers::ProverObj,
+        storage::UriHandlerBuilder,
+        Args, Broker,
+    };
 
     /// Create a new broker from a test context.
     pub async fn broker_from_test_ctx(
