@@ -56,7 +56,7 @@ git submodule update --init
 
    Here we will use a mock prover by setting `RISC0_DEV_MODE`.
    The Broker can use either Bonsai or Bento as backend.
-   To use Bonsai, export the `BONSAI_API_URL` and  `BONSAI_API_KEY` and run without `RISC0_DEV_MODE`.
+   To use Bonsai, export the `BONSAI_API_URL` and `BONSAI_API_KEY` and run without `RISC0_DEV_MODE`.
    To use Bento, refer to the [Running Bento](../bento/running_bento.md) guide.
 
    ```console
