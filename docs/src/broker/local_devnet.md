@@ -96,5 +96,5 @@ Check out the is-even example in the [Boundless Foundry template][boundless-foun
 You can also try editing `request.yaml` to send a request with different values.
 Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
 
-[rfc-order-matching]: /market/prover_market_rfc.html#order-placement-and-matching
+[rfc-order-matching]: ../market/prover_market_rfc.html#order-placement-and-matching
 [boundless-foundry-template]: https://github.com/boundless-xyz/boundless-foundry-template/
