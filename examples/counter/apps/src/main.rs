@@ -218,7 +218,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::test_utils::TestCtx;
-    use broker::broker_from_test_ctx;
+    use broker::test_utils::broker_from_test_ctx;
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
