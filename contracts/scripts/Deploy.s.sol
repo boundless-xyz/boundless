@@ -25,8 +25,19 @@ contract Deploy is Script, RiscZeroCheats {
 
         IRiscZeroVerifier verifier = deployRiscZeroVerifier();
 
-        // TODO: Provide a set builder ELF URL
-        RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, "");
+        string memory setBuilderGuestUrl = "";
+        if (bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0) {
+            // TODO: Create a more robust way of getting a URI for guests.
+            string memory cwd = vm.envString("PWD");
+            setBuilderGuestUrl = string.concat(
+                "file://",
+                cwd,
+                "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/aggregation-set-guest"
+            );
+            console2.log("Set builder URI", setBuilderGuestUrl);
+        }
+
+        RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, setBuilderGuestUrl);
         console2.log("Deployed SetVerifier to,", address(setVerifier));
 
         ProofMarket market = new ProofMarket(setVerifier, AssesorImgId.ASSESSOR_GUEST_ID);
