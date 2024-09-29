@@ -11,6 +11,6 @@ require_https = true
 
 exclude = [
   # priv repo
-  "https://github.com/risc0/boundless/",
-  "https://github.com/risc0/boundless-foundry-template/",
+  "https://github.com/boundless-xyz/boundless/",
+  "https://github.com/boundless-xyz/boundless-foundry-template/",
 ]
