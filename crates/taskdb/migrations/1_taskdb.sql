@@ -139,8 +139,8 @@ BEGIN
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-CREATE TRIGGER maint_streams_trigger
-AFTER INSERT OR UPDATE OR DELETE ON tasks
+CREATE OR REPLACE TRIGGER maint_streams_trigger
+AFTER INSERT OR UPDATE ON tasks
 FOR EACH ROW EXECUTE FUNCTION maint_streams();
 
 
@@ -179,8 +179,8 @@ BEGIN
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-CREATE TRIGGER maint_jobs_trigger
-AFTER INSERT OR UPDATE OR DELETE ON tasks
+CREATE OR REPLACE TRIGGER maint_jobs_trigger
+AFTER INSERT OR UPDATE ON tasks
 FOR EACH ROW EXECUTE FUNCTION maint_jobs();
 
 -- Make a new stream, will always have no tasks initially
