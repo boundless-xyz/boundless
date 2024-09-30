@@ -140,7 +140,7 @@ where
 
         // TODO: Check config.market.peak_prove_khz (or maybe min khz?)
         // to make sure we can prove this quickly enough to get within the deadline
-        // this is tricky because we also need to account for the market guest AND aggregation
+        // this is tricky because we also need to account for the assessor AND aggregation
         // proving time
 
         // TODO: Move URI handling like this into the prover impls

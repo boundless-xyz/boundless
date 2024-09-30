@@ -18,7 +18,7 @@ import {ProofMarketLib} from "./ProofMarketLib.sol";
 // new request with the same ID and different requirements, which gets a
 // lockin, the prover is not actually bound to fulfill the one that was locked
 // in. A solution that avoids increasing state usage would be to add a deadline
-// check in the market guest. If two requests are valid in the same window with
+// check in the assessor. If two requests are valid in the same window with
 // the same ID, this is still an issue. However this is much more reasonably
 // considered a mistake, and client implementations should avoid it. Simplest
 // way for a client to avoid this issue would be always increment their index,
@@ -26,7 +26,7 @@ import {ProofMarketLib} from "./ProofMarketLib.sol";
 // state. Another, would be use scanning to determine the first unused ID. A
 // third approach would be to expand the request lock, but only store it's
 // digest in state. With this approach, we can include more info in it. This
-// would probably also expand the journal for the market guest. None of these
+// would probably also expand the journal for the assessor. None of these
 // are perfect.
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
@@ -245,8 +245,8 @@ contract ProofMarket is IProofMarket, EIP712 {
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
         VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
 
-        // Verify the market guest, which ensures the application proof fulfills a valid request with the given ID.
-        // NOTE: Signature checks and recursive verification happen inside the market guest.
+        // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
+        // NOTE: Signature checks and recursive verification happen inside the assessor.
         uint192[] memory ids = new uint192[](1);
         ids[0] = fill.id;
         bytes32 assessorJournalDigest = sha256(
@@ -273,8 +273,8 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
 
-        // Verify the market guest, which ensures the application proof fulfills a valid request with the given ID.
-        // NOTE: Signature checks and recursive verification happen inside the market guest.
+        // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
+        // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32 assessorJournalDigest = sha256(
             abi.encode(AssessorJournal({requestIds: ids, root: batchRoot, eip712DomainSeparator: _domainSeparatorV4()}))
         );
@@ -291,7 +291,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
     }
 
-    /// Complete the fulfillment logic after having verified the app and market guest receipts.
+    /// Complete the fulfillment logic after having verified the app and assessor receipts.
     function _fulfillVerified(uint192 id) internal {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
