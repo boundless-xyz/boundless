@@ -2,7 +2,7 @@
 
 ### Interaction flow
 
-Below is a diagram of the interaction flow assuming a user with a wallet is driving it. In practice, we assume that a facilitator of some sort would assist to avoid end-users needing to send transactions to both L1 and L2.
+Below is a diagram of the interaction flow assuming a user with a wallet is driving it.
 
 [https://excalidraw.com/#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q](https://excalidraw.com/#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q)
 
@@ -142,20 +142,7 @@ struct Offer {
 
 #### Fulfillment
 
-**Requirements checking**: Once the prover has a proof that satisfies the requirements they will run the Assessor, which is a zkVM program that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request and does not need to be provided as part of fulfillment, only the associated identifier.
-
-```solidity
-// Structured journal of the Assessor guest which verifies the signature(s)
-// from client(s) and that the requirements are met by claim digest(s) in the
-// Merkle tree committed to by the given root. Assessor can verify a batch of
-// requests, including batches of size one.
-struct AssessorJournal {
-    uint192[] requestIds;
-    // Root of the Merkle tree committing to the set of proven claims.
-    // In the case of a batch of size one, this may simply be a claim digest.
-    bytes32 root;
-}
-```
+**Requirements checking**: Once the prover has a proof that satisfies the requirements they will run the Assessor, which is a zkVM program that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request does not need to be provided as part of fulfillment, only the associated identifier.
 
 **Guaranteed delivery**: In order to settle the order and receive payment, the prover must submit a receipt that meets the requirements of the request. This receipt is posted to the chain in calldata as part of the settlement transaction as a form of "guaranteed delivery". In this way, the receipt is now public such that the client can query the blockchain to receive it. In general, any data availability solution would also work here.
 
@@ -188,8 +175,6 @@ interface IProofMarket {
     error RequestIsNotExpired(uint192 requestId, uint64 deadline);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
-    /// Unable to complete request because of insufficient funds.
-    error InsufficientValue();
     /// Request has been slashed already.
     error RequestAlreadySlashed(uint192 requestId);
 
@@ -253,6 +238,7 @@ struct Fulfillment {
     uint192 id;
     bytes32 imageId;
     bytes journal;
+    bytes seal;
 }
 ```
 
@@ -316,6 +302,8 @@ struct AssessorJournal {
     // Root of the Merkle tree committing to the set of proven claims.
     // In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;
+    // EIP712 domain separator
+    bytes32 eip712DomainSeparator;
 }
 ```
 
