@@ -117,7 +117,7 @@ where
             return Ok(());
         }
 
-        let (skip_preflight, max_size) = {
+        let (skip_preflight, max_size, peak_prove_khz) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             let skip_preflight =
                 if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
@@ -126,7 +126,7 @@ where
                     false
                 };
 
-            (skip_preflight, config.market.max_file_size)
+            (skip_preflight, config.market.max_file_size, config.market.peak_prove_khz)
         };
 
         if skip_preflight {
@@ -137,11 +137,6 @@ where
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
             return Ok(());
         }
-
-        // TODO: Check config.market.peak_prove_khz (or maybe min khz?)
-        // to make sure we can prove this quickly enough to get within the deadline
-        // this is tricky because we also need to account for the market guest AND aggregation
-        // proving time
 
         // TODO: Move URI handling like this into the prover impls
         let image_id = crate::upload_image_uri(&self.prover, order, max_size)
@@ -183,8 +178,17 @@ where
             .await
             .context("Preflight failed")?;
 
-        // TODO: currently Bento / Bonsai don't support fetching journals from execute only
-        // sessions so we need to add the function and then re-enable this section
+        // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently can absorb
+        // that proving load, we need to cordinate this check with parallel proofs and the current state of Bento
+        if let Some(prove_khz) = peak_prove_khz {
+            let required_khz = (proof_res.stats.total_cycles / 1_000) / seconds_left;
+            tracing::debug!("peak_prove_khz checking: {prove_khz} required: {required_khz}");
+            if required_khz >= prove_khz {
+                tracing::warn!("Order {order_id:x} peak_prove_khz check failed req: {required_khz} | config: {prove_khz}");
+                self.db.skip_order(order_id).await.context("Failed to delete order")?;
+                return Ok(());
+            }
+        }
 
         // Validate the predicates:
         let journal = self

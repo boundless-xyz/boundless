@@ -1,8 +1,8 @@
 [market]
 mcycle_price = "0.001"
 assumption_price = "0.1"
-peak_prove_khz = 500
-parallel_proofs = 1
+# peak_prove_khz = 500
+# parallel_proofs = 1
 min_deadline = 150
 lookback_blocks = 100
 max_stake = "0.5"
@@ -13,7 +13,7 @@ max_file_size = 50_000_000
 status_poll_ms = 1000
 bonsai_r0_zkvm_ver = "1.1.1"
 req_retry_count = 3
-#agg_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/aggregation-set-guest"
+# agg_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/aggregation-set-guest"
 assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
 
 [batcher]

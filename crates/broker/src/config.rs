@@ -28,7 +28,7 @@ pub struct MarketConf {
     /// Peak single proof performance in kHz
     ///
     /// Used for sanity checking bids to prevent slashing
-    pub peak_prove_khz: u64,
+    pub peak_prove_khz: Option<u64>,
     /// Parallel proofs
     ///
     /// Should be set to executor count in Bento or parallel proofs in bonsai
@@ -58,7 +58,7 @@ impl Default for MarketConf {
         Self {
             mcycle_price: "0.1".to_string(),
             assumption_price: "0.1".to_string(),
-            peak_prove_khz: 500,
+            peak_prove_khz: None,
             parallel_proofs: 1,
             min_deadline: 150, // ~300 seconds aka 5 mins
             lookback_blocks: 100,
@@ -351,7 +351,7 @@ error = ?"#;
 
         assert_eq!(config.market.mcycle_price, "0.1");
         assert_eq!(config.market.assumption_price, "0.1");
-        assert_eq!(config.market.peak_prove_khz, 500);
+        assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.parallel_proofs, 1);
         assert_eq!(config.market.min_deadline, 150);
         assert_eq!(config.market.lookback_blocks, 100);
@@ -395,7 +395,7 @@ error = ?"#;
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.mcycle_price, "0.1");
             assert_eq!(config.market.assumption_price, "0.1");
-            assert_eq!(config.market.peak_prove_khz, 500);
+            assert_eq!(config.market.peak_prove_khz, Some(500));
             assert_eq!(config.market.parallel_proofs, 1);
             assert_eq!(config.market.min_deadline, 150);
             assert_eq!(config.market.lookback_blocks, 100);
@@ -410,7 +410,7 @@ error = ?"#;
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.mcycle_price, "0.1");
             assert_eq!(config.market.assumption_price, "0.1");
-            assert_eq!(config.market.peak_prove_khz, 10000);
+            assert_eq!(config.market.peak_prove_khz, Some(10000));
             assert_eq!(config.market.parallel_proofs, 1);
             assert_eq!(config.market.min_deadline, 150);
             assert_eq!(config.market.lookback_blocks, 100);
