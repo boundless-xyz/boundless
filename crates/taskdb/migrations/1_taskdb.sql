@@ -229,9 +229,9 @@ CREATE OR REPLACE PROCEDURE create_task(
     prerequisites jsonb,
     max_retries INTEGER,
     timeout_secs INTEGER) as $$
-DECLARE
-    not_done_count INTEGER;
+DECLARE not_done_count INTEGER;
 BEGIN
+  PERFORM pg_advisory_xact_lock(123);
   -- TODO / QUESTION:
   -- Should we fail on create_task() for a job_id.state = 'done'?
 
@@ -265,8 +265,8 @@ DECLARE
   found_max_retries INTEGER;
   prereq_outputs jsonb;
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext(in_worker_type));
-
+  -- Grab the global task lock
+  PERFORM pg_advisory_xact_lock(123);
   SELECT id INTO stream from streams where streams.worker_type = in_worker_type ORDER BY priority LIMIT 1;
   IF stream IS NOT NULL THEN
     SELECT INTO found_job_id, found_task_id, found_definition, found_max_retries tasks.job_id, tasks.task_id, tasks.task_def, tasks.max_retries
@@ -316,7 +316,7 @@ RETURNS BOOLEAN as $$
 DECLARE
   found_done_task BOOLEAN DEFAULT FALSE;
 BEGIN
-
+  PERFORM pg_advisory_xact_lock(123);
   UPDATE tasks SET
     state = 'done',
     output = output_var,
@@ -353,6 +353,7 @@ RETURNS BOOLEAN as $$
 DECLARE
   set_fail_success BOOLEAN DEFAULT FALSE;
 BEGIN
+  PERFORM pg_advisory_xact_lock(123);
   -- Set the error on the faulted task itself
   UPDATE tasks SET
     error = error_var
@@ -399,6 +400,7 @@ CREATE OR REPLACE FUNCTION update_task_progress(
 )
 RETURNS BOOLEAN as $$
 BEGIN
+  PERFORM pg_advisory_xact_lock(123);
   UPDATE tasks SET
     updated_at = now(),
     progress = GREATEST(progress, progress_var)
@@ -420,6 +422,7 @@ DECLARE
   retry_var INTEGER;
   max_retry_var INTEGER;
 BEGIN
+  PERFORM pg_advisory_xact_lock(123);
   UPDATE tasks SET
     updated_at = now(),
     retries = retries + 1,
