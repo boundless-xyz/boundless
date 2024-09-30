@@ -12,7 +12,7 @@ use risc0_zkvm::sha::Digest;
 use tempfile::NamedTempFile;
 // use broker::Broker;
 use crate::{config::Config, provers::encode_input, Args, Broker};
-use aggregation_set::AGGREGATION_SET_GUEST_PATH;
+use aggregation_set::SET_BUILDER_GUEST_PATH;
 use boundless_market::contracts::{
     test_utils::TestCtx, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
     Requirements,
@@ -48,7 +48,7 @@ async fn simple_e2e() {
     let config_file = NamedTempFile::new().unwrap();
     let mut config = Config::default();
     // - modify config here
-    config.prover.agg_set_guest_path = Some(AGGREGATION_SET_GUEST_PATH.into());
+    config.prover.set_builder_guest_path = Some(SET_BUILDER_GUEST_PATH.into());
     config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
     config.market.mcycle_price = "0.00001".into();
     config.batcher.batch_size = Some(1);

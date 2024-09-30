@@ -7,7 +7,7 @@ members = [
     "crates/bento-client",
     "crates/boundless-market",
     "crates/broker",
-    "crates/guest/aggregation-set",
+    "crates/guest/set-builder",
     "crates/guest/assessor",
     "crates/guest/util",
     "crates/taskdb",
@@ -20,7 +20,7 @@ aggregation-set = { path = "crates/aggregation-set" }
 assessor = { path = "crates/assessor" }
 bento-client = { path = "crates/bento-client" }
 boundless-market = { path = "crates/boundless-market" }
-guest-aggregation-set = { path = "crates/guest/aggregation-set" }
+guest-set-builder = { path = "crates/guest/set-builder" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 taskdb = { path = "crates/taskdb" }

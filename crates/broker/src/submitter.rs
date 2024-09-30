@@ -274,9 +274,7 @@ mod tests {
         provers::{encode_input, MockProver},
         Batch, BatchStatus, Order, OrderStatus,
     };
-    use aggregation_set::{
-        GuestInput, GuestOutput, AGGREGATION_SET_GUEST_ELF, AGGREGATION_SET_GUEST_ID,
-    };
+    use aggregation_set::{GuestInput, GuestOutput, SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -324,7 +322,7 @@ mod tests {
         let set_verifier = SetVerifier::deploy(
             &provider,
             *verifier.address(),
-            FixedBytes::from_slice(&Digest::from(AGGREGATION_SET_GUEST_ID).as_bytes()),
+            FixedBytes::from_slice(&Digest::from(SET_BUILDER_GUEST_ID).as_bytes()),
             String::new(),
         )
         .await
@@ -359,9 +357,9 @@ mod tests {
             .await
             .unwrap();
 
-        let agg_id = Digest::from(AGGREGATION_SET_GUEST_ID);
-        let agg_id_str = agg_id.to_string();
-        prover.upload_image(&agg_id_str, AGGREGATION_SET_GUEST_ELF.to_vec()).await.unwrap();
+        let set_builder_id = Digest::from(SET_BUILDER_GUEST_ID);
+        let set_builder_id_str = set_builder_id.to_string();
+        prover.upload_image(&set_builder_id_str, SET_BUILDER_GUEST_ELF.to_vec()).await.unwrap();
 
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         let assessor_id_str = assessor_id.to_string();
@@ -399,10 +397,10 @@ mod tests {
             .unwrap()
             .as_bytes();
 
-        let agg_input = prover
+        let set_builder_input = prover
             .upload_input(
                 encode_input(&GuestInput::Singleton {
-                    self_image_id: agg_id,
+                    self_image_id: set_builder_id,
                     claim: echo_receipt.claim().unwrap().as_value().unwrap().clone(),
                 })
                 .unwrap(),
@@ -410,7 +408,11 @@ mod tests {
             .await
             .unwrap();
         let echo_singleton = prover
-            .prove_and_monitor_stark(&agg_id_str, &agg_input, vec![echo_proof.id.clone()])
+            .prove_and_monitor_stark(
+                &set_builder_id_str,
+                &set_builder_input,
+                vec![echo_proof.id.clone()],
+            )
             .await
             .unwrap();
 
@@ -442,10 +444,10 @@ mod tests {
             .unwrap();
         let assessor_receipt = prover.get_receipt(&assessor_proof.id).await.unwrap().unwrap();
 
-        let agg_input = prover
+        let set_builder_input = prover
             .upload_input(
                 encode_input(&GuestInput::Singleton {
-                    self_image_id: agg_id,
+                    self_image_id: set_builder_id,
                     claim: assessor_receipt.claim().unwrap().as_value().unwrap().clone(),
                 })
                 .unwrap(),
@@ -454,7 +456,11 @@ mod tests {
             .unwrap();
 
         let assessor_singleton = prover
-            .prove_and_monitor_stark(&agg_id_str, &agg_input, vec![assessor_proof.id.clone()])
+            .prove_and_monitor_stark(
+                &set_builder_id_str,
+                &set_builder_input,
+                vec![assessor_proof.id.clone()],
+            )
             .await
             .unwrap();
         let assessor_singleton_journal =
@@ -467,7 +473,7 @@ mod tests {
         let join_input = prover
             .upload_input(
                 encode_input(&GuestInput::Join {
-                    self_image_id: agg_id,
+                    self_image_id: set_builder_id,
                     left_set_root: tree_output.root(),
                     right_set_root: assessor_output.root(),
                 })
@@ -477,7 +483,7 @@ mod tests {
             .unwrap();
         let batch_root_proof = prover
             .prove_and_monitor_stark(
-                &agg_id_str,
+                &set_builder_id_str,
                 &join_input,
                 vec![echo_singleton.id.clone(), assessor_singleton.id.clone()],
             )

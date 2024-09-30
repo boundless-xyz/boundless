@@ -606,9 +606,7 @@ mod tests {
         encode_seal, test_utils::TestCtx, AssessorJournal, Fulfillment, IProofMarket, Input,
         InputType, Offer, Predicate, PredicateType, ProofStatus, ProvingRequest, Requirements,
     };
-    use aggregation_set::{
-        merkle_root, GuestOutput, SetInclusionReceipt, AGGREGATION_SET_GUEST_ID,
-    };
+    use aggregation_set::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_GUEST_ID};
     use alloy::{
         node_bindings::Anvil,
         primitives::{
@@ -689,16 +687,15 @@ mod tests {
         let assessor_claim_digest = assesor_receipt_claim.digest();
 
         let root = merkle_root(&vec![app_claim_digest, assessor_claim_digest]).unwrap();
-        let aggregation_set_journal =
-            GuestOutput::new(Digest::from(AGGREGATION_SET_GUEST_ID), root);
-        let aggregation_set_receipt_claim =
-            ReceiptClaim::ok(AGGREGATION_SET_GUEST_ID, aggregation_set_journal.abi_encode());
+        let set_builder_journal = GuestOutput::new(Digest::from(SET_BUILDER_GUEST_ID), root);
+        let set_builder_receipt_claim =
+            ReceiptClaim::ok(SET_BUILDER_GUEST_ID, set_builder_journal.abi_encode());
 
-        let aggregation_set_receipt = Receipt::new(
-            InnerReceipt::Fake(FakeReceipt::new(aggregation_set_receipt_claim)),
-            aggregation_set_journal.abi_encode(),
+        let set_builder_receipt = Receipt::new(
+            InnerReceipt::Fake(FakeReceipt::new(set_builder_receipt_claim)),
+            set_builder_journal.abi_encode(),
         );
-        let set_verifier_seal = encode_seal(&aggregation_set_receipt).unwrap();
+        let set_verifier_seal = encode_seal(&set_builder_receipt).unwrap();
 
         let set_inclusion_seal = SetInclusionReceipt::from_path(
             ReceiptClaim::ok(ECHO_ID, MaybePruned::Pruned(app_journal.digest())),

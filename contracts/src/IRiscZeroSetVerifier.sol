@@ -26,6 +26,6 @@ interface IRiscZeroSetVerifier is IRiscZeroVerifier {
     /// Returns whether `root` has been submitted.
     function containsRoot(bytes32 root) external view returns (bool);
 
-    /// Returns the aggregator imageId and its url.
+    /// Returns the set builder imageId and its url.
     function imageInfo() external view returns (bytes32, string memory);
 }

@@ -8,8 +8,8 @@ use risc0_build::{embed_methods_with_options, DockerOptions, GuestOptions};
 use risc0_build_ethereum::generate_solidity_files;
 
 // Paths where the generated Solidity files will be written.
-const SOLIDITY_IMAGE_ID_PATH: &str = "../../../contracts/src/AggregationSetImageID.sol";
-const SOLIDITY_ELF_PATH: &str = "../../../contracts/test/AggregationSetElf.sol";
+const SOLIDITY_IMAGE_ID_PATH: &str = "../../../contracts/src/SetBuilderImageID.sol";
+const SOLIDITY_ELF_PATH: &str = "../../../contracts/test/SetBuilderElf.sol";
 
 fn main() {
     if env::var("RISC0_SKIP_BUILD").is_ok() {
@@ -25,7 +25,7 @@ fn main() {
 
     // Generate Rust source files for the methods crate.
     let guests = embed_methods_with_options(HashMap::from([(
-        "aggregation-set-guest",
+        "set-builder-guest",
         GuestOptions { features: Vec::new(), use_docker },
     )]));
 

@@ -16,7 +16,7 @@ docker compose --profile broker --env-file ./.env-compose up --build
 There are two layers of configuration for Broker:
 
 - Service daemon config - Setup / wallet keys / IPs
-- Live configuration - Market parameters / Prover configs / Batching / aggregator configs
+- Live configuration - Market parameters / Prover configs / Batching / Aggregator configs
 
 ## Service config
 

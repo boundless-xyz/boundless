@@ -24,7 +24,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
- "guest-aggregation-set",
+ "guest-set-builder",
  "hex",
  "risc0-binfmt",
  "risc0-zkvm",
@@ -2267,18 +2267,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "guest-aggregation-set"
+name = "guest-assessor"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "risc0-build",
  "risc0-build-ethereum",
 ]
 
 [[package]]
-name = "guest-assessor"
+name = "guest-set-builder"
 version = "0.1.0"
 dependencies = [
- "hex",
  "risc0-build",
  "risc0-build-ethereum",
 ]

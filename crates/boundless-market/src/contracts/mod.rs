@@ -436,7 +436,7 @@ pub fn encode_seal(receipt: &risc0_zkvm::Receipt) -> anyhow::Result<Vec<u8>> {
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
-    use aggregation_set::AGGREGATION_SET_GUEST_ID;
+    use aggregation_set::SET_BUILDER_GUEST_ID;
     use alloy::{
         network::{Ethereum, EthereumWallet},
         node_bindings::AnvilInstance,
@@ -519,7 +519,7 @@ pub mod test_utils {
             let set_verifier = SetVerifier::deploy(
                 &deployer_provider,
                 *verifier.address(),
-                <[u8; 32]>::from(Digest::from(AGGREGATION_SET_GUEST_ID)).into(),
+                <[u8; 32]>::from(Digest::from(SET_BUILDER_GUEST_ID)).into(),
                 String::new(),
             )
             .await
