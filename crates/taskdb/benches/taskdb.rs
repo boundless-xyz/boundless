@@ -1,3 +1,7 @@
+// Copyright (c) 2024 RISC Zero, Inc.
+//
+// All rights reserved.
+
 use std::time::Instant;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
