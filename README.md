@@ -7,7 +7,7 @@ To build it and serve it locally, run the following commands
 
 ```console
 cargo install mdbook
-mdbook serve docs --open
+mdbook serve docs --open -p 3031
 ```
 
 to serve locally the docs.
