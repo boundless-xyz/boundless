@@ -29,9 +29,7 @@ async fn e2e(pool: PgPool) -> Result<()> {
     // or on provisining a new user with reservations.
 
     // Stream for handling auxiliary tasks note: we could just overload the CPU
-    // steam with aux tasks but it would not scale well
-    // TODO: Lambdas handling aux tasks via trigger?
-    // https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL-Lambda.html
+    // stream with aux tasks but it would not scale well
     let aux_stream = taskdb::create_stream(&pool, aux_worker_type, 1, 1.0, user_id).await.unwrap();
 
     // CPU intensive tasks (executor)
