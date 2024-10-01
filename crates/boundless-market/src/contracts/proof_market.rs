@@ -582,12 +582,18 @@ where
         }
     }
 
-    /// Generates a random request ID that is not in use.
+    /// Generates a request index based on the EOA nonce.
     ///
-    /// It does not guarantee that the ID is not in use by the time the caller uses it.
-    pub async fn gen_random_id(&self) -> Result<u32, MarketError> {
+    /// It does not guarantee that the index is not in use by the time the caller uses it.
+    pub async fn index_from_nonce(&self) -> Result<u32, MarketError> {
         loop {
-            let id = rand::random::<u32>();
+            let nonce = self
+                .instance
+                .provider()
+                .get_transaction_count(self.caller)
+                .await
+                .context(format!("Failed to get EOA nonce for {:?}", self.caller))?;
+            let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
             let request_id = request_id(&self.caller, id);
             match self.get_status(U256::from(request_id)).await? {
                 ProofStatus::Unknown => return Ok(id),

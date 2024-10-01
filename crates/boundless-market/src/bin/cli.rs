@@ -176,7 +176,7 @@ async fn main() -> Result<()> {
         Command::SubmitRequest { yaml_request, id, wait } => {
             let id = match id {
                 Some(id) => id,
-                None => market.gen_random_id().await?,
+                None => market.index_from_nonce().await?,
             };
             submit_request(id, market, yaml_request, signer, wait).await?
         }
@@ -281,7 +281,7 @@ where
     // Set request id
     let id = match args.id {
         Some(id) => id,
-        None => market.gen_random_id().await?,
+        None => market.index_from_nonce().await?,
     };
 
     // Construct the request from its individual parts.

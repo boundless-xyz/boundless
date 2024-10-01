@@ -27,7 +27,6 @@ futures-util = { workspace = true }
 guest-assessor = { workspace = true }
 guest-util = { workspace = true, optional = true }
 hex = { workspace = true }
-rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-ethereum-contracts = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
