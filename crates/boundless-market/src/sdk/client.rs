@@ -7,7 +7,6 @@ use std::{env, str::FromStr};
 use crate::{
     contracts::{
         proof_market::{MarketError, ProofMarketService},
-        request_id,
         set_verifier::SetVerifierService,
         ProvingRequest,
     },
@@ -126,7 +125,7 @@ where
         let mut request = request.clone();
 
         if request.id == U192::ZERO {
-            request.id = request_id(&self.caller(), self.proof_market.index_from_nonce().await?)
+            request.id = self.proof_market.new_request_id().await?;
         };
         if request.offer.biddingStart == 0 {
             request.offer.biddingStart = self

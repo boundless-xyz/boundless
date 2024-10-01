@@ -601,6 +601,14 @@ where
             }
         }
     }
+
+    /// Generates a new request ID based on the EOA nonce.
+    ///
+    /// It does not guarantee that the ID is not in use by the time the caller uses it.
+    pub async fn new_request_id(&self) -> Result<U192, MarketError> {
+        let index = self.index_from_nonce().await?;
+        Ok(request_id(&self.caller, index))
+    }
 }
 
 #[cfg(test)]
