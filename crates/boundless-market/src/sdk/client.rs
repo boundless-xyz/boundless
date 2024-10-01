@@ -125,7 +125,7 @@ where
         let mut request = request.clone();
 
         if request.id == U192::ZERO {
-            request.id = self.proof_market.new_request_id().await?;
+            request.id = self.proof_market.request_id_from_nonce().await?;
         };
         if request.offer.biddingStart == 0 {
             request.offer.biddingStart = self

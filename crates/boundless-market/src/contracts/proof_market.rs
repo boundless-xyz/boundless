@@ -586,26 +586,24 @@ where
     ///
     /// It does not guarantee that the index is not in use by the time the caller uses it.
     pub async fn index_from_nonce(&self) -> Result<u32, MarketError> {
-        loop {
-            let nonce = self
-                .instance
-                .provider()
-                .get_transaction_count(self.caller)
-                .await
-                .context(format!("Failed to get EOA nonce for {:?}", self.caller))?;
-            let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
-            let request_id = request_id(&self.caller, id);
-            match self.get_status(U256::from(request_id)).await? {
-                ProofStatus::Unknown => return Ok(id),
-                _ => continue,
-            }
+        let nonce = self
+            .instance
+            .provider()
+            .get_transaction_count(self.caller)
+            .await
+            .context(format!("Failed to get EOA nonce for {:?}", self.caller))?;
+        let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
+        let request_id = request_id(&self.caller, id);
+        match self.get_status(U256::from(request_id)).await? {
+            ProofStatus::Unknown => return Ok(id),
+            _ => Err(MarketError::Error(anyhow!("index already in use"))),
         }
     }
 
     /// Generates a new request ID based on the EOA nonce.
     ///
     /// It does not guarantee that the ID is not in use by the time the caller uses it.
-    pub async fn new_request_id(&self) -> Result<U192, MarketError> {
+    pub async fn request_id_from_nonce(&self) -> Result<U192, MarketError> {
         let index = self.index_from_nonce().await?;
         Ok(request_id(&self.caller, index))
     }
