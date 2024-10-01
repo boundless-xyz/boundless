@@ -2,7 +2,6 @@
 //
 // All rights reserved.
 
-// Taken from https://github.com/risc0/scratch/tree/main/dev/tcarstens/proof-plan/src/planner from tcarstens (thanks!)
 pub mod task;
 
 use crate::planner::task::Task;
