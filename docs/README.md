@@ -1,4 +1,4 @@
-# Boundless Docs
+# Boundless Book
 
 ## Dependencies
 
