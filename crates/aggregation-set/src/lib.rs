@@ -38,7 +38,7 @@ where
 {
     /// Claim containing information about the computation that this receipt proves.
     ///
-    /// The standard claim type is [ReceiptClaim][crate::ReceiptClaim], which represents a RISC-V
+    /// The standard claim type is [ReceiptClaim], which represents a RISC-V
     /// zkVM execution.
     pub claim: MaybePruned<Claim>,
 
@@ -216,7 +216,7 @@ mod verify {
     };
 
     impl Default for SetInclusionReceiptVerifierParameters {
-        /// Default set of parameters used to verify a [SetInclusionReceipt].
+        /// Default set of parameters used to verify a [SetInclusionReceipt][super::SetInclusionReceipt].
         fn default() -> Self {
             Self { image_id: AGGREGATION_SET_GUEST_ID.into() }
         }
@@ -388,10 +388,29 @@ fn to_b256(digest: Digest) -> B256 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hex::FromHex;
 
     fn assert_merkle_root(digests: &[Digest], expected_root: Digest) {
         let root = merkle_root(digests).unwrap();
         assert_eq!(root, expected_root);
+    }
+
+    #[test]
+    fn test_root_manual() {
+        let digests = vec![
+            Digest::from_hex("6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9")
+                .unwrap(),
+            Digest::from_hex("6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9")
+                .unwrap(),
+            Digest::from_hex("6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9")
+                .unwrap(),
+        ];
+
+        assert_merkle_root(
+            &digests,
+            Digest::from_hex("e004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef")
+                .unwrap(),
+        );
     }
 
     #[test]

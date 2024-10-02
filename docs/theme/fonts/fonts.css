@@ -1,0 +1,35 @@
+@font-face {
+  /* includes font-weights from 100-900 */
+  font-family: "Gotham";
+  src: url("Gotham.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: fallback;
+}
+
+@font-face {
+  /* includes font-weights from 900 */
+  font-family: "Cera Pro";
+  src: url("CeraProBlack.otf") format("opentype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: fallback;
+}
+
+@font-face {
+  /* includes font-weights from 600-800 */
+  font-family: "Cera Pro";
+  src: url("CeraProBold.otf") format("opentype");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: fallback;
+}
+
+@font-face {
+  /* includes font-weights from 100-500 */
+  font-family: "Cera Pro";
+  src: url("CeraProRegular.otf") format("opentype");
+  font-weight: 100 500;
+  font-style: normal;
+  font-display: fallback;
+}

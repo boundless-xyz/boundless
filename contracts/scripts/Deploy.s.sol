@@ -19,15 +19,25 @@ import {ImageID as AggImgId} from "../src/AggregationSetImageID.sol";
 contract Deploy is Script, RiscZeroCheats {
     function run() external {
         // load ENV variables first
-        uint256 adminKey = vm.envUint("ADMIN_PRIVATE_KEY");
-        // Aggregator guest ELF url compiled with reproducible build and uploaded to IPFS
-        string memory setOfTruthElfUrl = "https://example.com/";
+        uint256 adminKey = vm.envUint("WALLET_PRIVATE_KEY");
 
         vm.startBroadcast(adminKey);
 
         IRiscZeroVerifier verifier = deployRiscZeroVerifier();
 
-        RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, setOfTruthElfUrl);
+        string memory setBuilderGuestUrl = "";
+        if (bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0) {
+            // TODO: Create a more robust way of getting a URI for guests.
+            string memory cwd = vm.envString("PWD");
+            setBuilderGuestUrl = string.concat(
+                "file://",
+                cwd,
+                "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/aggregation-set-guest"
+            );
+            console2.log("Set builder URI", setBuilderGuestUrl);
+        }
+
+        RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, setBuilderGuestUrl);
         console2.log("Deployed SetVerifier to,", address(setVerifier));
 
         ProofMarket market = new ProofMarket(setVerifier, AssesorImgId.ASSESSOR_GUEST_ID);

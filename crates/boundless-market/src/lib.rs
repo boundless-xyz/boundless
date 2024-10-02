@@ -4,4 +4,6 @@
 
 pub mod contracts;
 #[cfg(not(target_os = "zkvm"))]
+pub mod sdk;
+#[cfg(not(target_os = "zkvm"))]
 pub mod storage;

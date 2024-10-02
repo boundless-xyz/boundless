@@ -7,7 +7,7 @@ use std::sync::Arc;
 use aggregation_set::SetInclusionReceipt;
 use alloy::{
     network::Ethereum,
-    primitives::{Address, B256},
+    primitives::{aliases::U192, Address, B256, U256},
     providers::{Provider, WalletProvider},
     transports::Transport,
 };
@@ -95,7 +95,7 @@ where
 
         let mut fulfillments = vec![];
         for order_id in batch.orders.iter() {
-            tracing::info!("Submitting order {order_id}");
+            tracing::info!("Submitting order {order_id:x}");
 
             let (order_proof_id, order_img_id, order_path) = match self
                 .db
@@ -105,12 +105,12 @@ where
                 Ok(res) => res,
                 Err(err) => {
                     tracing::error!(
-                        "Failed to order {order_id} path from DB, order NOT finalized: {err:?}"
+                        "Failed to order {order_id:x} path from DB, order NOT finalized: {err:?}"
                     );
                     if let Err(db_err) =
                         self.db.set_order_failure(*order_id, format!("{err:?}")).await
                     {
-                        tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
+                        tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
                         continue;
                     }
                     continue;
@@ -120,11 +120,11 @@ where
             let order_journal = match self.prover.get_journal(&order_proof_id).await {
                 Ok(res) => res,
                 Err(err) => {
-                    tracing::error!("Failed to order journal {order_id} from prover: {err:?}");
+                    tracing::error!("Failed to order journal {order_id:x} from prover: {err:?}");
                     if let Err(db_err) =
                         self.db.set_order_failure(*order_id, format!("{err:?}")).await
                     {
-                        tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
+                        tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
                     }
                     continue;
                 }
@@ -140,6 +140,7 @@ where
                 continue;
             };
 
+            tracing::debug!("Order path {order_id:x} - {order_path:x?}");
             let set_inclusion_receipt = SetInclusionReceipt::from_path(
                 ReceiptClaim::ok(order_img_id.0, MaybePruned::Pruned(order_journal.digest())),
                 order_path,
@@ -161,7 +162,7 @@ where
             };
 
             fulfillments.push(Fulfillment {
-                id: *order_id,
+                id: U192::from(*order_id),
                 imageId: order_img_id,
                 journal: order_journal.into(),
                 seal: seal.into(),
@@ -186,10 +187,10 @@ where
             tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
             for fulfillment in fulfillments.iter() {
                 if let Err(db_err) =
-                    self.db.set_order_failure(fulfillment.id, format!("{err:?}")).await
+                    self.db.set_order_failure(U256::from(fulfillment.id), format!("{err:?}")).await
                 {
                     tracing::error!(
-                        "Failed to set order failure during proof submission: {} {db_err:?}",
+                        "Failed to set order failure during proof submission: {:x} {db_err:?}",
                         fulfillment.id
                     );
                 }
@@ -198,14 +199,14 @@ where
         }
 
         for fulfillment in fulfillments.iter() {
-            if let Err(db_err) = self.db.set_order_complete(fulfillment.id).await {
+            if let Err(db_err) = self.db.set_order_complete(U256::from(fulfillment.id)).await {
                 tracing::error!(
-                    "Failed to set order complete during proof submission: {} {db_err:?}",
+                    "Failed to set order complete during proof submission: {:x} {db_err:?}",
                     fulfillment.id
                 );
                 continue;
             }
-            tracing::info!("✨ Completed order {} ✨", fulfillment.id);
+            tracing::info!("✨ Completed order {:x} ✨", fulfillment.id);
         }
 
         Ok(())
@@ -256,9 +257,7 @@ where
         Box::pin(async move {
             tracing::info!("Starting Submitter service");
             loop {
-                if !obj_clone.process_next_batch().await? {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                }
+                obj_clone.process_next_batch().await?;
 
                 // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -281,7 +280,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{FixedBytes, B256, U256},
+        primitives::{aliases::U96, FixedBytes, B256, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
         sol_types::SolValue,
@@ -385,12 +384,12 @@ mod tests {
             "http://risczero.com/image".into(),
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
-                minPrice: 2,
-                maxPrice: 4,
+                minPrice: U96::from(2),
+                maxPrice: U96::from(4),
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: 10,
+                lockinStake: U96::from(10),
             },
         );
 
@@ -502,7 +501,7 @@ mod tests {
             lock_price: None,
             error_msg: None,
         };
-        let order_id = order.request.id;
+        let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
         let batch_id = 0;

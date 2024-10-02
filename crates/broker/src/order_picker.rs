@@ -140,7 +140,7 @@ where
 
         // TODO: Check config.market.peak_prove_khz (or maybe min khz?)
         // to make sure we can prove this quickly enough to get within the deadline
-        // this is tricky because we also need to account for the market guest AND aggregation
+        // this is tricky because we also need to account for the assessor AND aggregation
         // proving time
 
         // TODO: Move URI handling like this into the prover impls
@@ -211,8 +211,8 @@ where
 
         tracing::info!(
             "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
-            format_ether(order.request.offer.minPrice),
-            format_ether(order.request.offer.maxPrice),
+            format_ether(U256::from(order.request.offer.minPrice)),
+            format_ether(U256::from(order.request.offer.maxPrice)),
             proof_res.stats.total_cycles,
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
@@ -229,7 +229,7 @@ where
         if mcycle_price_min >= config_min_mcycle_price {
             tracing::info!(
                 "Selecting order {order_id:x} at price {} - ASAP",
-                format_ether(order.request.offer.minPrice)
+                format_ether(U256::from(order.request.offer.minPrice))
             );
             // set the target block to a past block (aka the order block or current)
             // so we schedule the lock ASAP.
@@ -349,7 +349,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Address, Bytes, B256},
+        primitives::{aliases::U96, Address, Bytes, B256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -409,8 +409,8 @@ mod tests {
         });
         let image_uri = format!("http://{}/image", server.address());
 
-        let min_price = 200000000000;
-        let max_price = 400000000000;
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
 
         let order_id = U256::ZERO;
         let order = Order {
@@ -429,12 +429,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: min_price,
-                    maxPrice: max_price,
+                    minPrice: U96::from(min_price),
+                    maxPrice: U96::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: 0,
+                    lockinStake: U96::from(0),
                 },
             ),
             target_block: None,
@@ -503,8 +503,8 @@ mod tests {
         });
         let image_uri = format!("http://{}/image", server.address());
 
-        let min_price = 200000000000;
-        let max_price = 400000000000;
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
 
         let order_id = U256::ZERO;
         let order = Order {
@@ -524,12 +524,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: min_price,
-                    maxPrice: max_price,
+                    minPrice: U96::from(min_price),
+                    maxPrice: U96::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: 0,
+                    lockinStake: U96::from(0),
                 },
             ),
             image_id: None,
@@ -598,8 +598,8 @@ mod tests {
         });
         let image_uri = format!("http://{}/image", server.address());
 
-        let min_price = 200000000000;
-        let max_price = 400000000000;
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
 
         let order_id = U256::ZERO;
         let order = Order {
@@ -618,12 +618,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: min_price,
-                    maxPrice: max_price,
+                    minPrice: U96::from(min_price),
+                    maxPrice: U96::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: 0,
+                    lockinStake: U96::from(0),
                 },
             ),
             target_block: None,

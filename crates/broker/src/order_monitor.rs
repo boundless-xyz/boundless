@@ -54,7 +54,7 @@ where
         }
 
         let order_status =
-            self.market.get_status(order.request.id).await.context("Failed to get order status")?;
+            self.market.get_status(order_id).await.context("Failed to get order status")?;
         if order_status != ProofStatus::Unknown {
             tracing::warn!("Order {order_id:x} not open: {order_status:?}, skipping");
             // TODO: fetch some chain data to find out who / and for how much the order
@@ -214,7 +214,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{utils, Address, B256},
+        primitives::{aliases::U96, utils, Address, B256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -265,15 +265,15 @@ mod tests {
             "http://risczero.com/image".into(),
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
-                minPrice: min_price,
-                maxPrice: max_price,
+                minPrice: U96::from(min_price),
+                maxPrice: U96::from(max_price),
                 biddingStart: 0,
                 rampUpPeriod: 1,
                 timeout: 100,
-                lockinStake: 0,
+                lockinStake: U96::from(0),
             },
         );
-        let order_id = request.id;
+        let order_id = U256::from(request.id);
         tracing::info!("addr: {} ID: {:x}", signer.address(), request.id);
 
         // let client_sig = proof_market.eip721_signature(&request, &signer).await.unwrap();
@@ -362,15 +362,15 @@ mod tests {
             "http://risczero.com/image".into(),
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
-                minPrice: min_price,
-                maxPrice: max_price,
+                minPrice: U96::from(min_price),
+                maxPrice: U96::from(max_price),
                 biddingStart: 0,
                 rampUpPeriod: 1,
                 timeout: 100,
-                lockinStake: 0,
+                lockinStake: U96::from(0),
             },
         );
-        let order_id = request.id;
+        let order_id = U256::from(request.id);
         tracing::info!("addr: {} ID: {:x}", signer.address(), order_id);
 
         let chain_id = provider.get_chain_id().await.unwrap();

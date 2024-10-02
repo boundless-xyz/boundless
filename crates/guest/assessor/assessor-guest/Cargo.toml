@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 aggregation-set = { path = "../../../aggregation-set", default-features = false, features = ["verify"] }
-alloy-primitives = { version = "0.7" }
-alloy-sol-types = { version = "0.7", features = ["eip712-serde"] }
+alloy-primitives = { version = "0.8" }
+alloy-sol-types = { version = "0.8", features = ["eip712-serde"] }
 assessor = { path = "../../../assessor" }
 boundless-market = { path = "../../../boundless-market", default-features = false }
 postcard = "1.0"

@@ -4,31 +4,23 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use aggregation_set::AGGREGATION_SET_GUEST_PATH;
 use alloy::{
-    network::{Ethereum, EthereumWallet},
+    network::Ethereum,
     primitives::{Address, Bytes, U256},
-    providers::{
-        fillers::{ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, WalletFiller},
-        Identity, Provider, RootProvider, WalletProvider,
-    },
+    providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
-    transports::{BoxTransport, Transport},
+    transports::Transport,
 };
 use anyhow::{ensure, Context, Result};
-use boundless_market::contracts::{
-    set_verifier::SetVerifierService, test_utils::TestCtx, InputType, ProvingRequest,
-};
+use boundless_market::contracts::{set_verifier::SetVerifierService, InputType, ProvingRequest};
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
-use config::{Config, ConfigWatcher};
+use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
-use guest_assessor::ASSESSOR_GUEST_PATH;
 use provers::ProverObj;
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 use storage::UriHandlerBuilder;
-use tempfile::NamedTempFile;
 use tokio::task::JoinSet;
 use url::Url;
 
@@ -594,45 +586,78 @@ async fn upload_input_uri(prover: &ProverObj, order: &Order, max_size: usize) ->
     })
 }
 
-/// Create a new broker from a test context.
-pub async fn broker_from_test_ctx(
-    ctx: &TestCtx,
-    rpc_url: Url,
-) -> Result<
-    Broker<
-        BoxTransport,
-        FillProvider<
-            JoinFill<
-                JoinFill<JoinFill<JoinFill<Identity, GasFiller>, NonceFiller>, ChainIdFiller>,
-                WalletFiller<EthereumWallet>,
-            >,
-            RootProvider<BoxTransport>,
-            BoxTransport,
-            Ethereum,
-        >,
-    >,
-> {
-    let config_file = NamedTempFile::new().unwrap();
-    let mut config = Config::default();
-    config.prover.agg_set_guest_path = Some(AGGREGATION_SET_GUEST_PATH.into());
-    config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-    config.market.mcycle_price = "0.00001".into();
-    config.batcher.batch_size = Some(1);
-    config.write(config_file.path()).await.unwrap();
+#[cfg(feature = "test-utils")]
+pub mod test_utils {
 
-    let args = Args {
-        db_url: "sqlite::memory:".into(),
-        config_file: config_file.path().to_path_buf(),
-        proof_market_addr: ctx.proof_market_addr,
-        set_verifier_addr: ctx.set_verifier_addr,
-        rpc_url,
-        priv_key: ctx.prover_signer.clone(),
-        bento_api_url: None,
-        bonsai_api_key: None,
-        bonsai_api_url: None,
-        deposit_amount: None,
+    use aggregation_set::AGGREGATION_SET_GUEST_PATH;
+    use alloy::{
+        network::{Ethereum, EthereumWallet},
+        providers::{
+            fillers::{
+                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+                WalletFiller,
+            },
+            Identity, RootProvider,
+        },
+        transports::BoxTransport,
     };
-    Broker::new(args, ctx.prover_provider.clone()).await
+    use anyhow::Result;
+    use boundless_market::contracts::test_utils::TestCtx;
+
+    use guest_assessor::ASSESSOR_GUEST_PATH;
+
+    use tempfile::NamedTempFile;
+
+    use url::Url;
+
+    use crate::{config::Config, Args, Broker};
+
+    /// Create a new broker from a test context.
+    pub async fn broker_from_test_ctx(
+        ctx: &TestCtx,
+        rpc_url: Url,
+    ) -> Result<
+        Broker<
+            BoxTransport,
+            FillProvider<
+                JoinFill<
+                    JoinFill<
+                        Identity,
+                        JoinFill<
+                            GasFiller,
+                            JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>,
+                        >,
+                    >,
+                    WalletFiller<EthereumWallet>,
+                >,
+                RootProvider<BoxTransport>,
+                BoxTransport,
+                Ethereum,
+            >,
+        >,
+    > {
+        let config_file = NamedTempFile::new().unwrap();
+        let mut config = Config::default();
+        config.prover.agg_set_guest_path = Some(AGGREGATION_SET_GUEST_PATH.into());
+        config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+        config.market.mcycle_price = "0.00001".into();
+        config.batcher.batch_size = Some(1);
+        config.write(config_file.path()).await.unwrap();
+
+        let args = Args {
+            db_url: "sqlite::memory:".into(),
+            config_file: config_file.path().to_path_buf(),
+            proof_market_addr: ctx.proof_market_addr,
+            set_verifier_addr: ctx.set_verifier_addr,
+            rpc_url,
+            priv_key: ctx.prover_signer.clone(),
+            bento_api_url: None,
+            bonsai_api_key: None,
+            bonsai_api_url: None,
+            deposit_amount: None,
+        };
+        Broker::new(args, ctx.prover_provider.clone()).await
+    }
 }
 
 #[cfg(test)]

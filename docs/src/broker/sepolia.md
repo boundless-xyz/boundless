@@ -50,7 +50,7 @@ IPFS storage is supported through [Pinata](https://www.pinata.cloud/), which off
 
 ### Submit Your First Offer
 
-Ensure the environment variables `RPC_URL` and `PINATA_JWT` are set. Run the following command to submit an offer to prove the [ECHO](https://github.com/risc0/boundless/blob/main/crates/guest/echo/echo/src/main.rs) of `Hello world!`. The image is uploaded to IPFS using Pinata, and the input is supplied in the calldata of the transaction (`--inline-input`). No additional journal constraints are checked on-chain (`--journal-prefix`). The offer uses the example [`offer.yaml`](https://github.com/risc0/boundless/blob/main/offer.yaml).
+Ensure the environment variables `RPC_URL` and `PINATA_JWT` are set. Run the following command to submit an offer to prove the [ECHO](https://github.com/boundless-xyz/boundless/blob/main/crates/guest/echo/echo/src/main.rs) of `Hello world!`. The image is uploaded to IPFS using Pinata, and the input is supplied in the calldata of the transaction (`--inline-input`). No additional journal constraints are checked on-chain (`--journal-prefix`). The offer uses the example [`offer.yaml`](https://github.com/boundless-xyz/boundless/blob/main/offer.yaml).
 
 ```bash
 RUST_LOG=info cargo run --bin cli -- --private-key <METAMASK_PRIVATE_KEY> --proof-market-address 0x1074Dc9CaEa49B5830D3b9A625CdEA9C1038FC45 submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml

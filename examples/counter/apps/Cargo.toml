@@ -13,12 +13,13 @@ clap = { workspace = true }
 dotenvy = { workspace = true }
 guest-util = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
-sha2 = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 
 [dev-dependencies]
-broker = { path = "../../../crates/broker" }
+boundless-market = { workspace = true, features = ["test-utils"] }
+broker = { workspace = true, features = ["test-utils"] }
 tracing-test = "0.2"

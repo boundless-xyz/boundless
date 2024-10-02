@@ -5,7 +5,7 @@
 //! Provider implementations for uploading image and input files such that they are publicly
 //! accessible to provers.
 
-use std::{env::VarError, result::Result::Ok, time::Duration};
+use std::{env::VarError, result::Result::Ok, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
@@ -41,6 +41,7 @@ pub trait StorageProvider {
     async fn upload_input(&self, input: &[u8]) -> Result<String, Self::Error>;
 }
 
+#[derive(Clone)]
 #[non_exhaustive]
 pub enum BuiltinStorageProvider {
     S3(S3StorageProvider),
@@ -330,8 +331,9 @@ impl StorageProvider for S3StorageProvider {
     }
 }
 
+#[derive(Clone)]
 pub struct TempFileStorageProvider {
-    temp_dir: TempDir,
+    temp_dir: Arc<TempDir>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -348,7 +350,7 @@ pub enum TempFileStorageProviderError {
 
 impl TempFileStorageProvider {
     pub async fn new() -> Result<Self, TempFileStorageProviderError> {
-        Ok(Self { temp_dir: tempfile::tempdir()? })
+        Ok(Self { temp_dir: Arc::new(tempfile::tempdir()?) })
     }
 
     async fn save_file(

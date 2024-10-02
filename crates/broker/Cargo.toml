@@ -42,9 +42,14 @@ workflow-common = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
+boundless-market = { workspace = true, features = ["test-utils"] }
+broker = { path = ".", features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-util = { workspace = true }
 hex = { workspace = true }
 httpmock = "0.7"
 risc0-zkvm = { workspace = true, default-features = true }
 tracing-test = "0.2"
+
+[features]
+test-utils = ["boundless-market/test-utils"]

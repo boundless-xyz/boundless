@@ -22,5 +22,5 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 
 [[bench]]
-name = "simple"
+name = "taskdb"
 harness = false

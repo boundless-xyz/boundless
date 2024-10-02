@@ -4,9 +4,6 @@ Ensure the following software is installed on your machine before proceeding:
 
 - **[Rust](https://www.rust-lang.org/tools/install) version 1.79 or higher**
 - **[Foundry](https://book.getfoundry.sh/getting-started/installation) version 0.2 or higher**
-- **[Docker](https://docs.docker.com/engine/install/)**
-- **Python version 3.10 or higher**
-- **jq**
 
 Before starting, ensure you have cloned with recursive submodules, or pull them with:
 
@@ -27,6 +24,7 @@ git submodule update --init
    ```
 
 3. Start anvil
+
    ```console
    anvil -b 2
    ```
@@ -35,36 +33,51 @@ git submodule update --init
 
    This will deploy the market contracts.
    Configuration environment variables are read from the [.env](../../../.env) file.
-   Optionally, by setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
+   By setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
 
    ```console
    source .env
-   forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
+   RISC0_DEV_MODE=1 forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
    ```
 
-5. Deposit funds and start the broker
+   > NOTE: Starting from a fresh Anvil instance, the deployed contract addresses will match the values in `.env`.
+   > If you need to deploy again, restart Anvil first or change the `.env` file to match your newly deployed contract addresses.
 
-   Optionally, by setting the environment variable `RISC0_DEV_MODE`, a mock prover will be used by the broker.
+5. Deposit Prover funds and start the Broker
+
+   The Broker is the service that watches the chain for proving requests, evaluates them, and orchestrates proving the jobs with the proving backend.
+
+   Here we will use a mock prover by setting `RISC0_DEV_MODE`.
+   The Broker can use either Bonsai or Bento as backend, remove `RISC0_DEV_MODE` and:
+
+   - To use Bonsai, export the `BONSAI_API_URL` and `BONSAI_API_KEY` env vars, or the the associated CLI flags.
+   - To use Bento, export the `BENTO_API_URL` env var or use the `--bento-api-url` CLI flag.
+     Also, refer to the [Running Bento](../bento/running_bento.md) guide.
+
+   The Broker needs to have funds deposited on the Boundless market contract to cover [lockin-stake][rfc-order-matching] on requests.
+   Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
    ```console
-   RUST_LOG=info cargo run --bin cli -- --wallet-private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 deposit 10
+   RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
    ```
 
-   The broker can use both Bonsai and Bento as backend. You can export the BONSAI_API_URL and BONSAI_API_KEY in the first case or refer to
-   [Running Bento](../bento/running_bento.md) to use that.
-
-   ```console
-   export BONSAI_API_URL=<BONSAI_URL> BONSAI_API_KEY=<BONSAI_KEY>
-   RUST_LOG=info cargo run --bin broker -- --priv-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --proof-market-addr 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 --set-verifier-addr 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
-   ```
-
-6. Test your deployment with the client cli.
+6. Test your deployment with the client CLI.
    You can read more about the client on the [proving request](../market/proving_request.md) page.
 
    ```console
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
+   RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
    ```
+
+   > If you see "Error: Market error: Failed to check fulfillment status",
+   > check the deployment logs from running `forge script` and ensure it matches the addresses listed in `.env`
+   > If they don't match, adjust the `.env` file or try restarting anvil and deploying again.
 
 Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
 
-Check out the [counter example](../../../examples/counter/README.md) for an example of how to run and application using the prover market.
+Check out the is-even example in the [Boundless Foundry template][boundless-foundry-template] for an example of how to run and application using the prover market.
+
+You can also try editing `request.yaml` to send a request with different values.
+Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
+
+[rfc-order-matching]: ../market/prover_market_rfc.md#order-placement-and-matching
+[boundless-foundry-template]: https://github.com/boundless-xyz/boundless-foundry-template/

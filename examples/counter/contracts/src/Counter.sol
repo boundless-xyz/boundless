@@ -11,7 +11,7 @@ error AlreadyVerified(bytes32 received);
 
 // Counter is a simple contract that increments a counter for each address that calls increment.
 // The increment function takes a seal and a journal digest, where the seal contains the proof of inclusion
-// (empty in case of singleton proofs) and verifies it using the CrossDomainSetOfTruth deployed on L1.
+// (empty in case of singleton proofs) and verifies it using the SetVerifier contract.
 // If the verification is successful, the journal digest is marked as verified,
 // so that can't be reused, and the counter is incremented.
 // It could be used to play a sort of game where each player has to submit as many unique proofs

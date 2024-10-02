@@ -1,56 +1,8 @@
 # Boundless Market v0.2 RFC
 
-⭐ The goal of this document is to facilitate agreement on key aspects for a "version 0" of the prover marketplace.
-It is **not** a comprehensive protocol reference, nor does it delve into detailed discussions of features beyond the v0 scope.
-
----
-0️⃣ Version 0 is to be a minimal system solving a real felt need for a real customer.
----
-
-## Top-level Design Choices
-
-- Order matching and payment happen on an existing EVM chain
-- Request settlement and proof verification will occur on the same chain.
-
-  As opposed to having the market on an L2 observe receipt verification on L1
-
-- Provers are free to accept and reject work based on their own internal heuristics.
-
-  Once they've accepted work, there may be penalties for failing to deliver, but they must be given the opportunity to preflight (i.e. execute) the job before they do so.
-
-- Price discovery occurs through an auction mechanism.
-- Orders are placed via a broadcast channel.
-
-  In the first testnet deployment, this will be the chain's calldata. In the future, an off-chain option will additionally be provided.
-
-- Peer-to-peer communication for provers is not in scope for v0.
-
-  If it makes the system more efficient, it may be included in future work. In any case, the prover market must continue to operate even when the network is offline.
-
-- An aggregation tree holds an arbitrary number of statements all verified with a single proof.
-
-  A prover must provide a Merkle inclusion path to a verified root to complete an order.
-
-- STARK proofs are not posted on-chain, or to any DA solution.
-
-  We are actively working toward the components needed for composition with Groth16 proofs, so the primary advantage of posting STARKs publicly will be diminished.
-
-- Provers have a way of locking-in an opportunity to take a job.
-
-  Requiring provers to race for every job decreases market efficiency and drives up costs.
-
-- SLA contracts and callback mechanisms should not be included directly in market v0.
-
-  Insofar as it is required to solve a key use case, we may write limited purpose implementation as a layer on top of the market.
-
-- Proof requests will be paid in ETH.
-- We will not work to support cross-prover aggregation in market v0.
-
-## Detailed design
-
 ### Interaction flow
 
-Below is a diagram of the interaction flow assuming a user with a wallet is driving it. In practice, we assume that a facilitator of some sort would assist to avoid end-users needing to send transactions to both L1 and L2.
+Below is a diagram of the interaction flow assuming a user with a wallet is driving it.
 
 [https://excalidraw.com/#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q](https://excalidraw.com/#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q)
 
@@ -190,20 +142,7 @@ struct Offer {
 
 #### Fulfillment
 
-**Requirements checking**: Once the prover has a proof that satisfies the requirements they will run the Assessor, which is a zkVM program that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request and does not need to be provided as part of fulfillment, only the associated identifier.
-
-```solidity
-// Structured journal of the Assessor guest which verifies the signature(s)
-// from client(s) and that the requirements are met by claim digest(s) in the
-// Merkle tree committed to by the given root. Assessor can verify a batch of
-// requests, including batches of size one.
-struct AssessorJournal {
-    uint192[] requestIds;
-    // Root of the Merkle tree committing to the set of proven claims.
-    // In the case of a batch of size one, this may simply be a claim digest.
-    bytes32 root;
-}
-```
+**Requirements checking**: Once the prover has a proof that satisfies the requirements they will run the Assessor, which is a zkVM program that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request does not need to be provided as part of fulfillment, only the associated identifier.
 
 **Guaranteed delivery**: In order to settle the order and receive payment, the prover must submit a receipt that meets the requirements of the request. This receipt is posted to the chain in calldata as part of the settlement transaction as a form of "guaranteed delivery". In this way, the receipt is now public such that the client can query the blockchain to receive it. In general, any data availability solution would also work here.
 
@@ -236,8 +175,6 @@ interface IProofMarket {
     error RequestIsNotExpired(uint192 requestId, uint64 deadline);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
-    /// Unable to complete request because of insufficient funds.
-    error InsufficientValue();
     /// Request has been slashed already.
     error RequestAlreadySlashed(uint192 requestId);
 
@@ -301,6 +238,7 @@ struct Fulfillment {
     uint192 id;
     bytes32 imageId;
     bytes journal;
+    bytes seal;
 }
 ```
 
@@ -364,6 +302,8 @@ struct AssessorJournal {
     // Root of the Merkle tree committing to the set of proven claims.
     // In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;
+    // EIP712 domain separator
+    bytes32 eip712DomainSeparator;
 }
 ```
 

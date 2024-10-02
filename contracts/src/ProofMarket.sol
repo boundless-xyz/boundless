@@ -18,7 +18,7 @@ import {ProofMarketLib} from "./ProofMarketLib.sol";
 // new request with the same ID and different requirements, which gets a
 // lockin, the prover is not actually bound to fulfill the one that was locked
 // in. A solution that avoids increasing state usage would be to add a deadline
-// check in the market guest. If two requests are valid in the same window with
+// check in the assessor. If two requests are valid in the same window with
 // the same ID, this is still an issue. However this is much more reasonably
 // considered a mistake, and client implementations should avoid it. Simplest
 // way for a client to avoid this issue would be always increment their index,
@@ -26,7 +26,7 @@ import {ProofMarketLib} from "./ProofMarketLib.sol";
 // state. Another, would be use scanning to determine the first unused ID. A
 // third approach would be to expand the request lock, but only store it's
 // digest in state. With this approach, we can include more info in it. This
-// would probably also expand the journal for the market guest. None of these
+// would probably also expand the journal for the assessor. None of these
 // are perfect.
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
@@ -245,8 +245,8 @@ contract ProofMarket is IProofMarket, EIP712 {
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
         VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
 
-        // Verify the market guest, which ensures the application proof fulfills a valid request with the given ID.
-        // NOTE: Signature checks and recursive verification happen inside the market guest.
+        // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
+        // NOTE: Signature checks and recursive verification happen inside the assessor.
         uint192[] memory ids = new uint192[](1);
         ids[0] = fill.id;
         bytes32 assessorJournalDigest = sha256(
@@ -273,8 +273,8 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
 
-        // Verify the market guest, which ensures the application proof fulfills a valid request with the given ID.
-        // NOTE: Signature checks and recursive verification happen inside the market guest.
+        // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
+        // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32 assessorJournalDigest = sha256(
             abi.encode(AssessorJournal({requestIds: ids, root: batchRoot, eip712DomainSeparator: _domainSeparatorV4()}))
         );
@@ -291,7 +291,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
     }
 
-    /// Complete the fulfillment logic after having verified the app and market guest receipts.
+    /// Complete the fulfillment logic after having verified the app and assessor receipts.
     function _fulfillVerified(uint192 id) internal {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
@@ -362,30 +362,34 @@ library MerkleProofish {
     // Compute the root of the Merkle tree given all of its leaves.
     // Assumes that the array of leaves is no longer needed, and can be overwritten.
     function processTree(bytes32[] memory leaves) internal pure returns (bytes32 root) {
-        require(leaves.length > 0, "Leaves list is empty, cannot compute Merkle root");
+        require(leaves.length > 0, "Leaves array must contain at least one element");
 
-        uint256 currentLevelSize = leaves.length;
-
-        // Build the tree level by level until we get the root
-        while (currentLevelSize > 1) {
-            uint256 nextLevelSize = (currentLevelSize + 1) / 2;
-
-            for (uint256 i = 0; i < nextLevelSize; i++) {
-                uint256 leftIndex = i * 2;
-                uint256 rightIndex = leftIndex + 1;
-
-                bytes32 leftHash = leaves[leftIndex];
-                bytes32 rightHash = (rightIndex < currentLevelSize) ? leaves[rightIndex] : leftHash;
-
-                // Store the combined hash in the current position
-                leaves[i] = _hashPair(leftHash, rightHash);
-            }
-
-            // Update the size for the next level
-            currentLevelSize = nextLevelSize;
+        // If there's only one leaf, the root is the leaf itself
+        if (leaves.length == 1) {
+            return leaves[0];
         }
 
-        // The final root is at the first position
+        uint256 n = leaves.length;
+
+        // Process the leaves array in pairs, iteratively computing the hash of each pair
+        while (n > 1) {
+            uint256 nextLevelLength = (n + 1) / 2; // Upper bound of next level (handles odd number of elements)
+
+            // Hash the current level's pairs and place results at the start of the array
+            for (uint256 i = 0; i < n / 2; i++) {
+                leaves[i] = _hashPair(leaves[2 * i], leaves[2 * i + 1]);
+            }
+
+            // If there's an odd number of elements, propagate the last element directly
+            if (n % 2 == 1) {
+                leaves[n / 2] = leaves[n - 1];
+            }
+
+            // Move to the next level (the computed hashes are now the new "leaves")
+            n = nextLevelLength;
+        }
+
+        // The root is now the single element left in the array
         root = leaves[0];
     }
 

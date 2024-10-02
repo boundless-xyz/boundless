@@ -17,6 +17,24 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+    # see: https://github.com/orgs/community/discussions/26822
+  main-status-check:
+    if: always()
+    needs:
+      - rust
+      - link-check
+      - format
+      - foundry
+      - examples
+      - docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all job status
+        # see https://docs.github.com/en/actions/reference/context-and-expression-syntax-for-github-actions#needs-context
+        # see https://stackoverflow.com/a/67532120/4907315
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+
   rust:
     runs-on: boundless-linux-x64-01
     services:
@@ -99,6 +117,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: restore lychee cache
+        id: restore-cache
         uses: actions/cache@v4
         with:
           path: .lycheecache
