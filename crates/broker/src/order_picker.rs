@@ -379,10 +379,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address = *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO)
-            .await
-            .unwrap()
-            .address();
+        let contract_address =
+            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
         let proof_market = ProofMarketService::new(
             contract_address,
             provider.clone(),
@@ -473,10 +474,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address = *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO)
-            .await
-            .unwrap()
-            .address();
+        let contract_address =
+            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
         let proof_market = ProofMarketService::new(
             contract_address,
             provider.clone(),
@@ -568,10 +570,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address = *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO)
-            .await
-            .unwrap()
-            .address();
+        let contract_address =
+            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
         let proof_market = ProofMarketService::new(
             contract_address,
             provider.clone(),

@@ -112,17 +112,19 @@ contract ProofMarket is IProofMarket, EIP712 {
     // verifying individual claims is relatively cheap.
     IRiscZeroVerifier public immutable VERIFIER;
     bytes32 public immutable ASSESSOR_ID;
+    string private imageUrl;
 
     /// In order to fulfill a request, the prover must provide a proof that can be verified with at
     /// most the amount of gas specified by this constant. This requirement exists to ensure the
     /// client can then post the given proof in a new transaction as part of the application.
     uint256 public constant FULFILL_MAX_GAS_FOR_VERIFY = 50000;
 
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId)
+    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, string memory _imageUrl)
         EIP712(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION)
     {
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
+        imageUrl = _imageUrl;
     }
 
     function requestIsFulfilled(uint192 id) external view returns (bool) {
@@ -353,6 +355,10 @@ contract ProofMarket is IProofMarket, EIP712 {
         accounts[client].balance += lock.price;
         (bool sent,) = payable(address(0)).call{value: uint256(lock.stake)}("");
         require(sent, "Failed to burn Ether");
+    }
+
+    function imageInfo() external view returns (bytes32, string memory) {
+        return (ASSESSOR_ID, imageUrl);
     }
 }
 

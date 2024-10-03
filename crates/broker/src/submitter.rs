@@ -333,6 +333,7 @@ mod tests {
             &provider,
             *set_verifier.address(),
             FixedBytes::from_slice(&Digest::from(ASSESSOR_GUEST_ID).as_bytes()),
+            String::new(),
         )
         .await
         .unwrap();
