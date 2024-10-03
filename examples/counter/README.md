@@ -1,7 +1,7 @@
 # Counter Example
 
 > This example should be run against a deployment of the Boundless market.
-> See the [local devnet doc](../../docs/src/broker/local_devnet.md) for info on running one locally.
+> See the [local devnet doc][page-broker-devnet] for info on running one locally.
 > Environment variables for connecting to and interacting with the network are defined in a [.env file](../../.env).
 
 ## Build
@@ -21,6 +21,7 @@ To deploy the Counter contract run:
 forge script contracts/scripts/Deploy.s.sol --rpc-url ${L1_RPC_URL:?} --broadcast -vv
 ```
 
+eat
 Save the `Counter` contract address to an env variable:
 
 ```bash
@@ -38,7 +39,7 @@ export COUNTER_ADDRESS=#COPY COUNTER ADDRESS FROM DEPLOY LOGS
 
 ## Run the example
 
-Running this example requires having access to a Boundless market deployment. You can set a local one up by following the [local devnet](../../docs/src/broker/local_devnet.md) instructions.
+Running this example requires having access to a Boundless market deployment. You can set a local one up by following the [local devnet][page-broker-devnet] instructions.
 
 To run the example run:
 
@@ -63,3 +64,5 @@ export IPFS_GATEWAY_URL="YOUR_IPFS_GATEWAY_URL"
 ```bash
 RUST_LOG=info cargo run --bin example-counter -- --counter-address ${COUNTER_ADDRESS:?}
 ```
+
+[page-broker-devnet]: ../../docs/src/prover-manual/broker/local_devnet.md
