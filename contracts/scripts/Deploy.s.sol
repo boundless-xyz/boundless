@@ -47,7 +47,7 @@ contract Deploy is Script, RiscZeroCheats {
         RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, setBuilderGuestUrl);
         console2.log("Deployed SetVerifier to,", address(setVerifier));
 
-        ProofMarket market = new ProofMarket(setVerifier, AssesorImgId.ASSESSOR_GUEST_ID);
+        ProofMarket market = new ProofMarket(setVerifier, AssesorImgId.ASSESSOR_GUEST_ID, assessorGuestUrl);
         console2.log("Deployed ProofMarket to", address(market));
 
         vm.stopBroadcast();
