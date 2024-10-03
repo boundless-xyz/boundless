@@ -297,14 +297,14 @@ pub async fn get_job_state(
     Ok(row)
 }
 
-pub async fn get_job_unresolved(pool: &PgPool, job_id: &Uuid) -> Result<u64, TaskDbErr> {
+pub async fn get_job_unresolved(pool: &PgPool, job_id: &Uuid) -> Result<i64, TaskDbErr> {
     let unresolved: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE job_id = $1 AND state != $2")
             .bind(job_id)
             .bind(TaskState::Done)
             .fetch_one(pool)
             .await?;
-    Ok(unresolved as u64)
+    Ok(unresolved)
 }
 
 pub async fn get_concurrent_jobs(pool: &PgPool, user_id: &str) -> Result<i64, TaskDbErr> {
