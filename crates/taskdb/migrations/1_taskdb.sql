@@ -44,7 +44,7 @@ CREATE TABLE streams (
     END) STORED
 );
 
--- Make sure we can find streams quicky by priority
+-- Make sure we can find streams quickly by priority
 CREATE INDEX streams_by_priority ON streams USING btree (worker_type, priority);
 
 /*
