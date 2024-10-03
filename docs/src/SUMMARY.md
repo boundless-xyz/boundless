@@ -22,8 +22,8 @@
     - [Run a broker node](./prover-manual/broker/broker_node.md)
     - [Play with a local devnet](./prover-manual/broker/local_devnet.md)
 
-- [🔗 Reference](./reference/README.md)
-  - [📑 Glossary](./reference/glossary.md)
+- [🔗 Reference](./reference.md)
+- [📑 Glossary](./glossary.md)
 
 <!-- TODO: get a ./LICENSE.md in place -->
 

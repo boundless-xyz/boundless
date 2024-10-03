@@ -38,7 +38,7 @@ Uses
 
 ### Requestor
 
-Demanding proofs form the [Proof Market](#prover-market)
+Demanding proofs form the [Boundless Market][term-boundless-market]
 
 <!-- TODO replace instances of: client, demand -->
 
@@ -61,3 +61,7 @@ make uniform
 - Do we mention the token at all? or RM now.
 - RFC should include links to code, (or embed), not be code in line
 - UPDATE broker/sepolia.html (remove for now)
+
+<!-- 🔗 Reference Style -->
+
+{{#include links.md:21:}}

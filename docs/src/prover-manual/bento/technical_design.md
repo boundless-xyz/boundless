@@ -1,6 +1,7 @@
 # Bento Technical Design
 
-Bento is designed to be a horizontally scalable, semi multi-tenant proving cluster for the RISC0 ZKVM. Some core features of Bento include:
+[Bento][term-bento] is designed to be a horizontally scalable, semi multi-tenant proving cluster for the RISC0 ZKVM.
+Some core features of Bento include:
 
 - Clusters of arbitrarily sized proving capacity (read GPUs).
 - Support for arbitrarily sized proofs.
@@ -14,8 +15,8 @@ Bento is designed to be a horizontally scalable, semi multi-tenant proving clust
 
 Bento's infrastructure is composed of a few core open source projects:
 
-- Docker
-- PostgreSQL
+- [Docker][]
+- [PostgreSQL][]
 - Redis
 - MinIO
 - Grafana (optional for monitoring)
@@ -36,7 +37,7 @@ in its operation:
 
 Bento's design philosophy is centered around TaskDB. TaskDB is a database schema in PostgreSQL that acts as a central communications hub, scheduler, and queue for all of the Bento system. To illustrate further, the following diagram is the visual representation of the proving workflow (RISC0 continuations).
 
-![Bento Diagram](../images/bento-diagram.png)
+![Bento Diagram](../../images/bento-diagram.png)
 
 From there Bento has the application containers
 
@@ -50,15 +51,16 @@ As demonstrated above, Bento breaks down tasks into these major actions:
 - Join - takes two lifted proofs and joins them together into one proof
 - Resolve - produce a final join - Resolve verifies all the unverified claims, effectively completing any composition tasks.
 - Finalize - Uploads the final proof to minio
-- SNARK - Convert a STARK proof into a SNARK proof using [rapidsnark](https://github.com/iden3/rapidsnark)
+- SNARK - Convert a STARK proof into a SNARK proof using [rapidsnark][]
 
-For a more in depth information on recursion with RISC0 please see: <https://dev.risczero.com/api/recursion>
+> For a more in depth information see [the recursive proving docs][r0-docs-recursion].
 
 ### Redis
 
 In order to share intermediate files (such as Segments) between workers, Redis is using as fast intermediary. Bento writes to Redis for fast cross machine file access and provides a high bandwidth backbone for sharing data between nodes and workers.
 
 <div class="warning">
+
 Note: The Redis node's memory configuration is important for the size of proofs running. Because each segment is ~5 - 10 MB in size it is possible to overload Redis's node memory with too much data if the STARK proof is large enough and the GPU workers are not consuming the segments fast enough.
 
 We recommend a high memory node for the Redis container as well as active monitoring / alerts (See Grafana for monitor) on the Redis node to ensure it does not overflow the possible memory.
@@ -84,7 +86,7 @@ Dedicated Resources allows for a stream's user to get priority access to N worke
 
 ### The Agent
 
-The Agent(s) are long polling daemons that opt in to specific actions. An agent can be configured to act as a:
+The [Agent][term-agent](s) are long polling daemons that opt in to specific actions. An agent can be configured to act as a:
 
 - Executor
 - GPU worker
@@ -125,3 +127,7 @@ This agent will convert a STARK proof into a SNARK proof using rapidsnark.Perfor
 ### REST API
 
 The REST API provides a external interface to start / stop / monitor jobs and tasks within taskdb. It is more completely documented in the Bento API section (TODO WRITE THAT)
+
+<!-- 🔗 Reference Style -->
+
+{{#include ../../links.md:21:}}

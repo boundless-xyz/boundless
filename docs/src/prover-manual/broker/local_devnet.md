@@ -54,7 +54,7 @@ git submodule update --init
    - To use Bento, export the `BENTO_API_URL` env var or use the `--bento-api-url` CLI flag.
      Also, refer to the [Running Bento](../bento/running_bento.md) guide.
 
-   The Broker needs to have funds deposited on the Boundless market contract to cover [lockin-stake][rfc-order-matching] on requests.
+   The Broker needs to have funds deposited on the Boundless market contract to cover [lockin-stake][id-rfc-order-matching] on requests.
    Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
    ```console
@@ -79,5 +79,6 @@ Check out the is-even example in the [Boundless Foundry template][boundless-foun
 You can also try editing `request.yaml` to send a request with different values.
 Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
 
-[rfc-order-matching]: ../market/prover_market_rfc.md#order-placement-and-matching
-[boundless-foundry-template]: https://github.com/boundless-xyz/boundless-foundry-template/
+<!-- 🔗 Reference Style -->
+
+{{#include ../../links.md:21:}}

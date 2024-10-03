@@ -57,3 +57,7 @@ RUST_LOG=info cargo run --bin cli -- --private-key <METAMASK_PRIVATE_KEY> --proo
 ```
 
 See [Submit proving requests](../market/proving_request.md) for more info on request.
+
+<!-- 🔗 Reference Style -->
+
+{{#include ../../links.md:21:}}

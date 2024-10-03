@@ -65,3 +65,7 @@ Or with a existing elf / input file:
 ```bash
 RUST_LOG=info cargo run -F bento_cli --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin
 ```
+
+<!-- 🔗 Reference Style -->
+
+{{#include ../../links.md:21:}}
