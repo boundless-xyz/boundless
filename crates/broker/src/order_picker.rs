@@ -417,7 +417,7 @@ mod tests {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
             request: ProvingRequest::new(
-                1,
+                proof_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),
@@ -512,7 +512,7 @@ mod tests {
             updated_at: Utc::now(),
             target_block: None,
             request: ProvingRequest::new(
-                1,
+                proof_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),
@@ -606,7 +606,7 @@ mod tests {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
             request: ProvingRequest::new(
-                1,
+                proof_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),

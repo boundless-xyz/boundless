@@ -350,7 +350,7 @@ mod tests {
         let max_price = 2;
 
         let request = ProvingRequest::new(
-            1,
+            proof_market.index_from_nonce().await.unwrap(),
             &signer.address(),
             Requirements {
                 imageId: B256::ZERO,

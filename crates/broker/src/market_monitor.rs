@@ -228,10 +228,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{
-            aliases::{U192, U96},
-            Address, B256, U256,
-        },
+        primitives::{aliases::U96, Address, B256, U256},
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
     };
@@ -259,7 +256,7 @@ mod tests {
         let min_price = 1;
         let max_price = 10;
         let proving_request = ProvingRequest {
-            id: U192::ZERO,
+            id: proof_market.request_id_from_nonce().await.unwrap(),
             requirements: Requirements {
                 imageId: B256::ZERO,
                 predicate: Predicate {
