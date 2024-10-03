@@ -41,7 +41,7 @@ contract Deploy is Script, RiscZeroCheats {
                 cwd,
                 "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
             );
-            console2.log("Assessorr URI", assessorGuestUrl);
+            console2.log("Assessor URI", assessorGuestUrl);
         }
 
         RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, setBuilderGuestUrl);
