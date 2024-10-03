@@ -170,4 +170,7 @@ interface IProofMarket {
 
     /// EIP 712 domain separator getter
     function eip712DomainSeparator() external view returns (bytes32);
+
+    /// Returns the assessor imageId and its url.
+    function imageInfo() external view returns (bytes32, string memory);
 }

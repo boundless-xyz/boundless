@@ -237,7 +237,10 @@ mod tests {
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
         let contract_address =
-            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO).await.unwrap().address();
+            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
         let proof_market = ProofMarketService::new(
             contract_address,
             provider.clone(),
@@ -334,7 +337,10 @@ mod tests {
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
         let contract_address =
-            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO).await.unwrap().address();
+            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
         let proof_market = ProofMarketService::new(
             contract_address,
             provider.clone(),
