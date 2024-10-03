@@ -1,10 +1,6 @@
 # Summary
 
-[🏡 Introduction](./README.md)
-
-<!-- TODO: get a ./LICENSE.md in place -->
-
-[🏷️ License](./LICENSE.md)
+[🏡 Boundless](./README.md)
 
 ---
 
@@ -26,5 +22,9 @@
     - [Run a broker node](./prover-manual/broker/broker_node.md)
     - [Play with a local devnet](./prover-manual/broker/local_devnet.md)
 
-[📑 Glossary](./glossary.md)
-[🔗 Reference](reference.md)
+- [🔗 Reference](./reference/README.md)
+  - [📑 Glossary](./reference/glossary.md)
+
+<!-- TODO: get a ./LICENSE.md in place -->
+
+[🏷️ License](./LICENSE.md)
