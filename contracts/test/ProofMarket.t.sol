@@ -66,7 +66,7 @@ contract ProofMarketTest is Test {
         vm.startPrank(OWNER_WALLET.addr);
         verifier = new RiscZeroMockVerifier(MOCK_SELECTOR);
         setVerifier = new RiscZeroSetVerifier(verifier, SET_BUILDER_IMAGE_ID, "https://set-builder.dev.null");
-        proofMarket = new ProofMarket(setVerifier, ASSESSOR_IMAGE_ID);
+        proofMarket = new ProofMarket(setVerifier, ASSESSOR_IMAGE_ID, "https://assessor.dev.null");
         vm.stopPrank();
 
         vm.prank(PROVER_WALLET.addr);

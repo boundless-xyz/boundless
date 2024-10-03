@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use alloy::{
     network::Ethereum,
-    primitives::{aliases::U192, Address, Bytes, U256},
+    primitives::{aliases::U192, Address, Bytes, B256, U256},
     providers::Provider,
     signers::{Signer, SignerSync},
     transports::Transport,
@@ -606,6 +606,15 @@ where
     pub async fn request_id_from_nonce(&self) -> Result<U192, MarketError> {
         let index = self.index_from_nonce().await?;
         Ok(request_id(&self.caller, index))
+    }
+
+    /// Returns the image ID and URL of the assessor guest.
+    pub async fn image_info(&self) -> Result<(B256, String)> {
+        tracing::debug!("Calling imageInfo()");
+        let (image_id, image_url) =
+            self.instance.imageInfo().call().await.context("call failed")?.into();
+
+        Ok((image_id, image_url))
     }
 }
 

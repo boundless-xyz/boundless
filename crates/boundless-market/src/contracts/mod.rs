@@ -529,6 +529,7 @@ pub mod test_utils {
                 &deployer_provider,
                 *set_verifier.address(),
                 <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
+                String::new(),
             )
             .await
             .unwrap();
