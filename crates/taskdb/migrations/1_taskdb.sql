@@ -26,7 +26,7 @@ CREATE TABLE streams (
   id UUID NOT NULL DEFAULT uuid_generate_v4() PRIMARY KEY,
   worker_type TEXT NOT NULL, -- What type of worker is this stream for
   reserved INTEGER NOT NULL, -- How many 'reserved' workers for this stream
-  be_mult REAL NOT NULL,     -- Best effort multipler, 2.0 gets twice as much as 1.0
+  be_mult REAL NOT NULL,     -- Best effort multiplier, 2.0 gets twice as much as 1.0
   user_id TEXT NOT NULL,     -- User identifier that owns this stream
 
   -- Managed by triggers
@@ -63,7 +63,7 @@ CREATE TABLE jobs (
 A task is an item of work, and is local to a job.  Within a job, a task is
 identified by string based identifier.  Task should be 'equivalently
 idempotent', in that rerunning them should result in 'logically' the same
-output.  For example, a ZKP may not be identical due to randomness used in tht
+output.  For example, a ZKP may not be identical due to randomness used in that
 protocol, but should prove the same thing.  It is important that if a given
 task creates more tasks, the naming should consistent, i.e. 'prove-0' rather
 than a UUID so that if tasks that make tasks are rerun, duplicate tasks don't
