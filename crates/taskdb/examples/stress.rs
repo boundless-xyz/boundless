@@ -41,21 +41,6 @@ async fn create_customer(pool: &PgPool, user_id: &str) -> Result<(Uuid, Uuid)> {
     Ok((cpu_stream, gpu_stream))
 }
 
-// async fn update_stream(pool: &PgPool, user_id: &str) -> Result<(Uuid, Uuid)> {
-//     let reserved = rand::thread_rng().gen_range(0..4);
-//     let be_mult = rand::thread_rng().gen_range(0.0..2.0);
-//     let cpu_stream = taskdb::update_stream(pool, "CPU", reserved, be_mult, user_id)
-//         .await
-//         .context("Failed to create cpu stream")?
-//         .unwrap();
-//     let gpu_stream = taskdb::update_stream(pool, "GPU", reserved, be_mult, user_id)
-//         .await
-//         .context("Failed to create cpu stream")?
-//         .unwrap();
-
-//     Ok((cpu_stream, gpu_stream))
-// }
-
 async fn spawner(shutdown: Arc<AtomicBool>, pool: PgPool, args: Args) -> Result<()> {
     tracing::info!("Starting spawner..");
     let mut customers = vec![];
@@ -99,7 +84,6 @@ async fn spawner(shutdown: Arc<AtomicBool>, pool: PgPool, args: Args) -> Result<
     Ok(())
 }
 
-// TODO: Deduplicate this code from the e2e?
 async fn process_task(pool: &PgPool, tree_task: &Task, db_task: &ReadyTask) -> Result<()> {
     let user_id = db_task.task_def.get("user_id").unwrap().as_str().unwrap();
     let cpu_stream = db_task.task_def.get("cpu_stream").unwrap().as_str().unwrap();
@@ -237,11 +221,6 @@ async fn worker(
                             _ => bail!("unsupported CPU task"),
                         }
 
-                        // update stream
-                        // update_stream(&pool, user_id)
-                        //     .await
-                        //     .context("Failed to update stream")?;
-
                         let res = update_task_done(
                             &pool,
                             &task.job_id,
@@ -277,11 +256,6 @@ async fn worker(
                                 task.task_id
                             );
 
-                            // update stream
-                            // update_stream(&pool, user_id)
-                            //     .await
-                            //     .context("Failed to update stream")?;
-
                             if !update_task_failed(&pool, &task.job_id, &task.task_id, "ERROR")
                                 .await
                                 .context("Failed to update_task_failed")?
@@ -295,11 +269,6 @@ async fn worker(
                         } else if r.gen_range(0..args.gpu_retry_rate) == 0 {
                             tracing::warn!("Retrying task {}:{}", task.job_id, task.task_id);
 
-                            // update stream
-                            // update_stream(&pool, user_id)
-                            //     .await
-                            //     .context("Failed to update stream")?;
-
                             if !update_task_retry(&pool, &task.job_id, &task.task_id)
                                 .await
                                 .context("Failed to task_retry")?
@@ -311,11 +280,6 @@ async fn worker(
                                 );
                             }
                         } else {
-                            // update stream
-                            // update_stream(&pool, user_id)
-                            //     .await
-                            //     .context("Failed to update stream")?;
-
                             let res = update_task_done(
                                 &pool,
                                 &task.job_id,
