@@ -23,7 +23,6 @@ default-theme = "Boundless"
 preferred-dark-theme = "Navy"
 fold.enable = true                # Sidebar collapses automatically
 print.enable = false              # Disclude support for printable output
-additional-js = ["theme/solidity.min.js", "theme/yul.min.js"]
 
 [output.html.search]
 limit-results = 20
