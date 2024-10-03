@@ -32,7 +32,7 @@ git submodule update --init
 4. Deploy market contracts
 
    This will deploy the market contracts.
-   Configuration environment variables are read from the [.env](../../../.env) file.
+   Configuration environment variables are read from the `.env` file.
    By setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
 
    ```console
@@ -52,7 +52,7 @@ git submodule update --init
 
    - To use Bonsai, export the `BONSAI_API_URL` and `BONSAI_API_KEY` env vars, or the the associated CLI flags.
    - To use Bento, export the `BENTO_API_URL` env var or use the `--bento-api-url` CLI flag.
-     Also, refer to the [Running Bento](../bento/running_bento.md) guide.
+     Also, refer to the [Running Bento][page-bento-running] guide.
 
    The Broker needs to have funds deposited on the Boundless market contract to cover [lockin-stake][id-rfc-order-matching] on requests.
    Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
@@ -62,7 +62,7 @@ git submodule update --init
    ```
 
 6. Test your deployment with the client CLI.
-   You can read more about the client on the [proving request](../market/proving_request.md) page.
+   You can read more about the client on the [proving request][page-requestor-request] page.
 
    ```console
    RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
@@ -81,4 +81,7 @@ Check `cargo run --bin cli -- --help` for a full list of commands available thro
 
 <!-- 🔗 Reference Style -->
 
-{{#include ../../links.md:21:}}
+{{#include ../../links.md:15:}}
+
+[page-bento-running]: ../bento/running_bento.md
+[page-requestor-request]: ../../requestor-manual/proving_request.md

@@ -130,4 +130,6 @@ The REST API provides a external interface to start / stop / monitor jobs and ta
 
 <!-- 🔗 Reference Style -->
 
-{{#include ../../links.md:21:}}
+{{#include ../../links.md:15:}}
+
+[term-agent]: ../../glossary.md#agent

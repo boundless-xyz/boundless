@@ -1,20 +1,22 @@
+<!-- TODO: link all rust symbol references to source & rustdocs -->
+
 # Submit Proving Request
 
 Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `ProofMarketService` struct.
-An example is provided in the [examples/counter](../../../examples/counter) directory.
+An example is provided in the `examples/counter` directory.
 
 You can also interact with the market via a market client CLI.
-It builds upon the [boundless_market::contracts](../../../crates/boundless-market/src/contracts/proof_market.rs) library.
+It builds upon the `boundless_market::contracts` library.
 
 ## CLI Usage
 
 > **NOTE**: all the following commands can be run with the environment variable `RISC0_DEV_MODE` set;
-> this should be done only while testing within a [local devnet](../broker/local_devnet.md) as the
+> this should be done only while testing within a [local devnet][page-broker-devnet] as the
 > default storage provider will use temporary files.
 
-The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
+The `client-cli` allows to:
 
-1. Submit proving request via a YAML file, an example can be found [here](../../../request.yaml).
+1. Submit proving request via a YAML file, an example can be found `request.yaml`.
 
    ```console
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
@@ -101,4 +103,6 @@ The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
 
 <!-- 🔗 Reference Style -->
 
-{{#include ../links.md:21:}}
+{{#include ../links.md:15:}}
+
+[page-broker-devnet]: ../prover-manual/broker/local_devnet.md

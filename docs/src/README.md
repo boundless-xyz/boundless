@@ -1,7 +1,7 @@
 <center><h2> The Verifiable Compute Layer </h2></center>
 
 <figure>
-  <img src="./images/boundless-vision-blog-devs-overview.webp"/>
+  <img src="images/boundless-vision-blog-devs-overview.webp"/>
   <cap>Boundless: Verifiable Off-chain Computation on Any Chain</cap>
 </figure>
 
@@ -18,4 +18,15 @@ Helpful resources and more can be found in the [reference][page-reference].
 
 <!-- 🔗 Reference Style -->
 
-{{#include links.md:21:}}
+{{#include links.md:15:}}
+
+[page-prover-manual]: prover-manual/README.md
+[page-market-overview]: market/README.md
+[page-requestor-manual]: requestor-manual/README.md
+[page-glossary]: glossary.md
+[page-reference]: reference.md
+[term-bento]: glossary.md#bento
+[term-boundless]: glossary.md#boundless-market
+[term-boundless-market]: glossary.md#boundless-market
+[term-requestor]: glossary.md#requestor
+[term-prover]: glossary.md#prover
