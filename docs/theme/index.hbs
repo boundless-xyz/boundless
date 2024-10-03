@@ -316,14 +316,14 @@
 
         <script src="{{ path_to_root }}clipboard.min.js"></script>
         <script src="{{ path_to_root }}highlight.js"></script>
-        <script src="{{ path_to_root }}solidity.min.js"></script>
-        <script src="{{ path_to_root }}yul.min.js"></script>
-        <script src="{{ path_to_root }}book.js"></script>
 
         <!-- Custom JS scripts -->
         {{#each additional_js}}
         <script src="{{ ../path_to_root }}{{this}}"></script>
         {{/each}}
+
+        <!-- Must be loaded after any Theme modifications -->
+        <script src="{{ path_to_root }}book.js"></script>
 
         {{#if is_print}}
         {{#if mathjax_support}}
