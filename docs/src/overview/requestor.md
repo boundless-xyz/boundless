@@ -1,3 +1,0 @@
-# Requestor Manual
-
-TODO
