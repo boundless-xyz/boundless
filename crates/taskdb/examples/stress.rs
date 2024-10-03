@@ -1,7 +1,3 @@
-// Copyright (c) 2024 RISC Zero, Inc.
-//
-// All rights reserved.
-
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use rand::SeedableRng;
@@ -41,19 +37,36 @@ async fn create_customer(pool: &PgPool, user_id: &str) -> Result<(Uuid, Uuid)> {
     Ok((cpu_stream, gpu_stream))
 }
 
-async fn spawner(pool: PgPool, args: Args) -> Result<()> {
+// async fn update_stream(pool: &PgPool, user_id: &str) -> Result<(Uuid, Uuid)> {
+//     let reserved = rand::thread_rng().gen_range(0..4);
+//     let be_mult = rand::thread_rng().gen_range(0.0..2.0);
+//     let cpu_stream = taskdb::update_stream(pool, "CPU", reserved, be_mult, user_id)
+//         .await
+//         .context("Failed to create cpu stream")?
+//         .unwrap();
+//     let gpu_stream = taskdb::update_stream(pool, "GPU", reserved, be_mult, user_id)
+//         .await
+//         .context("Failed to create cpu stream")?
+//         .unwrap();
+
+//     Ok((cpu_stream, gpu_stream))
+// }
+
+async fn spawner(shutdown: Arc<AtomicBool>, pool: PgPool, args: Args) -> Result<()> {
     tracing::info!("Starting spawner..");
     let mut customers = vec![];
     for idx in 0..args.customers {
         let user_id = format!("user_{idx}");
         customers.push((
-            create_customer(&pool, &user_id).await.context("Failed to create customer")?,
+            create_customer(&pool, &user_id)
+                .await
+                .context("Failed to create customer")?,
             user_id,
         ));
     }
     let mut r = StdRng::seed_from_u64(args.rng_seed);
 
-    loop {
+    while !shutdown.load(Ordering::Relaxed) {
         // Pick a random
         let ((cpu_stream, gpu_stream), user_id) = customers.choose(&mut r).unwrap();
         let segment_count = r.gen_range(1..args.max_job_size);
@@ -70,7 +83,9 @@ async fn spawner(pool: PgPool, args: Args) -> Result<()> {
 
         if args.incra_mode {
             loop {
-                let job_status = taskdb::get_job_state(&pool, &job_id, user_id).await.unwrap();
+                let job_status = taskdb::get_job_state(&pool, &job_id, user_id)
+                    .await
+                    .unwrap();
                 if job_status != JobState::Running {
                     break;
                 }
@@ -80,14 +95,26 @@ async fn spawner(pool: PgPool, args: Args) -> Result<()> {
             sleep(Duration::from_millis(args.job_speed)).await;
         }
     }
+
+    Ok(())
 }
 
 // TODO: Deduplicate this code from the e2e?
 async fn process_task(pool: &PgPool, tree_task: &Task, db_task: &ReadyTask) -> Result<()> {
     let user_id = db_task.task_def.get("user_id").unwrap().as_str().unwrap();
-    let cpu_stream = db_task.task_def.get("cpu_stream").unwrap().as_str().unwrap();
+    let cpu_stream = db_task
+        .task_def
+        .get("cpu_stream")
+        .unwrap()
+        .as_str()
+        .unwrap();
     let cpu_stream = Uuid::from_str(cpu_stream).unwrap();
-    let gpu_stream = db_task.task_def.get("gpu_stream").unwrap().as_str().unwrap();
+    let gpu_stream = db_task
+        .task_def
+        .get("gpu_stream")
+        .unwrap()
+        .as_str()
+        .unwrap();
     let gpu_stream = Uuid::from_str(gpu_stream).unwrap();
 
     match tree_task.command {
@@ -191,17 +218,24 @@ async fn run_exec_task(pool: &PgPool, task: &ReadyTask, args: &Args) -> Result<(
     Ok(())
 }
 
-async fn worker(pool: PgPool, worker_id: u32, worker_type: &str, args: Args) -> Result<()> {
+async fn worker(
+    shutdown: Arc<AtomicBool>,
+    pool: PgPool,
+    worker_id: u32,
+    worker_type: &str,
+    args: Args,
+) -> Result<()> {
     tracing::info!("in worker: {worker_type} idx: {worker_id}");
     let mut r = StdRng::seed_from_u64(args.rng_seed + u64::from(worker_id));
 
-    loop {
+    while !shutdown.load(Ordering::Relaxed) {
         match taskdb::request_work(&pool, worker_type).await {
             Ok(task) => {
                 let Some(task) = task else {
                     sleep(Duration::from_millis(200)).await;
                     continue;
                 };
+                // let user_id = task.task_def.get("user_id").unwrap().as_str().unwrap();
 
                 match worker_type {
                     "CPU" => {
@@ -212,6 +246,11 @@ async fn worker(pool: PgPool, worker_id: u32, worker_type: &str, args: Args) -> 
                             "finalize" => {}
                             _ => bail!("unsupported CPU task"),
                         }
+
+                        // update stream
+                        // update_stream(&pool, user_id)
+                        //     .await
+                        //     .context("Failed to update stream")?;
 
                         let res = update_task_done(
                             &pool,
@@ -231,13 +270,14 @@ async fn worker(pool: PgPool, worker_id: u32, worker_type: &str, args: Args) -> 
                     }
                     "GPU" => {
                         // wait random ms in range
-                        let seconds = r.gen_range(1..args.gpu_work_speed);
+                        // let seconds = r.gen_range(1..args.gpu_work_speed);
                         tracing::info!(
-                            "[{worker_id}] GPU running for {seconds} ms, job: {}:{}",
+                            "[{worker_id}] GPU running for {} ms, job: {}:{}",
+                            args.gpu_work_speed,
                             task.job_id,
                             task.task_id
                         );
-                        sleep(Duration::from_millis(seconds)).await;
+                        sleep(Duration::from_millis(args.gpu_work_speed)).await;
 
                         // 1 in N chance to fail a task
                         if r.gen_range(0..args.gpu_fail_rate) == 0 {
@@ -246,6 +286,11 @@ async fn worker(pool: PgPool, worker_id: u32, worker_type: &str, args: Args) -> 
                                 task.job_id,
                                 task.task_id
                             );
+
+                            // update stream
+                            // update_stream(&pool, user_id)
+                            //     .await
+                            //     .context("Failed to update stream")?;
 
                             if !update_task_failed(&pool, &task.job_id, &task.task_id, "ERROR")
                                 .await
@@ -260,6 +305,11 @@ async fn worker(pool: PgPool, worker_id: u32, worker_type: &str, args: Args) -> 
                         } else if r.gen_range(0..args.gpu_retry_rate) == 0 {
                             tracing::warn!("Retrying task {}:{}", task.job_id, task.task_id);
 
+                            // update stream
+                            // update_stream(&pool, user_id)
+                            //     .await
+                            //     .context("Failed to update stream")?;
+
                             if !update_task_retry(&pool, &task.job_id, &task.task_id)
                                 .await
                                 .context("Failed to task_retry")?
@@ -271,6 +321,11 @@ async fn worker(pool: PgPool, worker_id: u32, worker_type: &str, args: Args) -> 
                                 );
                             }
                         } else {
+                            // update stream
+                            // update_stream(&pool, user_id)
+                            //     .await
+                            //     .context("Failed to update stream")?;
+
                             let res = update_task_done(
                                 &pool,
                                 &task.job_id,
@@ -304,6 +359,8 @@ async fn worker(pool: PgPool, worker_id: u32, worker_type: &str, args: Args) -> 
             }
         }
     }
+
+    Ok(())
 }
 
 /// taskdb Stress testing harness
@@ -341,7 +398,7 @@ struct Args {
     #[arg(short, long, default_value_t = 32)]
     max_job_size: u64,
 
-    /// Range to use for the GPU work time (in ms)
+    /// Wait time to use for the GPU work time (in ms)
     #[arg(short = 't', long, default_value_t = 800)]
     gpu_work_speed: u64,
 
@@ -364,47 +421,63 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
 
     let args = Args::parse();
     let conn_url = std::env::var("DATABASE_URL").expect("Env var DATABASE_URL is required.");
-    let db = PgPoolOptions::new().max_connections(args.pool_size).connect(&conn_url).await.unwrap();
+    let db = PgPoolOptions::new()
+        .max_connections(args.pool_size)
+        .connect(&conn_url)
+        .await
+        .unwrap();
 
     let mut tasks = JoinSet::new();
+    let shutdown = Arc::new(AtomicBool::new(false));
+
     let pool = db.clone();
     let args_copy = args.clone();
-    tasks.spawn(spawner(pool, args_copy));
+    let shutdown_copy = shutdown.clone();
+    tasks.spawn(spawner(shutdown_copy, pool, args_copy));
 
     // Create reaper
     let pool_copy = db.clone();
+    let shutdown_copy = shutdown.clone();
     tasks.spawn(async move {
-        loop {
-            let requeued_tasks =
-                taskdb::requeue_tasks(&pool_copy, 100).await.expect("Failed to requeue tasks");
+        while !shutdown_copy.load(Ordering::Relaxed) {
+            let requeued_tasks = taskdb::requeue_tasks(&pool_copy, 100)
+                .await
+                .expect("Failed to requeue tasks");
             if requeued_tasks > 0 {
                 tracing::warn!("requeued {requeued_tasks} tasks");
             }
 
             sleep(Duration::from_secs(2)).await;
         }
+
+        Ok(())
     });
 
     for i in 0..args.cpu_workers {
         let pool_copy = db.clone();
         let args_copy = args.clone();
-        tasks.spawn(worker(pool_copy, i, "CPU", args_copy));
+        let shutdown_copy = shutdown.clone();
+        tasks.spawn(worker(shutdown_copy, pool_copy, i, "CPU", args_copy));
     }
     for i in 0..args.gpu_workers {
         let pool_copy = db.clone();
         let args_copy = args.clone();
-        tasks.spawn(worker(pool_copy, i, "GPU", args_copy));
+        let shutdown_copy = shutdown.clone();
+        tasks.spawn(worker(shutdown_copy, pool_copy, i, "GPU", args_copy));
     }
 
     // ctrl-c handler
-    let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_copy = shutdown.clone();
     tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.expect("Failed to register ctrl+c handler");
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to register ctrl+c handler");
         tracing::warn!("Starting Graceful shutdown, cleaning up...");
         shutdown_copy.store(true, Ordering::Relaxed);
     });
