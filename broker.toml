@@ -1,8 +1,8 @@
 [market]
 mcycle_price = "0.001"
 assumption_price = "0.1"
-peak_prove_khz = 500
-parallel_proofs = 1
+# peak_prove_khz = 500
+# parallel_proofs = 1
 min_deadline = 150
 lookback_blocks = 100
 max_stake = "0.5"
