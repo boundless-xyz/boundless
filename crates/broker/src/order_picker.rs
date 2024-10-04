@@ -383,10 +383,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address = *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO)
-            .await
-            .unwrap()
-            .address();
+        let contract_address =
+            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
         let proof_market = ProofMarketService::new(
             contract_address,
             provider.clone(),
@@ -421,7 +422,7 @@ mod tests {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
             request: ProvingRequest::new(
-                1,
+                proof_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),
@@ -477,10 +478,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address = *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO)
-            .await
-            .unwrap()
-            .address();
+        let contract_address =
+            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
         let proof_market = ProofMarketService::new(
             contract_address,
             provider.clone(),
@@ -516,7 +518,7 @@ mod tests {
             updated_at: Utc::now(),
             target_block: None,
             request: ProvingRequest::new(
-                1,
+                proof_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),
@@ -572,10 +574,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address = *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO)
-            .await
-            .unwrap()
-            .address();
+        let contract_address =
+            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
         let proof_market = ProofMarketService::new(
             contract_address,
             provider.clone(),
@@ -610,7 +613,7 @@ mod tests {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
             request: ProvingRequest::new(
-                1,
+                proof_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),

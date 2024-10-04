@@ -333,6 +333,7 @@ mod tests {
             &provider,
             *set_verifier.address(),
             FixedBytes::from_slice(&Digest::from(ASSESSOR_GUEST_ID).as_bytes()),
+            String::new(),
         )
         .await
         .unwrap();
@@ -372,7 +373,7 @@ mod tests {
         let echo_receipt = prover.get_receipt(&echo_proof.id).await.unwrap().unwrap();
 
         let order_request = ProvingRequest::new(
-            0,
+            market_customer.index_from_nonce().await.unwrap(),
             &customer_addr,
             Requirements {
                 imageId: B256::from_slice(echo_id.as_bytes()),

@@ -13,8 +13,8 @@ max_file_size = 50_000_000
 status_poll_ms = 1000
 bonsai_r0_zkvm_ver = "1.1.1"
 req_retry_count = 3
-# agg_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/aggregation-set-guest"
-assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
+#agg_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/aggregation-set-guest"
+#assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
 
 [batcher]
 batch_max_time = 1000

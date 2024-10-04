@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, state as \"state: _\", error, user_id, unresolved FROM jobs WHERE id = $1",
+  "query": "SELECT id, state as \"state: _\", error, user_id FROM jobs WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -33,11 +33,6 @@
         "ordinal": 3,
         "name": "user_id",
         "type_info": "Text"
-      },
-      {
-        "ordinal": 4,
-        "name": "unresolved",
-        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -49,9 +44,8 @@
       false,
       false,
       true,
-      false,
       false
     ]
   },
-  "hash": "407d70e492f131340cc4957b140b2676e39d3f6b5fd9528a0efc49849746c0fe"
+  "hash": "6bd30587f76885d761a33dd40230f799904e4d790546854087116317f725f0d8"
 }
