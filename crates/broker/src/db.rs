@@ -10,7 +10,7 @@ use chrono::Utc;
 use risc0_zkvm::sha::Digest;
 use sqlx::{
     migrate::MigrateDatabase,
-    sqlite::{Sqlite, SqlitePool},
+    sqlite::{Sqlite, SqlitePool, SqlitePoolOptions},
     Acquire, Row,
 };
 use thiserror::Error;
@@ -135,7 +135,14 @@ impl SqliteDb {
             Sqlite::create_database(conn_str).await?
         }
 
-        let pool = SqlitePool::connect(conn_str).await?;
+        let pool = SqlitePoolOptions::new()
+            // set timeouts to None for sqlite in-memory:
+            // https://github.com/launchbadge/sqlx/issues/1647
+            .max_lifetime(None)
+            .idle_timeout(None)
+            .connect(&conn_str)
+            .await?;
+
         sqlx::migrate!("./migrations").run(&pool).await?;
 
         Ok(Self { pool })
