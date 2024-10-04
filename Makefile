@@ -3,7 +3,7 @@
 # Check that required dependencies are installed
 check-deps:
 	@command -v forge >/dev/null 2>&1 || { echo "Error: forge is not installed. Please install it from https://book.getfoundry.sh/getting-started/installation"; exit 1; }
-	@command -v cargo >/dev/null 2>&1 || { echo "Error: cargo is not installed. Please install it from https://www.rust-lang.org/tools/install"; exit 1; }
+	@command -v cargo >/dev/null 2>&1 || { echo "Error: cargo is not installed. Please install it from https://rustup.rs"; exit 1; }
 	@command -v anvil >/dev/null 2>&1 || { echo "Error: anvil is not installed. Please install it from https://book.getfoundry.sh/getting-started/installation"; exit 1; }
 	@command -v jq >/dev/null 2>&1 || { echo "Error: jq is not installed. Please install it from https://stedolan.github.io/jq/"; exit 1; }
 
@@ -14,7 +14,7 @@ devnet-up: check-deps
 	@echo "Building Rust project..."
 	@cargo build --bin broker || { echo "Failed to build broker binary"; $(MAKE) devnet-down; exit 1; }
 	@echo "Starting Anvil..."
-	@-anvil -b 2 > logs/anvil.txt & \
+	@-anvil -b 2 &> logs/anvil.txt & \
 	PID_ANVIL=$$!; \
 	@sleep 5 # Give Anvil some time to start
 	@echo "Deploying contracts..."
@@ -36,13 +36,13 @@ devnet-up: check-deps
 	  --proof-market-addr $$PROOF_MARKET_ADDRESS \
 	  --set-verifier-addr $$SET_VERIFIER_ADDRESS \
 	  --deposit-amount 10 > logs/broker.txt & \
-	  echo $$! > broker.pid; \
+	  echo $$! &> logs/broker.pid; \
 	} || { echo "Failed to fetch addresses or start broker"; $(MAKE) devnet-down; exit 1; }
 	@echo "Devnet is up and running!"
 	@echo "Make sure to run 'source .env' to load the environment variables."
 
 devnet-down:
 	@echo "Bringing down all services..."
+	@if [ -f logs/broker.pid ]; then kill $$(cat logs/broker.pid) && rm logs/broker.pid; fi
 	-pkill anvil || true
-	@if [ -f broker.pid ]; then kill $$(cat broker.pid) && rm broker.pid; fi
 	@echo "Devnet stopped."

@@ -10,7 +10,6 @@ out/
 
 # Devnet logs
 /logs
-*.pid
 
 # Dotenv file
 # .env
