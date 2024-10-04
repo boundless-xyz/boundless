@@ -96,7 +96,7 @@ jobs:
         run: cargo check
 
       - name: Install sqlx-cli
-        run: cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+        run: cargo install --locked --version=0.7.4 sqlx-cli --no-default-features --features postgres
 
       - name: run taskdb migrations
         env:
