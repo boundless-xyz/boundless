@@ -12,7 +12,9 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{ensure, Context, Result};
-use boundless_market::contracts::{set_verifier::SetVerifierService, InputType, ProvingRequest};
+use boundless_market::contracts::{
+    proof_market::ProofMarketService, set_verifier::SetVerifierService, InputType, ProvingRequest,
+};
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 use config::ConfigWatcher;
@@ -311,26 +313,34 @@ where
     }
 
     async fn get_assessor_image(&self) -> Result<(Digest, Vec<u8>)> {
-        // TODO(#155): Once we can query the assessor URL from the market contract (like
-        // set-verifier) we should unify these two functions to have both: config path OR
-        // view-call + URL fetch options
-        let (agg_set_path, _max_file_size) = {
+        let (assessor_path, max_file_size) = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
             (config.prover.assessor_set_guest_path.clone(), config.market.max_file_size)
         };
 
-        if let Some(path) = agg_set_path {
-            let elf_buf = std::fs::read(path).context("Failed to read aggregator-set path")?;
+        if let Some(path) = assessor_path {
+            let elf_buf = std::fs::read(path).context("Failed to read assessor path")?;
             let img_id = risc0_zkvm::compute_image_id(&elf_buf)
-                .context("Failed to compute aggregator-set imageId")?;
+                .context("Failed to compute assessor imageId")?;
 
             Ok((img_id, elf_buf))
         } else {
-            // TEMP:
-            Ok((
-                Digest::from(guest_assessor::ASSESSOR_GUEST_ID),
-                guest_assessor::ASSESSOR_GUEST_ELF.to_vec(),
-            ))
+            let proof_market = ProofMarketService::new(
+                self.args.proof_market_addr,
+                self.provider.clone(),
+                Address::ZERO,
+            );
+
+            let (image_id, image_url_str) =
+                proof_market.image_info().await.context("Failed to get contract image_info")?;
+            let image_uri = UriHandlerBuilder::new(&image_url_str)
+                .set_max_size(max_file_size)
+                .build()
+                .context("Failed to parse image URI")?;
+            tracing::debug!("Downloading assessor image from: {image_uri}");
+            let image_data = image_uri.fetch().await.context("Failed to download sot image")?;
+
+            Ok((Digest::from_bytes(image_id.0), image_data))
         }
     }
 
@@ -361,7 +371,7 @@ where
                 .set_max_size(max_file_size)
                 .build()
                 .context("Failed to parse image URI")?;
-            tracing::debug!("Downloading SetOfTruth image from: {image_uri}");
+            tracing::debug!("Downloading aggregation-set image from: {image_uri}");
             let image_data = image_uri.fetch().await.context("Failed to download sot image")?;
 
             Ok((Digest::from_bytes(image_id.0), image_data))
@@ -505,6 +515,7 @@ where
             self.provider.clone(),
             self.args.set_verifier_addr,
             self.args.proof_market_addr,
+            agg_img_data.0,
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, submitter).await.context("Failed to start submitter service")?;

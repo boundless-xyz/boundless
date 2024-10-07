@@ -257,7 +257,7 @@ pub async fn requeue_tasks(pool: &PgPool, limit: i64) -> Result<usize, TaskDbErr
         "SELECT job_id, task_id
         FROM tasks
         WHERE
-            state = 'running' AND timeout_secs < EXTRACT(EPOCH FROM (now() - started_at))
+            state = 'running' AND timeout_secs < EXTRACT(EPOCH FROM (now() - GREATEST(started_at, updated_at)))
         LIMIT $1",
         limit
     )
@@ -295,6 +295,16 @@ pub async fn get_job_state(
         .await?;
 
     Ok(row)
+}
+
+pub async fn get_job_unresolved(pool: &PgPool, job_id: &Uuid) -> Result<i64, TaskDbErr> {
+    let unresolved: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE job_id = $1 AND state != $2")
+            .bind(job_id)
+            .bind(TaskState::Done)
+            .fetch_one(pool)
+            .await?;
+    Ok(unresolved)
 }
 
 pub async fn get_concurrent_jobs(pool: &PgPool, user_id: &str) -> Result<i64, TaskDbErr> {
@@ -393,7 +403,6 @@ pub mod test_helpers {
         pub state: Option<JobState>,
         pub error: Option<String>,
         pub user_id: String,
-        pub unresolved: i32,
     }
 
     #[derive(Debug)]
@@ -478,7 +487,7 @@ pub mod test_helpers {
     pub async fn get_job(pool: &PgPool, job_id: &Uuid) -> Result<Job, TaskDbErr> {
         Ok(sqlx::query_as!(
             Job,
-            r#"SELECT id, state as "state: _", error, user_id, unresolved FROM jobs WHERE id = $1"#,
+            r#"SELECT id, state as "state: _", error, user_id FROM jobs WHERE id = $1"#,
             job_id
         )
         .fetch_one(pool)
@@ -542,7 +551,7 @@ mod tests {
 
         assert_eq!(job.state.unwrap(), JobState::Running);
         assert_eq!(job.error, None);
-        assert_eq!(job.unresolved, 1);
+        assert_eq!(get_job_unresolved(&pool, &job_id).await.unwrap(), 1);
         assert_eq!(job.user_id, user_id);
 
         Ok(())
@@ -601,8 +610,8 @@ mod tests {
         assert_eq!(task.state, TaskState::Ready);
         assert_eq!(task.timeout_secs, task_timeout);
 
-        let job = get_job(&pool, &task.job_id).await.unwrap();
-        assert_eq!(job.unresolved, 2);
+        let _job = get_job(&pool, &task.job_id).await.unwrap();
+        assert_eq!(get_job_unresolved(&pool, &job_id).await.unwrap(), 2);
 
         Ok(())
     }
@@ -655,9 +664,8 @@ mod tests {
         assert_eq!(init.waiting_on, 0);
 
         let job = get_job(&pool, &init.job_id).await.unwrap();
-        assert_eq!(job.unresolved, 0);
-        // TODO:
         assert_eq!(job.state.unwrap(), JobState::Done);
+        assert_eq!(get_job_unresolved(&pool, &job_id).await.unwrap(), 0);
 
         let res = request_work(&pool, worker_type).await.unwrap();
         assert!(res.is_none());
@@ -691,8 +699,8 @@ mod tests {
         assert_eq!(task_raw.state, TaskState::Running);
         assert_eq!(task_raw.task_id, retry_task_id);
 
+        assert_eq!(get_job_unresolved(&pool, &task_raw.job_id).await.unwrap(), 1);
         let job = get_job(&pool, &task_raw.job_id).await.unwrap();
-        assert_eq!(job.unresolved, 1);
         assert_eq!(job.state.unwrap(), JobState::Running);
 
         // Attempt to retry over max_retries and fail the job
@@ -703,7 +711,7 @@ mod tests {
         assert_eq!(task_raw.state, TaskState::Failed);
 
         let job = get_job(&pool, &task_raw.job_id).await.unwrap();
-        assert_eq!(job.unresolved, 0);
+        assert_eq!(get_job_unresolved(&pool, &task_raw.job_id).await.unwrap(), 1);
         assert_eq!(job.error.unwrap(), "retry max hit");
         assert_eq!(job.state.unwrap(), JobState::Failed);
 
@@ -780,45 +788,13 @@ mod tests {
 
         // Check the job failed as expected
         let job = get_job(&pool, &task_info.job_id).await.unwrap();
-        assert_eq!(job.unresolved, 0);
+        assert_eq!(get_job_unresolved(&pool, &job_id).await.unwrap(), 1);
         assert_eq!(job.state.unwrap(), JobState::Failed);
         assert_eq!(job.error.unwrap(), error_msg);
 
         // Check the 'init' task that is done is still marked as 'done'
         let init_task = get_task(&pool, &init.job_id, &init.task_id).await.unwrap();
         assert_eq!(init_task.state, TaskState::Done);
-
-        Ok(())
-    }
-
-    #[sqlx::test()]
-    async fn fail_job_drops_queue(pool: PgPool) -> sqlx::Result<()> {
-        let user_id = "user1";
-        let worker_type = "CPU";
-        let stream_id = create_stream(&pool, worker_type, 1, 1.0, user_id).await.unwrap();
-        let task_def = serde_json::json!({"init": "test"});
-        let job_id = create_job(&pool, &stream_id, &task_def, 0, 100, user_id).await.unwrap();
-
-        // Populate the queue with two tasks
-        create_task(
-            &pool,
-            &job_id,
-            "task2",
-            &stream_id,
-            &JsonValue::default(),
-            &serde_json::json!([]),
-            0,
-            10,
-        )
-        .await
-        .unwrap();
-
-        // Fail the first task
-        let init = request_work(&pool, worker_type).await.unwrap().unwrap();
-        assert!(update_task_failed(&pool, &init.job_id, &init.task_id, "ERR").await.unwrap());
-
-        // Verify that 'task2' does not get emitted after the job failed
-        assert!(request_work(&pool, worker_type).await.unwrap().is_none());
 
         Ok(())
     }

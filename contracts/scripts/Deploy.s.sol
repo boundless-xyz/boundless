@@ -26,6 +26,7 @@ contract Deploy is Script, RiscZeroCheats {
         IRiscZeroVerifier verifier = deployRiscZeroVerifier();
 
         string memory setBuilderGuestUrl = "";
+        string memory assessorGuestUrl = "";
         if (bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0) {
             // TODO: Create a more robust way of getting a URI for guests.
             string memory cwd = vm.envString("PWD");
@@ -35,12 +36,18 @@ contract Deploy is Script, RiscZeroCheats {
                 "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/aggregation-set-guest"
             );
             console2.log("Set builder URI", setBuilderGuestUrl);
+            assessorGuestUrl = string.concat(
+                "file://",
+                cwd,
+                "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
+            );
+            console2.log("Assessor URI", assessorGuestUrl);
         }
 
         RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, setBuilderGuestUrl);
         console2.log("Deployed SetVerifier to,", address(setVerifier));
 
-        ProofMarket market = new ProofMarket(setVerifier, AssesorImgId.ASSESSOR_GUEST_ID);
+        ProofMarket market = new ProofMarket(setVerifier, AssesorImgId.ASSESSOR_GUEST_ID, assessorGuestUrl);
         console2.log("Deployed ProofMarket to", address(market));
 
         vm.stopBroadcast();
