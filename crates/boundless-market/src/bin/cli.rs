@@ -182,7 +182,7 @@ async fn main() -> Result<()> {
         }
         Command::Slash { request_id } => {
             market.slash(request_id).await?;
-            tracing::info!("Request slashed: {request_id:x}");
+            tracing::info!("Request slashed: 0x{request_id:x}");
         }
         Command::GetProof { request_id, wait } => {
             let (journal, seal) = if wait {
@@ -298,7 +298,7 @@ where
 
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
-        "Submitted request ID {request_id:x}, bidding start at block number {}",
+        "Submitted request ID 0x{request_id:x}, bidding start at block number {}",
         offer.biddingStart
     );
 
@@ -360,7 +360,7 @@ where
 
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
-        "Proving request ID {request_id:x}, bidding start at block number {}",
+        "Proving request ID 0x{request_id:x}, bidding start at block number {}",
         request.offer.biddingStart
     );
 
