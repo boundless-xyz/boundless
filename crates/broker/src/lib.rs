@@ -515,7 +515,7 @@ where
             self.provider.clone(),
             self.args.set_verifier_addr,
             self.args.proof_market_addr,
-            agg_img_data.0,
+            set_builder_img_data.0,
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, submitter).await.context("Failed to start submitter service")?;
