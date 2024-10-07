@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use aggregation_set::SetInclusionReceipt;
+use aggregation_set::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use alloy::{
     network::Ethereum,
     primitives::{aliases::U192, Address, B256, U256},
@@ -34,6 +34,7 @@ pub struct Submitter<T, P> {
     prover: ProverObj,
     market: ProofMarketService<T, Arc<P>>,
     set_verifier: SetVerifierService<T, Arc<P>>,
+    agg_set_img_id: Digest,
 }
 
 impl<T, P> Submitter<T, P>
@@ -48,6 +49,7 @@ where
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
+        agg_set_img_id: Digest,
     ) -> Self {
         let market = ProofMarketService::new(
             market_addr,
@@ -60,7 +62,7 @@ where
             provider.default_signer_address(),
         );
 
-        Self { db, prover, market, set_verifier }
+        Self { db, prover, market, set_verifier, agg_set_img_id }
     }
 
     async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
@@ -92,6 +94,9 @@ where
             .submit_merkle_root(root, batch_seal.into())
             .await
             .context("Failed to submit app merkle_root")?;
+
+        let inclusion_params =
+            SetInclusionReceiptVerifierParameters { image_id: self.agg_set_img_id };
 
         let mut fulfillments = vec![];
         for order_id in batch.orders.iter() {
@@ -141,10 +146,11 @@ where
             };
 
             tracing::debug!("Order path {order_id:x} - {order_path:x?}");
-            let set_inclusion_receipt = SetInclusionReceipt::from_path(
+            let mut set_inclusion_receipt = SetInclusionReceipt::from_path(
                 ReceiptClaim::ok(order_img_id.0, MaybePruned::Pruned(order_journal.digest())),
                 order_path,
             );
+            set_inclusion_receipt.verifier_parameters = inclusion_params.digest();
             let seal = match set_inclusion_receipt
                 .abi_encode_seal()
                 .context("ABI encode set inclusion receipt")
@@ -170,16 +176,17 @@ where
         }
 
         let orders_root = batch.orders_root.context("Batch missing orders root digest")?;
-        let assessor_seal = SetInclusionReceipt::from_path(
+        let mut assessor_seal = SetInclusionReceipt::from_path(
             // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
             // should make an explicit way to encode an inclusion proof without the claim.
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
             vec![orders_root],
-        )
-        .abi_encode_seal()
-        .context("ABI encode assessor set inclusion receipt")?;
+        );
+        assessor_seal.verifier_parameters = inclusion_params.digest();
+        let assessor_seal =
+            assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
 
         if let Err(err) =
             self.market.fulfill_batch(fulfillments.clone(), assessor_seal.into()).await
@@ -331,6 +338,7 @@ mod tests {
             &provider,
             *set_verifier.address(),
             FixedBytes::from_slice(&Digest::from(ASSESSOR_GUEST_ID).as_bytes()),
+            String::new(),
         )
         .await
         .unwrap();
@@ -370,7 +378,7 @@ mod tests {
         let echo_receipt = prover.get_receipt(&echo_proof.id).await.unwrap().unwrap();
 
         let order_request = ProvingRequest::new(
-            0,
+            market_customer.index_from_nonce().await.unwrap(),
             &customer_addr,
             Requirements {
                 imageId: B256::from_slice(echo_id.as_bytes()),
@@ -535,6 +543,7 @@ mod tests {
             provider.clone(),
             *set_verifier.address(),
             *proof_market.address(),
+            agg_id,
         );
 
         assert!(submitter.process_next_batch().await.unwrap());

@@ -18,7 +18,7 @@ import {ProofMarketLib} from "./ProofMarketLib.sol";
 // new request with the same ID and different requirements, which gets a
 // lockin, the prover is not actually bound to fulfill the one that was locked
 // in. A solution that avoids increasing state usage would be to add a deadline
-// check in the market guest. If two requests are valid in the same window with
+// check in the assessor. If two requests are valid in the same window with
 // the same ID, this is still an issue. However this is much more reasonably
 // considered a mistake, and client implementations should avoid it. Simplest
 // way for a client to avoid this issue would be always increment their index,
@@ -26,7 +26,7 @@ import {ProofMarketLib} from "./ProofMarketLib.sol";
 // state. Another, would be use scanning to determine the first unused ID. A
 // third approach would be to expand the request lock, but only store it's
 // digest in state. With this approach, we can include more info in it. This
-// would probably also expand the journal for the market guest. None of these
+// would probably also expand the journal for the assessor. None of these
 // are perfect.
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
@@ -112,17 +112,19 @@ contract ProofMarket is IProofMarket, EIP712 {
     // verifying individual claims is relatively cheap.
     IRiscZeroVerifier public immutable VERIFIER;
     bytes32 public immutable ASSESSOR_ID;
+    string private imageUrl;
 
     /// In order to fulfill a request, the prover must provide a proof that can be verified with at
     /// most the amount of gas specified by this constant. This requirement exists to ensure the
     /// client can then post the given proof in a new transaction as part of the application.
     uint256 public constant FULFILL_MAX_GAS_FOR_VERIFY = 50000;
 
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId)
+    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, string memory _imageUrl)
         EIP712(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION)
     {
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
+        imageUrl = _imageUrl;
     }
 
     function requestIsFulfilled(uint192 id) external view returns (bool) {
@@ -245,8 +247,8 @@ contract ProofMarket is IProofMarket, EIP712 {
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
         VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
 
-        // Verify the market guest, which ensures the application proof fulfills a valid request with the given ID.
-        // NOTE: Signature checks and recursive verification happen inside the market guest.
+        // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
+        // NOTE: Signature checks and recursive verification happen inside the assessor.
         uint192[] memory ids = new uint192[](1);
         ids[0] = fill.id;
         bytes32 assessorJournalDigest = sha256(
@@ -273,8 +275,8 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
 
-        // Verify the market guest, which ensures the application proof fulfills a valid request with the given ID.
-        // NOTE: Signature checks and recursive verification happen inside the market guest.
+        // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
+        // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32 assessorJournalDigest = sha256(
             abi.encode(AssessorJournal({requestIds: ids, root: batchRoot, eip712DomainSeparator: _domainSeparatorV4()}))
         );
@@ -291,7 +293,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
     }
 
-    /// Complete the fulfillment logic after having verified the app and market guest receipts.
+    /// Complete the fulfillment logic after having verified the app and assessor receipts.
     function _fulfillVerified(uint192 id) internal {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
@@ -353,6 +355,10 @@ contract ProofMarket is IProofMarket, EIP712 {
         accounts[client].balance += lock.price;
         (bool sent,) = payable(address(0)).call{value: uint256(lock.stake)}("");
         require(sent, "Failed to burn Ether");
+    }
+
+    function imageInfo() external view returns (bytes32, string memory) {
+        return (ASSESSOR_ID, imageUrl);
     }
 }
 

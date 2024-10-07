@@ -4,18 +4,18 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Enumeration for job state
 CREATE TYPE job_state AS ENUM (
-  'running',  -- A job is created and running
-  'done', -- A job is complete
-  'failed' -- A job has failed
+  'running', -- A job is created and running
+  'done',    -- A job is complete
+  'failed'   -- A job has failed
 );
 
 -- Enumeration for task state
 CREATE TYPE task_state AS ENUM (
   'pending', -- A task is waiting on the completion of prerequisites
-  'ready', -- A task is ready to assign to a worker
-  'running',  -- task is actively running
-  'done', -- A task is complete
-  'failed' -- A task has failed (max retries or explicit failure)
+  'ready',   -- A task is ready to assign to a worker
+  'running', -- task is actively running
+  'done',    -- A task is complete
+  'failed'   -- A task has failed (max retries or explicit failure)
 );
 
 /*
@@ -26,12 +26,12 @@ CREATE TABLE streams (
   id UUID NOT NULL DEFAULT uuid_generate_v4() PRIMARY KEY,
   worker_type TEXT NOT NULL, -- What type of worker is this stream for
   reserved INTEGER NOT NULL, -- How many 'reserved' workers for this stream
-  be_mult REAL NOT NULL, -- Best effort multiplier, 2.0 gets twice as much as 1.0
-  user_id TEXT NOT NULL, -- User identifier that owns this stream
+  be_mult REAL NOT NULL,     -- Best effort multiplier, 2.0 gets twice as much as 1.0
+  user_id TEXT NOT NULL,     -- User identifier that owns this stream
 
   -- Managed by triggers
-  running INTEGER NOT NULL DEFAULT(0), -- How many running tasks in this stream
-  ready INTEGER NOT NULL DEFAULT(0), -- How many 'ready' tasks in this stream
+  running INTEGER NOT NULL DEFAULT(0),  -- How many running tasks in this stream
+  ready INTEGER NOT NULL DEFAULT(0),    -- How many 'ready' tasks in this stream
 
   -- Computed
   -- The priority of a stream is negative if it's within it's reserved range
@@ -54,12 +54,9 @@ tasks that represent individual discrete items of work.
 CREATE TABLE jobs (
   id UUID NOT NULL DEFAULT uuid_generate_v4() PRIMARY KEY,
   state job_state NOT NULL,
-  error TEXT, -- Error message if state = 'failed', NULL otherwise
+  error TEXT,            -- Error message if state = 'failed', NULL otherwise
   user_id TEXT NOT NULL, -- User identifier that owns this job
-  reported BOOLEAN NOT NULL DEFAULT(FALSE), -- Optional field for post-processing in batches to report metrics for each done/failed job
-
-  -- Managed by triggers
-  unresolved INTEGER NOT NULL DEFAULT(0) -- How many tasks are 'ready'|'pending'|'running'
+  reported BOOLEAN NOT NULL DEFAULT(FALSE) -- Optional field for post-processing in batches to report metrics for each done/failed job
 );
 
 /*
@@ -74,9 +71,9 @@ get added.
  */
 CREATE TABLE tasks (
   -- Task definition (do not changes after create)
-  job_id UUID NOT NULL, -- The job this task is part of
+  job_id UUID NOT NULL,  -- The job this task is part of
   task_id TEXT NOT NULL, -- Name of task within the job
-  stream_id UUID NOT NULL, -- Which stream to run this task on
+  stream_id UUID NOT NULL,  -- Which stream to run this task on
   task_def jsonb NOT NULL,  -- JSON blob that defines this task
   prerequisites jsonb NOT NULL, -- JSON list of prerequisites
   state task_state NOT NULL,
@@ -93,7 +90,7 @@ CREATE TABLE tasks (
 
   -- Task 'output'
   output jsonb,  -- JSON blob that is the task's output
-  error TEXT, -- An error message if a task failed
+  error TEXT,    -- An error message if a task failed
 
   PRIMARY KEY (job_id, task_id),
   FOREIGN KEY (job_id) REFERENCES jobs(id),
@@ -102,6 +99,9 @@ CREATE TABLE tasks (
 
 -- Tasks within a given stream are 'fifo' order
 CREATE INDEX tasks_by_stream ON tasks using btree (state, stream_id, created_at);
+-- Look up all states in a jobs to count unresolved
+CREATE INDEX tasks_state ON tasks USING btree (job_id, state);
+CREATE INDEX tasks_job_task_state_idx ON tasks (job_id, task_id, state);
 
 -- The linking table that manages task dependencies
 CREATE TABLE task_deps (
@@ -114,7 +114,10 @@ CREATE TABLE task_deps (
   FOREIGN KEY (job_id, post_task_id) REFERENCES tasks(job_id, task_id)
 );
 
+CREATE INDEX task_deps_idx ON task_deps USING btree (job_id, pre_task_id, post_task_id);
+
 -- Make a trigger that keeps the summary data in streams valid
+-- such that the priority can be calculated correctly
 CREATE OR REPLACE FUNCTION maint_streams() RETURNS TRIGGER as $$
 DECLARE
     delta_ready INTEGER := 0;
@@ -132,56 +135,19 @@ BEGIN
   IF NEW.state = 'running' THEN delta_running = delta_running + 1; END IF;
 
   -- Apply deltas
-  UPDATE streams SET
-      ready = ready + delta_ready,
-      running = running + delta_running
-  WHERE id = stream_id;
-  RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-CREATE TRIGGER maint_streams_trigger
-AFTER INSERT OR UPDATE OR DELETE ON tasks
-FOR EACH ROW EXECUTE FUNCTION maint_streams();
-
-
-CREATE OR REPLACE FUNCTION maint_jobs() RETURNS TRIGGER as $$
-DECLARE
-    delta_unresolved INTEGER := 0;
-    new_unresolved INTEGER;
-    job_id UUID;
-BEGIN
-  -- Set stream ID from whichever version is set
-  IF OLD.job_id IS NOT NULL THEN job_id = OLD.job_id; END IF;
-  IF NEW.job_id IS NOT NULL THEN job_id = NEW.job_id; END IF;
-
-  -- Collect deltas
-  IF
-    OLD.state = 'pending' OR
-    OLD.state = 'ready' OR
-    OLD.state = 'running' OR THEN delta_unresolved = delta_unresolved - 1; END IF;
-
-  IF
-    NEW.state = 'pending' OR
-    NEW.state = 'ready' OR
-    NEW.state = 'running' OR THEN delta_unresolved = delta_unresolved + 1; END IF;
-
-  -- Apply deltas
-  UPDATE jobs SET
-    unresolved = unresolved + delta_unresolved
-  WHERE id = job_id
-  RETURNING unresolved INTO new_unresolved;
-
-  -- If we have 0 unresolved tasks, mark the job as done
-  IF new_unresolved = 0 THEN
-    UPDATE jobs SET state = 'done' WHERE id = job_id;
+  IF delta_ready != 0 OR delta_running != 0 THEN
+    UPDATE streams SET
+        ready = GREATEST(ready + delta_ready, 0),
+        running = GREATEST(running + delta_running, 0)
+    WHERE id = stream_id;
   END IF;
 
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-CREATE TRIGGER maint_jobs_trigger
-AFTER INSERT OR UPDATE OR DELETE ON tasks
-FOR EACH ROW EXECUTE FUNCTION maint_jobs();
+CREATE TRIGGER maint_streams_trigger
+AFTER INSERT OR UPDATE ON tasks
+FOR EACH ROW EXECUTE FUNCTION maint_streams();
 
 -- Make a new stream, will always have no tasks initially
 CREATE OR REPLACE FUNCTION create_stream(
@@ -265,34 +231,25 @@ DECLARE
   found_max_retries INTEGER;
   prereq_outputs jsonb;
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext(in_worker_type));
-
   SELECT id INTO stream from streams where streams.worker_type = in_worker_type ORDER BY priority LIMIT 1;
   IF stream IS NOT NULL THEN
     SELECT INTO found_job_id, found_task_id, found_definition, found_max_retries tasks.job_id, tasks.task_id, tasks.task_def, tasks.max_retries
-      FROM tasks WHERE stream_id = stream AND state = 'ready'
+      FROM tasks WHERE tasks.stream_id = stream AND tasks.state = 'ready'
       ORDER BY created_at ASC
-      LIMIT 1;
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED;
   END IF;
+
   IF found_job_id is NOT NULL THEN
-    SELECT INTO prereq_outputs json_agg(tasks.output)
-        FROM tasks, task_deps
-        WHERE
-            task_deps.job_id = found_job_id AND
-            task_deps.post_task_id = found_task_id AND
-            tasks.job_id = found_job_id AND
-            tasks.task_id = task_deps.pre_task_id;
-    UPDATE tasks SET state = 'running', started_at = now() WHERE tasks.job_id = found_job_id AND tasks.task_id = found_task_id;
-    job_id := found_job_id;
-    task_id := found_task_id;
-    task_def := found_definition;
-    max_retries := found_max_retries;
-    IF prereq_outputs IS NULL THEN
-        prereqs := '[]';
-    ELSE
-        prereqs := prereq_outputs;
+    UPDATE tasks SET state = 'running', started_at = now() WHERE tasks.state = 'ready' AND tasks.job_id = found_job_id AND tasks.task_id = found_task_id;
+    IF FOUND THEN
+      job_id := found_job_id;
+      task_id := found_task_id;
+      task_def := found_definition;
+      max_retries := found_max_retries;
+      prereqs := '[]';
+      RETURN NEXT;
     END IF;
-    RETURN NEXT;
   END IF;
 END;
 $$ LANGUAGE plpgsql;
@@ -300,11 +257,8 @@ $$ LANGUAGE plpgsql;
 -- Update methods
 -- TODO: Notes:
 -- retry considerations:
--- 1. scheduled: find tasks running for 'too long' and move to 'ready'
--- 2. progress: dueling workers, if progress goes backwards, ignore that
+-- - progress: dueling workers, if progress goes backwards, ignore that
 --              no worker should ever un-done a task. Work should terminate if their task is getting 'done'd
--- break update_* into: _done, _error, _progress (ret bool, check if its a dead task etc)
-
 
 -- Updates an existing task as successful/done
 CREATE OR REPLACE FUNCTION update_task_done(
@@ -315,29 +269,36 @@ CREATE OR REPLACE FUNCTION update_task_done(
 RETURNS BOOLEAN as $$
 DECLARE
   found_done_task BOOLEAN DEFAULT FALSE;
+  unresolved INTEGER;
 BEGIN
-
   UPDATE tasks SET
     state = 'done',
     output = output_var,
     updated_at = now(),
     progress = 1.0
     WHERE
-      job_id = job_id_var and
-      task_id = task_id_var and
+      tasks.job_id = job_id_var and
+      tasks.task_id = task_id_var and
       (state = 'ready' OR state = 'running');
   found_done_task = FOUND;
 
   -- Reduce deps if a task is done, and maybe move to ready
-  UPDATE tasks SET
-    waiting_on = waiting_on - 1,
-    state = (CASE waiting_on WHEN 1 THEN 'ready' ELSE 'pending' END)::task_state
-  FROM task_deps WHERE
-    tasks.job_id = job_id_var AND
-    task_deps.job_id = job_id_var AND
-    task_deps.pre_task_id = task_id_var AND
-    task_deps.post_task_id = tasks.task_id AND
-    tasks.state != 'failed';
+  IF found_done_task THEN
+    UPDATE tasks SET
+      waiting_on = waiting_on - 1,
+      state = (CASE waiting_on WHEN 1 THEN 'ready' ELSE 'pending' END)::task_state
+    FROM task_deps WHERE
+      tasks.job_id = job_id_var AND
+      task_deps.job_id = job_id_var AND
+      task_deps.pre_task_id = task_id_var AND
+      task_deps.post_task_id = tasks.task_id AND
+      tasks.state != 'failed';
+
+    SELECT COUNT(*) INTO unresolved FROM tasks WHERE job_id = job_id_var AND state != 'done';
+    IF unresolved = 0 THEN
+      UPDATE jobs SET state = 'done' WHERE id = job_id_var;
+    END IF;
+  END IF;
 
   RETURN found_done_task;
 END;
@@ -350,38 +311,25 @@ CREATE OR REPLACE FUNCTION update_task_failed(
   error_var TEXT
 )
 RETURNS BOOLEAN as $$
-DECLARE
-  set_fail_success BOOLEAN DEFAULT FALSE;
 BEGIN
   -- Set the error on the faulted task itself
   UPDATE tasks SET
-    error = error_var
-    WHERE
-      job_id = job_id_var AND
-      task_id = task_id_var AND
-      (state = 'ready' OR state = 'running' OR state = 'pending');
-  -- Save the FOUND result to a var and check if we need to fail all tasks
-  -- TODO: This seems like the incorrect way to structure this.
-  -- set_fail_success = FOUND;
+    state = 'failed',
+    error = error_var,
+    progress = 1.0,
+    updated_at = now()
+  WHERE
+    job_id = job_id_var AND
+    task_id = task_id_var AND
+    state IN ('ready', 'running', 'pending');
 
   IF FOUND THEN
-    -- Fail all incomplete tasks in the job
-    UPDATE tasks SET
-      state = 'failed',
-      updated_at = now(),
-      progress = 1.0
-    WHERE
-      job_id = job_id_var AND
-      (state = 'ready' OR state = 'running' OR state = 'pending');
-
-    -- Fail the job
     UPDATE jobs SET
-      state = 'failed'::job_state,
-      -- NOTE: we are just setting this value to the same as the task.error
-      -- should this be something else or dropped?
+      state = 'failed',
       error = error_var
     WHERE
-      id = job_id_var;
+      id = job_id_var AND
+      state != 'failed';
 
     RETURN TRUE;
   ELSE
@@ -391,7 +339,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Updates an existing task progress
--- TODO: false if the progress has decreased
 CREATE OR REPLACE FUNCTION update_task_progress(
   job_id_var UUID,
   task_id_var TEXT,

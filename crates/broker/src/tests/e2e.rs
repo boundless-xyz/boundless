@@ -74,7 +74,7 @@ async fn simple_e2e() {
     // Submit a order
 
     let request = ProvingRequest::new(
-        0,
+        ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         Requirements {
             imageId: B256::from_slice(Digest::from(ECHO_ID).as_bytes()),
