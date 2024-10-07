@@ -6,11 +6,61 @@ An example is provided in the [examples/counter](../../../examples/counter) dire
 You can also interact with the market via a market client CLI.
 It builds upon the [boundless_market::contracts](../../../crates/boundless-market/src/contracts/proof_market.rs) library.
 
-## CLI Usage
+## Local Devnet
 
-> **NOTE**: all the following commands can be run with the environment variable `RISC0_DEV_MODE` set;
-> this should be done only while testing within a [local devnet](../broker/local_devnet.md) as the
-> default storage provider will use temporary files.
+TODO using workflow defined in `make` from https://github.com/boundless-xyz/boundless/pull/31/
+
+You can override settings found in `.env` and more to use local devnet settings with by exporting or prefixing commands:
+
+```bash
+# Use dev mode in this terminal session
+export RISC0_DEV_MODE=1
+# Use dev mode for this command only
+RISC0_DEV_MODE=1 <ANY BOUNDLESS CLI COMMAND>
+```
+
+Notably, Developer Mode will:
+
+- Use a storage provider that interacts with temporary files.
+- Use `anvil` default dev wallets to deploy and interact with contracts.
+
+See the [CLI usage](#cli-usage) section or `examples/counter`'s `ProofMarketService` for further instructions.
+
+## Public Networks
+
+The Boundless Market is officially deployed only on [Sepolia](../market/deployments.md#sepolia) so far, with more networks to be announced.
+Before you can interact with any network, you will need to configure an EVM RPC, Funds to pay for gas, and Image Storage Provider.
+
+#### Configure an EVM RPC Provider
+
+You need an RPC provider to interact with any EVM network. [Alchemy](https://www.alchemy.com/) supports various EVM networks, so creating a free account there is recommended, but many other options exist. Set the following environment variables according to your chosen RPC:
+
+```bash
+export RPC_URL="<SEPOLIA-URL>"
+```
+
+#### Configure an Image Storage Provider
+
+Boundless requires that ELF Image of the program requested to be proven be accessible to provers.
+
+<!-- TODO: link to rustdocs and document how one might create a storage provider (perhaps via a DA?) -->
+
+The best supported options are listed in the `boundless-market::BuiltinStorageProvider` enum.
+IPFS storage is presently the best supported, specifically through [Pinata](https://www.pinata.cloud/) which offers a free tier sufficient for most Boundless use cases.
+To use Pinata, [fetch the JWT credentials](https://docs.pinata.cloud/account-management/api-keys) and set the `PINATA_JWT` environment variable.
+
+### Sepolia Testnet
+
+To interact with the [deployed Boundless contracts](../broker/sepolia.md#sepolia) you will need:
+
+- A Sepolia Ethereum account with at least 0.5 Sepolia ETH for gas.
+  - The tooling presently requires the use of raw private key in scripting, although there are [better ways to do this](https://book.getfoundry.sh/tutorials/best-practices#private-key-management) that one could implement.
+  <!-- TODO: need better ways to get funds for boundless users! faucets are a HUGE pain, considering the round trip gas costs! -->
+  - Faucets exist to obtain 0.1 ETH at a time, but almost all require an account
+
+See the [CLI usage](#cli-usage) section for further instructions.
+
+## CLI Usage
 
 The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
 
@@ -102,7 +152,7 @@ The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
    and the Pinata one will be ignored.
 
    ```console
-   PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-offer offer.yaml --wait --input "hello" --encode-input --journal-prefix ""
+   PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- --private-key ${REQUESTOR_PRIVATE_KEY:?} --proof-market-address 0x66fAeB7ebb8362afBc11DA1b61bc093f30A26B15 --set-verifier-address 0x7BaB0ABEb9cD0d5dE7d422eAc496F08e1b8692Bb submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
    ```
 
 6. Slash a request and get back funds
