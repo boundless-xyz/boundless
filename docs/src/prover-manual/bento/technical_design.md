@@ -15,11 +15,11 @@ Some core features of Bento include:
 
 Bento's infrastructure is composed of a few core open source projects:
 
-- [Docker][]
-- [PostgreSQL][]
-- Redis
-- MinIO
-- Grafana (optional for monitoring)
+- [Docker](https://docs.docker.com/get-started/docker-overview/)
+- [PostgreSQL](https://www.postgresql.org/)
+- [Redis](https://redis.io/)
+- [MinIO](https://min.io/)
+- [Grafana](https://grafana.com/) (optional for monitoring)
 
 ### Bento Components
 
@@ -51,9 +51,9 @@ As demonstrated above, Bento breaks down tasks into these major actions:
 - Join - takes two lifted proofs and joins them together into one proof
 - Resolve - produce a final join - Resolve verifies all the unverified claims, effectively completing any composition tasks.
 - Finalize - Uploads the final proof to minio
-- SNARK - Convert a STARK proof into a SNARK proof using [rapidsnark][]
+- SNARK - Convert a STARK proof into a SNARK proof using [rapidsnark](https://github.com/iden3/rapidsnark)
 
-> For a more in depth information see [the recursive proving docs][r0-docs-recursion].
+> For a more in depth information see [the recursive proving docs](https://dev.risczero.com/api/recursion).
 
 ### Redis
 
@@ -128,8 +128,5 @@ This agent will convert a STARK proof into a SNARK proof using rapidsnark.Perfor
 
 The REST API provides a external interface to start / stop / monitor jobs and tasks within taskdb. It is more completely documented in the Bento API section (TODO WRITE THAT)
 
-<!-- 🔗 Reference Style -->
-
-{{#include ../../links.md:15:}}
-
+[r0-docs-recursion]: https://dev.risczero.com/api/recursion
 [term-agent]: ../../glossary.md#agent

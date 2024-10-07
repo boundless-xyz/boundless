@@ -74,14 +74,10 @@ git submodule update --init
 
 Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
 
-Check out the is-even example in the [Boundless Foundry template][boundless-foundry-template] for an example of how to run and application using the prover market.
+Check out the is-even example in the [Boundless Foundry template](https://github.com/boundless-xyz/boundless-foundry-template/)for an example of how to run and application using the prover market.
 
 You can also try editing `request.yaml` to send a request with different values.
 Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
-
-<!-- 🔗 Reference Style -->
-
-{{#include ../../links.md:15:}}
 
 [page-bento-running]: ../bento/running_bento.md
 [page-requestor-request]: ../../requestor-manual/proving_request.md

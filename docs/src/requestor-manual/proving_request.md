@@ -101,8 +101,4 @@ The `client-cli` allows to:
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
    ```
 
-<!-- 🔗 Reference Style -->
-
-{{#include ../links.md:15:}}
-
 [page-broker-devnet]: ../prover-manual/broker/local_devnet.md

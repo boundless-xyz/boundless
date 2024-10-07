@@ -25,7 +25,3 @@ The service can be configured via CLI flags which can be supplied in the `compos
 ## Live configuration
 
 The docker-compose project bind mounts the `broker.toml` in the root of the project into the container, here you can configure all the different parameters of the market side of the daemon. Additionally this file is dynamically update the config if it is changed on the fly. Most parameters will automatically reload and re-apply async and can be used to adjust broker configurations on the fly without restarting the daemon.
-
-<!-- 🔗 Reference Style -->
-
-{{#include ../../links.md:15:}}

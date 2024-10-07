@@ -16,10 +16,6 @@ Boundless is relatively complex in it's architecture and requires idiosyncratic 
 
 Helpful resources and more can be found in the [reference][page-reference].
 
-<!-- 🔗 Reference Style -->
-
-{{#include links.md:15:}}
-
 [page-prover-manual]: prover-manual/README.md
 [page-market-overview]: market/README.md
 [page-requestor-manual]: requestor-manual/README.md
