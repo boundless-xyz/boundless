@@ -19,7 +19,7 @@ import {ImageID as AggImgId} from "../src/AggregationSetImageID.sol";
 contract Deploy is Script, RiscZeroCheats {
     function run() external {
         // load ENV variables first
-        uint256 adminKey = vm.envUint("WALLET_PRIVATE_KEY");
+        uint256 adminKey = vm.envUint("REQUESTOR_PRIVATE_KEY");
 
         vm.startBroadcast(adminKey);
 

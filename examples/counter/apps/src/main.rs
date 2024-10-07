@@ -43,7 +43,7 @@ struct Args {
     rpc_url: Url,
     /// Private key used to interact with the Counter contract.
     #[clap(short, long, env)]
-    wallet_private_key: PrivateKeySigner,
+    requestor_private_key: PrivateKeySigner,
     /// Address of the Counter contract.
     #[clap(short, long, env)]
     counter_address: Address,
@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
 
     // NOTE: Using a separate `run` function to facilitate testing below.
     run(
-        args.wallet_private_key,
+        args.requestor_private_key,
         args.rpc_url,
         args.proof_market_address,
         args.set_verifier_address,
@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run(
-    wallet_private_key: PrivateKeySigner,
+    requestor_private_key: PrivateKeySigner,
     rpc_url: Url,
     proof_market_address: Address,
     set_verifier_address: Address,
@@ -86,7 +86,7 @@ async fn run(
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
     let boundless_client =
-        Client::from_parts(wallet_private_key, rpc_url, proof_market_address, set_verifier_address)
+        Client::from_parts(requestor_private_key, rpc_url, proof_market_address, set_verifier_address)
             .await?;
 
     // Upload the ECHO ELF to the storage provider so that it can be fetched by the market.

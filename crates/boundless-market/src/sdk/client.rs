@@ -161,15 +161,15 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
     /// Create a new client from environment variables
     ///
     /// The following environment variables are required:
-    /// - WALLET_PRIVATE_KEY: The private key of the wallet
+    /// - REQUESTOR_PRIVATE_KEY: The private key of the wallet
     /// - RPC_URL: The URL of the RPC server
     /// - PROOF_MARKET_ADDRESS: The address of the proof market contract
     /// - SET_VERIFIER_ADDRESS: The address of the set verifier contract
     pub async fn from_env() -> Result<Self, ClientError> {
-        let wallet_private_key_str =
-            env::var("WALLET_PRIVATE_KEY").context("WALLET_PRIVATE_KEY not set")?;
-        let wallet_private_key = PrivateKeySigner::from_str(&wallet_private_key_str)
-            .context("Invalid WALLET_PRIVATE_KEY")?;
+        let requestor_private_key_str =
+            env::var("requestor_private_key").context("requestor_private_key not set")?;
+        let requestor_private_key = PrivateKeySigner::from_str(&requestor_private_key_str)
+            .context("Invalid requestor_private_key")?;
         let rpc_url_str = env::var("RPC_URL").context("RPC_URL not set")?;
         let rpc_url = Url::parse(&rpc_url_str).context("Invalid RPC_URL")?;
         let proof_market_address_str =
@@ -181,9 +181,9 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let set_verifier_address =
             Address::from_str(&set_verifier_address_str).context("Invalid SET_VERIFIER_ADDRESS")?;
 
-        let caller = wallet_private_key.address();
-        let signer = wallet_private_key.clone();
-        let wallet = EthereumWallet::from(wallet_private_key.clone());
+        let caller = requestor_private_key.address();
+        let signer = requestor_private_key.clone();
+        let wallet = EthereumWallet::from(requestor_private_key.clone());
         let provider =
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
@@ -202,14 +202,14 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
     /// The proof market address is the address of the proof market contract.
     /// The set verifier address is the address of the set verifier contract.
     pub async fn from_parts(
-        wallet_private_key: PrivateKeySigner,
+        requestor_private_key: PrivateKeySigner,
         rpc_url: Url,
         proof_market_address: Address,
         set_verifier_address: Address,
     ) -> Result<Self, ClientError> {
-        let caller = wallet_private_key.address();
-        let signer = wallet_private_key.clone();
-        let wallet = EthereumWallet::from(wallet_private_key.clone());
+        let caller = requestor_private_key.address();
+        let signer = requestor_private_key.clone();
+        let wallet = EthereumWallet::from(requestor_private_key.clone());
         let provider =
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
