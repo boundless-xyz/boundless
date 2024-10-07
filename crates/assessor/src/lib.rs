@@ -10,7 +10,7 @@ use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
 
 /// Fulfillment contains a signed request, including offer and requirements,
-/// that the prover has completed, and the journal committed (via ReceiptClaim)
+/// that the prover has completed, and the journal committed
 /// into the Merkle tree of the aggregated set of proofs.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fulfillment {
