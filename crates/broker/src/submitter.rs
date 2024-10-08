@@ -34,7 +34,7 @@ pub struct Submitter<T, P> {
     prover: ProverObj,
     market: ProofMarketService<T, Arc<P>>,
     set_verifier: SetVerifierService<T, Arc<P>>,
-    agg_set_img_id: Digest,
+    set_builder_img_id: Digest,
 }
 
 impl<T, P> Submitter<T, P>
@@ -49,7 +49,7 @@ where
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
-        agg_set_img_id: Digest,
+        set_builder_img_id: Digest,
     ) -> Self {
         let market = ProofMarketService::new(
             market_addr,
@@ -62,7 +62,7 @@ where
             provider.default_signer_address(),
         );
 
-        Self { db, prover, market, set_verifier, agg_set_img_id }
+        Self { db, prover, market, set_verifier, set_builder_img_id }
     }
 
     async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
@@ -96,7 +96,7 @@ where
             .context("Failed to submit app merkle_root")?;
 
         let inclusion_params =
-            SetInclusionReceiptVerifierParameters { image_id: self.agg_set_img_id };
+            SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
 
         let mut fulfillments = vec![];
         for order_id in batch.orders.iter() {
@@ -543,7 +543,7 @@ mod tests {
             provider.clone(),
             *set_verifier.address(),
             *proof_market.address(),
-            agg_id,
+            set_builder_id,
         );
 
         assert!(submitter.process_next_batch().await.unwrap());
