@@ -265,7 +265,7 @@ interface IRiscZeroSetVerifier is IRiscZeroVerifier {
     /// Returns whether `root` has been submitted.
     function containsRoot(bytes32 root) external view returns (bool);
 
-    /// Returns the aggregator imageId and its url.
+    /// Returns the set builder imageId and its url.
     function imageInfo() external view returns (bytes32, string memory);
 }
 ```
@@ -279,7 +279,7 @@ In order to make this more efficient, we introduce the Assessor, which is a zkVM
 As input, the Assessor accepts:
 
 - A list of requests, including offer and requirements, that the prover has completed.
-- A list of image IDs and journals which the prover has assembled into a Merkle tree using the Aggregation set builder.
+- A list of image IDs and journals which the prover has assembled into a Merkle tree using the Aggregator.
 - The smart contract address for the market that will be posted to. This smart contract address is used solely to construct the EIP-712 Domain and complete signature checks on the requests.
 
 As a special case, the Assessor will accept a single request and receipt claim as a list of one.

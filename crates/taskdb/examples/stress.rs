@@ -4,26 +4,26 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use rand::SeedableRng;
-use rand::{rngs::StdRng, seq::SliceRandom, Rng};
+use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use sqlx::{
     postgres::PgPoolOptions,
     types::{JsonValue, Uuid},
     PgPool,
 };
-use std::str::FromStr;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use taskdb::{
     planner::{
         task::{Command as TaskCmd, Task},
         Planner,
     },
-    test_helpers, ReadyTask,
+    test_helpers, update_task_done, update_task_failed, update_task_retry, JobState, ReadyTask,
 };
-use taskdb::{update_task_done, update_task_failed, update_task_retry, JobState};
 use tokio::{
     task::JoinSet,
     time::{sleep, Duration},

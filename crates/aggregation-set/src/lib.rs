@@ -132,7 +132,11 @@ where
             if root_receipt.claim()?.digest::<sha::Impl>()
                 != expected_root_claim.digest::<sha::Impl>()
             {
-                bail!("root receipt claim does not match expected aggregation set builder claim: {:#?} != {:#?}", root_receipt.claim()?, expected_root_claim);
+                bail!(
+                    "root receipt claim does not match expected set builder claim: {:#?} != {:#?}",
+                    root_receipt.claim()?,
+                    expected_root_claim
+                );
             }
             return Ok(());
         }
@@ -211,14 +215,15 @@ impl Digestible for SetInclusionReceiptVerifierParameters {
 #[cfg(feature = "verify")]
 mod verify {
     use super::SetInclusionReceiptVerifierParameters;
-    pub use guest_aggregation_set::{
-        AGGREGATION_SET_GUEST_ELF, AGGREGATION_SET_GUEST_ID, AGGREGATION_SET_GUEST_PATH,
+    pub use guest_set_builder::{
+        SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID, SET_BUILDER_GUEST_PATH,
     };
 
     impl Default for SetInclusionReceiptVerifierParameters {
-        /// Default set of parameters used to verify a [SetInclusionReceipt][super::SetInclusionReceipt].
+        /// Default set of parameters used to verify a
+        /// [SetInclusionReceipt][super::SetInclusionReceipt].
         fn default() -> Self {
-            Self { image_id: AGGREGATION_SET_GUEST_ID.into() }
+            Self { image_id: SET_BUILDER_GUEST_ID.into() }
         }
     }
 }
@@ -236,7 +241,7 @@ pub struct RecursionVerifierParamters {
     pub control_root: Option<Digest>,
 }
 
-/// Input of the aggregation set guest.
+/// Input of the aggregation set builder guest.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum GuestInput {
     /// Input is a leaf of the Merkle tree.
@@ -348,7 +353,7 @@ fn commutative_keccak256(a: &Digest, b: &Digest) -> Digest {
 }
 
 alloy_sol_types::sol! {
-    /// Journal output of aggregation set guest.
+    /// Journal output of aggregation set builder guest.
     #[sol(all_derives)]
     struct GuestOutput {
         /// Image ID used to verify the assumptions.

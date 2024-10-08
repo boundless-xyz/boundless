@@ -344,16 +344,16 @@ where
         }
     }
 
-    async fn get_agg_set_image(&self) -> Result<(Digest, Vec<u8>)> {
-        let (agg_set_path, max_file_size) = {
+    async fn get_set_builder_image(&self) -> Result<(Digest, Vec<u8>)> {
+        let (set_builder_path, max_file_size) = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
-            (config.prover.agg_set_guest_path.clone(), config.market.max_file_size)
+            (config.prover.set_builder_guest_path.clone(), config.market.max_file_size)
         };
 
-        if let Some(path) = agg_set_path {
-            let elf_buf = std::fs::read(path).context("Failed to read aggregator-set path")?;
+        if let Some(path) = set_builder_path {
+            let elf_buf = std::fs::read(path).context("Failed to read set-builder path")?;
             let img_id = risc0_zkvm::compute_image_id(&elf_buf)
-                .context("Failed to compute aggregator-set imageId")?;
+                .context("Failed to compute set-builder imageId")?;
 
             Ok((img_id, elf_buf))
         } else {
@@ -484,15 +484,15 @@ where
             Ok(())
         });
 
-        let agg_img_data = self.get_agg_set_image().await?;
+        let set_builder_img_data = self.get_set_builder_image().await?;
         let assessor_img_data = self.get_assessor_image().await?;
 
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
                 self.db.clone(),
                 self.provider.clone(),
-                agg_img_data.0,
-                agg_img_data.1,
+                set_builder_img_data.0,
+                set_builder_img_data.1,
                 assessor_img_data.0,
                 assessor_img_data.1,
                 self.args.proof_market_addr,
@@ -515,7 +515,7 @@ where
             self.provider.clone(),
             self.args.set_verifier_addr,
             self.args.proof_market_addr,
-            agg_img_data.0,
+            set_builder_img_data.0,
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, submitter).await.context("Failed to start submitter service")?;
@@ -600,7 +600,7 @@ async fn upload_input_uri(prover: &ProverObj, order: &Order, max_size: usize) ->
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
 
-    use aggregation_set::AGGREGATION_SET_GUEST_PATH;
+    use aggregation_set::SET_BUILDER_GUEST_PATH;
     use alloy::{
         network::{Ethereum, EthereumWallet},
         providers::{
@@ -649,7 +649,7 @@ pub mod test_utils {
     > {
         let config_file = NamedTempFile::new().unwrap();
         let mut config = Config::default();
-        config.prover.agg_set_guest_path = Some(AGGREGATION_SET_GUEST_PATH.into());
+        config.prover.set_builder_guest_path = Some(SET_BUILDER_GUEST_PATH.into());
         config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
         config.market.mcycle_price = "0.00001".into();
         config.batcher.batch_size = Some(1);
