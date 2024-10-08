@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use aggregation_set::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use alloy::{
@@ -22,6 +22,7 @@ use risc0_zkvm::{
 };
 
 use crate::{
+    config::ConfigLock,
     db::DbObj,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
@@ -45,24 +46,34 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
+        config: ConfigLock,
         prover: ProverObj,
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
         agg_set_img_id: Digest,
-    ) -> Self {
-        let market = ProofMarketService::new(
+    ) -> Result<Self> {
+        let txn_timeout_opt = {
+            let config = config.lock_all().context("Failed to read config")?;
+            config.batcher.txn_timeout
+        };
+
+        let mut market = ProofMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
+        if let Some(txn_timeout) = txn_timeout_opt {
+            market = market.with_timeout(Duration::from_secs(txn_timeout));
+        }
+
         let set_verifier = SetVerifierService::new(
             set_verifier_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
 
-        Self { db, prover, market, set_verifier, agg_set_img_id }
+        Ok(Self { db, prover, market, set_verifier, agg_set_img_id })
     }
 
     async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
@@ -531,14 +542,17 @@ mod tests {
 
         market.lockin_request(&order.request, &client_sig.into(), None).await.unwrap();
 
+        let config = ConfigLock::default();
         let submitter = Submitter::new(
             db.clone(),
+            config,
             prover.clone(),
             provider.clone(),
             *set_verifier.address(),
             *proof_market.address(),
             agg_id,
-        );
+        )
+        .unwrap();
 
         assert!(submitter.process_next_batch().await.unwrap());
 

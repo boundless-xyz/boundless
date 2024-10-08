@@ -511,12 +511,13 @@ where
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),
+            self.config_watcher.config.clone(),
             prover.clone(),
             self.provider.clone(),
             self.args.set_verifier_addr,
             self.args.proof_market_addr,
             agg_img_data.0,
-        ));
+        )?);
         supervisor_tasks.spawn(async move {
             task::supervisor(1, submitter).await.context("Failed to start submitter service")?;
             Ok(())

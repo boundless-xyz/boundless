@@ -116,6 +116,8 @@ pub struct BatcherConfig {
     /// Number of seconds before the lowest block deadline in the order batch
     /// to flush the batch. This should be approximately snark_proving_time * 2
     pub block_deadline_buffer_secs: u64,
+    /// Timeout, in seconds for transaction confirmations
+    pub txn_timeout: Option<u64>,
 }
 
 impl Default for BatcherConfig {
@@ -125,6 +127,7 @@ impl Default for BatcherConfig {
             batch_size: Some(2),
             batch_max_fees: None,
             block_deadline_buffer_secs: 120,
+            txn_timeout: None,
         }
     }
 }
@@ -330,7 +333,8 @@ req_retry_count = 0
 [batcher]
 batch_max_time = 300
 batch_size = 2
-block_deadline_buffer_secs = 120"#;
+block_deadline_buffer_secs = 120
+txn_timeout = 45"#;
 
     const BAD_CONFIG: &str = r#"
 [market]
@@ -372,6 +376,7 @@ error = ?"#;
         assert_eq!(config.batcher.batch_size, Some(2));
         assert_eq!(config.batcher.batch_max_fees, Some("0.1".into()));
         assert_eq!(config.batcher.block_deadline_buffer_secs, 120);
+        assert_eq!(config.batcher.txn_timeout, None);
     }
 
     #[tokio::test]
@@ -413,6 +418,7 @@ error = ?"#;
             assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
+            assert_eq!(config.batcher.txn_timeout, Some(45));
         }
         tracing::debug!("closing...");
     }
