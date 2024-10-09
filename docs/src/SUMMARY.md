@@ -23,6 +23,4 @@
 - [🔗 Reference](./reference.md)
 - [📑 Glossary](./glossary.md)
 
-<!-- TODO: get a ./LICENSE.md in place -->
-
 [🏷️ License](./LICENSE.md)

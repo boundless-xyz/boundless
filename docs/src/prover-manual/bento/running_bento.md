@@ -19,7 +19,9 @@ Services can be run on other hosts, as long as the IP addresses for things link 
 Additionally, `NVCC_APPEND_FLAGS` should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/)
 
 <div class="warning">
+
 TODO: Write more here about how to do multi-host services like gpu-agent / exec-agent
+
 </div>
 
 ## Host setup

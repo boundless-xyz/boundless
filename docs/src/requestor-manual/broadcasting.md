@@ -1,5 +1,3 @@
-<!-- TODO: link all rust symbol references to source & rustdocs -->
-
 # Broadcasting Proof Requests
 
 Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `ProofMarketService` struct.
