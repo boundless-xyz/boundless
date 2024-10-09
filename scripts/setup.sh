@@ -138,8 +138,15 @@ install_cuda() {
     if dpkg -l | grep -q "^ii  cuda-toolkit"; then
         info "CUDA Toolkit is already installed. Skipping CUDA installation."
     else
-        info "Installing CUDA Toolkit..."
+        info "Installing CUDA Toolkit and dependencies..."
         {
+            local distribution
+            distribution=$(grep '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"'| tr -d '\.')
+            info "Installing Nvidia CUDA keyring and repo"
+            wget https://developer.download.nvidia.com/compute/cuda/repos/$distribution/$(/usr/bin/uname -m)/cuda-keyring_1.1-1_all.deb
+            dpkg -i cuda-keyring_1.1-1_all.deb
+            rm cuda-keyring_1.1-1_all.deb
+            apt-get update
             apt-get install -y cuda-toolkit
         } >> "$LOG_FILE" 2>&1
         success "CUDA Toolkit installed successfully."
