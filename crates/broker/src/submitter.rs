@@ -557,7 +557,8 @@ mod tests {
             *set_verifier.address(),
             *proof_market.address(),
             set_builder_id,
-        );
+        )
+        .unwrap();
 
         assert!(submitter.process_next_batch().await.unwrap());
 
