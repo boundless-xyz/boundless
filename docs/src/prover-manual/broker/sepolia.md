@@ -56,4 +56,6 @@ Ensure the environment variables `RPC_URL` and `PINATA_JWT` are set. Run the fol
 RUST_LOG=info cargo run --bin cli -- --private-key <METAMASK_PRIVATE_KEY> --proof-market-address 0x1074Dc9CaEa49B5830D3b9A625CdEA9C1038FC45 submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
 ```
 
-See [Submit proving requests](../market/proving_request.md) for more info on request.
+See [Submit proving requests][page-requestor-request] for more info on request.
+
+[page-requestor-request]: ../../requestor-manual/broadcasting.md

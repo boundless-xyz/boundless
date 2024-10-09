@@ -14,7 +14,7 @@ import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
 
 // For local testing:
 import {ImageID as AssesorImgId} from "../src/AssessorImageID.sol";
-import {ImageID as AggImgId} from "../src/AggregationSetImageID.sol";
+import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
 
 contract Deploy is Script, RiscZeroCheats {
     function run() external {
@@ -33,7 +33,7 @@ contract Deploy is Script, RiscZeroCheats {
             setBuilderGuestUrl = string.concat(
                 "file://",
                 cwd,
-                "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/aggregation-set-guest"
+                "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
             );
             console2.log("Set builder URI", setBuilderGuestUrl);
             assessorGuestUrl = string.concat(
@@ -44,7 +44,7 @@ contract Deploy is Script, RiscZeroCheats {
             console2.log("Assessor URI", assessorGuestUrl);
         }
 
-        RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, AggImgId.AGGREGATION_SET_GUEST_ID, setBuilderGuestUrl);
+        RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(verifier, SetBuidlerId.SET_BUILDER_GUEST_ID, setBuilderGuestUrl);
         console2.log("Deployed SetVerifier to,", address(setVerifier));
 
         ProofMarket market = new ProofMarket(setVerifier, AssesorImgId.ASSESSOR_GUEST_ID, assessorGuestUrl);

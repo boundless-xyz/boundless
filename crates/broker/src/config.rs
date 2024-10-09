@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use alloy::primitives::B256;
+use alloy::primitives::{Address, B256};
 use anyhow::{Context, Result};
 use notify::{EventKind, Watcher};
 use serde::{Deserialize, Serialize};
@@ -28,11 +28,7 @@ pub struct MarketConf {
     /// Peak single proof performance in kHz
     ///
     /// Used for sanity checking bids to prevent slashing
-    pub peak_prove_khz: u64,
-    /// Parallel proofs
-    ///
-    /// Should be set to executor count in Bento or parallel proofs in bonsai
-    pub parallel_proofs: u64,
+    pub peak_prove_khz: Option<u64>,
     /// Min blocks allowed to consider bidding on the proof
     pub min_deadline: u64,
     /// Order lookback blocks
@@ -43,6 +39,10 @@ pub struct MarketConf {
     pub max_stake: String,
     /// ImageID's that skip preflight
     pub skip_preflight_ids: Option<Vec<B256>>,
+    /// Optional allow list for customer address
+    ///
+    /// If enabled, all proof orders not in the allow list are skipped
+    pub allow_client_addresses: Option<Vec<Address>>,
     /// lockinRequest priority gas
     ///
     /// Optional additional gas to add to the transaction for lockinRequest, good
@@ -58,12 +58,12 @@ impl Default for MarketConf {
         Self {
             mcycle_price: "0.1".to_string(),
             assumption_price: "0.1".to_string(),
-            peak_prove_khz: 500,
-            parallel_proofs: 1,
+            peak_prove_khz: None,
             min_deadline: 150, // ~300 seconds aka 5 mins
             lookback_blocks: 100,
             max_stake: "0.1".to_string(),
             skip_preflight_ids: None,
+            allow_client_addresses: None,
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
         }
@@ -81,11 +81,11 @@ pub struct ProverConf {
     ///
     /// Provides a little durability for transient failures during proof status requests
     pub req_retry_count: u64,
-    /// Aggregator guest ELF path
+    /// Set builder guest ELF path
     ///
     /// When using a durable deploy, set this to the published current SOT guest ELF path on the
     /// system
-    pub agg_set_guest_path: Option<PathBuf>,
+    pub set_builder_guest_path: Option<PathBuf>,
     /// Assessor ELF path
     pub assessor_set_guest_path: Option<PathBuf>,
 }
@@ -96,7 +96,7 @@ impl Default for ProverConf {
             status_poll_ms: 1000,
             bonsai_r0_zkvm_ver: None,
             req_retry_count: 0,
-            agg_set_guest_path: None,
+            set_builder_guest_path: None,
             assessor_set_guest_path: None,
         }
     }
@@ -294,7 +294,6 @@ mod tests {
 mcycle_price = "0.1"
 assumption_price = "0.1"
 peak_prove_khz = 500
-parallel_proofs = 1
 min_deadline = 150
 lookback_blocks = 100
 max_stake = "0.1"
@@ -317,12 +316,12 @@ block_deadline_buffer_secs = 120"#;
 mcycle_price = "0.1"
 assumption_price = "0.1"
 peak_prove_khz = 10000
-parallel_proofs = 1
 min_deadline = 150
 lookback_blocks = 100
 max_stake = "0.1"
 skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
+allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
 
 [prover]
 status_poll_ms = 1000
@@ -351,8 +350,7 @@ error = ?"#;
 
         assert_eq!(config.market.mcycle_price, "0.1");
         assert_eq!(config.market.assumption_price, "0.1");
-        assert_eq!(config.market.peak_prove_khz, 500);
-        assert_eq!(config.market.parallel_proofs, 1);
+        assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.min_deadline, 150);
         assert_eq!(config.market.lookback_blocks, 100);
         assert_eq!(config.market.max_stake, "0.1");
@@ -367,7 +365,7 @@ error = ?"#;
         assert_eq!(config.prover.status_poll_ms, 1000);
         assert_eq!(config.prover.bonsai_r0_zkvm_ver.unwrap(), "1.0.1");
         assert_eq!(config.prover.req_retry_count, 0);
-        assert_eq!(config.prover.agg_set_guest_path, None);
+        assert_eq!(config.prover.set_builder_guest_path, None);
         assert_eq!(config.prover.assessor_set_guest_path, None);
 
         assert_eq!(config.batcher.batch_max_time, Some(300));
@@ -395,8 +393,7 @@ error = ?"#;
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.mcycle_price, "0.1");
             assert_eq!(config.market.assumption_price, "0.1");
-            assert_eq!(config.market.peak_prove_khz, 500);
-            assert_eq!(config.market.parallel_proofs, 1);
+            assert_eq!(config.market.peak_prove_khz, Some(500));
             assert_eq!(config.market.min_deadline, 150);
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.prover.status_poll_ms, 1000);
@@ -410,10 +407,10 @@ error = ?"#;
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.mcycle_price, "0.1");
             assert_eq!(config.market.assumption_price, "0.1");
-            assert_eq!(config.market.peak_prove_khz, 10000);
-            assert_eq!(config.market.parallel_proofs, 1);
+            assert_eq!(config.market.peak_prove_khz, Some(10000));
             assert_eq!(config.market.min_deadline, 150);
             assert_eq!(config.market.lookback_blocks, 100);
+            assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
         }

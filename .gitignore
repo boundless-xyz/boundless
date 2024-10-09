@@ -22,12 +22,12 @@ target/
 .idea
 
 # Ignore generated files
-contracts/src/AggregationSetImageID.sol
+contracts/src/SetBuilderImageID.sol
 contracts/src/AssessorImageID.sol
 contracts/src/EchoImageID.sol
 contracts/src/ResolveImageID.sol
 contracts/src/UtilImageID.sol
-contracts/test/AggregationSetElf.sol
+contracts/test/SetBuilderElf.sol
 contracts/test/AssessorElf.sol
 contracts/test/EchoElf.sol
 contracts/test/ResolveElf.sol

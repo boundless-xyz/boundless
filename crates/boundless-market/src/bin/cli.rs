@@ -15,7 +15,11 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use guest_util::ECHO_ELF;
 use hex::FromHex;
-use risc0_zkvm::sha::Digest;
+use risc0_ethereum_contracts::IRiscZeroVerifier;
+use risc0_zkvm::{
+    sha::{Digest, Digestible},
+    Journal,
+};
 use url::Url;
 
 use boundless_market::{
@@ -71,6 +75,14 @@ enum Command {
         /// Wait until the request is fulfilled
         #[clap(short, long, default_value = "false")]
         wait: bool,
+    },
+    /// Verify the proof of the given request against
+    /// the SetVerifier contract.
+    VerifyProof {
+        /// The proof request identifier
+        request_id: U256,
+        /// The image id of the original request
+        image_id: B256,
     },
     /// Get the status of a given request
     Status {
@@ -138,6 +150,8 @@ struct MainArgs {
     wallet_private_key: PrivateKeySigner,
     #[clap(short, long, env)]
     proof_market_address: Address,
+    #[clap(short, long, env)]
+    set_verifier_address: Address,
     #[command(subcommand)]
     command: Command,
 }
@@ -156,7 +170,7 @@ async fn main() -> Result<()> {
     let provider =
         ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(args.rpc_url);
     let market = ProofMarketService::new(args.proof_market_address, provider.clone(), caller);
-
+    let set_verifier = IRiscZeroVerifier::new(args.set_verifier_address, provider.clone());
     let command = args.command.clone();
     match command {
         Command::Deposit { amount } => {
@@ -182,7 +196,7 @@ async fn main() -> Result<()> {
         }
         Command::Slash { request_id } => {
             market.slash(request_id).await?;
-            tracing::info!("Request slashed: {request_id:x}");
+            tracing::info!("Request slashed: 0x{request_id:x}");
         }
         Command::GetProof { request_id, wait } => {
             let (journal, seal) = if wait {
@@ -197,6 +211,19 @@ async fn main() -> Result<()> {
                 serde_json::to_string_pretty(&journal)?,
                 serde_json::to_string_pretty(&seal)?
             );
+        }
+        Command::VerifyProof { request_id, image_id } => {
+            let (journal, seal) = market
+                .wait_for_request_fulfillment(request_id, Duration::from_secs(5), None)
+                .await?;
+
+            let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
+            set_verifier
+                .verify(seal, image_id, journal_digest)
+                .call()
+                .await
+                .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+            tracing::info!("Proof for request id 0x{request_id:x} verified successfully.");
         }
         Command::Status { request_id } => {
             let status = market.get_status(request_id).await?;
@@ -298,7 +325,7 @@ where
 
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
-        "Submitted request ID {request_id:x}, bidding start at block number {}",
+        "Submitted request ID 0x{request_id:x}, bidding start at block number {}",
         offer.biddingStart
     );
 
@@ -360,7 +387,7 @@ where
 
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
-        "Proving request ID {request_id:x}, bidding start at block number {}",
+        "Proving request ID 0x{request_id:x}, bidding start at block number {}",
         request.offer.biddingStart
     );
 

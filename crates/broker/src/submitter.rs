@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use aggregation_set::SetInclusionReceipt;
+use aggregation_set::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use alloy::{
     network::Ethereum,
     primitives::{aliases::U192, Address, B256, U256},
@@ -34,6 +34,7 @@ pub struct Submitter<T, P> {
     prover: ProverObj,
     market: ProofMarketService<T, Arc<P>>,
     set_verifier: SetVerifierService<T, Arc<P>>,
+    set_builder_img_id: Digest,
 }
 
 impl<T, P> Submitter<T, P>
@@ -48,6 +49,7 @@ where
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
+        set_builder_img_id: Digest,
     ) -> Self {
         let market = ProofMarketService::new(
             market_addr,
@@ -60,7 +62,7 @@ where
             provider.default_signer_address(),
         );
 
-        Self { db, prover, market, set_verifier }
+        Self { db, prover, market, set_verifier, set_builder_img_id }
     }
 
     async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
@@ -92,6 +94,9 @@ where
             .submit_merkle_root(root, batch_seal.into())
             .await
             .context("Failed to submit app merkle_root")?;
+
+        let inclusion_params =
+            SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
 
         let mut fulfillments = vec![];
         for order_id in batch.orders.iter() {
@@ -141,10 +146,11 @@ where
             };
 
             tracing::debug!("Order path {order_id:x} - {order_path:x?}");
-            let set_inclusion_receipt = SetInclusionReceipt::from_path(
+            let mut set_inclusion_receipt = SetInclusionReceipt::from_path(
                 ReceiptClaim::ok(order_img_id.0, MaybePruned::Pruned(order_journal.digest())),
                 order_path,
             );
+            set_inclusion_receipt.verifier_parameters = inclusion_params.digest();
             let seal = match set_inclusion_receipt
                 .abi_encode_seal()
                 .context("ABI encode set inclusion receipt")
@@ -170,16 +176,17 @@ where
         }
 
         let orders_root = batch.orders_root.context("Batch missing orders root digest")?;
-        let assessor_seal = SetInclusionReceipt::from_path(
+        let mut assessor_seal = SetInclusionReceipt::from_path(
             // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
             // should make an explicit way to encode an inclusion proof without the claim.
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
             vec![orders_root],
-        )
-        .abi_encode_seal()
-        .context("ABI encode assessor set inclusion receipt")?;
+        );
+        assessor_seal.verifier_parameters = inclusion_params.digest();
+        let assessor_seal =
+            assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
 
         if let Err(err) =
             self.market.fulfill_batch(fulfillments.clone(), assessor_seal.into()).await
@@ -274,9 +281,7 @@ mod tests {
         provers::{encode_input, MockProver},
         Batch, BatchStatus, Order, OrderStatus,
     };
-    use aggregation_set::{
-        GuestInput, GuestOutput, AGGREGATION_SET_GUEST_ELF, AGGREGATION_SET_GUEST_ID,
-    };
+    use aggregation_set::{GuestInput, GuestOutput, SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -324,7 +329,7 @@ mod tests {
         let set_verifier = SetVerifier::deploy(
             &provider,
             *verifier.address(),
-            FixedBytes::from_slice(&Digest::from(AGGREGATION_SET_GUEST_ID).as_bytes()),
+            FixedBytes::from_slice(&Digest::from(SET_BUILDER_GUEST_ID).as_bytes()),
             String::new(),
         )
         .await
@@ -360,9 +365,9 @@ mod tests {
             .await
             .unwrap();
 
-        let agg_id = Digest::from(AGGREGATION_SET_GUEST_ID);
-        let agg_id_str = agg_id.to_string();
-        prover.upload_image(&agg_id_str, AGGREGATION_SET_GUEST_ELF.to_vec()).await.unwrap();
+        let set_builder_id = Digest::from(SET_BUILDER_GUEST_ID);
+        let set_builder_id_str = set_builder_id.to_string();
+        prover.upload_image(&set_builder_id_str, SET_BUILDER_GUEST_ELF.to_vec()).await.unwrap();
 
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         let assessor_id_str = assessor_id.to_string();
@@ -400,10 +405,10 @@ mod tests {
             .unwrap()
             .as_bytes();
 
-        let agg_input = prover
+        let set_builder_input = prover
             .upload_input(
                 encode_input(&GuestInput::Singleton {
-                    self_image_id: agg_id,
+                    self_image_id: set_builder_id,
                     claim: echo_receipt.claim().unwrap().as_value().unwrap().clone(),
                 })
                 .unwrap(),
@@ -411,7 +416,11 @@ mod tests {
             .await
             .unwrap();
         let echo_singleton = prover
-            .prove_and_monitor_stark(&agg_id_str, &agg_input, vec![echo_proof.id.clone()])
+            .prove_and_monitor_stark(
+                &set_builder_id_str,
+                &set_builder_input,
+                vec![echo_proof.id.clone()],
+            )
             .await
             .unwrap();
 
@@ -443,10 +452,10 @@ mod tests {
             .unwrap();
         let assessor_receipt = prover.get_receipt(&assessor_proof.id).await.unwrap().unwrap();
 
-        let agg_input = prover
+        let set_builder_input = prover
             .upload_input(
                 encode_input(&GuestInput::Singleton {
-                    self_image_id: agg_id,
+                    self_image_id: set_builder_id,
                     claim: assessor_receipt.claim().unwrap().as_value().unwrap().clone(),
                 })
                 .unwrap(),
@@ -455,7 +464,11 @@ mod tests {
             .unwrap();
 
         let assessor_singleton = prover
-            .prove_and_monitor_stark(&agg_id_str, &agg_input, vec![assessor_proof.id.clone()])
+            .prove_and_monitor_stark(
+                &set_builder_id_str,
+                &set_builder_input,
+                vec![assessor_proof.id.clone()],
+            )
             .await
             .unwrap();
         let assessor_singleton_journal =
@@ -468,7 +481,7 @@ mod tests {
         let join_input = prover
             .upload_input(
                 encode_input(&GuestInput::Join {
-                    self_image_id: agg_id,
+                    self_image_id: set_builder_id,
                     left_set_root: tree_output.root(),
                     right_set_root: assessor_output.root(),
                 })
@@ -478,7 +491,7 @@ mod tests {
             .unwrap();
         let batch_root_proof = prover
             .prove_and_monitor_stark(
-                &agg_id_str,
+                &set_builder_id_str,
                 &join_input,
                 vec![echo_singleton.id.clone(), assessor_singleton.id.clone()],
             )
@@ -530,6 +543,7 @@ mod tests {
             provider.clone(),
             *set_verifier.address(),
             *proof_market.address(),
+            set_builder_id,
         );
 
         assert!(submitter.process_next_batch().await.unwrap());

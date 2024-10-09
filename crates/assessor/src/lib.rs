@@ -10,8 +10,8 @@ use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
 
 /// Fulfillment contains a signed request, including offer and requirements,
-/// that the prover has completed, and the journal
-/// committed (via ReceiptClaim) into the Merkle tree of the aggregation set builder.
+/// that the prover has completed, and the journal committed
+/// into the Merkle tree of the aggregated set of proofs.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fulfillment {
     pub request: ProvingRequest,
@@ -70,9 +70,7 @@ impl AssessorInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aggregation_set::{
-        GuestInput, GuestOutput, AGGREGATION_SET_GUEST_ELF, AGGREGATION_SET_GUEST_ID,
-    };
+    use aggregation_set::{GuestInput, GuestOutput, SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use alloy::{
         primitives::{aliases::U96, Address, B256},
         signers::local::PrivateKeySigner,
@@ -179,7 +177,7 @@ mod tests {
     fn singleton(assumption: Receipt) -> Receipt {
         let claim = assumption.claim().unwrap().value().unwrap();
         let guest_input = GuestInput::Singleton {
-            self_image_id: Digest::from(AGGREGATION_SET_GUEST_ID),
+            self_image_id: Digest::from(SET_BUILDER_GUEST_ID),
             claim: claim.clone(),
         };
         let env = ExecutorEnv::builder()
@@ -188,15 +186,15 @@ mod tests {
             .add_assumption(assumption)
             .build()
             .unwrap();
-        let session = default_executor().execute(env, AGGREGATION_SET_GUEST_ELF).unwrap();
+        let session = default_executor().execute(env, SET_BUILDER_GUEST_ELF).unwrap();
         assert_eq!(session.exit_code, ExitCode::Halted(0));
         let journal = &session.journal.bytes;
         let guest_output = GuestOutput::abi_decode(journal, true).unwrap();
-        assert_eq!(guest_output.image_id(), Digest::from(AGGREGATION_SET_GUEST_ID));
+        assert_eq!(guest_output.image_id(), Digest::from(SET_BUILDER_GUEST_ID));
         assert_eq!(guest_output.root(), claim.digest());
         Receipt::new(
             InnerReceipt::Fake(FakeReceipt::new(ReceiptClaim::ok(
-                AGGREGATION_SET_GUEST_ID,
+                SET_BUILDER_GUEST_ID,
                 MaybePruned::Pruned(journal.digest()),
             ))),
             journal.clone(),
@@ -210,7 +208,7 @@ mod tests {
         let guest_output_right = GuestOutput::abi_decode(&journal_right, true).unwrap();
 
         let guest_input = GuestInput::Join {
-            self_image_id: Digest::from(AGGREGATION_SET_GUEST_ID),
+            self_image_id: Digest::from(SET_BUILDER_GUEST_ID),
             left_set_root: guest_output_left.root(),
             right_set_root: guest_output_right.root(),
         };
@@ -221,15 +219,15 @@ mod tests {
             .add_assumption(right)
             .build()
             .unwrap();
-        let session = default_executor().execute(env, AGGREGATION_SET_GUEST_ELF).unwrap();
+        let session = default_executor().execute(env, SET_BUILDER_GUEST_ELF).unwrap();
         assert_eq!(session.exit_code, ExitCode::Halted(0));
         let journal = &session.journal.bytes;
 
         let guest_output = GuestOutput::abi_decode(journal, true).unwrap();
-        assert_eq!(guest_output.image_id(), Digest::from(AGGREGATION_SET_GUEST_ID));
+        assert_eq!(guest_output.image_id(), Digest::from(SET_BUILDER_GUEST_ID));
         Receipt::new(
             InnerReceipt::Fake(FakeReceipt::new(ReceiptClaim::ok(
-                AGGREGATION_SET_GUEST_ID,
+                SET_BUILDER_GUEST_ID,
                 MaybePruned::Pruned(journal.digest()),
             ))),
             journal.clone(),

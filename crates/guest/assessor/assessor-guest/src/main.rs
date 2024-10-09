@@ -7,7 +7,7 @@
 
 extern crate alloc;
 
-use aggregation_set::AGGREGATION_SET_GUEST_ID;
+use aggregation_set::SET_BUILDER_GUEST_ID;
 use aggregation_set::{merkle_root, GuestOutput};
 use alloc::{vec, vec::Vec};
 use alloy_primitives::aliases::U192;
@@ -48,11 +48,11 @@ fn main() {
 
     // recompute the merkle root of the aggregation set
     let root = merkle_root(&leaves).expect("failed to compute merkle root");
-    let aggregation_set_id = Digest::from(AGGREGATION_SET_GUEST_ID);
-    let journal = GuestOutput::new(aggregation_set_id, root).abi_encode();
+    let set_builder_id = Digest::from(SET_BUILDER_GUEST_ID);
+    let journal = GuestOutput::new(set_builder_id, root).abi_encode();
 
     // verify the integrity of the committed root
-    env::verify(aggregation_set_id, &journal).expect("aggregation set root does not verify");
+    env::verify(set_builder_id, &journal).expect("aggregation set root does not verify");
 
     let journal = AssessorJournal {
         requestIds: ids,

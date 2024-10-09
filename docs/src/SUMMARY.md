@@ -1,27 +1,26 @@
 # Summary
 
-- [Introduction](./README.md)
+[🏡 Boundless](./README.md)
 
-# Market
+---
 
-- [Boundless Market v0 RFC](./market/prover_market_rfc.md)
-- [Market Matching Design](./market/reverse_dutch.md)
-- [Submit proving requests](./market/proving_request.md)
+- [💹 Market Overview](./market/README.md)
 
-# Bento
+  - [Boundless Market RFC](./market/rfc.md)
+  - [Market Matching](./market/matching.md)
+  - [Local Development Configuration](./market/local-development.md)
 
-- [Running Bento](./bento/running_bento.md)
-- [Technical Design](./bento/technical_design.md)
+- [🙋 Requestor Manual](./requestor-manual/README.md)
 
-# Broker
+  - [Broadcasting Requests](./requestor-manual/broadcasting.md)
 
-- [Run a broker node](./broker/broker_node.md)
-- [Play with a local devnet](./broker/local_devnet.md)
+- [🏋 Prover Manual](./prover-manual/README.md)
 
-<!-- TODO add back the link to the Sepolia doc when ready -->
+  - [Bento](./prover-manual/bento/README.md)
+    - [Running Bento](./prover-manual/bento/running_bento.md)
+  - [Broker](./prover-manual/broker/README.md)
 
-- [Play with Sepolia]()
+- [🔗 Reference](./reference.md)
+- [📑 Glossary](./glossary.md)
 
-# Examples
-
-> TODO: Document counter example here
+[🏷️ License](./LICENSE.md)

@@ -58,15 +58,23 @@ where
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<()> {
         tracing::debug!("Processing order {order_id:x}: {order:?}");
 
-        let min_deadline = {
+        let (min_deadline, allowed_addresses_opt) = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            config.market.min_deadline
+            (config.market.min_deadline, config.market.allow_client_addresses.clone())
         };
 
         let current_block =
             self.provider.get_block_number().await.context("Failed to get current block")?;
 
         // Initial sanity checks:
+        if let Some(allow_addresses) = allowed_addresses_opt {
+            let client_addr = order.request.client_address();
+            if !allow_addresses.contains(&client_addr) {
+                tracing::warn!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
+                self.db.skip_order(order_id).await.context("Order not in allowed addr list")?;
+                return Ok(());
+            }
+        }
 
         // is the order expired already?
 
@@ -117,7 +125,7 @@ where
             return Ok(());
         }
 
-        let (skip_preflight, max_size) = {
+        let (skip_preflight, max_size, peak_prove_khz) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             let skip_preflight =
                 if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
@@ -126,7 +134,7 @@ where
                     false
                 };
 
-            (skip_preflight, config.market.max_file_size)
+            (skip_preflight, config.market.max_file_size, config.market.peak_prove_khz)
         };
 
         if skip_preflight {
@@ -137,11 +145,6 @@ where
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
             return Ok(());
         }
-
-        // TODO: Check config.market.peak_prove_khz (or maybe min khz?)
-        // to make sure we can prove this quickly enough to get within the deadline
-        // this is tricky because we also need to account for the assessor AND aggregation
-        // proving time
 
         // TODO: Move URI handling like this into the prover impls
         let image_id = crate::upload_image_uri(&self.prover, order, max_size)
@@ -183,8 +186,18 @@ where
             .await
             .context("Preflight failed")?;
 
-        // TODO: currently Bento / Bonsai don't support fetching journals from execute only
-        // sessions so we need to add the function and then re-enable this section
+        // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently
+        // can absorb that proving load, we need to cordinate this check with parallel
+        // proofs and the current state of Bento
+        if let Some(prove_khz) = peak_prove_khz {
+            let required_khz = (proof_res.stats.total_cycles / 1_000) / seconds_left;
+            tracing::debug!("peak_prove_khz checking: {prove_khz} required: {required_khz}");
+            if required_khz >= prove_khz {
+                tracing::warn!("Order {order_id:x} peak_prove_khz check failed req: {required_khz} | config: {prove_khz}");
+                self.db.skip_order(order_id).await.context("Failed to delete order")?;
+                return Ok(());
+            }
+        }
 
         // Validate the predicates:
         let journal = self
@@ -555,6 +568,93 @@ mod tests {
         assert!(logs_contain("predicate check failed, skipping"));
 
         get_mock.assert();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_unallowed_addr() {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer.clone()))
+                .on_http(anvil.endpoint().parse().unwrap()),
+        );
+
+        provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
+        let contract_address =
+            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
+                .await
+                .unwrap()
+                .address();
+        let proof_market = ProofMarketService::new(
+            contract_address,
+            provider.clone(),
+            provider.default_signer_address(),
+        );
+
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+
+        {
+            config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
+        }
+
+        let prover: ProverObj = Arc::new(MockProver::default());
+        let image_id = Digest::from(ECHO_ID);
+        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
+
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+
+        let order_id = U256::from(proof_market.request_id_from_nonce().await.unwrap());
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
+
+        let order = Order {
+            status: OrderStatus::Pricing,
+            updated_at: Utc::now(),
+            target_block: None,
+            request: ProvingRequest::new(
+                proof_market.index_from_nonce().await.unwrap(),
+                &signer.address(),
+                Requirements {
+                    imageId: <[u8; 32]>::from(image_id).into(),
+                    predicate: Predicate {
+                        predicateType: PredicateType::DigestMatch,
+                        data: B256::ZERO.into(),
+                    },
+                },
+                "",
+                Input { inputType: InputType::Inline, data: input_buf.into() },
+                Offer {
+                    minPrice: U96::from(min_price),
+                    maxPrice: U96::from(max_price),
+                    biddingStart: 0,
+                    timeout: 100,
+                    rampUpPeriod: 1,
+                    lockinStake: U96::from(0),
+                },
+            ),
+            image_id: None,
+            input_id: None,
+            proof_id: None,
+            expire_block: None,
+            path: None,
+            client_sig: Bytes::new(),
+            lock_price: None,
+            error_msg: None,
+        };
+
+        let _request_id = proof_market.submit_request(&order.request, &signer).await.unwrap();
+
+        db.add_order(order_id, order.clone()).await.unwrap();
+        picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain("because it is not in allowed addrs"));
     }
 
     #[tokio::test]

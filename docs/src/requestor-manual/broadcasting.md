@@ -1,20 +1,19 @@
-# Submit Proving Request
+# Broadcasting Proof Requests
 
 Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `ProofMarketService` struct.
-An example is provided in the [examples/counter](../../../examples/counter) directory.
+An example is provided in the `examples/counter` directory.
 
-You can also interact with the market via a market client CLI.
-It builds upon the [boundless_market::contracts](../../../crates/boundless-market/src/contracts/proof_market.rs) library.
+You can also interact with the market via a CLI, built with the `boundless_market::contracts` library.
 
 ## CLI Usage
 
 > **NOTE**: all the following commands can be run with the environment variable `RISC0_DEV_MODE` set;
-> this should be done only while testing within a [local devnet](../broker/local_devnet.md) as the
+> this should be done only while testing within a [local devnet][page-local-development] as the
 > default storage provider will use temporary files.
 
-The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
+The boundless `cli` allows to:
 
-1. Submit proving request via a YAML file, an example can be found [here](../../../request.yaml).
+1. Submit proving request via a YAML file, an example can be found `request.yaml`.
 
    ```console
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
@@ -77,7 +76,21 @@ The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
    2024-09-17T15:14:01.314302Z  INFO cli: Journal: "0x576564204a756c2020332031343a33373a31322050445420323032340a" - Seal: "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000164578a3cc24cf38d1173509a99db4f70d57ff3a6c43cb2e8552a2a5d252968ba"
    ```
 
-4. Send an offer with the requirements specified as command line arguments:
+4. Verify a proof of a request
+
+   With the `verify-proof` subcommand, you can verify a proof for a given request id and image id.
+
+   ```console
+   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- verify-proof 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d
+   ```
+
+   Should output something like:
+
+   ```console
+   2024-10-07T14:50:54.442260Z  INFO cli: Proof for request id 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 verified successfully.
+   ```
+
+5. Send an offer with the requirements specified as command line arguments:
 
    With the `submit-offer` subcommand, you can specify the requirements and input as command-line options.
    It will upload the image and input, and place public URLs in the request.
@@ -91,10 +104,12 @@ The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
    PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-offer offer.yaml --wait --input "hello" --encode-input --journal-prefix ""
    ```
 
-5. Slash a request and get back funds
+6. Slash a request and get back funds
 
    With the `slash` subcommand, you can slash a given `request ID` and get a refund of your offer:
 
    ```console
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
    ```
+
+[page-local-development]: ../market/local-development.md
