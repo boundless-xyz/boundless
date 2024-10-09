@@ -61,6 +61,9 @@ check_os() {
         if [[ "${ID,,}" != "ubuntu" ]]; then
             error "Unsupported operating system: $NAME. This script is intended for Ubuntu."
             exit 1
+        elif [[ "${VERSION_ID,,}" != "22.04" ]]; then
+            error "Unsupported operating system verion: $VERSION. This script is intended for Ubuntu 22.04."
+            exit 1
         else
             info "Operating System: $PRETTY_NAME"
         fi
