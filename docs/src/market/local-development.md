@@ -18,7 +18,7 @@ git submodule update --init
    ```
 
 2. Test your deployment with the client CLI.
-   You can read more about the client on the [proving request](../market/proving_request.md) page.
+   You can read more about the client on the [proving request][page-requestor-request] page.
 
    ```console
    RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
@@ -106,10 +106,11 @@ If instead you prefer setting up a local devnet step by step, you can run the fo
 
 Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
 
-Check out the is-even example in the [Boundless Foundry template](https://github.com/boundless-xyz/boundless-foundry-template/)for an example of how to run and application using the prover market.
+Check out the is-even example in the [Boundless Foundry template][boundless-foundry-template] for an example of how to run and application using the prover market.
 
 You can also try editing `request.yaml` to send a request with different values.
 Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
 
 [page-bento-running]: ../prover-manual/bento/running_bento.md
 [page-requestor-request]: ../requestor-manual/broadcasting.md
+[boundless-foundry-template]: https://github.com/boundless-xyz/boundless-foundry-template/
