@@ -1,7 +1,7 @@
 # Counter Example
 
 > This example should be run against a deployment of the Boundless market.
-> See the [local devnet doc][page-broker-devnet] for info on running one locally.
+> See the [local devnet doc][page-local-development] for info on running one locally.
 > Environment variables for connecting to and interacting with the network are defined in a [.env file](../../.env).
 
 ## Build
@@ -39,7 +39,7 @@ export COUNTER_ADDRESS=#COPY COUNTER ADDRESS FROM DEPLOY LOGS
 
 ## Run the example
 
-Running this example requires having access to a Boundless market deployment. You can set a local one up by following the [local devnet][page-broker-devnet] instructions.
+Running this example requires having access to a Boundless market deployment. You can set a local one up by following the [local devnet][page-local-development] instructions.
 
 To run the example run:
 
@@ -65,4 +65,4 @@ export IPFS_GATEWAY_URL="YOUR_IPFS_GATEWAY_URL"
 RUST_LOG=info cargo run --bin example-counter -- --counter-address ${COUNTER_ADDRESS:?}
 ```
 
-[page-broker-devnet]: ../../docs/src/prover-manual/broker/local_devnet.md
+[page-local-development]: ../../docs/src/market/local-development.md

@@ -18,9 +18,7 @@
 
   - [Bento](./prover-manual/bento/README.md)
     - [Running Bento](./prover-manual/bento/running_bento.md)
-    - [Technical Design](./prover-manual/bento/technical_design.md)
   - [Broker](./prover-manual/broker/README.md)
-    - [Run a broker node](./prover-manual/broker/broker_node.md)
 
 - [🔗 Reference](./reference.md)
 - [📑 Glossary](./glossary.md)

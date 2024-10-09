@@ -10,7 +10,7 @@ You can also interact with the market via a CLI, built with the `boundless_marke
 ## CLI Usage
 
 > **NOTE**: all the following commands can be run with the environment variable `RISC0_DEV_MODE` set;
-> this should be done only while testing within a [local devnet][page-broker-devnet] as the
+> this should be done only while testing within a [local devnet][page-local-development] as the
 > default storage provider will use temporary files.
 
 The boundless `cli` allows to:
@@ -114,4 +114,4 @@ The boundless `cli` allows to:
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
    ```
 
-[page-broker-devnet]: ../prover-manual/broker/local_devnet.md
+[page-local-development]: ../market/local-development.md

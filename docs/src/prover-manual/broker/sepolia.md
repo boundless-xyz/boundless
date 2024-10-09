@@ -58,4 +58,4 @@ RUST_LOG=info cargo run --bin cli -- --private-key <METAMASK_PRIVATE_KEY> --proo
 
 See [Submit proving requests][page-requestor-request] for more info on request.
 
-[page-requestor-request]: ../../requestor-manual/proving_request.md
+[page-requestor-request]: ../../requestor-manual/broadcasting.md

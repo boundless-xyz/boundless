@@ -10,5 +10,5 @@ Key concepts and designs are discussed, as well as details both need for [local 
 [page-prover-manual]: ../prover-manual/README.md
 [page-requestor-manual]: ../requestor-manual/README.md
 [page-local-development]: ./local-development.md
-[term-requestor]: glossary.md#requestor
-[term-prover]: glossary.md#prover
+[term-requestor]: ../glossary.md#requestor
+[term-prover]: ../glossary.md#prover
