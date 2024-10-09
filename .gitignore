@@ -8,6 +8,9 @@ out/
 /broadcast/*/11155111/
 /broadcast/**/dry-run/
 
+# Devnet logs
+/logs
+
 # Dotenv file
 # .env
 
