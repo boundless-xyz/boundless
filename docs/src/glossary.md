@@ -1,63 +1,58 @@
 # Glossary
 
-### Agent
-
-TODO - what ones (Bento)
-
 ### Assessor
+
+A [guest program][r0-term-guest-program] that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request does not need to be provided as part of fulfillment, only the associated identifier.
 
 ### Aggregation
 
-What does this mean specific to us? how is it dif than zkvm use (https://dev.risczero.com/terminology#composition )?
-Maybe need another term!
-(Batching... but maybe agg is good to connect with agg layer?)
-allows for amortization of many proof jobs into single on-chain verification.
+In order to amortize the Boundless' _on-chain verification cost_, a recursive verification protocol is used to verify multiple independent [receipts][r0-term-reciept] such that a single receipt attests to every claim in a set of proofs.
+Further improving efficiency of inclusion proofs on-chain, this process builds a binary Merkle tree of the receipt claims.
 
-### EVM
-
-TODO
+> See `crates/aggregation-set/src/lib.rs` and `crates/guest/set-builder/set-builder-guest/src/main.rs` for details.
 
 ### Bento
 
-The proving cluster coordination software.
+A cluster of services that coordinate to search for, bid on, and attempt to fulfil [proof order](#proof-order)s.
 
-<!-- TODO link -->
+> See the [Bento Documentation][page-bento] for moe details.
 
 ### Broker
 
-TODO is it a node?
+A cluster of services that coordinate to search for, bid on, and attempt to fulfil [proof order](#proof-order)s.
+
+> See the [Bento Documentation][page-bento] for moe details.
 
 ### Prover
 
-### Boundless
+The market participant that fulfills [proof order](#proof-order)
 
-The Verifiable Compute Layer.
-Uses
+### Proof Order
 
-### Boundless Market
+<!-- TODO https://linear.app/risczero/issue/BM-201/replace-proof-request-with-order -->
+
+An order placed on the [Boundless Market](#boundless-market) to that includes:
+
+- A Unique ID for the request on the Market
+- Proof Requirements for a this order to be fulfilled, including the [Image ID][r0-term-image-id]
+- A URL where the [ELF Binary][r0-term-elf-binary] for the program with required Image ID's can be retrieved byt the [Prover](#prover)
+- [Guest Program][r0-term-guest-program] inputs
+- An Offer specifying remuneration for successful order fulfillment
+
+See `contracts/src/IProofMarket.sol` for more details.
 
 ### Requestor
 
-Demanding proofs form the [Boundless Market][term-boundless-market]
+<!-- TODO https://linear.app/risczero/issue/BM-202/replace-instances-of-client-with-requestor -->
 
-<!-- TODO replace instances of: client, demand -->
+Also referred to as the Client in the context of contracts, the party submitting orders to the market proofs form the Boundless Market.
 
 ### Preflight
 
 is this specific and need a name? (run execution to check cost and see if execution is valid at all)
 
-## TODO
-
-make uniform
-
-- supply vs demand... replace? request(or) & prover
-- link `receipt` and other terms to dev.risczero.com
-  - image
-  - executor
-  - guest
-  -
-  -
-  -
-- Do we mention the token at all? or RM now.
-- RFC should include links to code, (or embed), not be code in line
-- UPDATE broker/sepolia.html (remove for now)
+[r0-term-image-id]: https://dev.risczero.com/terminology#image-id
+[r0-term-guest-program]: https://dev.risczero.com/terminology#guest-program
+[r0-term-elf-binary]: https://dev.risczero.com/terminology#elf-binary
+[r0-term-reciept]: https://dev.risczero.com/terminology#receipt
+[page-bento]: ./prover-manual/bento/README.md
