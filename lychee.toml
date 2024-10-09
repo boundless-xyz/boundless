@@ -10,6 +10,8 @@ max_retries = 3
 require_https = true
 
 exclude = [
+  # Flakey
+  "etherscan.io",
   # priv org
-  "https://github.com/boundless-xyz/*",
+  "github.com/boundless-xyz",
 ]
