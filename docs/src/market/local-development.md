@@ -1,4 +1,4 @@
-# Playing with a Local Development Environment
+# Local Development Guide
 
 Ensure the following software is installed on your machine before proceeding:
 
@@ -61,8 +61,8 @@ git submodule update --init
    RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
    ```
 
-6. Test your deployment with the client CLI.
-   You can read more about the client on the [proving request][page-requestor-request] page.
+6. Test your deployment with the boundless CLI.
+   You can read more about on the [proving request][page-requestor-request] page.
 
    ```console
    RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
@@ -79,5 +79,5 @@ Check out the is-even example in the [Boundless Foundry template](https://github
 You can also try editing `request.yaml` to send a request with different values.
 Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
 
-[page-bento-running]: ../bento/running_bento.md
-[page-requestor-request]: ../../requestor-manual/proving_request.md
+[page-bento-running]: ../prover-manual/bento/running_bento.md
+[page-requestor-request]: ../requestor-manual/broadcasting.md

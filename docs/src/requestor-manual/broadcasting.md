@@ -1,12 +1,11 @@
 <!-- TODO: link all rust symbol references to source & rustdocs -->
 
-# Submit Proving Request
+# Broadcasting Proof Requests
 
 Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `ProofMarketService` struct.
 An example is provided in the `examples/counter` directory.
 
-You can also interact with the market via a market client CLI.
-It builds upon the `boundless_market::contracts` library.
+You can also interact with the market via a CLI, built with the `boundless_market::contracts` library.
 
 ## CLI Usage
 
@@ -14,7 +13,7 @@ It builds upon the `boundless_market::contracts` library.
 > this should be done only while testing within a [local devnet][page-broker-devnet] as the
 > default storage provider will use temporary files.
 
-The `client-cli` allows to:
+The boundless `cli` allows to:
 
 1. Submit proving request via a YAML file, an example can be found `request.yaml`.
 

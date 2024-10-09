@@ -8,37 +8,35 @@ Below is a diagram of the interaction flow assuming a user with a wallet is driv
 
 ![Boundless market diagram](../images/boundless_market_diagram.png)
 
-1. Client broadcasts their proving request to make it available to all provers.
-2. Prover receives the request, attempts to fetch the image and inputs, and evaluates it via preflight in the executor. Preflight allows the prover to know both that the request can actually be fulfilled and allows it to estimate the cost of proving.
+1. [Requestor][term-requestor] broadcasts their proof request to make it available to all provers.
+2. [Prover][term-prover] receives the request, attempts to fetch the [ELF binary][r0-term-elf-binary] with associated [Image ID][r0-term-image-id] and inputs, and evaluates it via preflight in the [executor][r0-term-executor]. Preflight allows the prover to know both that the request can actually be fulfilled and allows it to estimate the cost of proving. After evaluation, the prover will determine a price they would like to bid.
 
-   After evaluation, the prover will determine a price they would like to bid.
-
-3. Prover sends a transaction to place their bid and lock-in the request. Upon lock-in, they have exclusive rights to be paid for the request, and must provide a client-specified amount of stake as collateral, burned in the event they fail to deliver a proof by the deadline.
+3. Prover sends a transaction to place their bid and lock-in the request. Upon lock-in, they have exclusive rights to be paid for the request, and must provide a requestor-specified amount of stake as collateral, burned in the event they fail to deliver a proof by the deadline.
 4. Prover produces the receipt:
-   1. Proves the application guest execution
+   1. Proves the application [guest][] execution
    2. Optionally aggregates the request into a batch via the set builder guest.
    3. Proves the request conditions are met via the Assessor guest.
    4. Adds the Assessor receipt to the batch via the set builder guest.
    5. Compresses the batch receipt via Groth16
 5. Prover sends a transaction to post the set commitment (i.e. Merkle root) to the set verifier contract.
 6. Prover sends a transaction to the market contract to post the Merkle inclusion proof for the application and Assessor receipts in the batch, and to fulfill the request. At this point, the prover has delivered the requested proof and is paid for their work.
-7. Client fetches the Merkle inclusion path, which acts as their receipt seal from the EVM calldata or event logs.
-8. Client sends a transaction to complete their application flow, with authentication provided by the receipt.
+7. Requestor fetches the Merkle inclusion path, which acts as their receipt seal from the EVM calldata or event logs.
+8. Requestor sends a transaction to complete their application flow, with authentication provided by the receipt.
 
 ### Market contract and guest
 
 Market operations such as the auction and settlement are implemented in a smart contract.
 
-#### Order placement and matching
+#### Order placement
 
-**Order broadcast:** Clients will initiate an order by broadcasting a `ProvingRequest` to the provers. Clients have a choice of two broadcast channels depending on their needs:
+**Order broadcast:** Requestors will initiate an order by broadcasting a `ProvingRequest` to the provers. Requestors have a choice of two broadcast channels depending on their needs:
 
 - Broadcast via EVM calldata. This has the highest possible assurance for data availability and censorship resistance.
 - Broadcast via an off-chain broadcast channel. This has the lowest cost and latency.
 
   Off-chain broadcast channel is not a requirement for the initial MVP deployment. It is however important to keep it in mind. Submitting an order cannot alter EVM state.
 
-**Authentication**: Requests are signed by the client EOA with an [EIP-712](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-712.md) signature.
+**Authentication**: Requests are signed by the requestor EOA with an [EIP-712](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-712.md) signature.
 
 **Request structure:**
 
@@ -102,55 +100,54 @@ struct Offer {
     // Bidders must stake this amount as part of their bid.
     uint96 lockinStake;
 }
+```
 
-struct ProvingRequest {
-	from: Address,
-	requirements: Requirements,
-	image_url: String,
-	input: Input,
-	offer: Offer,
+#### Order matching
+
+> For details, see the [Market Matching Design][page-market-design] document.
+
+**Auction:** Provers bid on requests in a reverse Dutch auction, where the price the requestor is offering starts at some low initial amount, and is raised over the period of time that the auction is open until some max price is reached. If at any point in the auction a prover submits a bid, the current price is used as the final price and the auction is closed. In this way, only a single bid is ever sent to the blockchain. This occurs in the form of a lock-in request that also grants the prover exclusive rights to be paid for the request.
+
+**Exclusivity**: A prover may submit a transaction to lock-in a request. In order to do so, they must supply an amount of stake (i.e. collateral) specified by the requestor. If the prover does not deliver a proof by the deadline specified in the request, the prover's stake is burned. In this way, provers can be assured they will be paid for their proving work, as opposed to having to race others, while ensuring provers are incentivized only to take work they can actually complete.
+
+**Escrow**: As part of the lock-in, funds are deducted from both the requestor and prover accounts. Funds are deducted from the requestor account and held in escrow on the market to ensure the prover will be paid upon delivering the proofs. Funds are deducted from the prover account to cover any lock-in stake specified by the requestor. These funds are sent to the prover upon fulfillment of the order. If the deadline passes, the price of the proof can be returned to the requestor, and the prover stake is burned.
+
+#### Order fulfillment
+
+**Requirements checking**: Once the prover has a proof that satisfies the requirements they will run the [Assessor](#assessor), which is a guest program that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request does not need to be provided as part of fulfillment, only the associated identifier.
+
+**Guaranteed delivery**: In order to settle the order and receive payment, the prover must submit a receipt that meets the requirements of the request. This receipt is posted to the chain in calldata as part of the settlement transaction as a form of "guaranteed delivery". In this way, the receipt is now public such that the requestor can query the blockchain to receive it. In general, any data availability solution would also work here.
+
+**Aggregation and verification caching:** One of the most expensive parts of using a SNARK in a smart contract application is the verification cost. This cost is amortized across a batch of requests by recursively verifying a set of receipts, and constructing a Merkle tree over the claims for efficient inclusion proofs. Additionally, it is assumed that the requestor will use the receipt they receive to drive on-chain functionality which will require them to verify the receipt as part of that application flow. In order to guarantee this is efficient, the market uses a set verifier that caches the root of the receipt claim Merkle tree, and the receipt used by the application is a Merkle inclusion path against that root.
+
+**Fulfillment structure:**
+
+```solidity
+// Info posted by the prover to fulfill a request, and get paid.
+struct Fulfillment {
+    uint192 id;
+    bytes32 imageId;
+    bytes journal;
+    bytes seal;
 }
 
-struct Requirements {
-	image_id: Digest,
-	journal_predicate: Predicate,
-}
-
-enum Predicate {
-	DigestMatch(Digest),
-	PrefixMatch(Vec<u8>),
-}
-
-enum Input {
-	Inline(Vec<u8>),
-	Url(String),
-}
-
-struct Offer {
-	amount: U256,
-	expiration: u64,
-	lockin_timeout: u64,
-	lockin_stake: U256,
+// Structured journal of the Assessor guest which verifies the signature(s)
+// from client(s) and that the requirements are met by claim digest(s) in the
+// Merkle tree committed to by the given root. Assessor can verify a batch of
+// requests, including batches of size one.
+struct AssessorJournal {
+    uint192[] requestIds;
+    // Root of the Merkle tree committing to the set of proven claims.
+    // In the case of a batch of size one, this may simply be a claim digest.
+    bytes32 root;
+    // EIP712 domain separator
+    bytes32 eip712DomainSeparator;
 }
 ```
 
-**Auction:** Provers bid on requests in a [reverse Dutch auction](https://en.wikipedia.org/wiki/Dutch_auction), where the price the client is offering starts at some low initial amount, and is raised over the period of time that the auction is open until some max price is reached. If at any point in the auction a prover submits a bid, the current price is used as the final price and the auction is closed. In this way, only a single bid is ever sent to the blockchain. This occurs in the form of a lock-in request that also grants the prover exclusive rights to be paid for the request.
+#### Market Contract Interface
 
-**Exclusivity**: A prover may submit a transaction to lock-in a request. In order to do so, they must supply an amount of stake (i.e. collateral) specified by the client. If the prover does not deliver a proof by the deadline specified in the request, the prover's stake is burned. In this way, provers can be assured they will be paid for their proving work, as opposed to having to race others, while ensuring provers are incentivized only to take work they can actually complete.
-
-**Escrow**: As part of the lock-in, funds are deducted from both the client and prover accounts. Funds are deducted from the client account and held in escrow on the market to ensure the prover will be paid upon delivering the proofs. Funds are deducted from the prover account to cover any lock-in stake specified by the client. These funds are sent to the prover upon fulfillment of the order. If the deadline passes, the price of the proof can be returned to the client, and the prover stake is burned.
-
-#### Fulfillment
-
-**Requirements checking**: Once the prover has a proof that satisfies the requirements they will run the Assessor, which is a zkVM program that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request does not need to be provided as part of fulfillment, only the associated identifier.
-
-**Guaranteed delivery**: In order to settle the order and receive payment, the prover must submit a receipt that meets the requirements of the request. This receipt is posted to the chain in calldata as part of the settlement transaction as a form of "guaranteed delivery". In this way, the receipt is now public such that the client can query the blockchain to receive it. In general, any data availability solution would also work here.
-
-**Aggregation and verification caching:** One of the most expensive parts of using a SNARK in a smart contract application is the verification cost. This cost is amortized across a batch of requests by recursively verifying a set of receipts, and constructing a Merkle tree over the claims for efficient inclusion proofs. Additionally, it is assumed that the client will use the receipt they receive to drive on-chain functionality which will require them to verify the receipt as part of that application flow. In order to guarantee this is efficient, the market uses a set verifier that caches the root of the receipt claim Merkle tree, and the receipt used by the application is a Merkle inclusion path against that root.
-
-#### Interface
-
-Below is the interface for the proof market smart contract.
+> See `contracts/src/IProofMarket.sol` for the present implementation.
 
 ```solidity
 interface IProofMarket {
@@ -163,15 +160,15 @@ interface IProofMarket {
     /// Event when prover stake is burned for failing to fulfill a request by the deadline.
     event LockinStakeBurned(uint192 indexed requestId, uint96 stake);
 
-    /// Request is locked when is was not expected to be.
+    /// Request is locked when it was not expected to be.
     error RequestIsLocked(uint192 requestId);
-    /// Request is not locked when is was expected to be.
+    /// Request is not locked when it was expected to be.
     error RequestIsNotLocked(uint192 requestId);
-    /// Request is locked when is was not expected to be.
+    /// Request is fulfilled when it was not expected to be.
     error RequestIsFulfilled(uint192 requestId);
     /// Request is no longer valid, as the deadline has passed.
     error RequestIsExpired(uint192 requestId, uint64 deadline);
-    /// Request is still valid, as the deadline has yet passed.
+    /// Request is still valid, as the deadline has yet to pass.
     error RequestIsNotExpired(uint192 requestId, uint64 deadline);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
@@ -231,14 +228,9 @@ interface IProofMarket {
 
     /// EIP 712 domain separator getter
     function eip712DomainSeparator() external view returns (bytes32);
-}
 
-// Info posted by the prover to fulfill a request and get paid.
-struct Fulfillment {
-    uint192 id;
-    bytes32 imageId;
-    bytes journal;
-    bytes seal;
+    /// Returns the assessor imageId and its url.
+    function imageInfo() external view returns (bytes32, string memory);
 }
 ```
 
@@ -274,7 +266,7 @@ interface IRiscZeroSetVerifier is IRiscZeroVerifier {
 
 In order to fulfill a request, the prover must show that they have a signed request, and a receipt that meets the requirements of that request. This could be accomplished by having the prover post the signed request, including offer and requirements, in the fulfillment transaction and verify this invariant on-chain. However, this is expensive and results in data posted that is not strictly needed to transition the state of the contract (i.e. to pay the prover and mark the request as fulfilled).
 
-In order to make this more efficient, we introduce the Assessor, which is a zkVM program that enforces these checks.
+In order to make this more efficient, we introduce the Assessor, which is a [guest program][r0-term-guest-program] that enforces these checks.
 
 As input, the Assessor accepts:
 
@@ -286,7 +278,7 @@ As a special case, the Assessor will accept a single request and receipt claim a
 
 During execution, the Assessor checks:
 
-1. Each request is signed by the client address embedded in the request ID.
+1. Each request is signed by the requestor address embedded in the request ID.
 2. The journal and image ID provided to fulfill the request meet the requirements (i.e. that the image ID matches, and the journal satisfies the provided predicate).
 3. The root of the Merkle tree constructed from the list of receipt claims, is verified by a receipt from the set builder guest. This step is checked by composition using the `env::verify` API.
 
@@ -312,3 +304,11 @@ After the Assessor is executed and proven, it is added to a running batch for ef
 [https://excalidraw.com/#json=7Zh4h6tXCY2mR2NLW8DvF,ixQZR3mEgm4Z5w6vtT86Xg](https://excalidraw.com/#json=7Zh4h6tXCY2mR2NLW8DvF,ixQZR3mEgm4Z5w6vtT86Xg)
 
 ![Assessor diagram](../images/assessor.png)
+
+[term-requestor]: ../glossary.md#requestor
+[term-prover]: ../glossary.md#prover
+[page-market-design]: ./matching.md
+[r0-term-executor]: https://dev.risczero.com/terminology#executor
+[r0-term-image-id]: https://dev.risczero.com/terminology#image-id
+[r0-term-guest-program]: https://dev.risczero.com/terminology#guest-program
+[r0-term-elf-binary]: https://dev.risczero.com/terminology#elf-binary

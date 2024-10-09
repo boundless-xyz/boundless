@@ -6,12 +6,13 @@
 
 - [💹 Market Overview](./market/README.md)
 
-  - [Boundless Market RFC](./market/prover_market_rfc.md)
-  - [Market Matching](./market/reverse_dutch.md)
+  - [Boundless Market RFC](./market/rfc.md)
+  - [Market Matching](./market/matching.md)
+  - [Local Development Configuration](./market/local-development.md)
 
 - [🙋 Requestor Manual](./requestor-manual/README.md)
 
-  - [Submit proving requests](./requestor-manual/proving_request.md)
+  - [Broadcasting Requests](./requestor-manual/broadcasting.md)
 
 - [🏋 Prover Manual](./prover-manual/README.md)
 
@@ -20,7 +21,6 @@
     - [Technical Design](./prover-manual/bento/technical_design.md)
   - [Broker](./prover-manual/broker/README.md)
     - [Run a broker node](./prover-manual/broker/broker_node.md)
-    - [Play with a local devnet](./prover-manual/broker/local_devnet.md)
 
 - [🔗 Reference](./reference.md)
 - [📑 Glossary](./glossary.md)
