@@ -104,7 +104,7 @@ install_packages() {
 install_gpu_drivers() {
     info "Detecting and installing appropriate GPU drivers..."
     {
-        ubuntu-drivers install -y
+        ubuntu-drivers install
     } >> "$LOG_FILE" 2>&1
     success "GPU drivers installed successfully."
 }
@@ -164,8 +164,15 @@ install_docker() {
 
             # Install Docker Engine, CLI, and Containerd
             apt install -y docker-ce docker-ce-cli containerd.io
+
+            # Enable Docker
+            systemctl enable docker
+
+            # Start Docker Service
+            systemctl start docker
+
         } >> "$LOG_FILE" 2>&1
-        success "Docker installed successfully."
+        success "Docker installed and started successfully."
     fi
 }
 
