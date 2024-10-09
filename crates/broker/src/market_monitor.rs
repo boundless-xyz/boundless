@@ -188,7 +188,7 @@ where
             })
             .await;
 
-        Ok(())
+        anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
     }
 }
 
