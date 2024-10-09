@@ -33,7 +33,7 @@ pub struct AggregatorService<T, P> {
     prover: ProverObj,
     provider: Arc<P>,
     block_time: u64,
-    agg_set_guest_id: Digest,
+    set_builder_guest_id: Digest,
     assessor_guest_id: Digest,
     market_addr: Address,
     chain_id: u64,
@@ -48,8 +48,8 @@ where
     pub async fn new(
         db: DbObj,
         provider: Arc<P>,
-        agg_set_guest_id: Digest,
-        agg_set_guest: Vec<u8>,
+        set_builder_guest_id: Digest,
+        set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
         assessor_guest: Vec<u8>,
         market_addr: Address,
@@ -58,9 +58,9 @@ where
         block_time: u64,
     ) -> Result<Self> {
         prover
-            .upload_image(&agg_set_guest_id.to_string(), agg_set_guest)
+            .upload_image(&set_builder_guest_id.to_string(), set_builder_guest)
             .await
-            .context("Failed to upload aggregator-set guest")?;
+            .context("Failed to upload set-builder guest")?;
 
         prover
             .upload_image(&assessor_guest_id.to_string(), assessor_guest)
@@ -75,7 +75,7 @@ where
             provider,
             block_time,
             prover,
-            agg_set_guest_id,
+            set_builder_guest_id,
             assessor_guest_id,
             market_addr,
             chain_id,
@@ -106,7 +106,7 @@ where
         tracing::info!("Starting proving of {job_type}");
         let proof_res = self
             .prover
-            .prove_and_monitor_stark(&self.agg_set_guest_id.to_string(), &input_id, assumptions)
+            .prove_and_monitor_stark(&self.set_builder_guest_id.to_string(), &input_id, assumptions)
             .await
             .with_context(|| format!("Failed to prove {job_type}"))?;
         tracing::info!("completed proving of {job_type} cycles: {}", proof_res.stats.total_cycles);
@@ -137,7 +137,7 @@ where
             .value()
             .context("Receipt claims pruned")?;
 
-        let input = GuestInput::Singleton { self_image_id: self.agg_set_guest_id, claim };
+        let input = GuestInput::Singleton { self_image_id: self.set_builder_guest_id, claim };
 
         let (new_id, output) = self.prove_sot("singleton", &input, vec![proof_id]).await?;
         tracing::debug!("Singleton(order={order_id:x}): {}", output.root());
@@ -147,7 +147,7 @@ where
 
     async fn prove_join(&self, left: Node, right: Node) -> Result<Node> {
         let input = GuestInput::Join {
-            self_image_id: self.agg_set_guest_id,
+            self_image_id: self.set_builder_guest_id,
             left_set_root: left.root(),
             right_set_root: right.root(),
         };
@@ -502,7 +502,7 @@ mod tests {
         provers::{encode_input, MockProver},
         BatchStatus, Order, OrderStatus,
     };
-    use aggregation_set::{AGGREGATION_SET_GUEST_ELF, AGGREGATION_SET_GUEST_ID};
+    use aggregation_set::{SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -606,8 +606,8 @@ mod tests {
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
-            Digest::from(AGGREGATION_SET_GUEST_ID),
-            AGGREGATION_SET_GUEST_ELF.to_vec(),
+            Digest::from(SET_BUILDER_GUEST_ID),
+            SET_BUILDER_GUEST_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
@@ -769,8 +769,8 @@ mod tests {
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
-            Digest::from(AGGREGATION_SET_GUEST_ID),
-            AGGREGATION_SET_GUEST_ELF.to_vec(),
+            Digest::from(SET_BUILDER_GUEST_ID),
+            SET_BUILDER_GUEST_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,

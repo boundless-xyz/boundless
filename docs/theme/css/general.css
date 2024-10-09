@@ -24,6 +24,34 @@ body {
     overflow-x: hidden;
 }
 
+/* figure used to wrap, and optionally caption an img */
+
+figure {
+    display: flex;
+    flex-flow: column;
+    padding: 5px;
+    margin: auto;
+    align-items: center;
+    justify-content: center;
+}
+
+img {
+    border-radius: 0.6em;
+}
+
+figure cap {
+    border-radius: 0.6em;
+    background-color: #222;
+    color: #fff;
+    font-style: italic;
+    font-size: 12px;
+    flex: 0 0 1vw;
+    margin: -10px auto auto auto;
+    padding: 4px;
+    text-align: center;
+    height: 20px;
+}  
+
 code {
     font-family: var(--mono-font) !important;
     font-size: var(--code-font-size);

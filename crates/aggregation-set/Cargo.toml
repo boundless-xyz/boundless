@@ -7,7 +7,7 @@ edition = "2021"
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
-guest-aggregation-set = { workspace = true, optional = true }
+guest-set-builder = { workspace = true, optional = true }
 hex = { workspace = true }
 risc0-binfmt = { workspace = true }
 risc0-zkvm = { workspace = true }
@@ -19,4 +19,4 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [features]
 default = ["verify"]
-verify = ["dep:guest-aggregation-set"]
+verify = ["dep:guest-set-builder"]

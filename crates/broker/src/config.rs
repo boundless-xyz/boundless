@@ -81,11 +81,11 @@ pub struct ProverConf {
     ///
     /// Provides a little durability for transient failures during proof status requests
     pub req_retry_count: u64,
-    /// Aggregator guest ELF path
+    /// Set builder guest ELF path
     ///
     /// When using a durable deploy, set this to the published current SOT guest ELF path on the
     /// system
-    pub agg_set_guest_path: Option<PathBuf>,
+    pub set_builder_guest_path: Option<PathBuf>,
     /// Assessor ELF path
     pub assessor_set_guest_path: Option<PathBuf>,
 }
@@ -96,7 +96,7 @@ impl Default for ProverConf {
             status_poll_ms: 1000,
             bonsai_r0_zkvm_ver: None,
             req_retry_count: 0,
-            agg_set_guest_path: None,
+            set_builder_guest_path: None,
             assessor_set_guest_path: None,
         }
     }
@@ -365,7 +365,7 @@ error = ?"#;
         assert_eq!(config.prover.status_poll_ms, 1000);
         assert_eq!(config.prover.bonsai_r0_zkvm_ver.unwrap(), "1.0.1");
         assert_eq!(config.prover.req_retry_count, 0);
-        assert_eq!(config.prover.agg_set_guest_path, None);
+        assert_eq!(config.prover.set_builder_guest_path, None);
         assert_eq!(config.prover.assessor_set_guest_path, None);
 
         assert_eq!(config.batcher.batch_max_time, Some(300));

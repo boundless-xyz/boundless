@@ -12,8 +12,10 @@ edition = "2021"                  # the default edition for code blocks
 [build]
 build-dir = "book"                # the directory where the output is placed
 create-missing = false            # opt out of helper to create missing stub files, we want to fail if the SUMMARY.md is incorrect.
-use-default-preprocessors = true  # use the default preprocessors
+use-default-preprocessors = false # want `links` but not `index` https://rust-lang.github.io/mdBook/format/configuration/general.html#build-options
 extra-watch-dirs = []             # directories to watch for triggering builds
+
+[preprocessor.links]
 
 [output.html]
 # site-url = "/boundless-xyz"      # needed for gh-pages, MUST match repo name on github!
@@ -23,7 +25,6 @@ default-theme = "Boundless"
 preferred-dark-theme = "Navy"
 fold.enable = true                # Sidebar collapses automatically
 print.enable = false              # Disclude support for printable output
-additional-js = ["solidity.min.js", "yul.min.js"]
 
 [output.html.search]
 limit-results = 20

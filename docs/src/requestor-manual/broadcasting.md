@@ -1,10 +1,10 @@
-# Submit Proving Request
+# Broadcast a Proof Request
 
 Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `ProofMarketService` struct.
-An example is provided in the [examples/counter](../../../examples/counter) directory.
+An example is provided in the `examples/counter` directory.
 
 You can also interact with the market via a market client CLI.
-It builds upon the [boundless_market::contracts](../../../crates/boundless-market/src/contracts/proof_market.rs) library.
+It builds upon the `boundless_market::contracts` library.
 
 ## Local Devnet
 
@@ -28,7 +28,7 @@ See the [CLI usage](#cli-usage) section or `examples/counter`'s `ProofMarketServ
 
 ## Public Networks
 
-The Boundless Market is officially deployed only on [Sepolia](../market/deployments.md#sepolia) so far, with more networks to be announced.
+The Boundless Market is officially deployed only on [the Sepolia Testnet][id-deployments-sepolia-testnet] so far, with more networks to be announced.
 Before you can interact with any network, you will need to configure an EVM RPC, Funds to pay for gas, and Image Storage Provider.
 
 #### Configure an EVM RPC Provider
@@ -51,7 +51,7 @@ To use Pinata, [fetch the JWT credentials](https://docs.pinata.cloud/account-man
 
 ### Sepolia Testnet
 
-To interact with the [deployed Boundless contracts](../broker/sepolia.md#sepolia) you will need:
+To interact with [Sepolia's Boundless contracts][id-deployments-sepolia-testnet] you will need:
 
 - A Sepolia Ethereum account with at least 0.5 Sepolia ETH for gas.
   - The tooling presently requires the use of raw private key in scripting, although there are [better ways to do this](https://book.getfoundry.sh/tutorials/best-practices#private-key-management) that one could implement.
@@ -62,9 +62,9 @@ See the [CLI usage](#cli-usage) section for further instructions.
 
 ## CLI Usage
 
-The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
+The `cli` allows to:
 
-1. Submit proving request via a YAML file, an example can be found [here](../../../request.yaml).
+1. Submit proving request via a YAML file, an example can be found in `request.yaml`.
 
    ```console
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
@@ -162,3 +162,5 @@ The [client-cli](../../../crates/boundless-market/src/bin/cli.rs) allows to:
    ```console
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
    ```
+
+[id-deployments-sepolia-testnet]: ../market/deployments.md#testnet-sepolia

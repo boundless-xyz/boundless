@@ -10,7 +10,6 @@ max_retries = 3
 require_https = true
 
 exclude = [
-  # priv repo
-  "https://github.com/boundless-xyz/boundless/",
-  "https://github.com/boundless-xyz/boundless-foundry-template/",
+  # priv org
+  "https://github.com/boundless-xyz/*",
 ]
