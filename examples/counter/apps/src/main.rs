@@ -85,9 +85,13 @@ async fn run(
     counter_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client =
-        Client::from_parts(requestor_private_key, rpc_url, proof_market_address, set_verifier_address)
-            .await?;
+    let boundless_client = Client::from_parts(
+        requestor_private_key,
+        rpc_url,
+        proof_market_address,
+        set_verifier_address,
+    )
+    .await?;
 
     // Upload the ECHO ELF to the storage provider so that it can be fetched by the market.
     let image_url = boundless_client.upload_image(ECHO_ELF).await?;
@@ -98,7 +102,7 @@ async fn run(
     let timestamp = format! {"{:?}", SystemTime::now()};
 
     // Encode the input and upload it to the storage provider.
-    let input = encode_input(&timestamp.as_bytes())?;
+    let input = encode_input(timestamp.as_bytes())?;
     let input_url = boundless_client.upload_input(&input).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
