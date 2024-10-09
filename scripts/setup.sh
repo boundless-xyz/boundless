@@ -252,7 +252,7 @@ EOF
 verify_docker_nvidia() {
     info "Verifying Docker and NVIDIA setup..."
 
-    if docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi >> "$LOG_FILE" 2>&1; then
+    if docker run --rm --gpus all nvidia/cuda:12.2.0-devel-ubuntu22.04 nvidia-smi >> "$LOG_FILE" 2>&1; then
         success "Docker with NVIDIA support is working correctly."
     else
         error "Docker with NVIDIA support verification failed."
