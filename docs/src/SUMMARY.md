@@ -8,7 +8,8 @@
 
   - [Boundless Market RFC](./market/rfc.md)
   - [Market Matching](./market/matching.md)
-  - [Local Development Configuration](./market/local-development.md)
+  - [Local Development](./market/local-development.md)
+  - [Public Deployments](./market/deployments.md)
 
 - [🙋 Requestor Manual](./requestor-manual/README.md)
 

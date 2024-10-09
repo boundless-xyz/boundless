@@ -2,7 +2,7 @@
 
 The Boundless Market's contracts are deployed only on [Sepolia](#sepolia) so far, with more to be determined.
 
-## Sepolia
+## Sepolia ⚠TESTNET⚠
 
 | Contract Name            | Contract Address                                                                                                              |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -11,8 +11,9 @@ The Boundless Market's contracts are deployed only on [Sepolia](#sepolia) so far
 | `RiscZeroVerifierRouter` | [0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187](https://sepolia.etherscan.io/address/0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187) |
 | `Counter` example        | [0xb4A5A75e1886E3f9a294D4989bB5aD7c21A4d00F](https://sepolia.etherscan.io/address/0xb4A5A75e1886E3f9a294D4989bB5aD7c21A4d00F) |
 
-To interact with Boundless via Sepolia see:
+## Interactions
 
-- The [requestor guide](../market/proving_request.md#sepolia-testnet)
-- The [prover guide](TODO)
+To interact with Boundless on any network see:
 
+- The [requestor broadcasting guide](../requestor-manual/broadcasting.md#public-networks)
+- The [prover running Bento guide](../prover-manual/bento/running_bento.md)

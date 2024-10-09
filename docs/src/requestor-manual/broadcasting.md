@@ -163,4 +163,4 @@ The `cli` allows to:
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
    ```
 
-[id-deployments-sepolia-testnet]: ../market/deployments.md#testnet-sepolia
+[id-deployments-sepolia-testnet]: ../market/deployments.md#sepolia-testnet
