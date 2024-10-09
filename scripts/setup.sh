@@ -61,6 +61,9 @@ check_os() {
         if [[ "${ID,,}" != "ubuntu" ]]; then
             error "Unsupported operating system: $NAME. This script is intended for Ubuntu."
             exit 1
+        elif [[ "${VERSION_ID,,}" != "22.04" && "${VERSION_ID,,}" != "20.04" ]]; then
+            error "Unsupported operating system verion: $VERSION. This script is intended for Ubuntu 20.04 or 22.04."
+            exit 1
         else
             info "Operating System: $PRETTY_NAME"
         fi
@@ -104,7 +107,7 @@ install_packages() {
 install_gpu_drivers() {
     info "Detecting and installing appropriate GPU drivers..."
     {
-        ubuntu-drivers install -y
+        ubuntu-drivers install
     } >> "$LOG_FILE" 2>&1
     success "GPU drivers installed successfully."
 }
@@ -164,8 +167,15 @@ install_docker() {
 
             # Install Docker Engine, CLI, and Containerd
             apt install -y docker-ce docker-ce-cli containerd.io
+
+            # Enable Docker
+            systemctl enable docker
+
+            # Start Docker Service
+            systemctl start docker
+
         } >> "$LOG_FILE" 2>&1
-        success "Docker installed successfully."
+        success "Docker installed and started successfully."
     fi
 }
 
@@ -242,7 +252,7 @@ EOF
 verify_docker_nvidia() {
     info "Verifying Docker and NVIDIA setup..."
 
-    if docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi >> "$LOG_FILE" 2>&1; then
+    if docker run --rm --gpus all nvidia/cuda:12.2.0-devel-ubuntu22.04 nvidia-smi >> "$LOG_FILE" 2>&1; then
         success "Docker with NVIDIA support is working correctly."
     else
         error "Docker with NVIDIA support verification failed."

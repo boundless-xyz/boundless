@@ -146,8 +146,8 @@ struct SubmitOfferRequirements {
 struct MainArgs {
     #[clap(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
-    #[clap(short, long, env)]
-    wallet_private_key: PrivateKeySigner,
+    #[clap(long, env)]
+    requestor_private_key: PrivateKeySigner,
     #[clap(short, long, env)]
     proof_market_address: Address,
     #[clap(short, long, env)]
@@ -164,9 +164,9 @@ async fn main() -> Result<()> {
     dotenvy::dotenv()?;
     let args = MainArgs::try_parse()?;
 
-    let caller = args.wallet_private_key.address();
-    let signer = args.wallet_private_key.clone();
-    let wallet = EthereumWallet::from(args.wallet_private_key.clone());
+    let caller = args.requestor_private_key.address();
+    let signer = args.requestor_private_key.clone();
+    let wallet = EthereumWallet::from(args.requestor_private_key.clone());
     let provider =
         ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(args.rpc_url);
     let market = ProofMarketService::new(args.proof_market_address, provider.clone(), caller);

@@ -186,8 +186,9 @@ where
             .await
             .context("Preflight failed")?;
 
-        // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently can absorb
-        // that proving load, we need to cordinate this check with parallel proofs and the current state of Bento
+        // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently
+        // can absorb that proving load, we need to cordinate this check with parallel
+        // proofs and the current state of Bento
         if let Some(prove_khz) = peak_prove_khz {
             let required_khz = (proof_res.stats.total_cycles / 1_000) / seconds_left;
             tracing::debug!("peak_prove_khz checking: {prove_khz} required: {required_khz}");

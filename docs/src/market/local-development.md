@@ -1,4 +1,4 @@
-# Playing with a Local Development Environment
+# Local Development Guide
 
 Ensure the following software is installed on your machine before proceeding:
 
@@ -10,6 +10,38 @@ Before starting, ensure you have cloned with recursive submodules, or pull them 
 ```console
 git submodule update --init
 ```
+
+1. Start a local devnet
+   ```console
+   make devnet-up
+   source .env
+   ```
+
+2. Test your deployment with the client CLI.
+   You can read more about the client on the [proving request][page-requestor-request] page.
+
+   ```console
+   RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
+   ```
+
+   > If you see "Error: Market error: Failed to check fulfillment status",
+   > check the deployment logs from running `forge script` and ensure it matches the addresses listed in `.env`
+   > If they don't match, adjust the `.env` file or try restarting anvil and deploying again.
+
+Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
+
+3. To tear down the local devnet run:
+
+   ```console
+   make devnet-down
+   ```
+
+Check out the is-even example in the [Boundless Foundry template][boundless-foundry-template] for an example of how to run and application using the prover market.
+
+You can also try editing `request.yaml` to send a request with different values.
+Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
+
+If instead you prefer setting up a local devnet step by step, you can run the following commands as an alternative to the Makefile:
 
 1. Build the contracts
 
@@ -32,7 +64,7 @@ git submodule update --init
 4. Deploy market contracts
 
    This will deploy the market contracts.
-   Configuration environment variables are read from the [.env](../../../.env) file.
+   Configuration environment variables are read from the `.env` file.
    By setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
 
    ```console
@@ -52,17 +84,17 @@ git submodule update --init
 
    - To use Bonsai, export the `BONSAI_API_URL` and `BONSAI_API_KEY` env vars, or the the associated CLI flags.
    - To use Bento, export the `BENTO_API_URL` env var or use the `--bento-api-url` CLI flag.
-     Also, refer to the [Running Bento](../bento/running_bento.md) guide.
+     Also, refer to the [Running Bento][page-bento-running] guide.
 
-   The Broker needs to have funds deposited on the Boundless market contract to cover [lockin-stake][rfc-order-matching] on requests.
+   The Broker needs to have funds deposited on the Boundless market contract to cover [lockin-stake][id-rfc-order-matching] on requests.
    Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
    ```console
    RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
    ```
 
-6. Test your deployment with the client CLI.
-   You can read more about the client on the [proving request](../market/proving_request.md) page.
+6. Test your deployment with the boundless CLI.
+   You can read more about on the [proving request][page-requestor-request] page.
 
    ```console
    RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
@@ -79,5 +111,6 @@ Check out the is-even example in the [Boundless Foundry template][boundless-foun
 You can also try editing `request.yaml` to send a request with different values.
 Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
 
-[rfc-order-matching]: ../market/prover_market_rfc.md#order-placement-and-matching
+[page-bento-running]: ../prover-manual/bento/running_bento.md
+[page-requestor-request]: ../requestor-manual/broadcasting.md
 [boundless-foundry-template]: https://github.com/boundless-xyz/boundless-foundry-template/

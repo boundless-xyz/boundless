@@ -1,7 +1,7 @@
 # Running Bento
 
-Bento is a docker compose stack containing all the services to run a Bento cluster on a single or many machines. It includes docker build files
-for internal services as well as external images for `postgres/redis/grafana/minio` for support services.
+Bento is a docker compose stack containing all the services to run a Bento cluster on a single or many machines.
+It includes docker build files for internal services as well as external images for `postgres/redis/grafana/minio` for support services.
 
 ## Dependencies
 
@@ -19,14 +19,16 @@ Services can be run on other hosts, as long as the IP addresses for things link 
 Additionally, `NVCC_APPEND_FLAGS` should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/)
 
 <div class="warning">
+
 TODO: Write more here about how to do multi-host services like gpu-agent / exec-agent
+
 </div>
 
 ## Host setup
 
 At this time Ubuntu is the only supported Operating system. Other operating systems _should_ work, but driver support (host Nvidia drivers matching container drivers etc.), compile dependencies, and testing fall to the user to complete.
 
-For a quick set up of boundless host dependencies on Ubuntu, please run:
+For a quick set up of boundless host dependencies on Ubuntu 22.04 LTS, please run:
 
 ```bash
 scripts/setup.sh

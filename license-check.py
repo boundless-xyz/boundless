@@ -20,7 +20,7 @@ EXTENSIONS = [
 
 SKIP_PATHS = [
     # ImageID.sol is automatically generated.
-    str(Path.cwd()) + "/contracts/src/AggregationSetImageID.sol",
+    str(Path.cwd()) + "/contracts/src/SetBuilderImageID.sol",
     str(Path.cwd()) + "/contracts/src/AssessorImageID.sol",
     str(Path.cwd()) + "/contracts/src/UtilImageID.sol"
 ]
