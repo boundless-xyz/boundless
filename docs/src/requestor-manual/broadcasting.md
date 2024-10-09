@@ -8,7 +8,7 @@ It builds upon the `boundless_market::contracts` library.
 
 ## Local Devnet
 
-TODO using workflow defined in `make` from https://github.com/boundless-xyz/boundless/pull/31/
+To setup a local devnet follow the [local development][local-development] instructions.
 
 You can override settings found in `.env` and more to use local devnet settings with by exporting or prefixing commands:
 
@@ -39,9 +39,11 @@ You need an RPC provider to interact with any EVM network. [Alchemy](https://www
 export RPC_URL="<SEPOLIA-URL>"
 ```
 
-#### Configure an Image Storage Provider
+Or just modify the .env file and finally run `source .env`.
 
-Boundless requires that ELF Image of the program requested to be proven be accessible to provers.
+#### Configure a Storage Provider
+
+Boundless requires that ELF Image of the program requested, and optionally the input, to be proven be accessible to provers.
 
 <!-- TODO: link to rustdocs and document how one might create a storage provider (perhaps via a DA?) -->
 
@@ -57,6 +59,14 @@ To interact with [Sepolia's Boundless contracts][id-deployments-sepolia-testnet]
   - The tooling presently requires the use of raw private key in scripting, although there are [better ways to do this](https://book.getfoundry.sh/tutorials/best-practices#private-key-management) that one could implement.
   <!-- TODO: need better ways to get funds for boundless users! faucets are a HUGE pain, considering the round trip gas costs! -->
   - Faucets exist to obtain 0.1 ETH at a time, but almost all require an account
+
+Make sure to export the env variable:
+
+```bash
+export REQUESTOR_PRIVATE_KEY="<YOUR-WALLET-PRIVATE_KEY>"
+```
+
+Or just modify the .env file and then run `source .env`
 
 See the [CLI usage](#cli-usage) section for further instructions.
 
@@ -152,7 +162,7 @@ The `cli` allows to:
    and the Pinata one will be ignored.
 
    ```console
-   PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- --private-key ${REQUESTOR_PRIVATE_KEY:?} --proof-market-address 0x66fAeB7ebb8362afBc11DA1b61bc093f30A26B15 --set-verifier-address 0x7BaB0ABEb9cD0d5dE7d422eAc496F08e1b8692Bb submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
+   PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
    ```
 
 6. Slash a request and get back funds
@@ -164,3 +174,4 @@ The `cli` allows to:
    ```
 
 [id-deployments-sepolia-testnet]: ../market/deployments.md#sepolia-testnet
+[local-development]: ../market/local-development.md

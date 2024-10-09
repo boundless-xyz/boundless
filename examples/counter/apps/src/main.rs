@@ -42,7 +42,7 @@ struct Args {
     #[clap(short, long, env)]
     rpc_url: Url,
     /// Private key used to interact with the Counter contract.
-    #[clap(short, long, env)]
+    #[clap(long, env)]
     requestor_private_key: PrivateKeySigner,
     /// Address of the Counter contract.
     #[clap(short, long, env)]

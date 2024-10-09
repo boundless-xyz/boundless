@@ -146,7 +146,7 @@ struct SubmitOfferRequirements {
 struct MainArgs {
     #[clap(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
-    #[clap(short, long, env)]
+    #[clap(long, env)]
     requestor_private_key: PrivateKeySigner,
     #[clap(short, long, env)]
     proof_market_address: Address,

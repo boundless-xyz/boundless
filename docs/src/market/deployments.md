@@ -6,10 +6,10 @@ The Boundless Market's contracts are deployed only on [Sepolia](#sepolia) so far
 
 | Contract Name            | Contract Address                                                                                                              |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `ProofMarket`            | [0x66fAeB7ebb8362afBc11DA1b61bc093f30A26B15](https://sepolia.etherscan.io/address/0x66fAeB7ebb8362afBc11DA1b61bc093f30A26B15) |
-| `SetVerifier`            | [0x7BaB0ABEb9cD0d5dE7d422eAc496F08e1b8692Bb](https://sepolia.etherscan.io/address/0x7BaB0ABEb9cD0d5dE7d422eAc496F08e1b8692Bb) |
+| `ProofMarket`            | [0xb3e579794B6ce24bC7233713289790d9bBEB656c](https://sepolia.etherscan.io/address/0xb3e579794B6ce24bC7233713289790d9bBEB656c) |
+| `SetVerifier`            | [0x6860e6cC6E4705309b3e946947706b4a346422DB](https://sepolia.etherscan.io/address/0x6860e6cC6E4705309b3e946947706b4a346422DB) |
 | `RiscZeroVerifierRouter` | [0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187](https://sepolia.etherscan.io/address/0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187) |
-| `Counter` example        | [0xb4A5A75e1886E3f9a294D4989bB5aD7c21A4d00F](https://sepolia.etherscan.io/address/0xb4A5A75e1886E3f9a294D4989bB5aD7c21A4d00F) |
+| `Counter` example        | [0x830aC8703F9735BF728517fB8946DbDcC222b9f9](https://sepolia.etherscan.io/address/0x830aC8703F9735BF728517fB8946DbDcC222b9f9) |
 
 ## Interactions
 
