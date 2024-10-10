@@ -94,6 +94,7 @@ install_packages() {
         gnupg
         ca-certificates
         lsb-release
+        jq
     )
 
     info "Installing essential packages: ${packages[*]}..."
