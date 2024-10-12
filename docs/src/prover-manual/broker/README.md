@@ -6,7 +6,7 @@ The broker node is a optional addon service that runs within the [Bento][page-be
 
 Before running broker you will need to ensure you have setup and are able to run Bento, the documentation for that can be found in [Running Bento][page-running-bento].
 
-```bash
+```sh
 docker compose --profile broker --env-file ./.env-compose up --build
 ```
 

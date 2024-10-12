@@ -9,7 +9,7 @@ cargo install mdbook
 ## Serve the docs locally
 
 ```sh
-mdbook serve --open -p 3001
+mdbook serve -p 3001 --open
 ```
 
 ## Linting & Formatting
