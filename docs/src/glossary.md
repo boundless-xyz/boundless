@@ -19,9 +19,9 @@ A cluster of services that coordinate to search for, bid on, and attempt to fulf
 
 ### Broker
 
-A cluster of services that coordinate to search for, bid on, and attempt to fulfil [proof order](#proof-order)s.
+The broker node is a optional addon service that runs within the [Bento](#bento) docker-compose stack.
 
-> See the [Bento Documentation][page-bento] for moe details.
+> See the [Broker Documentation][page-broker] for moe details.
 
 ### Prover
 
@@ -47,12 +47,9 @@ See `contracts/src/IProofMarket.sol` for more details.
 
 Also referred to as the Client in the context of contracts, the party submitting orders to the market proofs form the Boundless Market.
 
-### Preflight
-
-is this specific and need a name? (run execution to check cost and see if execution is valid at all)
-
 [r0-term-image-id]: https://dev.risczero.com/terminology#image-id
 [r0-term-guest-program]: https://dev.risczero.com/terminology#guest-program
 [r0-term-elf-binary]: https://dev.risczero.com/terminology#elf-binary
 [r0-term-reciept]: https://dev.risczero.com/terminology#receipt
 [page-bento]: ./prover-manual/bento/README.md
+[page-bento]: ./prover-manual/broker/README.md

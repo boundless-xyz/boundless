@@ -1,7 +1,7 @@
 # Broadcast a Proof Request
 
 Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `ProofMarketService` struct.
-An example is provided in the `examples/counter` directory.
+An example is provided in the `examples/counter` directory of the [Boundless monorepo][boundless-repo], and the [Boundless Foundry template][boundless-foundry-template-repo] for building a stand-alone application to interact with the Market
 
 You can also interact with the market via a market client CLI.
 It builds upon the `boundless_market::contracts` library.
@@ -175,3 +175,5 @@ The `cli` allows to:
 
 [id-deployments-sepolia-testnet]: ../market/deployments.md#sepolia-testnet
 [local-development]: ../market/local-development.md
+[boundless-repo]: https://github.com/boundless-xyz/boundless-foundry-template/
+[boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template/
