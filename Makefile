@@ -8,7 +8,7 @@ ANVIL_PORT = 8545
 ANVIL_BLOCK_TIME = 2
 RISC0_DEV_MODE = 1
 RUST_LOG = info,broker=debug,boundless_market=debug
-PRIV_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 DEPOSIT_AMOUNT = 10
 
 LOGS_DIR = logs
@@ -47,7 +47,7 @@ devnet-up: check-deps
 		echo ".env file updated successfully."; \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \
-			--priv-key $(PRIV_KEY) \
+			--priv-key $(PRIVATE_KEY) \
 			--proof-market-addr $$PROOF_MARKET_ADDRESS \
 			--set-verifier-addr $$SET_VERIFIER_ADDRESS \
 			--deposit-amount $(DEPOSIT_AMOUNT) > $(LOGS_DIR)/broker.txt 2>&1 & echo $$! >> $(PID_FILE); \
