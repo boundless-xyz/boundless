@@ -47,7 +47,7 @@ devnet-up: check-deps
 		echo ".env file updated successfully."; \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \
-			--priv-key $(PRIVATE_KEY) \
+			--private-key $(PRIVATE_KEY) \
 			--proof-market-addr $$PROOF_MARKET_ADDRESS \
 			--set-verifier-addr $$SET_VERIFIER_ADDRESS \
 			--deposit-amount $(DEPOSIT_AMOUNT) > $(LOGS_DIR)/broker.txt 2>&1 & echo $$! >> $(PID_FILE); \
