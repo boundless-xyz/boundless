@@ -63,7 +63,7 @@ To interact with [Sepolia's Boundless contracts][id-deployments-sepolia-testnet]
 Make sure to export the env variable:
 
 ```bash
-export REQUESTOR_PRIVATE_KEY="<YOUR-WALLET-PRIVATE_KEY>"
+export PRIVATE_KEY="<YOUR-WALLET-PRIVATE_KEY>"
 ```
 
 Or just modify the .env file and then run `source .env`
