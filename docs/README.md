@@ -2,13 +2,13 @@
 
 ## Dependencies
 
-```console
+```sh
 cargo install mdbook
 ```
 
 ## Serve the docs locally
 
-```console
+```sh
 mdbook serve --open -p 3001
 ```
 
@@ -16,7 +16,7 @@ mdbook serve --open -p 3001
 
 From the top-level working directory:
 
-```console
+```sh
 # Format all files configured in .dprint.jsonc
 dprint fmt
 # Check all links configured in lychee.toml

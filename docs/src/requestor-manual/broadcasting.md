@@ -76,13 +76,13 @@ The `cli` allows to:
 
 1. Submit proving request via a YAML file, an example can be found in `request.yaml`.
 
-   ```console
+   ```sh
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
    ```
 
    Should output something similar to
 
-   ```console
+   ```sh
    2024-09-17T15:01:00.213804Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259140)
    2024-09-17T15:01:00.215374Z DEBUG boundless_market::contracts::proof_market: Calling requestIsLocked(3554585979324098154284013313896898623039163403618679259140)
    2024-09-17T15:01:00.216056Z  INFO cli: Client addr: 0x90F79bf6EB2c4f870365E785982E1f101E93b906
@@ -97,19 +97,19 @@ The `cli` allows to:
    ````
    You can also add the `--wait` option to wait until the submitted request has been fulfilled:
 
-   ```console
+   ```sh
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
    ````
 
 2. Request the status of a given proving request:
 
-   ```console
+   ```sh
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- status 3554585979324098154284013313896898623039163403618679259143
    ```
 
    While not fulfilled, this will print something like
 
-   ```console
+   ```sh
    2024-09-17T15:07:50.598471Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
    2024-09-17T15:07:50.598873Z DEBUG boundless_market::contracts::proof_market: Calling requestIsLocked(3554585979324098154284013313896898623039163403618679259143)
    2024-09-17T15:07:50.599142Z  INFO cli: Status: Locked
@@ -117,7 +117,7 @@ The `cli` allows to:
 
    or when fulfilled:
 
-   ```console
+   ```sh
    2024-09-17T15:10:15.807123Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
    2024-09-17T15:10:15.807584Z  INFO cli: Status: Fulfilled
    ```
@@ -126,13 +126,13 @@ The `cli` allows to:
 
    With the `get-proof` command you can get the Journal and Seal of a fulfilled request:
 
-   ```console
+   ```sh
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- get-proof 3554585979324098154284013313896898623039163403618679259143
    ```
 
    Should output something like:
 
-   ```console
+   ```sh
    2024-09-17T15:14:01.312995Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
    2024-09-17T15:14:01.314302Z  INFO cli: Journal: "0x576564204a756c2020332031343a33373a31322050445420323032340a" - Seal: "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000164578a3cc24cf38d1173509a99db4f70d57ff3a6c43cb2e8552a2a5d252968ba"
    ```
@@ -141,13 +141,13 @@ The `cli` allows to:
 
    With the `verify-proof` subcommand, you can verify a proof for a given request id and image id.
 
-   ```console
+   ```sh
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- verify-proof 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d
    ```
 
    Should output something like:
 
-   ```console
+   ```sh
    2024-10-07T14:50:54.442260Z  INFO cli: Proof for request id 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 verified successfully.
    ```
 
@@ -161,7 +161,7 @@ The `cli` allows to:
    If instead the env variable `RISC0_DEV_MODE` is enabled, a temporary file storage provider will be used,
    and the Pinata one will be ignored.
 
-   ```console
+   ```sh
    PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
    ```
 
@@ -169,7 +169,7 @@ The `cli` allows to:
 
    With the `slash` subcommand, you can slash a given `request ID` and get a refund of your offer:
 
-   ```console
+   ```sh
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
    ```
 

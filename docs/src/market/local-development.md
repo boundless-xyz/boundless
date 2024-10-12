@@ -35,14 +35,14 @@ Ensure the following software is installed on your machine:
 - **[Foundry](https://book.getfoundry.sh/getting-started/installation) version 0.2 or higher**
 
 1. Clone Boundless (SSH or github login required)
-   ```console
+   ```sh
    # SSH or github login required
    git clone git clone git@github.com:boundless-xyz/boundless.git
    cd boundless
    ```
 
 2. Initialize recursive submodules (located in `lib`, required by Foundry)
-   ```console
+   ```sh
    git submodule update --init
    ```
 
@@ -64,7 +64,7 @@ An instance of the Market needs to be running in the background for applications
 The included `makefile` in boundless is the most effective way to do this, and can be modified to suit specific needs.
 
 1. Start a local devnet service (running in the background)
-   ```console
+   ```sh
    make devnet-up
    source .env
    ```
@@ -74,7 +74,7 @@ You now have a local devnet service running in the background and a prover that 
 
 When finished, tear down a running devnet run:
 
-```console
+```sh
 make devnet-down
 ```
 
@@ -84,19 +84,19 @@ If you require customizing a local devnet configuration, and need to operate it 
 
 1. Build the contracts
 
-   ```console
+   ```sh
    forge build
    ```
 
 2. Build the project
 
-   ```console
+   ```sh
    cargo build
    ```
 
 3. Start `anvil`
 
-   ```console
+   ```sh
    anvil -b 2
    ```
 
@@ -106,7 +106,7 @@ If you require customizing a local devnet configuration, and need to operate it 
    Configuration environment variables are read from the `.env` file.
    By setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
 
-   ```console
+   ```sh
    source .env
    RISC0_DEV_MODE=1 forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
    ```
@@ -126,7 +126,7 @@ If you require customizing a local devnet configuration, and need to operate it 
    The Broker needs to have funds deposited on the Boundless market contract to cover lock-in stake on requests.
    Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
-   ```console
+   ```sh
    RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
    ```
 
@@ -137,7 +137,7 @@ You now have a local devnet running and a prover that will respond to proving re
 
 Test your devnet with the boundless CLI:
 
-```console
+```sh
 RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
 ```
 
@@ -151,7 +151,7 @@ Try editing `request.yaml` to send a request to the Market with different values
 
 When finished, tear down a running devnet from the [`make devnet-up` workflow](#make) run:
 
-```console
+```sh
 make devnet-down
 ```
 
