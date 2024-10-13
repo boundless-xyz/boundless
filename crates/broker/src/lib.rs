@@ -51,7 +51,7 @@ pub struct Args {
 
     /// wallet key
     #[clap(long, env)]
-    pub priv_key: PrivateKeySigner,
+    pub private_key: PrivateKeySigner,
 
     /// Proof market address
     #[clap(long, env)]
@@ -662,7 +662,7 @@ pub mod test_utils {
             proof_market_addr: ctx.proof_market_addr,
             set_verifier_addr: ctx.set_verifier_addr,
             rpc_url,
-            priv_key: ctx.prover_signer.clone(),
+            private_key: ctx.prover_signer.clone(),
             bento_api_url: None,
             bonsai_api_key: None,
             bonsai_api_url: None,

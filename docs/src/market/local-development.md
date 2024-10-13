@@ -127,7 +127,7 @@ If you require customizing a local devnet configuration, and need to operate it 
    Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
    ```sh
-   RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
+   RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
    ```
 
 🎉 Congratulations!

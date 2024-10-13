@@ -8,7 +8,7 @@
 This Book's goal is to:
 
 - Enable everyone to _understand_ [Boundless][term-boundless] via the [Market Section][page-market-overview]
-- Act as a User Manual for the two key _actors_ in the [Boundless Market][term-boundless-market]:
+- Act as a User Manual for the two _actors_ in the [Boundless Market][term-boundless-market]:
   - [Requestors][term-requestor] - using the [Requestor Manual][page-requestor-manual]
   - [Provers][term-prover] - using the [Prover Manual][page-prover-manual]
 
