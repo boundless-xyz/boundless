@@ -161,7 +161,7 @@ start_services() {
     log_info "Starting Docker Compose services using environment file: $ENV_FILE"
 
     # Start Docker Compose in foreground mode
-    docker compose --env-file "$ENV_FILE" up --build -d
+    docker compose --profile broker --env-file "$ENV_FILE" up --build -d
 
     # After docker compose up exits normally (without interruption)
     log_success "Docker Compose services have been started."
@@ -172,7 +172,7 @@ stop_services() {
     log_info "Stopping Docker Compose services using environment file: $ENV_FILE"
 
     # Stop and remove containers, networks, volumes, and images created by up
-    if docker compose --env-file "$ENV_FILE" down; then
+    if docker compose --profile broker --env-file "$ENV_FILE" down; then
         log_success "Docker Compose services have been stopped and removed."
     else
         log_error "Failed to stop Docker Compose services."

@@ -90,7 +90,7 @@ If instead you prefer setting up a local devnet step by step, you can run the fo
    Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
    ```console
-   RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --priv-key ${PROVER_PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
+   RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
    ```
 
 6. Test your deployment with the boundless CLI.

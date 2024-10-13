@@ -51,7 +51,7 @@ pub struct Args {
 
     /// wallet key
     #[clap(long, env)]
-    pub priv_key: PrivateKeySigner,
+    pub private_key: PrivateKeySigner,
 
     /// Proof market address
     #[clap(long, env)]
@@ -511,12 +511,13 @@ where
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),
+            self.config_watcher.config.clone(),
             prover.clone(),
             self.provider.clone(),
             self.args.set_verifier_addr,
             self.args.proof_market_addr,
             set_builder_img_data.0,
-        ));
+        )?);
         supervisor_tasks.spawn(async move {
             task::supervisor(1, submitter).await.context("Failed to start submitter service")?;
             Ok(())
@@ -661,7 +662,7 @@ pub mod test_utils {
             proof_market_addr: ctx.proof_market_addr,
             set_verifier_addr: ctx.set_verifier_addr,
             rpc_url,
-            priv_key: ctx.prover_signer.clone(),
+            private_key: ctx.prover_signer.clone(),
             bento_api_url: None,
             bonsai_api_key: None,
             bonsai_api_url: None,

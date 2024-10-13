@@ -11,7 +11,7 @@ import {Counter} from "../src/Counter.sol";
 contract Deploy is Script {
     function run() external payable {
         // load ENV variables first
-        uint256 key = vm.envUint("REQUESTOR_PRIVATE_KEY");
+        uint256 key = vm.envUint("PRIVATE_KEY");
         address verifierAddress = vm.envAddress("SET_VERIFIER_ADDRESS");
         vm.startBroadcast(key);
 

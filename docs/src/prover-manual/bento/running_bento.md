@@ -59,11 +59,11 @@ scripts/boundless_service.sh stop
 Using a simple test vector for testing different cycle counts (via the -c flag):
 
 ```bash
-RUST_LOG=info cargo run -F bento_cli --bin bento_cli -- -c 32
+RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
 Or with a existing elf / input file:
 
 ```bash
-RUST_LOG=info cargo run -F bento_cli --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin
+RUST_LOG=info cargo run --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin
 ```

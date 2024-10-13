@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
 
     let args = Args::try_parse()?;
 
-    let wallet = EthereumWallet::from(args.priv_key.clone());
+    let wallet = EthereumWallet::from(args.private_key.clone());
 
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()

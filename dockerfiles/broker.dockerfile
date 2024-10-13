@@ -19,7 +19,7 @@ RUN \
     # --mount=type=cache,target=/usr/local/cargo/registry/ \
     source ./sccache-config.sh && \
     cargo install --version 1.6.9 cargo-binstall && \
-    cargo binstall -y --force cargo-risczero --version 1.1.1 && \
+    cargo binstall -y --force cargo-risczero --version 1.1 && \
     cargo risczero install
 
 FROM init AS builder

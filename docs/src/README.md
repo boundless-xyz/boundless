@@ -7,8 +7,8 @@
 
 ## What's in this book?
 
-- Documentation for everyone to _understand_ [Boundless][term-boundless] via the [Market Documentation][page-market-docs]
-- Act as a User Manual for the two key _actors_ in the [Boundless Market][term-boundless-market]:
+- Enable everyone to _understand_ [Boundless][term-boundless] via the [Market Section][page-boundless-market]
+- Act as a User Manual for the two _actors_ in the [Boundless Market][term-boundless-market]:
   - [Requestors][term-requestor] - using the [Requestor Manual][page-requestor-manual]
   - [Provers][term-prover] - using the [Prover Manual][page-prover-manual]
 
@@ -50,7 +50,7 @@ Boundless is relatively complex in it's architecture and requires idiosyncratic 
 Helpful resources and further reading can be found in the [reference][page-reference].
 
 [page-prover-manual]: prover-manual/README.md
-[page-market-docs]: market/README.md
+[page-boundless-market]: market/README.md
 [page-requestor-manual]: requestor-manual/README.md
 [page-glossary]: glossary.md
 [page-reference]: reference.md
