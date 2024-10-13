@@ -44,13 +44,10 @@ error() {
     printf "\e[31m[ERROR]\e[0m %s\n" "$1" >&2
 }
 
-# Function to check if the script is run as root
-check_root() {
-    if [[ "$EUID" -ne 0 ]]; then
-        error "This script must be run with sudo or as root."
-        exit 1
-    fi
+is_package_installed() {
+    dpkg -s "$1" &> /dev/null
 }
+
 
 # Function to check if the operating system is Ubuntu
 check_os() {
@@ -77,8 +74,8 @@ check_os() {
 update_system() {
     info "Updating and upgrading the system packages..."
     {
-        apt update -y
-        apt upgrade -y
+        sudo apt update -y
+        sudo apt upgrade -y
     } >> "$LOG_FILE" 2>&1
     success "System packages updated and upgraded successfully."
 }
@@ -94,11 +91,12 @@ install_packages() {
         gnupg
         ca-certificates
         lsb-release
+        jq
     )
 
     info "Installing essential packages: ${packages[*]}..."
     {
-        apt install -y "${packages[@]}"
+        sudo apt install -y "${packages[@]}"
     } >> "$LOG_FILE" 2>&1
     success "Essential packages installed successfully."
 }
@@ -107,7 +105,7 @@ install_packages() {
 install_gpu_drivers() {
     info "Detecting and installing appropriate GPU drivers..."
     {
-        ubuntu-drivers install
+        sudo ubuntu-drivers install
     } >> "$LOG_FILE" 2>&1
     success "GPU drivers installed successfully."
 }
@@ -135,7 +133,7 @@ install_rust() {
 
 # Function to install CUDA Toolkit
 install_cuda() {
-    if dpkg -l | grep -q "^ii  cuda-toolkit"; then
+    if is_package_installed "cuda-toolkit"; then
         info "CUDA Toolkit is already installed. Skipping CUDA installation."
     else
         info "Installing CUDA Toolkit and dependencies..."
@@ -144,10 +142,10 @@ install_cuda() {
             distribution=$(grep '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"'| tr -d '\.')
             info "Installing Nvidia CUDA keyring and repo"
             wget https://developer.download.nvidia.com/compute/cuda/repos/$distribution/$(/usr/bin/uname -m)/cuda-keyring_1.1-1_all.deb
-            dpkg -i cuda-keyring_1.1-1_all.deb
+            sudo dpkg -i cuda-keyring_1.1-1_all.deb
             rm cuda-keyring_1.1-1_all.deb
-            apt-get update
-            apt-get install -y cuda-toolkit
+            sudo apt-get update
+            sudo apt-get install -y cuda-toolkit
         } >> "$LOG_FILE" 2>&1
         success "CUDA Toolkit installed successfully."
     fi
@@ -161,25 +159,25 @@ install_docker() {
         info "Installing Docker..."
         {
             # Install prerequisites
-            apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+            sudo apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
 
             # Add Docker’s official GPG key
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
 
             # Set up the stable repository
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
             # Update package index
-            apt update -y
+            sudo apt update -y
 
             # Install Docker Engine, CLI, and Containerd
-            apt install -y docker-ce docker-ce-cli containerd.io
+            sudo apt install -y docker-ce docker-ce-cli containerd.io
 
             # Enable Docker
-            systemctl enable docker
+            sudo systemctl enable docker
 
             # Start Docker Service
-            systemctl start docker
+            sudo systemctl start docker
 
         } >> "$LOG_FILE" 2>&1
         success "Docker installed and started successfully."
@@ -196,7 +194,7 @@ add_user_to_docker_group() {
     else
         info "Adding user '$username' to the 'docker' group..."
         {
-            usermod -aG docker "$username"
+            sudo usermod -aG docker "$username"
         } >> "$LOG_FILE" 2>&1
         success "User '$username' added to the 'docker' group."
         info "To apply the new group membership, please log out and log back in."
@@ -205,23 +203,30 @@ add_user_to_docker_group() {
 
 # Function to install NVIDIA Container Toolkit
 install_nvidia_container_toolkit() {
+    info "Checking NVIDIA Container Toolkit installation..."
+
+    if is_package_installed "nvidia-docker2"; then
+        success "NVIDIA Container Toolkit (nvidia-docker2) is already installed."
+        return
+    fi
+
     info "Installing NVIDIA Container Toolkit..."
 
     {
         # Add the package repositories
         local distribution
         distribution=$(grep '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
-        curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | apt-key add -
-        curl -s -L https://nvidia.github.io/nvidia-docker/"$distribution"/nvidia-docker.list | tee /etc/apt/sources.list.d/nvidia-docker.list
+        curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+        curl -s -L https://nvidia.github.io/nvidia-docker/"$distribution"/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
 
         # Update the package lists
-        apt update -y
+        sudo apt update -y
 
         # Install the NVIDIA Docker support
-        apt install -y nvidia-docker2
+        sudo apt install -y nvidia-docker2
 
         # Restart Docker to apply changes
-        systemctl restart docker
+        sudo systemctl restart docker
     } >> "$LOG_FILE" 2>&1
 
     success "NVIDIA Container Toolkit installed successfully."
@@ -233,10 +238,10 @@ configure_docker_nvidia() {
 
     {
         # Create Docker daemon configuration directory if it doesn't exist
-        mkdir -p /etc/docker
+        sudo mkdir -p /etc/docker
 
         # Create or overwrite daemon.json with NVIDIA runtime configuration
-        cat > /etc/docker/daemon.json <<EOF
+        sudo tee /etc/docker/daemon.json <<EOF
 {
     "default-runtime": "nvidia",
     "runtimes": {
@@ -249,7 +254,7 @@ configure_docker_nvidia() {
 EOF
 
         # Restart Docker to apply the new configuration
-        systemctl restart docker
+        sudo systemctl restart docker
     } >> "$LOG_FILE" 2>&1
 
     success "Docker configured to use NVIDIA runtime by default."
@@ -271,10 +276,18 @@ verify_docker_nvidia() {
 cleanup() {
     info "Cleaning up unnecessary packages..."
     {
-        apt autoremove -y
-        apt autoclean -y
+        sudo apt autoremove -y
+        sudo apt autoclean -y
     } >> "$LOG_FILE" 2>&1
     success "Cleanup completed."
+}
+
+init_git_submodules() {
+    info "ensuring submodules are initialized..."
+    {
+        git submodule update --init --recursive
+    } >> "$LOG_FILE" 2>&1
+    success "git submodules initialized successfully"
 }
 
 # =============================================================================
@@ -287,11 +300,11 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 # Display start message with timestamp
 info "===== Script Execution Started at $(date) ====="
 
-# Check for root privileges
-check_root
-
 # Check if the operating system is Ubuntu
 check_os
+
+# ensure all the require source code is present
+init_git_submodules
 
 # Update and upgrade the system
 update_system

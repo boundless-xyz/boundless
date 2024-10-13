@@ -60,7 +60,7 @@ async fn simple_e2e() {
         proof_market_addr: ctx.proof_market_addr,
         set_verifier_addr: ctx.set_verifier_addr,
         rpc_url: anvil.endpoint_url(),
-        priv_key: ctx.prover_signer,
+        private_key: ctx.prover_signer,
         bento_api_url: None,
         bonsai_api_key: None,
         bonsai_api_url: None,

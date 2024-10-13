@@ -19,7 +19,7 @@ import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
 contract Deploy is Script, RiscZeroCheats {
     function run() external {
         // load ENV variables first
-        uint256 adminKey = vm.envUint("REQUESTOR_PRIVATE_KEY");
+        uint256 adminKey = vm.envUint("PRIVATE_KEY");
 
         vm.startBroadcast(adminKey);
 
