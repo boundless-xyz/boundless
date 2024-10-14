@@ -37,7 +37,10 @@ in its operation:
 
 Bento's design philosophy is centered around TaskDB. TaskDB is a database schema in PostgreSQL that acts as a central communications hub, scheduler, and queue for all of the Bento system. To illustrate further, the following diagram is the visual representation of the proving workflow (RISC0 continuations).
 
-![Bento Diagram](../../images/bento-diagram.png)
+<figure>
+  <img src="../../images/bento-diagram.png"/>
+  <cap>Bento Diagram</cap>
+</figure>
 
 From there Bento has the application containers
 

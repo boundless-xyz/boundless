@@ -4,7 +4,7 @@
 
 ---
 
-- [💹 Market Overview](./market/README.md)
+- [💹 Market Docs](./market/README.md)
 
   - [Boundless Market RFC](./market/rfc.md)
   - [Market Matching](./market/matching.md)
