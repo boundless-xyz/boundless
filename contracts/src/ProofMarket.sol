@@ -149,6 +149,7 @@ contract ProofMarket is IProofMarket, EIP712 {
     // Deposit Ether into the market.
     function deposit() public payable {
         accounts[msg.sender].balance += msg.value.toUint96();
+        emit Deposit(msg.sender, msg.value);
     }
 
     // Withdraw Ether from the market.
@@ -156,6 +157,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         accounts[msg.sender].balance -= value.toUint96();
         (bool sent,) = msg.sender.call{value: value}("");
         require(sent, "failed to send Ether");
+        emit Withdrawal(msg.sender, value);
     }
 
     // Get the current balance of an account.

@@ -194,6 +194,29 @@ contract ProofMarketTest is Test {
         return (fills, assessorSeal);
     }
 
+    function testDeposit() public {
+        vm.deal(PROVER_WALLET.addr, 1 ether);
+        // Deposit funds into the market
+        vm.expectEmit(true, true, false, true);
+        emit IProofMarket.Deposit(PROVER_WALLET.addr, 1 ether);
+        vm.prank(PROVER_WALLET.addr);
+        proofMarket.deposit{value: 1 ether}();
+    }
+
+    function testWithdraw() public {
+        // Deposit funds into the market
+        vm.deal(PROVER_WALLET.addr, 1 ether);
+        vm.prank(PROVER_WALLET.addr);
+        proofMarket.deposit{value: 1 ether}();
+
+        // Withdraw funds from the market
+        vm.expectEmit(true, true, false, true);
+        emit IProofMarket.Withdrawal(PROVER_WALLET.addr, 1 ether);
+        vm.prank(PROVER_WALLET.addr);
+        proofMarket.withdraw(1 ether);
+        checkProofMarketBalance();
+    }
+
     function testSubmitRequest() public {
         // Submit request
         Vm.Wallet memory client = createClient(1);

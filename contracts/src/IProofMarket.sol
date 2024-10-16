@@ -101,6 +101,10 @@ interface IProofMarket {
     event RequestFulfilled(uint192 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is burned for failing to fulfill a request by the deadline.
     event LockinStakeBurned(uint192 indexed requestId, uint96 stake);
+    /// Event when a deposit is made to the proof market.
+    event Deposit(address indexed account, uint256 value);
+    /// Event when a withdrawal is made from the proof market.
+    event Withdrawal(address indexed account, uint256 value);
 
     /// Request is locked when it was not expected to be.
     error RequestIsLocked(uint192 requestId);
