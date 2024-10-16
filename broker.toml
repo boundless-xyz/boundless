@@ -1,6 +1,6 @@
 [market]
 mcycle_price = "0.001"
-assumption_price = "0.1"
+# assumption_price = "0.1"
 # peak_prove_khz = 500
 min_deadline = 150
 lookback_blocks = 100
@@ -20,4 +20,4 @@ req_retry_count = 3
 batch_max_time = 1000
 batch_size = 1
 block_deadline_buffer_secs = 120
-# txn_timeout = 30
+txn_timeout = 45
