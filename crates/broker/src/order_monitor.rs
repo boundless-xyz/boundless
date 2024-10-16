@@ -83,8 +83,7 @@ where
         let lock_block = self
             .market
             .lockin_request(&order.request, &order.client_sig, conf_priority_gas)
-            .await
-            .with_context(|| format!("Failed to send lockin TX for order {order_id:x}"))?;
+            .await?;
 
         let lock_price = self
             .market
@@ -106,6 +105,7 @@ where
             match self.lock_order(*order_id, order).await {
                 Ok(_) => tracing::info!("Locked order: {order_id:x}"),
                 Err(err) => {
+                    tracing::error!("Failed to lock order: {order_id:x} {err}");
                     if let Err(err) = self.db.set_order_failure(*order_id, format!("{err:?}")).await
                     {
                         tracing::error!(
