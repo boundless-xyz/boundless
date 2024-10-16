@@ -383,8 +383,6 @@ where
         request.id = request_yaml.id;
     }
 
-    market.deposit(U256::from(request.offer.maxPrice)).await?;
-
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
         "Proving request ID 0x{request_id:x}, bidding start at block number {}",
