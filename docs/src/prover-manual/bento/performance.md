@@ -17,6 +17,7 @@ Operating competing workloads on the same system as your Bento deployment can le
 docker ps
 docker stop <BROKER_CONTAINER_ID>
 ```
+Alternatively you can modify your ```scripts/boundless_service.sh``` to remove ```--profile broker```.
 
 ## Define test harness
 
@@ -32,7 +33,7 @@ If you intend to operate across a variety of different workloads (such as those 
 RUST_LOG=info cargo run --bin bento_cli -- -c <ITERATION_COUNT>
 ```
 
-Where iteration count is the number of times the synthetic guest is executed. A value of 4096 is a good starting point, however on smaller or less performant you may want to reduce this to 2048 or 1024 while performing some of your experiments. For functional testing, -32 is sufficient.
+Where iteration count is the number of times the synthetic guest is executed. A value of 4096 is a good starting point, however on smaller or less performant you may want to reduce this to 2048 or 1024 while performing some of your experiments. For functional testing, 32 is sufficient.
 
 The typical test process will be:
 
@@ -104,11 +105,11 @@ In the final table, the effective Hz is the primary metric for consideration. Th
 
 In most scenarios it makes sense to start by optimizing our GPU workers. This is because the bulk of the RISC Zero workload is executed by the `gpu-agent` and GPU resources a most often the performance bottleneck.
 
-A critical concept to understand as we begin this testing is related to [RISC Zero's continuations][r0-term-continuations]. Continuations are the key mechanism that allow RISC Zero to scale to effectively handle arbitrarily large proofs.
+A critical concept to understand as we begin this testing is related to [RISC Zero's continuations][r0-term-continuations]. [Continuations](https://dev.risczero.com/api/recursion) are the key mechanism that allow RISC Zero to scale to effectively handle arbitrarily large proofs.
 
 The CPU first runs the workload in a pre-flight stage where it doesn't engage in proving, while doing so it divides the program trace into a series of [segments][r0-term-segment]. In Bento these segments are then dispatched to various workers for proving, and are combined back together in the final stage to produce the proof.
 
-The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env-compose` file. A proof is divided into `(2^SEGMENT_SIZE)` sized segments. The default value is 20, which means that a proof is composed of the number of required segments of approximately 1M bytes `(2^20 = 1048576)`.
+The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env-compose` file. A proof is divided into `(2^SEGMENT_SIZE)` sized segments. The default value is 20, which means that a proof is composed of the number of required segments of approximately 1M cycles `(2^20 = 1048576)`.
 
 `SEGMENT_SIZE has` some practical implications, related to GPU VRAM capacity. Below is a set of guidelines for setting `SEGMENT_SIZE` maximums:
 
@@ -134,6 +135,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
 We then examine the `gpu-agent` logs and see a series of out of memory errors:
+```docker logs bento-gpu_agent0```
 
 ```
 2024-10-17T15:57:43.667484Z  INFO workflow::tasks::prove: Starting proof of idx: 6f95e238-d0be-4e94-9e81-fefdc0b7d8c4 - 1
