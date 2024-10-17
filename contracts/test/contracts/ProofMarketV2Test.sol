@@ -14,8 +14,8 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 
-import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "./IProofMarket.sol";
-import {ProofMarketLib} from "./ProofMarketLib.sol";
+import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "../../src/IProofMarket.sol";
+import {ProofMarketLib} from "../../src/ProofMarketLib.sol";
 
 // TODO(#165): A potential issue with the current approach is: if the client
 // signs a request with a given ID, it expires with no bids, and they sign a
@@ -100,7 +100,14 @@ struct RequestLock {
     uint96 stake;
 }
 
-contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+/// @custom:oz-upgrades-from ProofMarket
+contract ProofMarketV2Test is
+    IProofMarket,
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable
+{
     using AccountLib for Account;
     using ProofMarketLib for Offer;
     using ProofMarketLib for ProvingRequest;

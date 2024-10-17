@@ -12,6 +12,7 @@ import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
+import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {ProofMarket, MerkleProofish, AssessorJournal} from "../src/ProofMarket.sol";
 import {
@@ -26,8 +27,8 @@ import {
     Requirements
 } from "../src/IProofMarket.sol";
 import {ProofMarketLib} from "../src/ProofMarketLib.sol";
+import {ProofMarketV2Test} from "./contracts/ProofMarketV2Test.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
-import {ProofMarketProxy} from "../src/ProofMarketProxy.sol";
 
 contract ProofMarketTest is Test {
     using ReceiptClaimLib for ReceiptClaim;
@@ -38,7 +39,7 @@ contract ProofMarketTest is Test {
 
     RiscZeroMockVerifier private verifier;
     ProofMarket private proofMarket;
-    ProofMarketProxy private proxy;
+    address private proxy;
     RiscZeroSetVerifier private setVerifier;
     mapping(uint256 => bool) private clientWallets;
     uint256 initialBalance;
@@ -70,18 +71,15 @@ contract ProofMarketTest is Test {
         // Deploy the implementation contracts
         verifier = new RiscZeroMockVerifier(MOCK_SELECTOR);
         setVerifier = new RiscZeroSetVerifier(verifier, SET_BUILDER_IMAGE_ID, "https://set-builder.dev.null");
-        ProofMarket implementation = new ProofMarket();
 
-        // // Deploy the UUPS proxy with the implementation
-        // bytes memory initializeData = abi.encodeWithSignature(
-        //     "initialize(address,bytes32,string)",
-        //     address(setVerifier),
-        //     ASSESSOR_IMAGE_ID,
-        //     "https://assessor.dev.null"
-        // );
-        proxy = new ProofMarketProxy(address(implementation), "");
-        proofMarket = ProofMarket(address(proxy));
-        proofMarket.initialize(setVerifier, ASSESSOR_IMAGE_ID, "https://assessor.dev.null");
+        // Deploy the UUPS proxy with the implementation
+        proxy = Upgrades.deployUUPSProxy(
+            "ProofMarket.sol:ProofMarket",
+            abi.encodeCall(
+                ProofMarket.initialize, (OWNER_WALLET.addr, setVerifier, ASSESSOR_IMAGE_ID, "https://assessor.dev.null")
+            )
+        );
+        proofMarket = ProofMarket(proxy);
 
         vm.stopPrank();
 
@@ -131,8 +129,8 @@ contract ProofMarketTest is Test {
         return ProvingRequest({
             id: ProofMarketLib.requestId(client, idx),
             requirements: REQUIREMENTS,
-            imageUrl: "http://image.dev.null",
-            input: Input({inputType: InputType.Url, data: bytes("http://input.dev.null")}),
+            imageUrl: "https://image.dev.null",
+            input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
             offer: offer
         });
     }
@@ -141,8 +139,8 @@ contract ProofMarketTest is Test {
         return ProvingRequest({
             id: ProofMarketLib.requestId(client, idx),
             requirements: REQUIREMENTS,
-            imageUrl: "http://image.dev.null",
-            input: Input({inputType: InputType.Url, data: bytes("http://input.dev.null")}),
+            imageUrl: "https://image.dev.null",
+            input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
             offer: Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
@@ -765,27 +763,49 @@ contract ProofMarketTest is Test {
     }
 
     function testUpgradeability() public {
-        vm.prank(OWNER_WALLET.addr);
+        address implAddressV1 = Upgrades.getImplementationAddress(proxy);
+        vm.startPrank(OWNER_WALLET.addr);
         // Deploy a new implementation of the same contract
-        ProofMarket newImplementation = new ProofMarket();
-        address oldImplementation = proxy.implementation();
+        Upgrades.upgradeProxy(proxy, "ProofMarketV2Test.sol:ProofMarketV2Test", "", OWNER_WALLET.addr);
+        vm.stopPrank();
+        address implAddressV2 = Upgrades.getImplementationAddress(proxy);
+        assertFalse(implAddressV2 == implAddressV1);
 
-        // Upgrade the proxy to the new implementation and
-        // reinitialize with different values
-        bytes32 NEW_ASSESSOR_IMAGE_ID = keccak256("NEW_ASSESSOR_IMAGE_ID");
-        string memory NEW_IMAGE_URL = "https://new-assessor.dev.null";
+        (bytes32 imageID, string memory imageUrl) = proofMarket.imageInfo();
+        assertEq(imageID, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
+        assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
+    }
+
+    function testUnsafeUpgrade() public {
+        vm.startPrank(OWNER_WALLET.addr);
+        proxy = UnsafeUpgrades.deployUUPSProxy(
+            address(new ProofMarket()),
+            abi.encodeCall(
+                ProofMarket.initialize, (OWNER_WALLET.addr, setVerifier, ASSESSOR_IMAGE_ID, "https://assessor.dev.null")
+            )
+        );
+        proofMarket = ProofMarket(proxy);
+        address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
+
+        UnsafeUpgrades.upgradeProxy(proxy, address(new ProofMarket()), "", OWNER_WALLET.addr);
+        vm.stopPrank();
+        address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);
+
+        assertFalse(implAddressV2 == implAddressV1);
+
+        (bytes32 imageID, string memory imageUrl) = proofMarket.imageInfo();
+        assertEq(imageID, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
+        assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
+    }
+
+    function testTransferOwnership() public {
+        address newOwner = vm.createWallet("NEW_OWNER").addr;
         vm.prank(OWNER_WALLET.addr);
-        proofMarket.upgradeTo(address(newImplementation), setVerifier, NEW_ASSESSOR_IMAGE_ID, NEW_IMAGE_URL);
+        proofMarket.transferOwnership(newOwner);
 
-        address currentImplementation = proxy.implementation();
-        console2.log("Old implementation:", oldImplementation);
-        console2.log("New implementation:", newImplementation);
-        
-        assertEq(currentImplementation, address(newImplementation), "Upgrade failed: implementation mismatch");
+        vm.prank(newOwner);
+        proofMarket.acceptOwnership();
 
-        // Verify the new values
-        (bytes32 imageId, string memory url) = proofMarket.imageInfo();
-        assertEq(imageId, NEW_ASSESSOR_IMAGE_ID, "Reinitialize failed: ASSESSOR_ID mismatch");
-        assertEq(url, NEW_IMAGE_URL, "Reinitialize failed: imageUrl mismatch");
+        assertEq(proofMarket.owner(), newOwner, "Owner should be changed");
     }
 }

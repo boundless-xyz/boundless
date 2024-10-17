@@ -1,6 +1,7 @@
 [profile.default]
 src = "contracts/src"
 out = "contracts/out"
+fs_permissions = [{ access = "read", path = "contracts/out" }]
 libs = ["lib"]
 script = "contract/scripts"
 test = "contracts/test"
@@ -10,6 +11,9 @@ via_ir = true
 optimizer = true
 # Use 10k runs because it doesn't seem to slow down compilation, and does shave off a bit of gas.
 optimizer_runs = 10000
+ast = true
+build_info = true
+extra_output = ["storageLayout"]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
