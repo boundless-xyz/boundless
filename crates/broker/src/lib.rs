@@ -461,7 +461,7 @@ where
             self.config_watcher.config.clone(),
             block_times,
             self.args.proof_market_addr,
-        ));
+        )?);
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_monitor).await.context("Failed to start order monitor")?;
             Ok(())

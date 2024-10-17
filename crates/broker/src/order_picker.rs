@@ -171,6 +171,17 @@ where
             .try_into()
             .context("Failed to convert U256 exec limit to u64")?;
 
+        if exec_limit == 0 {
+            tracing::warn!(
+                "Removing order {order_id:x} because it's mcycle price limit is below 0 mcycles"
+            );
+            self.db
+                .skip_order(order_id)
+                .await
+                .context("Order max price below min mcycle price, limit 0")?;
+            return Ok(());
+        }
+
         tracing::debug!(
             "Starting preflight execution of {order_id:x} exec limit {exec_limit} mcycles"
         );

@@ -17,6 +17,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::{proof_market::ProofMarketService, ProofStatus};
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct OrderMonitor<T, P> {
@@ -38,14 +39,22 @@ where
         config: ConfigLock,
         block_time: u64,
         market_addr: Address,
-    ) -> Self {
-        let market = ProofMarketService::new(
+    ) -> Result<Self> {
+        let txn_timeout_opt = {
+            let config = config.lock_all().context("Failed to read config")?;
+            config.batcher.txn_timeout
+        };
+
+        let mut market = ProofMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
+        if let Some(txn_timeout) = txn_timeout_opt {
+            market = market.with_timeout(Duration::from_secs(txn_timeout));
+        }
 
-        Self { db, provider, block_time, config, market }
+        Ok(Self { db, provider, block_time, config, market })
     }
 
     async fn lock_order(&self, order_id: U256, order: &Order) -> Result<()> {
@@ -74,8 +83,7 @@ where
         let lock_block = self
             .market
             .lockin_request(&order.request, &order.client_sig, conf_priority_gas)
-            .await
-            .with_context(|| format!("Failed to send lockin TX for order {order_id:x}"))?;
+            .await?;
 
         let lock_price = self
             .market
@@ -97,6 +105,7 @@ where
             match self.lock_order(*order_id, order).await {
                 Ok(_) => tracing::info!("Locked order: {order_id:x}"),
                 Err(err) => {
+                    tracing::error!("Failed to lock order: {order_id:x} {err}");
                     if let Err(err) = self.db.set_order_failure(*order_id, format!("{err:?}")).await
                     {
                         tracing::error!(
@@ -312,7 +321,8 @@ mod tests {
             config.clone(),
             block_time,
             contract_address,
-        );
+        )
+        .unwrap();
 
         let orders = monitor.back_scan_locks().await.unwrap();
         assert_eq!(orders, 1);
@@ -409,7 +419,8 @@ mod tests {
             config.clone(),
             block_time,
             contract_address,
-        );
+        )
+        .unwrap();
 
         monitor.start_monitor(Some(4)).await.unwrap();
 

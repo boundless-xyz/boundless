@@ -24,7 +24,9 @@ pub struct MarketConf {
     /// Mega Cycle price (in native token)
     pub mcycle_price: String,
     /// Assumption price (in native token)
-    pub assumption_price: String,
+    ///
+    /// UNUSED CURRENTLY
+    pub assumption_price: Option<String>,
     /// Peak single proof performance in kHz
     ///
     /// Used for sanity checking bids to prevent slashing
@@ -57,7 +59,7 @@ impl Default for MarketConf {
     fn default() -> Self {
         Self {
             mcycle_price: "0.1".to_string(),
-            assumption_price: "0.1".to_string(),
+            assumption_price: None,
             peak_prove_khz: None,
             min_deadline: 150, // ~300 seconds aka 5 mins
             lookback_blocks: 100,
@@ -295,7 +297,6 @@ mod tests {
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1"
-assumption_price = "0.1"
 peak_prove_khz = 500
 min_deadline = 150
 lookback_blocks = 100
@@ -353,7 +354,7 @@ error = ?"#;
         let config = Config::load(config_temp.path()).await.unwrap();
 
         assert_eq!(config.market.mcycle_price, "0.1");
-        assert_eq!(config.market.assumption_price, "0.1");
+        assert_eq!(config.market.assumption_price, None);
         assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.min_deadline, 150);
         assert_eq!(config.market.lookback_blocks, 100);
@@ -397,7 +398,7 @@ error = ?"#;
         {
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.mcycle_price, "0.1");
-            assert_eq!(config.market.assumption_price, "0.1");
+            assert_eq!(config.market.assumption_price, None);
             assert_eq!(config.market.peak_prove_khz, Some(500));
             assert_eq!(config.market.min_deadline, 150);
             assert_eq!(config.market.lookback_blocks, 100);
@@ -411,7 +412,7 @@ error = ?"#;
             tracing::debug!("Locking config for reading...");
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.mcycle_price, "0.1");
-            assert_eq!(config.market.assumption_price, "0.1");
+            assert_eq!(config.market.assumption_price, Some("0.1".into()));
             assert_eq!(config.market.peak_prove_khz, Some(10000));
             assert_eq!(config.market.min_deadline, 150);
             assert_eq!(config.market.lookback_blocks, 100);

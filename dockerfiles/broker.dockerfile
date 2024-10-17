@@ -14,10 +14,10 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
 
 # RUN curl -L https://risczero.com/install | bash
 RUN \
-    # --mount=type=cache,target=/root/.cache/sccache/ \
+    # --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sccache \
     # --mount=type=cache,target=/usr/local/cargo/git/db \
     # --mount=type=cache,target=/usr/local/cargo/registry/ \
-    source ./sccache-config.sh && \
+    # source ./sccache-config.sh && \
     cargo install --version 1.6.9 cargo-binstall && \
     cargo binstall -y --force cargo-risczero --version 1.1 && \
     cargo risczero install
@@ -39,10 +39,6 @@ ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
 
 RUN \
-    # --mount=type=cache,target=target,rw,id=spear_broker \
-    # --mount=type=cache,target=/root/.cargo/,rw,id=spear_broker_cargo \
-    # --mount=type=cache,target=/root/.cache/sccache/,rw,id=spear_broker_sccache \
-    # source ./sccache-config.sh && \
     cargo build --release --bin broker && \
     cp /src/target/release/broker /src/broker
 

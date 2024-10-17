@@ -214,7 +214,7 @@ where
         &self,
         request: &ProvingRequest,
         client_sig: &Bytes,
-        _priority_gas: Option<u128>,
+        priority_gas: Option<u128>,
     ) -> Result<u64, MarketError> {
         tracing::debug!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
@@ -225,23 +225,22 @@ where
 
         tracing::debug!("Calling lockin({:?}, {:?})", request, client_sig);
 
-        let call = self.instance.lockin(request.clone(), client_sig.clone()).from(self.caller);
+        let mut call = self.instance.lockin(request.clone(), client_sig.clone()).from(self.caller);
 
-        // if let Some(gas) = priority_gas {
-        //     let priority_fee = self
-        //         .instance
-        //         .provider()
-        //         .estimate_eip1559_fees(None)
-        //         .await
-        //         .context("Failed to get priority gas fee")?;
+        if let Some(gas) = priority_gas {
+            let priority_fee = self
+                .instance
+                .provider()
+                .estimate_eip1559_fees(None)
+                .await
+                .context("Failed to get priority gas fee")?;
 
-        //     call = call
-        //         .max_fee_per_gas(priority_fee.max_fee_per_gas + gas)
-        //         .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas);
-        // }
+            call = call
+                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas)
+                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas);
+        }
 
-        // let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
-        let pending_tx = call.send().await.context("Failed to lock")?;
+        let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
 
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
