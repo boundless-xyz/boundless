@@ -36,7 +36,7 @@ devnet-up: check-deps
 	echo "Fetching contract addresses..."
 	{ \
 		SET_VERIFIER_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
-		PROOF_MARKET_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "ProofMarket") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
+		PROOF_MARKET_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
 		echo "Contract deployed at addresses:"; \
 		echo "SET_VERIFIER_ADDRESS=$$SET_VERIFIER_ADDRESS"; \
 		echo "PROOF_MARKET_ADDRESS=$$PROOF_MARKET_ADDRESS"; \

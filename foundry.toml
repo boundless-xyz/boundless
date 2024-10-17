@@ -1,7 +1,7 @@
 [profile.default]
 src = "contracts/src"
 out = "contracts/out"
-fs_permissions = [{ access = "read", path = "contracts/out" }]
+fs_permissions = [{ access = "read", path = "contracts/out" }, { access = "read", path = "contracts/scripts/config.toml" }]
 libs = ["lib"]
 script = "contract/scripts"
 test = "contracts/test"
