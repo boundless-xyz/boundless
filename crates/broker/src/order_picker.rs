@@ -378,8 +378,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::ProofMarket, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
-        Requirements,
+        test_utils::{deploy_proof_market, ProofMarket},
+        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
     use chrono::Utc;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -403,13 +403,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address =
-            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -425,7 +423,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {
@@ -498,13 +496,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address =
-            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -520,7 +516,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {
@@ -594,13 +590,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address =
-            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -616,7 +610,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
         let order_id = U256::from(proof_market.request_id_from_nonce().await.unwrap());
         let min_price = 200000000000u64;
@@ -681,13 +675,10 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address =
-            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -703,7 +694,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {
