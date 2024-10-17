@@ -34,8 +34,3 @@ Then run:
 ```bash
 forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
 ```
-
-
-
-
-
