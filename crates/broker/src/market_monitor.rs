@@ -247,7 +247,8 @@ mod tests {
             .wallet(EthereumWallet::from(signer.clone()))
             .on_http(anvil.endpoint().parse().unwrap());
 
-        let market_address = deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
             market_address,
             provider.clone(),
