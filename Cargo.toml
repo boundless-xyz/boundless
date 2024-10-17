@@ -15,6 +15,12 @@ members = [
     "crates/workflow-common"
 ]
 
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+homepage = "https://beboundless.xyz/"
+repository = "https://github.com/boundless-xyz/boundless/"
+
 [workspace.dependencies]
 aggregation-set = { path = "crates/aggregation-set" }
 assessor = { path = "crates/assessor" }
