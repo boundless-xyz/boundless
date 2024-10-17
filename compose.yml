@@ -247,6 +247,10 @@ services:
         source: ./broker.toml
         target: /app/broker.toml
       - broker-data:/db/
+      # uncomment for local testing of broker in compose
+      # - type: bind
+      #   source: ./target/
+      #   target: /target/
 
     network_mode: host
 

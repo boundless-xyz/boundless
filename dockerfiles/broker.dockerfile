@@ -41,6 +41,8 @@ COPY foundry.toml .
 ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
 
+RUN cargo
+
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4227
 
