@@ -6,8 +6,12 @@ pragma solidity ^0.8.20;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 
 import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "./IProofMarket.sol";
@@ -96,7 +100,7 @@ struct RequestLock {
     uint96 stake;
 }
 
-contract ProofMarket is IProofMarket, EIP712 {
+contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using AccountLib for Account;
     using ProofMarketLib for Offer;
     using ProofMarketLib for ProvingRequest;
@@ -110,8 +114,8 @@ contract ProofMarket is IProofMarket, EIP712 {
 
     // NOTE: Expected to be a verifier such at the RiscZeroSetVerifier where
     // verifying individual claims is relatively cheap.
-    IRiscZeroVerifier public immutable VERIFIER;
-    bytes32 public immutable ASSESSOR_ID;
+    IRiscZeroVerifier public VERIFIER;
+    bytes32 public ASSESSOR_ID;
     string private imageUrl;
 
     /// In order to fulfill a request, the prover must provide a proof that can be verified with at
@@ -119,13 +123,21 @@ contract ProofMarket is IProofMarket, EIP712 {
     /// client can then post the given proof in a new transaction as part of the application.
     uint256 public constant FULFILL_MAX_GAS_FOR_VERIFY = 50000;
 
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, string memory _imageUrl)
-        EIP712(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION)
-    {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address initialOwner, IRiscZeroVerifier verifier, bytes32 assessorId, string memory _imageUrl) public initializer {
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
+        __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
         imageUrl = _imageUrl;
     }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     function requestIsFulfilled(uint192 id) external view returns (bool) {
         (, bool fulfilled) = accounts[address(uint160(id >> 32))].requestFlags(uint32(id));

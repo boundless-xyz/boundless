@@ -27,6 +27,7 @@ import {
 } from "../src/IProofMarket.sol";
 import {ProofMarketLib} from "../src/ProofMarketLib.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
+import {ProofMarketProxy} from "../src/ProofMarketProxy.sol";
 
 contract ProofMarketTest is Test {
     using ReceiptClaimLib for ReceiptClaim;
@@ -37,6 +38,7 @@ contract ProofMarketTest is Test {
 
     RiscZeroMockVerifier private verifier;
     ProofMarket private proofMarket;
+    ProofMarketProxy private proxy;
     RiscZeroSetVerifier private setVerifier;
     mapping(uint256 => bool) private clientWallets;
     uint256 initialBalance;
@@ -64,9 +66,23 @@ contract ProofMarketTest is Test {
         vm.deal(PROVER_WALLET.addr, DEFAULT_BALANCE);
 
         vm.startPrank(OWNER_WALLET.addr);
+
+        // Deploy the implementation contracts
         verifier = new RiscZeroMockVerifier(MOCK_SELECTOR);
         setVerifier = new RiscZeroSetVerifier(verifier, SET_BUILDER_IMAGE_ID, "https://set-builder.dev.null");
-        proofMarket = new ProofMarket(setVerifier, ASSESSOR_IMAGE_ID, "https://assessor.dev.null");
+        ProofMarket implementation = new ProofMarket();
+
+        // // Deploy the UUPS proxy with the implementation
+        // bytes memory initializeData = abi.encodeWithSignature(
+        //     "initialize(address,bytes32,string)",
+        //     address(setVerifier),
+        //     ASSESSOR_IMAGE_ID,
+        //     "https://assessor.dev.null"
+        // );
+        proxy = new ProofMarketProxy(address(implementation), "");
+        proofMarket = ProofMarket(address(proxy));
+        proofMarket.initialize(setVerifier, ASSESSOR_IMAGE_ID, "https://assessor.dev.null");
+
         vm.stopPrank();
 
         vm.prank(PROVER_WALLET.addr);
@@ -77,6 +93,9 @@ contract ProofMarketTest is Test {
         }
 
         initialBalance = address(proofMarket).balance;
+
+        // Verify that OWNER is the actual owner
+        assertEq(proofMarket.owner(), OWNER_WALLET.addr, "OWNER address is not the contract owner after deployment");
     }
 
     // Utility function to check initial and final balance difference
@@ -743,5 +762,30 @@ contract ProofMarketTest is Test {
 
         bytes32 root = MerkleProofish.processTree(leaves);
         assertEq(root, 0xe004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef);
+    }
+
+    function testUpgradeability() public {
+        vm.prank(OWNER_WALLET.addr);
+        // Deploy a new implementation of the same contract
+        ProofMarket newImplementation = new ProofMarket();
+        address oldImplementation = proxy.implementation();
+
+        // Upgrade the proxy to the new implementation and
+        // reinitialize with different values
+        bytes32 NEW_ASSESSOR_IMAGE_ID = keccak256("NEW_ASSESSOR_IMAGE_ID");
+        string memory NEW_IMAGE_URL = "https://new-assessor.dev.null";
+        vm.prank(OWNER_WALLET.addr);
+        proofMarket.upgradeTo(address(newImplementation), setVerifier, NEW_ASSESSOR_IMAGE_ID, NEW_IMAGE_URL);
+
+        address currentImplementation = proxy.implementation();
+        console2.log("Old implementation:", oldImplementation);
+        console2.log("New implementation:", newImplementation);
+        
+        assertEq(currentImplementation, address(newImplementation), "Upgrade failed: implementation mismatch");
+
+        // Verify the new values
+        (bytes32 imageId, string memory url) = proofMarket.imageInfo();
+        assertEq(imageId, NEW_ASSESSOR_IMAGE_ID, "Reinitialize failed: ASSESSOR_ID mismatch");
+        assertEq(url, NEW_IMAGE_URL, "Reinitialize failed: imageUrl mismatch");
     }
 }
