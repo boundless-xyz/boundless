@@ -134,7 +134,7 @@ contract Deploy is Script, RiscZeroCheats {
             console2.log("Deployed ProofMarket (proxy) to", proofMarketAddress);
         } else {
             UnsafeUpgrades.upgradeProxy(proofMarketAddress, newImplementation, abi.encodeCall(
-                    ProofMarket.initialize, (vm.addr(adminKey), setVerifier, assessorImageId, assessorGuestUrl)
+                    ProofMarket.upgrade, (assessorImageId, assessorGuestUrl)
                 ), vm.addr(adminKey));
             console2.log("Upgraded ProofMarket (proxy) contract at", proofMarketAddress);
         }

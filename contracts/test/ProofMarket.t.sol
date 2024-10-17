@@ -810,7 +810,12 @@ contract ProofMarketTest is Test {
         proofMarket = ProofMarket(proxy);
         address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
 
-        UnsafeUpgrades.upgradeProxy(proxy, address(new ProofMarket()), "", OWNER_WALLET.addr);
+        UnsafeUpgrades.upgradeProxy(
+            proxy,
+            address(new ProofMarket()),
+            abi.encodeCall(ProofMarket.upgrade, (ASSESSOR_IMAGE_ID, "https://assessor.dev.null")),
+            OWNER_WALLET.addr
+        );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);
 

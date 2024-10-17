@@ -35,6 +35,9 @@ import {ProofMarketLib} from "./ProofMarketLib.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
 
+/// @dev The version of the contract.
+uint64 constant VERSION = 2;
+
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
 struct Account {
     /// @dev uint96 is enough to represent the entire token supply of Ether.
@@ -136,6 +139,12 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         __UUPSUpgradeable_init();
         __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
         VERIFIER = verifier;
+        ASSESSOR_ID = assessorId;
+        imageUrl = _imageUrl;
+    }
+
+    function upgrade(bytes32 assessorId, string memory _imageUrl) public reinitializer(VERSION) {
+        __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
         ASSESSOR_ID = assessorId;
         imageUrl = _imageUrl;
     }

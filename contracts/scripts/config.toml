@@ -2,8 +2,8 @@
 # RISC Zero Verifier contract deployed on mainnet (see https://dev.risczero.com/api/blockchain-integration/contracts/verifier#deployed-verifiers)
 chainId = 1
 riscZeroVerifierAddress = "0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319"
-# riscZeroSetVerifierAddress = ""
-# proofMarketAddress = ""
+riscZeroSetVerifierAddress = "0x0000000000000000000000000000000000000000"
+proofMarketAddress = "0x0000000000000000000000000000000000000000"
 setBuilderImageId = "0xa6d595680f98dddcf6649199cb65a374f2e7d4a234c22cd28799d67f027db065"
 setBuilderGuestUrl = "https://silver-adjacent-louse-491.mypinata.cloud/ipfs/QmPobaLheQtpbSLn2QPGjnSM9Yy475hV9xAbMpyUXZ3zZA"
 assessorImageId = "0x5c4d4a3fce44304ba47ce37fae9f418f60360755d64584cb6668ce43ede3e43d"
@@ -14,7 +14,7 @@ assessorGuestUrl = "https://silver-adjacent-louse-491.mypinata.cloud/ipfs/QmQPvU
 chainId = 11155111
 riscZeroVerifierAddress = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 riscZeroSetVerifierAddress = "0x6860e6cC6E4705309b3e946947706b4a346422DB"
-# proofMarketAddress = ""
+proofMarketAddress = "0xc58BC016f4d796B6F17F3dfb9368B9e0400F11F8"
 setBuilderImageId = "0xa6d595680f98dddcf6649199cb65a374f2e7d4a234c22cd28799d67f027db065"
 setBuilderGuestUrl = "https://silver-adjacent-louse-491.mypinata.cloud/ipfs/QmPobaLheQtpbSLn2QPGjnSM9Yy475hV9xAbMpyUXZ3zZA"
 assessorImageId = "0x5c4d4a3fce44304ba47ce37fae9f418f60360755d64584cb6668ce43ede3e43d"
@@ -23,4 +23,4 @@ assessorGuestUrl = "https://silver-adjacent-louse-491.mypinata.cloud/ipfs/QmQPvU
 # You can add additional profiles here
 # [profile.custom]
 # chainId = 11155111
-# riscZeroVerifierAddress =
+# riscZeroVerifierAddress = "0x0000000000000000000000000000000000000000"
