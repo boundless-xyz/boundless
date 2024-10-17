@@ -10,3 +10,6 @@
 [submodule "lib/risc0-ethereum"]
 	path = lib/risc0-ethereum
 	url = https://github.com/risc0/risc0-ethereum
+[submodule "lib/openzeppelin-foundry-upgrades"]
+	path = lib/openzeppelin-foundry-upgrades
+	url = https://github.com/OpenZeppelin/openzeppelin-foundry-upgrades
