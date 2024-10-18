@@ -117,9 +117,9 @@
   --icons: var(--fg); /* Dark gray for icons */
   --icons-hover: #55a8fb; /* Blue for icon hover, matching accent color */
 
-  --links: #55a8fb; /* Blue for links, matching the site's accent color */
+  --links: #3599ce; /* Blue for links, matching the site's accent color */
 
-  --inline-code-color: #55a8fb; /* Blue for inline code, matching accent color */
+  --inline-code-color: #8d4c4c; /* Blue for inline code, matching accent color */
 
   --theme-popup-bg: #ffffff; /* White background for popups */
   --theme-popup-border: #e0e0e0; /* Light gray border for popups */
@@ -163,7 +163,7 @@
 
     --links: #2b79a2;
 
-    --inline-code-color: #c5c8c6;
+    --inline-code-color: #8d4c4c;
 
     --theme-popup-bg: #161923;
     --theme-popup-border: #737480;
