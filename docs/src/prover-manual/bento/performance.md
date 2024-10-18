@@ -17,6 +17,7 @@ Operating competing workloads on the same system as your Bento deployment can le
 docker ps
 docker stop <BROKER_CONTAINER_ID>
 ```
+
 Alternatively you can modify your `scripts/boundless_service.sh` to remove `--profile broker`.
 
 ## Define test harness
