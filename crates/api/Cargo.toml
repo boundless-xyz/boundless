@@ -12,6 +12,7 @@ async-trait = { workspace = true }
 axum = "0.7"
 bonsai-sdk = { workspace = true }
 clap = { workspace = true, features = ["env", "derive"] }
+risc0-zkvm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
@@ -22,4 +23,3 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["serde"] }
 workflow-common = { workspace = true }
-risc0-zkvm = { workspace = true }
