@@ -17,7 +17,7 @@ Operating competing workloads on the same system as your Bento deployment can le
 docker ps
 docker stop <BROKER_CONTAINER_ID>
 ```
-Alternatively you can modify your ```scripts/boundless_service.sh``` to remove ```--profile broker```.
+Alternatively you can modify your `scripts/boundless_service.sh` to remove `--profile broker`.
 
 ## Define test harness
 
@@ -135,7 +135,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
 We then examine the `gpu-agent` logs and see a series of out of memory errors:
-```docker logs bento-gpu_agent0```
+`docker logs bento-gpu_agent0`
 
 ```
 2024-10-17T15:57:43.667484Z  INFO workflow::tasks::prove: Starting proof of idx: 6f95e238-d0be-4e94-9e81-fefdc0b7d8c4 - 1
