@@ -36,7 +36,7 @@ jobs:
         run: exit 1
 
   rust:
-    runs-on: boundless-linux-x64-01
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     services:
       postgres:
         image: postgres:latest
@@ -181,7 +181,7 @@ jobs:
         working-directory: contracts
 
   examples:
-    runs-on: boundless-linux-x64-01
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     strategy:
       matrix:
         workspace:
