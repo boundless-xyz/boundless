@@ -12,7 +12,7 @@ inputs:
   aws_account:
     default: '083632199359'
   aws_role:
-    default: gha_oidc_risc0_cache_private_access
+    default: gha_oidc_risc0_cache_shared_access
 
 runs:
   using: composite
@@ -58,7 +58,7 @@ runs:
       run: |
         echo "SCCACHE_REGION=us-west-2" >> $GITHUB_ENV
         echo "SCCACHE_BUCKET=risc0-ci-cache" >> $GITHUB_ENV
-        echo "SCCACHE_S3_KEY_PREFIX=private/boundless-${{ inputs.key }}/sccache" >> $GITHUB_ENV
+        echo "SCCACHE_S3_KEY_PREFIX=shared/boundless-${{ inputs.key }}/sccache" >> $GITHUB_ENV
       shell: bash
 
     - run: |
