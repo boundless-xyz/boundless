@@ -58,7 +58,7 @@ runs:
       run: |
         echo "SCCACHE_REGION=us-west-2" >> $GITHUB_ENV
         echo "SCCACHE_BUCKET=risc0-ci-cache" >> $GITHUB_ENV
-        echo "SCCACHE_S3_KEY_PREFIX=shared/boundless-${{ inputs.key }}/sccache" >> $GITHUB_ENV
+        echo "SCCACHE_S3_KEY_PREFIX=shared/boundless/${{ inputs.key }}/sccache" >> $GITHUB_ENV
       shell: bash
 
     - run: |
