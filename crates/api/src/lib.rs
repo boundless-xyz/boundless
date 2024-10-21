@@ -17,6 +17,7 @@ use bonsai_sdk::responses::{
     SnarkReq, SnarkStatusRes, UploadRes,
 };
 use clap::Parser;
+use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
@@ -84,6 +85,9 @@ pub enum AppError {
     #[error("The provided imageid already exists: {0}")]
     ImgAlreadyExists(String),
 
+    #[error("The image id does not match the computed id, req: {0} comp: {1}")]
+    ImageIdMismatch(String, String),
+
     #[error("The provided inputid already exists: {0}")]
     InputAlreadyExists(String),
 
@@ -108,6 +112,7 @@ impl AppError {
         match self {
             Self::ImageInvalid(_) => "ImageInvalid",
             Self::ImgAlreadyExists(_) => "ImgAlreadyExists",
+            Self::ImageIdMismatch(_, _) => "ImageIdMismatch",
             Self::InputAlreadyExists(_) => "InputAlreadyExists",
             Self::ReceiptAlreadyExists(_) => "ReceiptAlreadyExists",
             Self::ReceiptMissing(_) => "ReceiptMissing",
@@ -128,7 +133,7 @@ impl From<AnyhowErr> for AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let code = match self {
-            Self::ImageInvalid(_) => StatusCode::BAD_REQUEST,
+            Self::ImageInvalid(_) | Self::ImageIdMismatch(_, _) => StatusCode::BAD_REQUEST,
             Self::ImgAlreadyExists(_)
             | Self::InputAlreadyExists(_)
             | Self::ReceiptAlreadyExists(_) => StatusCode::NO_CONTENT,
@@ -266,6 +271,13 @@ async fn image_upload_put(
 
     let body_bytes =
         to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
+
+    let comp_img_id =
+        compute_image_id(&body_bytes).context("Failed to compute image id")?.to_string();
+    if comp_img_id != image_id {
+        return Err(AppError::ImageIdMismatch(image_id, comp_img_id));
+    }
+
     state
         .s3_client
         .write_buf_to_s3(&new_img_key, body_bytes.to_vec())

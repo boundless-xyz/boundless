@@ -36,7 +36,7 @@ jobs:
         run: exit 1
 
   rust:
-    runs-on: boundless-linux-x64-01
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     services:
       postgres:
         image: postgres:latest
@@ -62,9 +62,11 @@ jobs:
 
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
+        with:
+          toolchain: '1.79'
 
-      # - name: install sccache
-      #   uses: risc0/risc0/.github/actions/sccache@main
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
@@ -96,7 +98,13 @@ jobs:
         run: cargo check
 
       - name: Install sqlx-cli
-        run: cargo install --locked --version=0.7.4 sqlx-cli --no-default-features --features postgres
+        uses: risc0/cargo-install@v3
+        with:
+          crate: sqlx-cli
+          version: '=0.8.2'
+          locked: true
+          args: --no-default-features
+          features: postgres
 
       - name: run taskdb migrations
         env:
@@ -108,8 +116,8 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
 
-      # - name: sccache stats
-      #   run: sccache --show-stats
+      - name: sccache stats
+        run: sccache --show-stats
 
   link-check:
     runs-on: ubuntu-latest
@@ -128,7 +136,7 @@ jobs:
         uses: risc0/cargo-install@v3
         with:
           crate: cargo-binstall
-          version: '=1.6'
+          version: '=1.10.8'
           locked: true
 
       - run: cargo binstall -y --force lychee@0.15.1
@@ -154,7 +162,7 @@ jobs:
         uses: risc0/cargo-install@v3
         with:
           crate: cargo-binstall
-          version: '=1.6'
+          version: '=1.10.8'
           locked: true
 
       - run: cargo binstall -y --force dprint@0.47.2
@@ -181,7 +189,7 @@ jobs:
         working-directory: contracts
 
   examples:
-    runs-on: boundless-linux-x64-01
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     strategy:
       matrix:
         workspace:
@@ -199,9 +207,11 @@ jobs:
 
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
+        with:
+          toolchain: '1.79'
 
-      # - name: install sccache
-      #   uses: risc0/risc0/.github/actions/sccache@main
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
@@ -252,8 +262,8 @@ jobs:
         env:
           RISC0_DEV_MODE: 1
 
-      # - name: sccache stats
-      #   run: sccache --show-stats
+      - name: sccache stats
+        run: sccache --show-stats
 
   docker:
     runs-on: ubuntu-latest
