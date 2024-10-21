@@ -7,6 +7,12 @@ inputs:
     default: rust-cache-${{ runner.os }}-${{ runner.arch }}
   disable_s3:
     default: false
+  aws_region:
+    default: us-west-2
+  aws_account:
+    default: '083632199359'
+  aws_role:
+    default: gha_oidc_risc0_cache_private_access
 
 runs:
   using: composite
@@ -63,6 +69,13 @@ runs:
         echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache" >> $GITHUB_ENV
         echo "CXX=sccache clang++" >> $GITHUB_ENV
         echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-        echo "SCCACHE_ERROR_LOG=/tmp/sccache_log.txt" >> $GITHUB_ENV
-        echo "SCCACHE_LOG=debug" >> $GITHUB_ENV
       shell: bash
+
+    - if: >
+        runner.os == 'Linux' && inputs.disable_s3 == 'false' &&
+        github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+      id: aws-creds
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: '${{ inputs.aws_region }}'
+        role-to-assume: 'arn:aws:iam::${{ inputs.aws_account }}:role/${{ inputs.aws_role }}'
