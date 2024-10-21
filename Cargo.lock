@@ -45,7 +45,7 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
 name = "aggregation-set"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -688,13 +688,14 @@ checksum = "86fdf8605db99b54d3cd748a44c6d04df638eb5dafb219b135d0149bd0db01f6"
 
 [[package]]
 name = "api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "bonsai-sdk",
  "clap",
+ "risc0-zkvm",
  "serde",
  "serde_json",
  "sqlx",
@@ -986,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "assessor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aggregation-set",
  "alloy",
@@ -1638,7 +1639,7 @@ dependencies = [
 
 [[package]]
 name = "bento-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bonsai-sdk",
@@ -1802,7 +1803,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aggregation-set",
  "alloy",
@@ -1840,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aggregation-set",
  "alloy",
@@ -3283,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3292,7 +3293,7 @@ dependencies = [
 
 [[package]]
 name = "guest-set-builder"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "risc0-build",
  "risc0-build-ethereum",
@@ -3300,7 +3301,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -6571,7 +6572,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "taskdb"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -7615,7 +7616,7 @@ checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "workflow"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-channel 2.3.1",
@@ -7640,7 +7641,7 @@ dependencies = [
 
 [[package]]
 name = "workflow-common"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aws-sdk-s3",

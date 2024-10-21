@@ -338,8 +338,8 @@ pub enum TxnErr {
     #[error("ProofMarket Err: {0:?}")]
     ProofMarketErr(IProofMarket::IProofMarketErrors),
 
-    #[error("decoding err: missing data")]
-    MissingData,
+    #[error("decoding err, missing data, code: {0} msg: {1}")]
+    MissingData(i64, String),
 
     #[error("decoding err: bytes decoding")]
     BytesDecode,
@@ -356,7 +356,7 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
     match err {
         ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
             let Some(data) = ts_err.data else {
-                return Err(TxnErr::MissingData);
+                return Err(TxnErr::MissingData(ts_err.code, ts_err.message));
             };
 
             let data = data.get().trim_matches('"');

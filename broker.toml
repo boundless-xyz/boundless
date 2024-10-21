@@ -8,10 +8,11 @@ max_stake = "0.5"
 skip_preflight_ids = []
 max_file_size = 50_000_000
 # allow_client_addresses = []
+# lockin_priority_gas = 100
 
 [prover]
 status_poll_ms = 1000
-bonsai_r0_zkvm_ver = "1.1"
+bonsai_r0_zkvm_ver = "1.1.1"
 req_retry_count = 3
 # set_builder_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
 # assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
@@ -20,4 +21,4 @@ req_retry_count = 3
 batch_max_time = 1000
 batch_size = 1
 block_deadline_buffer_secs = 120
-# txn_timeout = 30
+txn_timeout = 45
