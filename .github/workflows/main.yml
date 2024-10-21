@@ -62,6 +62,8 @@ jobs:
 
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
+        with:
+          toolchain: '1.79'
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -96,7 +98,12 @@ jobs:
         run: cargo check
 
       - name: Install sqlx-cli
-        run: cargo install --locked --version=0.7.4 sqlx-cli --no-default-features --features postgres
+        uses: risc0/cargo-install@v3
+        with:
+          crate: cargo-binstall
+          version: '=0.7.4'
+          locked: true
+          features: postgres
 
       - name: run taskdb migrations
         env:
@@ -199,6 +206,8 @@ jobs:
 
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
+        with:
+          toolchain: '1.79'
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
