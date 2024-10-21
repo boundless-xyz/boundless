@@ -23,7 +23,7 @@ runs:
     - uses: risc0/cargo-install@v3
       with:
         crate: cargo-binstall
-        version: '=1.6'
+        version: '=1.10.8'
         locked: true
 
     - run: cargo binstall -y --force cargo-risczero@${{ inputs.risczero-version }}
