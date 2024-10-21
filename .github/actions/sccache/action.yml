@@ -1,0 +1,66 @@
+name: sccache install
+description: Install sccache
+
+inputs:
+  key:
+    required: true
+    default: rust-cache-${{ runner.os }}-${{ runner.arch }}
+  disable_s3:
+    default: false
+
+runs:
+  using: composite
+  steps:
+    - name: Disable idle timeout to run sccache permanently
+      run: |
+        echo "SCCACHE_IDLE_TIMEOUT=0" >> $GITHUB_ENV
+      shell: bash
+
+    - if: runner.os == 'Linux' && runner.arch == 'X64'
+      run: |
+        echo "SCCACHE_ARCH=x86_64-unknown-linux-musl" >> $GITHUB_ENV
+      shell: bash
+
+    - if: runner.os == 'macOS' && runner.arch == 'X64'
+      run: |
+        echo "SCCACHE_ARCH=x86_64-apple-darwin" >> $GITHUB_ENV
+      shell: bash
+
+    - if: runner.os == 'macOS' && runner.arch == 'ARM64'
+      run: |
+        echo "SCCACHE_ARCH=aarch64-apple-darwin" >> $GITHUB_ENV
+      shell: bash
+
+    - if: runner.os == 'Linux' && runner.arch == 'ARM64'
+      run: |
+        echo "SCCACHE_ARCH=aarch64-unknown-linux-musl" >> $GITHUB_ENV
+      shell: bash
+
+    - env:
+        SCCACHE_URL: https://github.com/mozilla/sccache/releases/download
+        SCCACHE_VERSION: v0.8.2
+      run: |
+        SCCACHE_FILE=sccache-$SCCACHE_VERSION-$SCCACHE_ARCH
+        curl -L "$SCCACHE_URL/$SCCACHE_VERSION/$SCCACHE_FILE.tar.gz" | tar xz
+        mkdir -p $HOME/.local/bin
+        mv -f $SCCACHE_FILE/sccache $HOME/.local/bin/sccache
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+      shell: bash
+
+    - if: >
+        runner.os == 'Linux' && inputs.disable_s3 == 'false' && startsWith(runner.name, 'i-') == true
+      run: |
+        echo "SCCACHE_REGION=us-west-2" >> $GITHUB_ENV
+        echo "SCCACHE_BUCKET=risc0-ci-cache" >> $GITHUB_ENV
+        echo "SCCACHE_S3_KEY_PREFIX=private/boundless-${{ inputs.key }}/sccache" >> $GITHUB_ENV
+      shell: bash
+
+    - run: |
+        echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+        echo "CARGO_PROFILE_DEV_DEBUG=0" >> $GITHUB_ENV
+        echo "CC=sccache clang" >> $GITHUB_ENV
+        echo "CMAKE_C_COMPILER_LAUNCHER=sccache" >> $GITHUB_ENV
+        echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache" >> $GITHUB_ENV
+        echo "CXX=sccache clang++" >> $GITHUB_ENV
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      shell: bash
