@@ -36,21 +36,24 @@ ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}
 
 COPY ./dockerfiles/sccache-setup.sh .
-RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.1"
+RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 COPY ./dockerfiles/sccache-config.sh .
 SHELL ["/bin/bash", "-c"]
-
-# This downloads and setups the rust-toolchain so docker can cache the layer
-RUN cargo
 
 # Consider using if building and running on the same CPU
 # ENV RUSTFLAGS="-C target-cpu=native"
 
+# Prevent sccache collision in compose-builds
+ENV SCCACHE_SERVER_PORT=4226
+
+# This downloads and setups the rust-toolchain so docker can cache the layer
+RUN cargo
+
+
 RUN \
-    --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sccache \
-    --mount=type=cache,target=/usr/local/cargo/git/db \
-    --mount=type=cache,target=/usr/local/cargo/registry/ \
+    --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc \
     source ./sccache-config.sh && \
+    ls /root/.cache/sccache/ && \
     cargo build --release -F cuda -p workflow --bin agent && \
     cp /src/target/release/agent /src/agent
 
