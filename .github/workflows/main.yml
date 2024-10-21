@@ -101,7 +101,7 @@ jobs:
         uses: risc0/cargo-install@v3
         with:
           crate: sqlx-cli
-          version: '=0.7.4'
+          version: '=0.8.2'
           locked: true
           args: --no-default-features
           features: postgres
@@ -136,7 +136,7 @@ jobs:
         uses: risc0/cargo-install@v3
         with:
           crate: cargo-binstall
-          version: '=1.6'
+          version: '=1.10.8'
           locked: true
 
       - run: cargo binstall -y --force lychee@0.15.1
@@ -162,7 +162,7 @@ jobs:
         uses: risc0/cargo-install@v3
         with:
           crate: cargo-binstall
-          version: '=1.6'
+          version: '=1.10.8'
           locked: true
 
       - run: cargo binstall -y --force dprint@0.47.2
