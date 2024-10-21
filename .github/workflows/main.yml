@@ -63,7 +63,8 @@ jobs:
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
 
-      - uses: ./.github/actions/sccache
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
@@ -199,7 +200,8 @@ jobs:
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
 
-      - uses: ./.github/actions/sccache
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
