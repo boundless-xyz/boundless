@@ -12,12 +12,12 @@ export RUSTC_WRAPPER=sccache
 
 CREDS_FILE_SIZE=$(stat -c%s /root/.aws/credentials)
 if [ $CREDS_FILE_SIZE -gt 0 ]; then
-    echo "Using s3 [$S3_BUCKET] caching and sccache..."
-
-    # TODO: param these correctly and detect OS / arch
     export SCCACHE_BUCKET="risc0-ci-cache"
     export SCCACHE_REGION="us-west-2"
     export SCCACHE_S3_KEY_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
+
+    echo "Using s3 [$SCCACHE_BUCKET] caching and sccache..."
+    # TODO: param these correctly and detect OS / arch
 else
     echo "Using local sccache"
 

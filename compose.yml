@@ -84,8 +84,7 @@ services:
         NVCC_APPEND_FLAGS: "--gpu-architecture=compute_86 --gpu-code=compute_86,sm_86 --generate-code arch=compute_86,code=sm_86"
         CUDA_OPT_LEVEL: 1
       secrets:
-        - source: ci_cache_creds
-          target: /root/.aws/credentials
+        - ci_cache_creds
 
     mem_limit: 4G
     cpu_count: 4
