@@ -1,15 +1,17 @@
 # Bento Performance Tuning
 
-This guide provides a practical guide to tuning your initial Bento deployment, performance is a complex subject and the factors unique to your deployment likely require significant experimentation to optimize, but this guide will provide a good starting point.
+This guide offers a practical set of steps for optimizing your initial Bento deployment. Though performance tuning ultimately depends on your specific environment, equipment, and requirements... these baseline recommendations will assist your initial deployment.
 
-## prior to starting we recommend the following tools monitor
+## Recommended tools
+
+Prior to starting we recommend the following tools monitor performance and resource use:
 
 - [nvtop](https://github.com/Syllo/nvtop) - A tool to monitor GPU utilization.
 - [htop](https://htop.dev/) - A tool to monitor CPU utilization, system memory, and process status.
 
 Both of these tools warrant a decent size terminal window on your desktop to monitor the performance during experiments.
 
-## Isolate your testing from competitive work
+## Isolating tests
 
 Operating competing workloads on the same system as your Bento deployment can lead to unpredictable results. We recommend isolating your test system from other workloads to ensure that the performance tuning results are consistent and reliable. This includes stopping configured [Broker][page-broker] services:
 
@@ -20,9 +22,9 @@ docker stop <BROKER_CONTAINER_ID>
 
 Alternatively you can modify your `scripts/boundless_service.sh` to remove `--profile broker`.
 
-## Define test harness
+## Defining a test harness
 
-If you have an example real-world workload that serves as the optimal benchmark for further performance tuning. The following command enables you to proof a RISC Zero ELF binary guest utilizing Bento:
+It is preferable to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate. To try a realistic example:
 
 ```bash
 RUST_LOG=info cargo run --bin bento_cli -- -f /path/to/elf -i /path/to/input`
@@ -102,7 +104,7 @@ Note that in the `job_status.sh` output above, the Hz is only accurate if the jo
 
 In the final table, the effective Hz is the primary metric for consideration. This represents the (number of cycles) / (elapsed wallclock time). In the example above, the effective Hz is roughly 400kHz.
 
-## Finding Maximum `SEGMENT_SIZE` for GPU VRAM
+## Finding a maximum `SEGMENT_SIZE` for GPU VRAM
 
 In most scenarios it makes sense to start by optimizing our GPU workers. This is because the bulk of the RISC Zero workload is executed by the `gpu-agent` and GPU resources a most often the performance bottleneck.
 
@@ -157,7 +159,7 @@ Note that if you have a multi-GPU system, your `SEGMENT_SIZE` should be set to t
 
 *** NOTE: ***: If a job fails to complete due to OOM, it may be resumed after Bento has been restarted. It's important to ensure that resumed jobs are not in progress during the test harness execution.
 
-## Benchmark the single GPU single `SEGMENT_SIZE`
+## Benchmark single GPU's `SEGMENT_SIZE`
 
 Configure a single GPU instance:
 
@@ -215,65 +217,9 @@ Effective Hz:
 
 Here we see that our single `gpu-agent` at max `SEGMENT_SIZE` is able to achieve an effective 264kHz.
 
-## Using multiple agents per GPU
+## Multiple agents and GPUs
 
-Although the above test is a good starting point, it is often possible to achieve better performance by running multiple agents per GPU at lower (e.g. N-1) `SEGMENT_SIZE`. This is because the GPU is able to more effectively utilize its resources when multiple agents are running concurrently.
-
-The following configuration represents a 16GB GPU with 2 agents running at `SEGMENT_SIZE` 19 on GPU0:
-
-`.env-compose`
-
-```bash
-SEGMENT_SIZE=19
-```
-
-`compose.yml`
-
-```yml
-...
-  gpu_agent0: &gpu
-    image: agent
-    runtime: nvidia
-    pull_policy: never
-    restart: always
-    depends_on:
-      - postgres
-      - redis
-      - minio
-...
-
-  gpu_agent1:
-     <<: *gpu
-
-     deploy:
-       resources:
-         reservations:
-           devices:
-             - driver: nvidia
-               device_ids: ['0']
-               capabilities: [gpu]
-...
-```
-
-Restart Bento and execute the test harness (use `nvtop` to confirm gpu0 sees additional processes and activity):
-
-```bash
-RUST_LOG=info cargo run --bin Bento_cli -- -c 4096
-```
-
-```txt
-...
-         hz          | total_cycles | elapsed_sec 
----------------------+--------------+-------------
- 278810.122683436755 | 35127296     |  125.990031
-...
-```
-
-We often see that operating two agents at lower `SEGMENT_SIZE` can achieve better performance than a single agent at the maximum `SEGMENT_SIZE`, and in this case we see an effective 278kHz vs 264kHz.
-
-## Multiple GPUs & multiple agents
-
-Expanding upon the above examples we then incorporate multiple GPUs into the configuration. In this example, we have two 16GB GPU as that proved to be optimal above:
+We can incorporate multiple GPUs into a configuration. In this example, we have two 16GB GPU as that proved to be optimal above:
 
 `compose.yml`
 
