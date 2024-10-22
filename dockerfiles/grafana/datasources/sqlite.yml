@@ -1,0 +1,10 @@
+apiVersion: 1
+
+datasources:
+  - name: broker-sqlite-datasource
+    type: frser-sqlite-datasource
+    access: proxy
+    isDefault: false
+    editable: true
+    jsonData:
+      path: /db/broker.db

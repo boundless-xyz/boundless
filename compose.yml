@@ -55,9 +55,11 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASS=${POSTGRES_PASSWORD}
+      - GF_INSTALL_PLUGINS=frser-sqlite-datasource
     volumes:
       - ./dockerfiles/grafana:/etc/grafana/provisioning/
       - grafana-data:/var/lib/grafana
+      - broker-data:/db
     depends_on:
       - postgres
       - redis
@@ -245,6 +247,10 @@ services:
         source: ./broker.toml
         target: /app/broker.toml
       - broker-data:/db/
+      # uncomment for local testing of broker in compose
+      # - type: bind
+      #   source: ./target/
+      #   target: /target/
 
     network_mode: host
 
