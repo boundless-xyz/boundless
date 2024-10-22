@@ -266,7 +266,7 @@ jobs:
         run: sccache --show-stats
 
   docker:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     steps:
       - name: checkout code
         uses: actions/checkout@v4
