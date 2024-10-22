@@ -12,7 +12,10 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 
-use super::IRiscZeroSetVerifier::{self, IRiscZeroSetVerifierErrors, IRiscZeroSetVerifierInstance};
+use super::{
+    IRiscZeroSetVerifier::{self, IRiscZeroSetVerifierErrors, IRiscZeroSetVerifierInstance},
+    TXN_CONFIRM_TIMEOUT,
+};
 
 #[derive(Clone)]
 pub struct SetVerifierService<T, P> {
@@ -26,12 +29,10 @@ where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
 {
-    const TX_TIMEOUT: Duration = Duration::from_secs(30);
-
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
         let instance = IRiscZeroSetVerifier::new(address, provider);
 
-        Self { instance, caller, tx_timeout: Self::TX_TIMEOUT }
+        Self { instance, caller, tx_timeout: TXN_CONFIRM_TIMEOUT }
     }
 
     pub fn instance(&self) -> &IRiscZeroSetVerifierInstance<T, P, Ethereum> {
