@@ -50,6 +50,7 @@ ENV SCCACHE_SERVER_PORT=4226
 RUN cargo
 
 RUN \
+    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc \
     source ./sccache-config.sh && \
     ls /root/.cache/sccache/ && \
