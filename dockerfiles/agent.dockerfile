@@ -55,9 +55,8 @@ RUN \
     source ./sccache-config.sh && \
     ls /root/.cache/sccache/ && \
     cargo build --release -F cuda -p workflow --bin agent && \
-    cp /src/target/release/agent /src/agent
-
-RUN sccache --show-stats
+    cp /src/target/release/agent /src/agent && \
+    sccache --show-stats
 
 FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
 
