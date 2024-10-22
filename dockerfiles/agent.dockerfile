@@ -49,13 +49,15 @@ ENV SCCACHE_SERVER_PORT=4226
 # This downloads and setups the rust-toolchain so docker can cache the layer
 RUN cargo
 
-
 RUN \
+    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc \
     source ./sccache-config.sh && \
     ls /root/.cache/sccache/ && \
     cargo build --release -F cuda -p workflow --bin agent && \
     cp /src/target/release/agent /src/agent
+
+RUN sccache --show-stats
 
 FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
 

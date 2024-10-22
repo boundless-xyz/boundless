@@ -275,3 +275,20 @@ jobs:
 
       - name: docker-compose lint
         run: docker compose --profile broker --env-file ./.env-compose config
+
+      - name: Fetch CI AWS Creds
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: 'us-west-2'
+          role-to-assume: 'arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access'
+
+      - name: create ci creds file
+        run: |
+          echo "[default]" > ./dockerfiles/ci-cache-creds.txt
+          echo "aws_access_key_id=${{ steps.aws-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt && \
+          echo "aws_secret_access_key=${{ steps.aws-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt && \
+          echo "aws_session_token=${{ steps.aws-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
+
+      - name: docker compose build
+        run: docker compose --profile broker --env-file ./.env-compose build
