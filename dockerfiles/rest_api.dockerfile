@@ -22,6 +22,7 @@ ENV SCCACHE_SERVER_PORT=4228
 RUN cargo
 
 RUN \
+--mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_api_sccache \
     source ./sccache-config.sh && \
     cargo build --release -p api --bin rest_api && \

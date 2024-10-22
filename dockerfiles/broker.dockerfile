@@ -18,6 +18,7 @@ ENV SCCACHE_SERVER_PORT=4227
 RUN cargo
 
 RUN \
+    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
     source ./sccache-config.sh && \
     ls /root/.cache/sccache/ && \
@@ -47,6 +48,7 @@ RUN cargo
 ENV SCCACHE_SERVER_PORT=4227
 
 RUN \
+    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
     source /sccache-config.sh && \
     ls /root/.cache/sccache/ && \
