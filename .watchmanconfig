@@ -1,0 +1,11 @@
+{
+  "ignore_dirs": [
+    "target",
+    "crates/guest/resolve/resolve-guest/target",
+    "crates/guest/util/echo/target",
+    "crates/guest/util/identity/target",
+    "crates/guest/assessor/assessor-guest/target",
+    "crates/guest/set-builder/set-builder-guest/target",
+    "examples/counter/target"
+  ]
+}
