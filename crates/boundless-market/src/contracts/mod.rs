@@ -19,11 +19,14 @@ use alloy_primitives::{
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 #[cfg(not(target_os = "zkvm"))]
 use thiserror::Error;
 use url::Url;
 
 use risc0_zkvm::sha::Digest;
+
+const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 
 // proof_market.rs is a copy of IProofMarket.sol with alloy derive statements added.
 // See the build.rs script in this crate for more details.
