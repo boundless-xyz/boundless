@@ -3,16 +3,28 @@ services:
     build:
       secrets:
         - ci_cache_creds
+      cache_to:
+        - type=s3,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
+      cache_from:
+        - type=s3,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
 
   rest_api:
     build:
       secrets:
         - ci_cache_creds
+      cache_to:
+        - type=s3,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
+      cache_from:
+        - type=s3,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
 
   broker:
     build:
       secrets:
         - ci_cache_creds
+      cache_to:
+        - type=s3,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
+      cache_from:
+        - type=s3,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
 
 secrets:
   # Optional s3 credentials file, used in risc0 CI for sccache'ing inside docker builds.
