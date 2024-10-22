@@ -27,8 +27,6 @@ RUN \
     cargo risczero install && \
     sccache --show-stats
 
-RUN sccache --show-stats
-
 FROM init AS builder
 
 WORKDIR /src/

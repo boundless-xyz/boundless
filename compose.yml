@@ -83,8 +83,6 @@ services:
       args:
         NVCC_APPEND_FLAGS: "--gpu-architecture=compute_86 --gpu-code=compute_86,sm_86 --generate-code arch=compute_86,code=sm_86"
         CUDA_OPT_LEVEL: 1
-      secrets:
-        - ci_cache_creds
 
     mem_limit: 4G
     cpu_count: 4
@@ -212,8 +210,6 @@ services:
     build:
       context: .
       dockerfile: dockerfiles/rest_api.dockerfile
-      secrets:
-        - ci_cache_creds
 
     mem_limit: 1G
     cpu_count: 1
@@ -242,8 +238,6 @@ services:
     build:
       context: .
       dockerfile: dockerfiles/broker.dockerfile
-      secrets:
-        - ci_cache_creds
 
     mem_limit: 2G
     cpu_count: 2
@@ -274,9 +268,3 @@ volumes:
   minio-data:
   grafana-data:
   broker-data:
-
-secrets:
-  # Optional s3 credentials file, used in risc0 CI for sccache'ing inside docker builds.
-  # unused in local builds, see sccache-config.sh for details.
-  ci_cache_creds:
-    file: ./dockerfiles/ci-cache-creds.txt

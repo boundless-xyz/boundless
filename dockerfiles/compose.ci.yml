@@ -1,0 +1,21 @@
+services:
+  exec_agent:
+    build:
+      secrets:
+        - ci_cache_creds
+
+  rest_api:
+    build:
+      secrets:
+        - ci_cache_creds
+
+  broker:
+    build:
+      secrets:
+        - ci_cache_creds
+
+secrets:
+  # Optional s3 credentials file, used in risc0 CI for sccache'ing inside docker builds.
+  # unused in local builds, see sccache-config.sh for details.
+  ci_cache_creds:
+    file: ./dockerfiles/ci-cache-creds.txt
