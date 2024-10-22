@@ -28,6 +28,7 @@ RUN \
     cargo build --release -p api --bin rest_api && \
     cp /src/target/release/rest_api /src/rest_api
 
+RUN sccache --show-stats
 
 FROM rust:1.79.0-bookworm AS runtime
 

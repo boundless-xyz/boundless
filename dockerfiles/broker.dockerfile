@@ -26,6 +26,8 @@ RUN \
     cargo binstall -y --force cargo-risczero --version 1.1 && \
     cargo risczero install
 
+RUN sccache --show-stats
+
 FROM init AS builder
 
 WORKDIR /src/
@@ -54,6 +56,8 @@ RUN \
     ls /root/.cache/sccache/ && \
     cargo build --release --bin broker && \
     cp /src/target/release/broker /src/broker
+
+RUN sccache --show-stats
 
 FROM rust:1.79.0-bookworm AS runtime
 
