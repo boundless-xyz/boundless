@@ -14,7 +14,7 @@ import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {ProofMarket, MerkleProofish, AssessorJournal} from "../src/ProofMarket.sol";
+import {ProofMarket, MerkleProofish, AssessorJournal, VERSION} from "../src/ProofMarket.sol";
 import {
     Fulfillment,
     IProofMarket,
@@ -809,6 +809,10 @@ contract ProofMarketTest is Test {
         );
         proofMarket = ProofMarket(proxy);
         address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
+
+        // Should emit an `Upgraded` event
+        vm.expectEmit(true, true, false, true);
+        emit IProofMarket.Upgraded(VERSION, ASSESSOR_IMAGE_ID, "https://assessor.dev.null");
 
         UnsafeUpgrades.upgradeProxy(
             proxy,

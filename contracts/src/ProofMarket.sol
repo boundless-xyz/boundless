@@ -147,6 +147,8 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
         ASSESSOR_ID = assessorId;
         imageUrl = _imageUrl;
+
+        emit Upgraded(VERSION, ASSESSOR_ID, imageUrl);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
