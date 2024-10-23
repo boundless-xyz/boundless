@@ -67,7 +67,7 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 | peak_prove_khz| `500`| This should correspond to the maximum number of cycles per second (in kHz) your proving backend can operate. | 
 | min_deadline | `150` | The fewest number of blocks to consider bidding on a proof. |
 | lookback_blocks | `100` | This is used on broker initialization, and sets the number of blocks to look back for candidate proofs. |
-| max_stake | `"0.5"` | The maximum amount used to lock in any single contract as computed by the broker algorithm.|
+| max_stake | `"0.5"` | The maximum amount used to lock in a job for any single order.|
 | skip_preflight_ids | `[]` | A list of imageIDs that the broker should skip preflight checks in format `["0xID1","0xID2"]. |
 | max_file_size = `50_000_000` | The maximum guest image size in bytes that the broker will accept. |
 | allow_client_addresses | `[]` | When defined, acts as a firewall to limit proving only to specific client addresses. |
