@@ -3,6 +3,7 @@
 The broker node is an optional service that runs within the [Bento][page-bento] docker-compose stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the bento proving cluster, and submitting on chain.
 
 ## Confirm your bento proving stack is operational
+
 A broker requires a proving backend (typically bento) to be operational.  Ensure that yours is operational before proceeding. The following command will verify that your bento stack is operational:
 
 ```bash
@@ -16,6 +17,7 @@ bento-alpha:~/boundless$ RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
 Before starting we also recommend you [optimize the performance][page-perf] of your bento stack.
+
 ## Funding your broker on the proving market
 
 To operate broker you will need to have an Ethereum wallet setup and funded with enough ETH to pay for gas fees. For test net purposes we recommend using a new wallet and funding it with 1-2 Sep Eth. Using metamask to initialize this wallet is typical. 
