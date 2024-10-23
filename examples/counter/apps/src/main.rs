@@ -10,7 +10,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use boundless_market::{
     contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
     sdk::client::Client,
@@ -61,7 +61,12 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    dotenvy::dotenv()?;
+    match dotenvy::dotenv() {
+        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
+        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
+        Err(e) => bail!("failed to load .env file: {}", e),
+    }
+
     let args = Args::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.

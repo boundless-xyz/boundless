@@ -18,7 +18,7 @@ use thiserror::Error;
 use super::{
     request_id, Fulfillment,
     IProofMarket::{self, IProofMarketErrors, IProofMarketInstance},
-    Offer, ProofStatus, ProvingRequest, TxnErr,
+    Offer, ProofStatus, ProvingRequest, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Proof market errors.
@@ -97,7 +97,7 @@ where
         Self {
             instance,
             caller,
-            timeout: Duration::from_secs(30),
+            timeout: TXN_CONFIRM_TIMEOUT,
             event_query_config: EventQueryConfig::default(),
         }
     }
