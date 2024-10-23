@@ -15,8 +15,6 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4227
 
-RUN cargo
-
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
@@ -42,8 +40,6 @@ COPY foundry.toml .
 
 ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
-
-RUN cargo
 
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4227
