@@ -79,10 +79,8 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 The following examples would be methods of making your broker more competitive in the market, either economically or accelerating the bidding process:
 
 1. Decreasing the `mcycle_price` would tune your broker to bid at lower prices for proofs.
-2. Adding known imageIDs from market obvservation to `skip_preflight_ids` would reduce the delay of preflight/excution on a binary allow you to beat other brokers to transmitting a bid.
-3. Increasing `peak_prove_khz` would increase the number of concurrent jobs your broker would send to your proving cluster.
-4. Increasing `lockin_priority_gas` would expedite your market operations by consuming more has which could outrun other brokers/bidders.
-
+2. Increasing `lockin_priority_gas` would expedite your market operations by consuming more has which could outrun other brokers/bidders.
+3. Adding known imageIDs from market obvservation to `skip_preflight_ids` would reduce the delay of preflight/excution on a binary allow you to beat other brokers to transmitting a bid.
 
 Before running broker you will need to ensure you have setup and are able to run Bento, the documentation for that can be found in [Running Bento][page-running-bento].
 
