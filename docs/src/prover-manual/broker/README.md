@@ -65,7 +65,7 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 | mcycle_price | `".001"`' | The price (in native token of target market) of proving 1M cycles. |
 | assumption_price | `"0.1"` | Currently unused. |
 | peak_prove_khz| `500`| This should correspond to the maximum number of cycles per second (in kHz) your proving backend can operate. | 
-| min_deadline | `150` | The fewest number of blocks to consider bidding on a proof. |
+| min_deadline | `150` | This is a minimum number of blocks before the requested job expiration that broker will attempt to lock a job. |
 | lookback_blocks | `100` | This is used on broker initialization, and sets the number of blocks to look back for candidate proofs. |
 | max_stake | `"0.5"` | The maximum amount used to lock in a job for any single order.|
 | skip_preflight_ids | `[]` | A list of imageIDs that the broker should skip preflight checks in format `["0xID1","0xID2"]. |
@@ -91,7 +91,7 @@ docker compose --profile broker --env-file ./.env-compose up --build
 ### Tuning service settings:
 The `prover` settings in `broker.toml` are used to configure the prover service and largely impact the operation of the service rather than the market dynamics.
 
-The most important one to monitor/tune on initial configuration is `txn_timeout`. This is tje number of seconds to wait for a transaction to be mined before timing out, if you see timeouts in your logs this can be increased to enable TX operations to chain to finish.
+The most important one to monitor/tune on initial configuration is `txn_timeout`. This is the number of seconds to wait for a transaction to be mined before timing out, if you see timeouts in your logs this can be increased to enable TX operations to chain to finish.
 
 ## Using broker with bonsai:
 
