@@ -25,6 +25,7 @@ use url::Url;
 
 use risc0_zkvm::sha::Digest;
 
+#[cfg(not(target_os = "zkvm"))]
 pub use risc0_ethereum_contracts::encode_seal;
 
 // proof_market.rs is a copy of IProofMarket.sol with alloy derive statements added.
