@@ -18,7 +18,7 @@ bento-alpha:~/boundless$ RUST_LOG=info cargo run --bin bento_cli -- -c 32
 Before starting we also recommend you [optimize the performance][page-perf] of your bento stack.
 ## Funding your broker on the proving market
 
-To operate broker you will need to have an Ethereum wallet setup and funded with enough ETH to pay for gas fees. For test net purposes we recommend using a new wallet and funding it with 1-2 Sep Eth. Using metamask to initialize this wallet is typical. (Note: that in production settings, this practice is not recommended, and a more robust use of signing service (e.g. fireblocks is recommended)).
+To operate broker you will need to have an Ethereum wallet setup and funded with enough ETH to pay for gas fees. For test net purposes we recommend using a new wallet and funding it with 1-2 Sep Eth. Using metamask to initialize this wallet is typical. 
 
 The following process will guide you through setting up a new wallet and funding it with testnet ETH:
 
@@ -71,7 +71,7 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 | skip_preflight_ids | `[]` | A list of imageIDs that the broker should skip preflight checks in format `["0xID1","0xID2"]. |
 | max_file_size = `50_000_000` | The maximum guest image size in bytes that the broker will accept. |
 | allow_client_addresses | `[]` | When defined, acts as a firewall to limit proving only to specific client addresses. |
-| lockin_priority_gas | `100` | The gas price to use when locking in stake on a contract. |
+| lockin_priority_gas | `100` | Additional gas to add to the base price when locking in stake on a contract to increase priority. |
 
 *note: pay particular attention to quotation for settings.*
 
