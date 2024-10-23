@@ -274,7 +274,7 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
 
-      - uses: risc0/paths-filter@v3.0.0
+      - uses: dorny/paths-filter@v3.0.0
         id: changes
         with:
           filters: |
