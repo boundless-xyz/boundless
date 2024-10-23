@@ -25,6 +25,8 @@ use url::Url;
 
 use risc0_zkvm::sha::Digest;
 
+pub use risc0_ethereum_contracts::encode_seal;
+
 // proof_market.rs is a copy of IProofMarket.sol with alloy derive statements added.
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/proof_market.rs"));
@@ -405,33 +407,6 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
         chain_id,
         verifying_contract: addr,
     }
-}
-
-// TODO: when upgrading to risc0-ethereum-contracts 1.1.0 this function will be removed.
-pub fn encode_seal(receipt: &risc0_zkvm::Receipt) -> anyhow::Result<Vec<u8>> {
-    use risc0_zkvm::sha::Digestible;
-
-    let seal = match receipt.inner.clone() {
-        risc0_zkvm::InnerReceipt::Fake(receipt) => {
-            let seal = receipt.claim.digest().as_bytes().to_vec();
-            let selector = &[0u8; 4];
-            // Create a new vector with the capacity to hold both selector and seal
-            let mut selector_seal = Vec::with_capacity(selector.len() + seal.len());
-            selector_seal.extend_from_slice(selector);
-            selector_seal.extend_from_slice(&seal);
-            selector_seal
-        }
-        risc0_zkvm::InnerReceipt::Groth16(receipt) => {
-            let selector = &receipt.verifier_parameters.as_bytes()[..4];
-            // Create a new vector with the capacity to hold both selector and seal
-            let mut selector_seal = Vec::with_capacity(selector.len() + receipt.seal.len());
-            selector_seal.extend_from_slice(selector);
-            selector_seal.extend_from_slice(receipt.seal.as_ref());
-            selector_seal
-        }
-        _ => anyhow::bail!("Unsupported receipt type"),
-    };
-    Ok(seal)
 }
 
 #[cfg(feature = "test-utils")]
