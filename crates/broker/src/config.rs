@@ -231,7 +231,6 @@ impl ConfigWatcher {
             watcher
                 .watch(&config_path_copy, notify::RecursiveMode::NonRecursive)
                 .context("Failed to start watcher")?;
-
             startup_notification_copy.notify_one();
 
             while let Some(event) = rx.recv().await {
