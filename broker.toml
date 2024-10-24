@@ -1,17 +1,17 @@
 [market]
-mcycle_price = "0.00001"
+mcycle_price = "0.001"
 assumption_price = "0.1"
-peak_prove_khz = 1000
+# peak_prove_khz = 500
 min_deadline = 150
-lookback_blocks = 200
+lookback_blocks = 100
 max_stake = "0.5"
-skip_preflight_ids = ["0x257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d","0x4052beb38db7869b15596d53c2d5c02c9307faffca9215e69b0f0d0e1812a6c2"]
+skip_preflight_ids = []
 max_file_size = 50_000_000
 # allow_client_addresses = []
-lockin_priority_gas = 150
+# lockin_priority_gas = 100
 
 [prover]
-status_poll_ms = 500
+status_poll_ms = 1000
 bonsai_r0_zkvm_ver = "1.1.1"
 req_retry_count = 3
 # set_builder_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
