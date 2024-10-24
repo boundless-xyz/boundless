@@ -3,7 +3,7 @@ exclude_all_private = true
 # TODO: Pattern based ignores seem to be broken, so running lychee is best done with the following command
 # git ls-files '*.md' | xargs lychee --base . --cache --
 # https://github.com/lycheeverse/lychee/issues/470
-exclude_path = ["./docs/book","./lib", "./examples/counter/target"]
+exclude_path = ["./docs/book","./lib", "./examples/counter/target","./target"]
 max_cache_age = "10d"
 max_redirects = 10
 max_retries = 3
