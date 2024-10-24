@@ -61,10 +61,11 @@ source .env-compose
 3. The Broker needs to have funds deposited on the Boundless market contract to cover lock-in stake on requests. Run the following command to deposit an initial amount of ETH into the market contract.
 
 ```bash
-# Set ammount in ETH denominated units
+# Set amount in ETH denominated units
 # 0.5 Sepolia ETH should be OK for basic testing
-BOUNDLESS_DEPOSIT=0.5
-RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit <>
+# BOUNDLESS_DEPOSIT=0.5
+
+RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS_DEPOSIT:?}
 ```
 
 ```txt
