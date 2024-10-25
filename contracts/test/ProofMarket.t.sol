@@ -785,6 +785,9 @@ contract ProofMarketTest is Test {
         assertEq(root, 0xe004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef);
     }
 
+    /// @dev Test the upgradeability of the contract under safe conditions.
+    /// This mode requires to **always** start from a clean cache, as such, before running
+    /// forge test, make sure to run `orge clean && forge build` to clear the cache and build from scratch.
     function testUpgradeability() public {
         address implAddressV1 = Upgrades.getImplementationAddress(proxy);
         vm.startPrank(OWNER_WALLET.addr);
