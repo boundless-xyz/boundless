@@ -18,10 +18,13 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    expose:
+      - '${POSTGRES_PORT}'
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PORT}:${POSTGRES_PORT}'
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    command: -p ${POSTGRES_PORT}
 
   minio:
     hostname: ${MINIO_HOST}
@@ -53,6 +56,7 @@ services:
       - GF_LOG_LEVEL=WARN
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT={POSTGRES_PORT}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASS=${POSTGRES_PASSWORD}
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
@@ -88,7 +92,7 @@ services:
     cpu_count: 4
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
       REDIS_URL: redis://${REDIS_HOST}:6379
       S3_URL: http://${MINIO_HOST}:9000
       S3_BUCKET: ${MINIO_BUCKET}
@@ -114,7 +118,7 @@ services:
     cpu_count: 1
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
       REDIS_URL: redis://${REDIS_HOST}:6379
       S3_URL: http://${MINIO_HOST}:9000
       S3_BUCKET: ${MINIO_BUCKET}
@@ -140,7 +144,7 @@ services:
     cpu_count: 4
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
       REDIS_URL: redis://${REDIS_HOST}:6379
       S3_URL: http://${MINIO_HOST}:9000
       S3_BUCKET: ${MINIO_BUCKET}
@@ -185,7 +189,7 @@ services:
       - minio
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
       REDIS_URL: redis://${REDIS_HOST}:6379
       S3_URL: http://${MINIO_HOST}:9000
       S3_BUCKET: ${MINIO_BUCKET}
@@ -215,7 +219,7 @@ services:
     cpu_count: 1
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
       S3_URL: http://${MINIO_HOST}:9000
       S3_BUCKET: ${MINIO_BUCKET}
       S3_ACCESS_KEY: ${MINIO_ROOT_USER}
