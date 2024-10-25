@@ -1,63 +1,102 @@
 # Local Development Guide
 
-Ensure the following software is installed on your machine before proceeding:
+To develop Boundless applications both as a requestor and prover, a running Market is required.
+The workflow is generally:
+
+1. (One-time [Install](#install-boundless))
+2. [Spin up a devnet](#run-a-market-devnet)
+3. [Submit proof requests](#submit-proof-requests)
+4. Tweak you app & submit more requests
+5. [Tear down the devnet](#tear-down)
+
+To accelerate development, there are helpful utilities provided:
+
+- Helpful `make` workflows:
+  - `devnet-up` (default): spin up a service running in th background to fulfill proof requests
+  - `devnet-down`: tear down a running devnet
+- A CLI tool to interact with the Market:
+  - `deposit`: Deposit funds
+  - `withdraw`: Withdraw funds
+  - `balance`: Check the balance of an account
+  - `submit-offer`: Submit a proof request, constructed with the given offer, input, and image
+  - `submit-request`: Submit a fully specified proof request
+  - `slash`: Slash a prover for a given request
+  - `get-proof`: Get the journal and seal for a given request
+  - `verify-proof`: Verify the proof of the given request against the `SetVerifier` contract
+  - `status`: Get the status of a given request
+
+All utilities and more are provided in the [Boundless monorepo](https://github.com/boundless-xyz/boundless).
+
+## Install Boundless
+
+Ensure the following software is installed on your machine:
 
 - **[Rust](https://www.rust-lang.org/tools/install) version 1.79 or higher**
 - **[Foundry](https://book.getfoundry.sh/getting-started/installation) version 0.2 or higher**
 
-Before starting, ensure you have cloned with recursive submodules, or pull them with:
+1. Clone Boundless (SSH or github login required)
+   ```sh
+   # SSH or github login required
+   git clone git clone git@github.com:boundless-xyz/boundless.git
+   cd boundless
+   ```
 
-```console
-git submodule update --init
-```
+2. Initialize recursive submodules (located in `lib`, required by Foundry)
+   ```sh
+   git submodule update --init
+   ```
 
-1. Start a local devnet
-   ```console
+## Run a Market devnet
+
+For both requestors and provers, you will need to:
+
+- Spin up a local `anvil` (or other EVM) devnet
+- Deployed Boundless Market contracts to the devnet
+- Run a [Broker][page-broker] instance that will lock in and return proofs to all proof requests
+- Submit proof requests to be fulfilled by the Broker
+
+### Spin up
+
+An instance of the Market needs to be running in the background for applications to interact with, using the included `make` utilities or manually.
+
+#### `make`
+
+The included `makefile` in boundless is the most effective way to do this, and can be modified to suit specific needs.
+
+1. Start a local devnet service (running in the background)
+   ```sh
    make devnet-up
    source .env
    ```
 
-2. Test your deployment with the client CLI.
-   You can read more about the client on the [proving request][page-requestor-request] page.
+🎉 Congratulations!
+You now have a local devnet service running in the background and a prover that will respond to proving requests.
 
-   ```console
-   RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
-   ```
+When finished, tear down a running devnet run:
 
-   > If you see "Error: Market error: Failed to check fulfillment status",
-   > check the deployment logs from running `forge script` and ensure it matches the addresses listed in `.env`
-   > If they don't match, adjust the `.env` file or try restarting anvil and deploying again.
+```sh
+make devnet-down
+```
 
-Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
+#### Manually
 
-3. To tear down the local devnet run:
-
-   ```console
-   make devnet-down
-   ```
-
-Check out the is-even example in the [Boundless Foundry template][boundless-foundry-template] for an example of how to run and application using the prover market.
-
-You can also try editing `request.yaml` to send a request with different values.
-Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
-
-If instead you prefer setting up a local devnet step by step, you can run the following commands as an alternative to the Makefile:
+If you require customizing a local devnet configuration, and need to operate it manually, you can run the following commands:
 
 1. Build the contracts
 
-   ```console
+   ```sh
    forge build
    ```
 
 2. Build the project
 
-   ```console
+   ```sh
    cargo build
    ```
 
-3. Start anvil
+3. Start `anvil`
 
-   ```console
+   ```sh
    anvil -b 2
    ```
 
@@ -67,50 +106,71 @@ If instead you prefer setting up a local devnet step by step, you can run the fo
    Configuration environment variables are read from the `.env` file.
    By setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
 
-   ```console
+   ```sh
    source .env
    RISC0_DEV_MODE=1 forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
    ```
 
-   > NOTE: Starting from a fresh Anvil instance, the deployed contract addresses will match the values in `.env`.
-   > If you need to deploy again, restart Anvil first or change the `.env` file to match your newly deployed contract addresses.
+   > NOTE: Starting from a fresh `anvil` instance, the deployed contract addresses will match the values in `.env`.
+   > If you need to deploy again, restart `anvil` first or change the `.env` file to match your newly deployed contract addresses.
 
-5. Deposit Prover funds and start the Broker
-
-   The Broker is the service that watches the chain for proving requests, evaluates them, and orchestrates proving the jobs with the proving backend.
+5. Deposit Prover funds and start the [Broker][page-broker]
 
    Here we will use a mock prover by setting `RISC0_DEV_MODE`.
-   The Broker can use either Bonsai or Bento as backend, remove `RISC0_DEV_MODE` and:
+   The Broker can use either [Bonsai][bonsai-homepage] or [Bento][page-bento] as backend, remove `RISC0_DEV_MODE` and:
 
    - To use Bonsai, export the `BONSAI_API_URL` and `BONSAI_API_KEY` env vars, or the the associated CLI flags.
    - To use Bento, export the `BENTO_API_URL` env var or use the `--bento-api-url` CLI flag.
-     Also, refer to the [Running Bento][page-bento-running] guide.
+     _This requires there is a Bento service listening, refer to the [Running Bento][page-bento-running] guide to configure and deploy one._
 
-   The Broker needs to have funds deposited on the Boundless market contract to cover [lockin-stake][id-rfc-order-matching] on requests.
+   The Broker needs to have funds deposited on the Boundless market contract to cover lock-in stake on requests.
    Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
-   ```console
+   ```sh
    RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
    ```
 
-6. Test your deployment with the boundless CLI.
-   You can read more about on the [proving request][page-requestor-request] page.
+🎉 Congratulations!
+You now have a local devnet running and a prover that will respond to proving requests.
 
-   ```console
-   RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
-   ```
+### Submit Proof Requests
 
-   > If you see "Error: Market error: Failed to check fulfillment status",
-   > check the deployment logs from running `forge script` and ensure it matches the addresses listed in `.env`
-   > If they don't match, adjust the `.env` file or try restarting anvil and deploying again.
+Test your devnet with the boundless CLI:
 
-Congratulations! You now have a local devnet running and a prover that will respond to proving requests.
+```sh
+RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
+```
 
-Check out the is-even example in the [Boundless Foundry template][boundless-foundry-template] for an example of how to run and application using the prover market.
+> If you see `Error: Market error: Failed to check fulfillment status`,
+> check the `make devnet-up` deployment logs and ensure addresses match those listed in `.env`
+> If they don't match, adjust the `.env` file and try again.
 
-You can also try editing `request.yaml` to send a request with different values.
-Check `cargo run --bin cli -- --help` for a full list of commands available through the CLI.
+Try editing `request.yaml` to send a request to the Market with different values.
 
-[page-bento-running]: ../prover-manual/bento/running_bento.md
-[page-requestor-request]: ../requestor-manual/broadcasting.md
-[boundless-foundry-template]: https://github.com/boundless-xyz/boundless-foundry-template/
+### Tear down
+
+When finished, tear down a running devnet from the [`make devnet-up` workflow](#make) run:
+
+```sh
+make devnet-down
+```
+
+If running [manually](#manually), kill services and cleanup as needed.
+
+## Application Development
+
+Further instructions for:
+
+- the [Requestor Broadcasting][page-requestor-broadcast] page for submitting proofs
+  - See the [Boundless Foundry template][boundless-foundry-template-repo] for building a stand-alone application to interact with the Market
+- the [Prover Manual][page-prover-manual] for fulfilling Market requests
+
+[page-bento]: ../prover-manual/bento/README.md
+[page-broker]: ../prover-manual/broker/README.md
+[page-bento-running]: ../prover-manual/bento/running.md
+[page-requestor-broadcast]: ../requestor-manual/broadcasting.md
+[page-prover-manual]: ../prover-manual/README.md
+[page-market-design]: ./matching.md
+[boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template/
+[term-broker]: ../prover-manual/broker/README.md
+[bonsai-homepage]: https://www.bonsai.xyz/

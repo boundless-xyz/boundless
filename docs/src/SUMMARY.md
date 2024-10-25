@@ -18,8 +18,11 @@
 - [🏋 Prover Manual](./prover-manual/README.md)
 
   - [Bento](./prover-manual/bento/README.md)
-    - [Running Bento](./prover-manual/bento/running_bento.md)
+    - [Running](./prover-manual/bento/running.md)
+    - [Performance Tuning](./prover-manual/bento/performance.md)
   - [Broker](./prover-manual/broker/README.md)
+    - [Configuration](./prover-manual/broker/configure.md)
+    - [Operation](./prover-manual/broker/operation.md)
 
 - [🔗 Reference](./reference.md)
 - [📑 Glossary](./glossary.md)

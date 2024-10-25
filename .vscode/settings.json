@@ -1,5 +1,8 @@
 {
-    "rust-analyzer.check.extraEnv": {
-        "RISC0_SKIP_BUILD": "1",
-    }
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.check.features": [],
+  "rust-analyzer.check.extraEnv": {
+    "RISC0_SKIP_BUILD": "1",
+    "RISC0_SKIP_BUILD_KERNELS": "1"
+  }
 }
