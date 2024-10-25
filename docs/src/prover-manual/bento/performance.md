@@ -1,6 +1,12 @@
 # Bento Performance Tuning
 
-This guide offers a practical set of steps for optimizing your initial Bento deployment. Though performance tuning ultimately depends on your specific environment, equipment, and requirements... these baseline recommendations will assist your initial deployment.
+This guide offers practical techniques for optimizing your initial Bento deployment.
+
+<div class="warning">
+
+Bento performance is tightly couples to the specific environment, equipment, and provider's requirements. Recommendations in this guide should be used as reference rather than a concrete recommendation on configuration.
+
+</div>
 
 ## Recommended tools
 
