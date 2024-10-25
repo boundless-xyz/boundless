@@ -15,15 +15,15 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4227
 
-RUN cargo
-
 RUN \
+    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
     source ./sccache-config.sh && \
     ls /root/.cache/sccache/ && \
     cargo install --version 1.6.9 cargo-binstall && \
     cargo binstall -y --force cargo-risczero --version 1.1 && \
-    cargo risczero install
+    cargo risczero install && \
+    sccache --show-stats
 
 FROM init AS builder
 
@@ -41,17 +41,17 @@ COPY foundry.toml .
 ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
 
-RUN cargo
-
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4227
 
 RUN \
+    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
     source /sccache-config.sh && \
     ls /root/.cache/sccache/ && \
     cargo build --release --bin broker && \
-    cp /src/target/release/broker /src/broker
+    cp /src/target/release/broker /src/broker && \
+    sccache --show-stats
 
 FROM rust:1.79.0-bookworm AS runtime
 
