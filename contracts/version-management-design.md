@@ -84,7 +84,7 @@ The [RiscZeroSetVerifier] requires an [IRiscZeroVerifier], specifically a [RiscZ
 
 ### Emergency stop
 
-Each base verifier can have an associated [RiscZeroVerifierEmergencyStop](./src/RiscZeroVerifierEmergencyStop.sol) contract.
+Each base verifier can have an associated [RiscZeroVerifierEmergencyStop] contract.
 This contract acts as a proxy, with the addition of an emergency stop function.
 When the emergency stop is activated, this proxy will be permanently disabled, and revert on all verify calls.
 
