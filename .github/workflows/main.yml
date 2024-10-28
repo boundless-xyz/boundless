@@ -12,6 +12,7 @@ concurrency:
 permissions:
   id-token: write
   contents: read
+  pull-requests: read
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -58,7 +59,7 @@ jobs:
           python-version: "3.10"
 
       - name: install foundry
-        uses: risc0/foundry-toolchain@2fe7e70b520f62368a0e3c464f997df07ede420f
+        uses: foundry-rs/foundry-toolchain@v1
 
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
@@ -75,7 +76,7 @@ jobs:
           toolchain-version: 'r0.1.79.0-2'
 
       - name: install cargo-sort
-        uses: risc0/cargo-install@v3
+        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-sort
           version: "=1.0.9"
@@ -98,7 +99,7 @@ jobs:
         run: cargo check
 
       - name: Install sqlx-cli
-        uses: risc0/cargo-install@v3
+        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: sqlx-cli
           version: '=0.8.2'
@@ -133,7 +134,7 @@ jobs:
           restore-keys: cache-lychee-
 
       - name: install cargo-binstall
-        uses: risc0/cargo-install@v3
+        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
           version: '=1.10.8'
@@ -159,7 +160,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: install cargo-binstall
-        uses: risc0/cargo-install@v3
+        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
           version: '=1.10.8'
@@ -178,7 +179,7 @@ jobs:
           submodules: recursive
 
       - name: install foundry
-        uses: risc0/foundry-toolchain@2fe7e70b520f62368a0e3c464f997df07ede420f
+        uses: foundry-rs/foundry-toolchain@v1
 
       - name: forge fmt
         run: forge fmt --check
@@ -203,7 +204,7 @@ jobs:
           submodules: recursive
 
       - name: install foundry
-        uses: risc0/foundry-toolchain@2fe7e70b520f62368a0e3c464f997df07ede420f
+        uses: foundry-rs/foundry-toolchain@v1
 
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-1.1
@@ -220,7 +221,7 @@ jobs:
           toolchain-version: 'r0.1.79.0-2'
 
       - name: install cargo-sort
-        uses: risc0/cargo-install@v3
+        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-sort
           version: "=1.0.9"
@@ -265,8 +266,27 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
-  docker:
+  files-changed:
     runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.changes.outputs.docker }}
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3.0.0
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'dockerfiles/**'
+              - 'compose.yml'
+              - '.env-compose'
+
+  docker:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    needs: files-changed
+    if: needs.files-changed.outputs.docker == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -275,3 +295,24 @@ jobs:
 
       - name: docker-compose lint
         run: docker compose --profile broker --env-file ./.env-compose config
+
+      - name: Fetch CI AWS Creds
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: 'us-west-2'
+          role-to-assume: 'arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access'
+          output-credentials: true
+
+      - name: create ci creds file
+        run: |
+          echo "[default]" > ./dockerfiles/ci-cache-creds.txt
+          echo "aws_access_key_id=${{ steps.aws-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt && \
+          echo "aws_secret_access_key=${{ steps.aws-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt && \
+          echo "aws_session_token=${{ steps.aws-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
+
+      - name: Setup docker builder
+        run: docker buildx create --driver docker-container --use
+
+      - name: docker compose build
+        run: docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
