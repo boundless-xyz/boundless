@@ -73,7 +73,7 @@ where
             provider.default_signer_address(),
         );
         if let Some(txn_timeout) = txn_timeout_opt {
-            set_verifier.with_timeout(Duration::from_secs(1));
+            set_verifier.with_timeout(Duration::from_secs(txn_timeout));
         }
 
         Ok(Self { db, prover, market, set_verifier, set_builder_img_id })
