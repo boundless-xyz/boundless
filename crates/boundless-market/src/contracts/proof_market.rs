@@ -623,8 +623,8 @@ mod tests {
 
     use super::ProofMarketService;
     use crate::contracts::{
-        encode_seal, test_utils::TestCtx, AssessorJournal, Fulfillment, IProofMarket, Input,
-        InputType, Offer, Predicate, PredicateType, ProofStatus, ProvingRequest, Requirements,
+        test_utils::TestCtx, AssessorJournal, Fulfillment, IProofMarket, Input, InputType, Offer,
+        Predicate, PredicateType, ProofStatus, ProvingRequest, Requirements,
     };
     use aggregation_set::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_GUEST_ID};
     use alloy::{
@@ -639,6 +639,7 @@ mod tests {
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_util::ECHO_ID;
+    use risc0_ethereum_contracts::encode_seal;
     use risc0_zkvm::{
         sha::{Digest, Digestible},
         FakeReceipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,

@@ -18,7 +18,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # Install rust and a target rust version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 RUN chmod -R a+w $RUSTUP_HOME $CARGO_HOME
-RUN rustup install 1.76
+RUN rustup install 1.79
 
 FROM rust-builder AS builder
 
@@ -46,16 +46,14 @@ SHELL ["/bin/bash", "-c"]
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4226
 
-# This downloads and setups the rust-toolchain so docker can cache the layer
-RUN cargo
-
-
 RUN \
+    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc \
     source ./sccache-config.sh && \
     ls /root/.cache/sccache/ && \
     cargo build --release -F cuda -p workflow --bin agent && \
-    cp /src/target/release/agent /src/agent
+    cp /src/target/release/agent /src/agent && \
+    sccache --show-stats
 
 FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
 

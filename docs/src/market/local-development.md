@@ -167,7 +167,7 @@ Further instructions for:
 
 [page-bento]: ../prover-manual/bento/README.md
 [page-broker]: ../prover-manual/broker/README.md
-[page-bento-running]: ../prover-manual/bento/running_bento.md
+[page-bento-running]: ../prover-manual/bento/running.md
 [page-requestor-broadcast]: ../requestor-manual/broadcasting.md
 [page-prover-manual]: ../prover-manual/README.md
 [page-market-design]: ./matching.md
