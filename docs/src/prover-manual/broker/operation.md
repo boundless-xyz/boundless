@@ -75,6 +75,30 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS
 2024-10-23T14:30:07.175994Z  INFO cli: Deposited: 500000000000000000
 ```
 
+## Debugging
+
+### Orders stuck in 'lockin' or submit_merkle confirmation timeouts
+
+If on the indexer you see your broker having a high number of orders locked-in but not being fulfilled it might be due to TXN confirmation timeouts. Initially increasing the `txn_timeout` in the `broker.toml` file is a good start to try and ensure the fulfillment completes.
+
+Additionally it is possible to re-drive orders that are "stuck" via the following:
+
+1. Manually connect to the sqlite DB for broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` docker volume
+
+2. Finding the batch that contains the order:
+
+```bash
+SELECT id FROM batches WHERE data->>'orders' LIKE '%"TARGET_ORDER_ID"%';
+# Example: SELECT id FROM batches WHERE data->>'orders' LIKE '%"0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000caa"%';
+```
+
+3. Trigger a rerun of the submitter task:
+
+```bash
+UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = YOUR_BATCH_ID_FROM_STEP_2;
+# Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
+```
+
 [page-broker-config]: ./configure.md
 [page-local-dev]: ../../market/local-development.md
 [page-bento-perf]: ../bento/performance.md
