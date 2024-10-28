@@ -214,7 +214,7 @@ where
         &self,
         request: &ProvingRequest,
         client_sig: &Bytes,
-        priority_gas: Option<u128>,
+        priority_gas: Option<u64>,
     ) -> Result<u64, MarketError> {
         tracing::debug!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
@@ -236,8 +236,8 @@ where
                 .context("Failed to get priority gas fee")?;
 
             call = call
-                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas)
-                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas);
+                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
+                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
         }
 
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -623,8 +623,8 @@ mod tests {
 
     use super::ProofMarketService;
     use crate::contracts::{
-        encode_seal, test_utils::TestCtx, AssessorJournal, Fulfillment, IProofMarket, Input,
-        InputType, Offer, Predicate, PredicateType, ProofStatus, ProvingRequest, Requirements,
+        test_utils::TestCtx, AssessorJournal, Fulfillment, IProofMarket, Input, InputType, Offer,
+        Predicate, PredicateType, ProofStatus, ProvingRequest, Requirements,
     };
     use aggregation_set::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_GUEST_ID};
     use alloy::{
@@ -639,6 +639,7 @@ mod tests {
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_util::ECHO_ID;
+    use risc0_ethereum_contracts::encode_seal;
     use risc0_zkvm::{
         sha::{Digest, Digestible},
         FakeReceipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,

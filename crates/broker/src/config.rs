@@ -50,7 +50,7 @@ pub struct MarketConf {
     /// Optional additional gas to add to the transaction for lockinRequest, good
     /// for increasing the priority if competing with multiple provers during the
     /// same block
-    pub lockin_priority_gas: Option<u128>,
+    pub lockin_priority_gas: Option<u64>,
     /// Max input / image file size
     pub max_file_size: usize,
 }
@@ -231,7 +231,6 @@ impl ConfigWatcher {
             watcher
                 .watch(&config_path_copy, notify::RecursiveMode::NonRecursive)
                 .context("Failed to start watcher")?;
-
             startup_notification_copy.notify_one();
 
             while let Some(event) = rx.recv().await {
@@ -326,6 +325,7 @@ max_stake = "0.1"
 skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
+lockin_priority_gas = 100
 
 [prover]
 status_poll_ms = 1000
@@ -417,6 +417,7 @@ error = ?"#;
             assert_eq!(config.market.min_deadline, 150);
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
+            assert_eq!(config.market.lockin_priority_gas, Some(100));
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
