@@ -89,7 +89,7 @@ where
         // Does the order expire within the min deadline
         let seconds_left = (expire_block - current_block) * self.block_time;
         if seconds_left <= min_deadline {
-            tracing::warn!("Removing order {order_id:x} because it expires within the deadline");
+            tracing::warn!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             self.db.skip_order(order_id).await.context("Failed to delete short deadline order")?;
             return Ok(());
         }

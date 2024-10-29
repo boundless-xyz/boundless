@@ -120,6 +120,11 @@ pub struct BatcherConfig {
     pub block_deadline_buffer_secs: u64,
     /// Timeout, in seconds for transaction confirmations
     pub txn_timeout: Option<u64>,
+    /// Polling time, in milliseconds
+    ///
+    /// The time between polls for new orders to aggregate and how often to check for
+    /// batch finalize conditions
+    pub batch_poll_time_ms: Option<u64>,
 }
 
 impl Default for BatcherConfig {
@@ -130,6 +135,7 @@ impl Default for BatcherConfig {
             batch_max_fees: None,
             block_deadline_buffer_secs: 120,
             txn_timeout: None,
+            batch_poll_time_ms: Some(1000),
         }
     }
 }
@@ -335,7 +341,8 @@ req_retry_count = 0
 batch_max_time = 300
 batch_size = 2
 block_deadline_buffer_secs = 120
-txn_timeout = 45"#;
+txn_timeout = 45
+batch_poll_time_ms = 1200"#;
 
     const BAD_CONFIG: &str = r#"
 [market]
@@ -378,6 +385,7 @@ error = ?"#;
         assert_eq!(config.batcher.batch_max_fees, Some("0.1".into()));
         assert_eq!(config.batcher.block_deadline_buffer_secs, 120);
         assert_eq!(config.batcher.txn_timeout, None);
+        assert_eq!(config.batcher.batch_poll_time_ms, None);
     }
 
     #[tokio::test]
@@ -421,6 +429,7 @@ error = ?"#;
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
+            assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
         }
         tracing::debug!("closing...");
     }
