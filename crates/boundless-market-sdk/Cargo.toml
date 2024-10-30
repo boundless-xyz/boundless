@@ -21,11 +21,11 @@ risc0-ethereum-contracts = { workspace = true, optional = true }
 risc0-zkvm = { workspace = true, features = ["std", "client"], optional = true }
 serde_json = { workspace = true, optional = true }
 serde_yaml = { workspace = true, optional = true }
-url = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
 
 [[bin]]
 name = "cli"
