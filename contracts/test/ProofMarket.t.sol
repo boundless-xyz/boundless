@@ -160,9 +160,9 @@ contract ProofMarketTest is Test {
         return (fills[0], seal);
     }
 
-    function fulfillRequestBatch(ProvingRequest[] memory requests, bytes[] memory journals)
+    function createFills(ProvingRequest[] memory requests, bytes[] memory journals)
         internal
-        returns (Fulfillment[] memory fills, bytes memory assessorSeal)
+        returns (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root)
     {
         // initialize the fullfillments; one for each request;
         // the seal is filled in later, by calling fillInclusionProof
@@ -182,15 +182,25 @@ contract ProofMarketTest is Test {
             TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, proofMarket.eip712DomainSeparator());
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
-        // Join the batchRoot with the assessor digest.
-        bytes32 root = MerkleProofish._hashPair(batchRoot, assessorClaim.digest());
-        // submit the root to the set verifier
-        publishRoot(root);
+
+        root = MerkleProofish._hashPair(batchRoot, assessorClaim.digest());
+
         // compute all the inclusion proofs for the fullfillments
         TestUtils.fillInclusionProofs(setVerifier, fills, assessorClaim.digest(), tree);
         // compute the assessor seal
         assessorSeal = TestUtils.mockAssessorSeal(setVerifier, batchRoot);
 
+        return (fills, assessorSeal, root);
+    }
+
+    function fulfillRequestBatch(ProvingRequest[] memory requests, bytes[] memory journals)
+        internal
+        returns (Fulfillment[] memory fills, bytes memory assessorSeal)
+    {
+        bytes32 root;
+        (fills, assessorSeal, root) = createFills(requests, journals);
+        // submit the root to the set verifier
+        publishRoot(root);
         return (fills, assessorSeal);
     }
 
@@ -747,6 +757,18 @@ contract ProofMarketTest is Test {
 
     function testBenchFulfillBatch128() public {
         benchFulfillBatch(128);
+    }
+
+    function testsubmitRootAndFulfillBatch() public {
+        (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(2);
+        (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) = createFills(requests, journals);
+
+        bytes memory seal = verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
+        proofMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal);
+
+        for (uint256 j = 0; j < fills.length; j++) {
+            assertTrue(proofMarket.requestIsFulfilled(fills[j].id), "Request should have fulfilled status");
+        }
     }
 
     function testProcessTree2() public pure {

@@ -9,6 +9,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {IRiscZeroSetVerifier} from "./IRiscZeroSetVerifier.sol";
 
 import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "./IProofMarket.sol";
 import {ProofMarketLib} from "./ProofMarketLib.sol";
@@ -361,6 +362,17 @@ contract ProofMarket is IProofMarket, EIP712 {
 
     function imageInfo() external view returns (bytes32, string memory) {
         return (ASSESSOR_ID, imageUrl);
+    }
+
+    function submitRootAndFulfillBatch(
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal
+    ) external {
+        IRiscZeroSetVerifier set_verifier = IRiscZeroSetVerifier(address(VERIFIER));
+        set_verifier.submitMerkleRoot(root, seal);
+        this.fulfillBatch(fills, assessorSeal);
     }
 }
 
