@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -96,12 +96,32 @@ struct RequestLock {
     uint96 stake;
 }
 
+/// Struct encoding the validated price for a request, intended for use with transient storage.
+struct TransientPrice {
+    /// Boolean set to true to indicate the request was validated.
+    bool valid;
+    uint96 price;
+}
+
+library TransientPriceLib {
+    /// Packs the struct into a uint256.
+    function pack(TransientPrice memory x) internal pure returns (uint256) {
+        return (uint256(x.valid ? 1 : 0) << 96) | uint256(x.price);
+    }
+
+    /// Unpacks the struct from a uint256.
+    function unpack(uint256 packed) internal pure returns (TransientPrice memory) {
+        return TransientPrice({valid: (packed & (1 << 96)) > 0, price: uint96(packed & uint256(type(uint96).max))});
+    }
+}
+
 contract ProofMarket is IProofMarket, EIP712 {
     using AccountLib for Account;
     using ProofMarketLib for Offer;
     using ProofMarketLib for ProvingRequest;
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for uint256;
+    using TransientPriceLib for TransientPrice;
 
     // Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
     mapping(uint192 => RequestLock) public requestLocks;
@@ -247,9 +267,30 @@ contract ProofMarket is IProofMarket, EIP712 {
             clientAccount.balance -= price;
             proverAccount.balance -= request.offer.lockinStake;
         }
-        accounts[client] = clientAccount;
 
         emit RequestLockedin(request.id, prover);
+    }
+
+    /// Validates the request and records the price to transient storage such that it can be
+    /// fulfilled within the same transaction without taking a lock on it.
+    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) internal {
+        (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
+
+        // Recover the prover address and require the client address to equal the address part of the ID.
+        bytes32 structHash = _hashTypedDataV4(request.eip712Digest());
+        require(ECDSA.recover(structHash, clientSignature) == client, "Invalid client signature");
+
+        (uint96 price,) = _validateRequestForLockin(request, client, idx);
+        uint192 requestId = request.id;
+
+        // Record the price in transient storage, such that the order can be filled in this same transaction.
+        // NOTE: Since transient storage is cleared at the end of the transaction, we know that this
+        // price will not become stale, and the request cannot expire, while this price is recorded.
+        // TODO(#165): Also record a requirements checksum here when solving #165.
+        uint256 packed = TransientPrice({valid: true, price: price}).pack();
+        assembly {
+            tstore(requestId, packed)
+        }
     }
 
     // TODO(victor): Add a path that allows a prover to fuilfill a request without first sending a lock-in.
@@ -312,29 +353,65 @@ contract ProofMarket is IProofMarket, EIP712 {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
 
-        // Check that the request is not locked to a different prover.
+        // Check that the request is not fulfilled.
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
 
-        // Ensure the request is locked, and fetch the lock.
-        if (!locked) {
-            revert RequestIsNotLocked({requestId: id});
-        }
         if (fulfilled) {
             revert RequestIsFulfilled({requestId: id});
         }
 
-        RequestLock memory lock = requestLocks[id];
+        address prover;
+        uint96 price;
+        uint96 stake;
+        if (locked) {
+            RequestLock memory lock = requestLocks[id];
 
-        if (lock.deadline < block.number) {
-            revert RequestIsExpired({requestId: id, deadline: lock.deadline});
+            if (lock.deadline < block.number) {
+                revert RequestIsExpired({requestId: id, deadline: lock.deadline});
+            }
+
+            prover = lock.prover;
+            price = lock.price;
+            stake = lock.stake;
+        } else {
+            uint256 packed;
+            assembly {
+                packed := tload(id)
+            }
+            TransientPrice memory tprice = TransientPriceLib.unpack(packed);
+
+            // Check that a price has actually been set, rather than this being default.
+            // NOTE: Maybe "request is not locked or priced" would be more accurate, but seems
+            // like that would be a confusing message.
+            if (!tprice.valid) {
+                revert RequestIsNotLocked({requestId: id});
+            }
+
+            // TODO(#90): Use the prover address committed by the assessor instead of msg.sender.
+            prover = msg.sender;
+            price = tprice.price;
+            stake = 0;
         }
 
-        // Zero out the lock to get a bit of a refund on gas.
-        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0));
+        if (locked) {
+            // Zero-out the lock to get a bit of a refund on gas.
+            requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0));
+        }
+
+        Account storage clientAccount = accounts[client];
+        if (!locked) {
+            // Deduct the funds from client account.
+            if (clientAccount.balance < price) {
+                revert InsufficientBalance(client);
+            }
+            unchecked {
+                clientAccount.balance -= price;
+            }
+        }
 
         // Mark the request as fulfilled and pay the prover.
-        accounts[client].setRequestFulfilled(idx);
-        accounts[lock.prover].balance += lock.price + lock.stake;
+        clientAccount.setRequestFulfilled(idx);
+        accounts[prover].balance += price + stake;
     }
 
     function slash(uint192 requestId) external {
