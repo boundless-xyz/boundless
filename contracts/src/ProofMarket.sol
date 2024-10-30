@@ -165,12 +165,12 @@ contract ProofMarket is IProofMarket, EIP712 {
         return uint256(accounts[addr].balance);
     }
 
-    function submitRequest(ProvingRequest calldata request, bytes memory clientSignature) external payable {
+    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable {
         accounts[msg.sender].balance += msg.value.toUint96();
         emit RequestSubmitted(request, clientSignature);
     }
 
-    function lockin(ProvingRequest calldata request, bytes memory clientSignature) external {
+    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
 
         // Recover the prover address and require the client address to equal the address part of the ID.
@@ -182,7 +182,7 @@ contract ProofMarket is IProofMarket, EIP712 {
 
     function lockinWithSig(
         ProvingRequest calldata request,
-        bytes memory clientSignature,
+        bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
