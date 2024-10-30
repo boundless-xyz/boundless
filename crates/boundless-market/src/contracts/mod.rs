@@ -9,6 +9,7 @@ use std::str::FromStr;
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
     contract::Error as ContractErr,
+    primitives::SignatureError,
     signers::{Error as SignerErr, Signature, SignerSync},
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
@@ -134,10 +135,7 @@ impl ProvingRequest {
     ///
     /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min
     /// price) this function will return an error.
-    // TODO: Should this function be replaced with a proper builder that checks the ProvingRequest
-    // before it finalizes the construction?
-    #[cfg_attr(target_os = "zkvm", allow(dead_code))]
-    pub(crate) fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> anyhow::Result<()> {
         if self.imageUrl.is_empty() {
             anyhow::bail!("Image URL must not be empty");
         };
@@ -176,6 +174,24 @@ impl ProvingRequest {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         signer.sign_hash_sync(&hash)
+    }
+
+    /// Verifies the proving request signature with the given signer and EIP-712 domain derived from
+    /// the given contract address and chain ID.
+    pub fn verify_signature(
+        &self,
+        signature: &Signature,
+        contract_addr: Address,
+        chain_id: u64,
+    ) -> Result<(), SignerErr> {
+        let domain = eip712_domain(contract_addr, chain_id);
+        let hash = self.eip712_signing_hash(&domain.alloy_struct());
+        let addr = signature.recover_address_from_prehash(&hash)?;
+        if addr == self.client_address() {
+            Ok(())
+        } else {
+            Err(SignerErr::SignatureError(SignatureError::FromBytes("Address mismatch")))
+        }
     }
 }
 

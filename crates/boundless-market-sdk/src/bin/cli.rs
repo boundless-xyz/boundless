@@ -8,7 +8,7 @@ use alloy::{
     network::Ethereum,
     primitives::{aliases::U192, utils::parse_ether, Address, Bytes, B256, U256},
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
-    signers::{local::PrivateKeySigner, Signer, SignerSync},
+    signers::local::PrivateKeySigner,
     transports::Transport,
 };
 use anyhow::{bail, Context, Result};
@@ -27,8 +27,9 @@ use boundless_market::{
         proof_market::ProofMarketService, Input, InputType, Offer, Predicate, PredicateType,
         ProvingRequest, Requirements,
     },
-    storage::{storage_provider_from_env, StorageProvider},
+    storage::StorageProvider,
 };
+use boundless_market_sdk::Client;
 
 // TODO(victor): Update corresponding docs
 #[derive(Subcommand, Clone, Debug)]
@@ -62,6 +63,9 @@ enum Command {
         /// Wait until the request is fulfilled
         #[clap(short, long, default_value = "false")]
         wait: bool,
+        /// Submit the request offchain via the order stream service
+        #[clap(short, long, default_value = "false")]
+        offchain: bool,
     },
     /// Slash a prover for a given request
     Slash {
@@ -100,6 +104,9 @@ struct SubmitOfferArgs {
     /// Wait until the request is fulfilled
     #[clap(short, long, default_value = "false")]
     wait: bool,
+    /// Submit the request offchain via the order stream service
+    #[clap(short, long, default_value = "false")]
+    offchain: bool,
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
@@ -147,6 +154,8 @@ struct MainArgs {
     #[clap(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
     #[clap(long, env)]
+    order_stream_url: Url,
+    #[clap(long, env)]
     private_key: PrivateKeySigner,
     #[clap(short, long, env)]
     proof_market_address: Address,
@@ -171,12 +180,22 @@ async fn main() -> Result<()> {
     let args = MainArgs::try_parse()?;
 
     let caller = args.private_key.address();
-    let signer = args.private_key.clone();
     let wallet = EthereumWallet::from(args.private_key.clone());
-    let provider =
-        ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(args.rpc_url);
+    let provider = ProviderBuilder::new()
+        .with_recommended_fillers()
+        .wallet(wallet)
+        .on_http(args.rpc_url.clone());
     let market = ProofMarketService::new(args.proof_market_address, provider.clone(), caller);
     let set_verifier = IRiscZeroVerifier::new(args.set_verifier_address, provider.clone());
+    let client = Client::from_parts(
+        args.private_key.clone(),
+        args.rpc_url,
+        args.proof_market_address,
+        args.set_verifier_address,
+        args.order_stream_url,
+    )
+    .await
+    .context("Failed to create client")?;
     let command = args.command.clone();
     match command {
         Command::Deposit { amount } => {
@@ -192,13 +211,13 @@ async fn main() -> Result<()> {
             let balance = market.balance_of(addr).await?;
             tracing::info!("Balance of {addr}: {balance}");
         }
-        Command::SubmitOffer(args) => submit_offer(market, &args, signer).await?,
-        Command::SubmitRequest { yaml_request, id, wait } => {
+        Command::SubmitOffer(args) => submit_offer(client.clone(), &args).await?,
+        Command::SubmitRequest { yaml_request, id, wait, offchain } => {
             let id = match id {
                 Some(id) => id,
-                None => market.index_from_nonce().await?,
+                None => market.index_from_rand().await?,
             };
-            submit_request(id, market, yaml_request, signer, wait).await?
+            submit_request(id, yaml_request, client.clone(), wait, offchain).await?
         }
         Command::Slash { request_id } => {
             market.slash(request_id).await?;
@@ -240,14 +259,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn submit_offer<T, P>(
-    market: ProofMarketService<T, P>,
-    args: &SubmitOfferArgs,
-    signer: impl Signer + SignerSync,
-) -> Result<()>
+async fn submit_offer<T, P, S>(client: Client<T, P, S>, args: &SubmitOfferArgs) -> Result<()>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
+    S: StorageProvider + Clone,
 {
     // Read the YAML offer file
     let file = File::open(&args.yaml_offer)?;
@@ -257,7 +273,8 @@ where
 
     // If set to 0, override the offer bidding_start field with the current block number.
     if offer.biddingStart == 0 {
-        let latest_block = market
+        let latest_block = client
+            .proof_market
             .instance()
             .provider()
             .get_block_number()
@@ -296,16 +313,14 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
-    let storage_provider = storage_provider_from_env().await?;
-
     // Compute the image_id, then upload the ELF.
-    let elf_url = storage_provider.upload_image(&elf).await?;
+    let elf_url = client.upload_image(&elf).await?;
     let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&elf)?));
 
     // Upload the input.
     let requirements_input = match args.inline_input {
         false => {
-            let input_url = storage_provider.upload_input(&encoded_input).await?;
+            let input_url = client.upload_input(&encoded_input).await?;
             Input { inputType: InputType::Url, data: input_url.into() }
         }
         true => Input { inputType: InputType::Inline, data: encoded_input.into() },
@@ -314,13 +329,13 @@ where
     // Set request id
     let id = match args.id {
         Some(id) => id,
-        None => market.index_from_nonce().await?,
+        None => client.proof_market.index_from_rand().await?,
     };
 
     // Construct the request from its individual parts.
     let request = ProvingRequest::new(
         id,
-        &market.caller(),
+        &client.signer.address(),
         Requirements { imageId: image_id, predicate },
         &elf_url,
         requirements_input,
@@ -329,7 +344,11 @@ where
 
     tracing::debug!("Request: {}", serde_json::to_string_pretty(&request)?);
 
-    let request_id = market.submit_request(&request, &signer).await?;
+    let request_id = if args.offchain {
+        client.submit_request_offchain(&request).await?
+    } else {
+        client.submit_request(&request).await?
+    };
     tracing::info!(
         "Submitted request ID 0x{request_id:x}, bidding start at block number {}",
         offer.biddingStart
@@ -337,7 +356,7 @@ where
 
     if args.wait {
         let (journal, seal) =
-            market.wait_for_request_fulfillment(request_id, Duration::from_secs(5), None).await?;
+            client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), None).await?;
         tracing::info!(
             "Journal: {} - Seal: {}",
             serde_json::to_string_pretty(&journal)?,
@@ -347,16 +366,17 @@ where
     Ok(())
 }
 
-async fn submit_request<T, P>(
+async fn submit_request<T, P, S>(
     id: u32,
-    market: ProofMarketService<T, P>,
     request_path: String,
-    signer: impl Signer + SignerSync,
+    client: Client<T, P, S>,
     wait: bool,
+    offchain: bool,
 ) -> Result<()>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
+    S: StorageProvider + Clone,
 {
     // Read the YAML request file
     let file = File::open(request_path).context("failed to open request file")?;
@@ -366,7 +386,8 @@ where
 
     // If set to 0, override the offer bidding_start field with the current block number.
     if request_yaml.offer.biddingStart == 0 {
-        let latest_block = market
+        let latest_block = client
+            .proof_market
             .instance()
             .provider()
             .get_block_number()
@@ -377,7 +398,7 @@ where
 
     let mut request = ProvingRequest::new(
         id,
-        &signer.address(),
+        &client.signer.address(),
         request_yaml.requirements,
         &request_yaml.imageUrl,
         request_yaml.input,
@@ -389,7 +410,11 @@ where
         request.id = request_yaml.id;
     }
 
-    let request_id = market.submit_request(&request, &signer).await?;
+    let request_id = if offchain {
+        client.submit_request_offchain(&request).await?
+    } else {
+        client.submit_request(&request).await?
+    };
     tracing::info!(
         "Proving request ID 0x{request_id:x}, bidding start at block number {}",
         request.offer.biddingStart
@@ -397,7 +422,7 @@ where
 
     if wait {
         let (journal, seal) =
-            market.wait_for_request_fulfillment(request_id, Duration::from_secs(5), None).await?;
+            client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), None).await?;
         tracing::info!(
             "Journal: {} - Seal: {}",
             serde_json::to_string_pretty(&journal)?,

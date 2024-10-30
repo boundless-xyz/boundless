@@ -11,10 +11,8 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_market::{
-    contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
-    sdk::client::Client,
-};
+use boundless_market::contracts::{Input, Offer, Predicate, ProvingRequest, Requirements};
+use boundless_market_sdk::Client;
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{
@@ -41,6 +39,9 @@ struct Args {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     rpc_url: Url,
+    /// URL of the offchain order stream endpoint.
+    #[clap(short, long, env)]
+    order_stream_url: Url,
     /// Private key used to interact with the Counter contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -73,6 +74,7 @@ async fn main() -> Result<()> {
     run(
         args.private_key,
         args.rpc_url,
+        args.order_stream_url,
         args.proof_market_address,
         args.set_verifier_address,
         args.counter_address,
@@ -85,14 +87,20 @@ async fn main() -> Result<()> {
 async fn run(
     private_key: PrivateKeySigner,
     rpc_url: Url,
+    order_stream_url: Url,
     proof_market_address: Address,
     set_verifier_address: Address,
     counter_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client =
-        Client::from_parts(private_key, rpc_url, proof_market_address, set_verifier_address)
-            .await?;
+    let boundless_client = Client::from_parts(
+        private_key,
+        rpc_url,
+        proof_market_address,
+        set_verifier_address,
+        order_stream_url,
+    )
+    .await?;
 
     // Upload the ECHO ELF to the storage provider so that it can be fetched by the market.
     let image_url = boundless_client.upload_image(ECHO_ELF).await?;
@@ -271,6 +279,7 @@ mod tests {
             run(
                 ctx.customer_signer,
                 anvil.endpoint_url(),
+                url::Url::parse("http://order_stream_url").unwrap(),
                 ctx.proof_market_addr,
                 ctx.set_verifier_addr,
                 counter_address,

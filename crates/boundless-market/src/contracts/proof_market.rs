@@ -607,6 +607,33 @@ where
         Ok(request_id(&self.caller, index))
     }
 
+    /// Randomly generates a request index.
+    ///
+    /// It retries up to 10 times to generate a unique index, after which it returns an error.
+    /// It does not guarantee that the index is not in use by the time the caller uses it.
+    pub async fn index_from_rand(&self) -> Result<u32, MarketError> {
+        let attempts = 10usize;
+        for _ in 0..attempts {
+            let id: u32 = rand::random();
+            let request_id = request_id(&self.caller, id);
+            match self.get_status(U256::from(request_id)).await? {
+                ProofStatus::Unknown => return Ok(id),
+                _ => continue,
+            }
+        }
+        Err(MarketError::Error(anyhow!(
+            "failed to generate a unique index after {attempts} attempts"
+        )))
+    }
+
+    /// Randomly generates a new request ID.
+    ///
+    /// It does not guarantee that the ID is not in use by the time the caller uses it.
+    pub async fn request_id_from_rand(&self) -> Result<U192, MarketError> {
+        let index = self.index_from_rand().await?;
+        Ok(request_id(&self.caller, index))
+    }
+
     /// Returns the image ID and URL of the assessor guest.
     pub async fn image_info(&self) -> Result<(B256, String)> {
         tracing::debug!("Calling imageInfo()");

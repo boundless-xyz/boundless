@@ -19,6 +19,7 @@ use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
+use order_stream::client::Client as OrderStreamClient;
 use provers::ProverObj;
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,7 @@ pub(crate) mod aggregator;
 pub(crate) mod config;
 pub(crate) mod db;
 pub(crate) mod market_monitor;
+pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
 pub(crate) mod order_picker;
 pub(crate) mod provers;
@@ -48,6 +50,10 @@ pub struct Args {
     /// RPC URL
     #[clap(long, env, default_value = "http://localhost:8545")]
     pub rpc_url: Url,
+
+    /// Order stream server URL
+    #[clap(long, env)]
+    pub order_stream_url: Option<Url>,
 
     /// wallet key
     #[clap(long, env)]
@@ -407,6 +413,30 @@ where
             Ok(())
         });
 
+        let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let client = self.args.order_stream_url.clone().map(|url| {
+            OrderStreamClient::new(
+                url,
+                self.args.private_key.clone(),
+                self.args.proof_market_addr,
+                chain_id,
+            )
+        });
+        // spin up a supervisor for the offchain market monitor
+        if let Some(client) = client {
+            let offchain_market_monitor =
+                Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
+                    self.db.clone(),
+                    client.clone(),
+                ));
+            supervisor_tasks.spawn(async move {
+                task::supervisor(1, offchain_market_monitor)
+                    .await
+                    .context("Failed to start offchain market monitor")?;
+                Ok(())
+            });
+        }
+
         // Construct the prover object interface
         let prover: provers::ProverObj = if risc0_zkvm::is_dev_mode() {
             tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
@@ -662,6 +692,7 @@ pub mod test_utils {
             proof_market_addr: ctx.proof_market_addr,
             set_verifier_addr: ctx.set_verifier_addr,
             rpc_url,
+            order_stream_url: None,
             private_key: ctx.prover_signer.clone(),
             bento_api_url: None,
             bonsai_api_key: None,
