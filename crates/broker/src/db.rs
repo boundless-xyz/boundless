@@ -145,6 +145,9 @@ impl SqliteDb {
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
+        let mut conn = pool.acquire().await?;
+        sqlx::query("PRAGMA busy_timeout = 1000").execute(&mut *conn).await?;
+
         Ok(Self { pool })
     }
 
