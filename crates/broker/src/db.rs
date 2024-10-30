@@ -146,7 +146,12 @@ impl SqliteDb {
         sqlx::migrate!("./migrations").run(&pool).await?;
 
         let mut conn = pool.acquire().await?;
+
+        // Apply these here vs migrations because PRAGMAs can't be applied
+        // during transactions which happens during migrations
+        // additionally busy_timeout only apply per connection
         sqlx::query("PRAGMA busy_timeout = 1000").execute(&mut *conn).await?;
+        sqlx::query("PRAGMA journal_mode = WAL").execute(&mut *conn).await?;
 
         Ok(Self { pool })
     }
