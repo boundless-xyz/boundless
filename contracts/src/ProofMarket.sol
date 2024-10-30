@@ -267,7 +267,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         emit RequestFulfilled(fill.id, fill.journal, fill.seal);
     }
 
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external {
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) public {
         // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         uint192[] memory ids = new uint192[](fills.length);
@@ -372,7 +372,7 @@ contract ProofMarket is IProofMarket, EIP712 {
     ) external {
         IRiscZeroSetVerifier set_verifier = IRiscZeroSetVerifier(address(VERIFIER));
         set_verifier.submitMerkleRoot(root, seal);
-        this.fulfillBatch(fills, assessorSeal);
+        fulfillBatch(fills, assessorSeal);
     }
 }
 
