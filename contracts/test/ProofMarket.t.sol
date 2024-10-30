@@ -763,7 +763,8 @@ contract ProofMarketTest is Test {
         (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(2);
         (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) = createFills(requests, journals);
 
-        bytes memory seal = verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
+        bytes memory seal =
+            verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
         proofMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal);
 
         for (uint256 j = 0; j < fills.length; j++) {
