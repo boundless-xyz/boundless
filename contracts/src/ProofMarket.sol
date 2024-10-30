@@ -295,10 +295,9 @@ contract ProofMarket is IProofMarket, EIP712 {
 
     // TODO(victor): Add a path that allows a prover to fuilfill a request without first sending a lock-in.
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal) external {
-        // Verify the application guest proof. We need to verify it here, even though the market
-        // guest already verified that the prover has knowledge of a verifying receipt, because
-        // we need to make sure the _delivered_ seal is valid.
-        // TODO(victor): Support journals hashed with keccak instead of SHA-256.
+        // Verify the application guest proof. We need to verify it here, even though the assesor
+        // already verified that the prover has knowledge of a verifying receipt, because we need to
+        // make sure the _delivered_ seal is valid.
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
         VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
 
