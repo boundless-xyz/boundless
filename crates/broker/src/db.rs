@@ -940,12 +940,13 @@ impl BrokerDb for SqliteDb {
     async fn get_batch_peak_count(&self, batch_id: usize) -> Result<usize, DbError> {
         let mut conn = self.pool.acquire().await?;
 
-        let count: i64 = sqlx::query_scalar(
+        let count: Option<i64> = sqlx::query_scalar(
             "SELECT json_array_length(data->>'peaks') FROM batches WHERE id = $1",
         )
         .bind(batch_id as i64)
-        .fetch_one(&mut *conn)
+        .fetch_optional(&mut *conn)
         .await?;
+        let count = count.unwrap_or(0);
 
         Ok(count as usize)
     }
