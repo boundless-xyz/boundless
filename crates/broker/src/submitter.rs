@@ -103,11 +103,22 @@ where
         let batch_root = batch.root.context("Batch missing root digest")?;
         let root = B256::from_slice(batch_root.as_bytes());
 
-        tracing::info!("Submitting app merkle root: {root}");
-        self.set_verifier
-            .submit_merkle_root(root, batch_seal.into())
-            .await
-            .context("Failed to submit app merkle_root")?;
+        let contains_root = match self.set_verifier.contains_root(root).await {
+            Ok(res) => res,
+            Err(err) => {
+                tracing::error!("Failed to query if set-verifier contains the new root, trying to submit anyway {err:?}");
+                false
+            }
+        };
+        if !contains_root {
+            tracing::info!("Submitting app merkle root: {root}");
+            self.set_verifier
+                .submit_merkle_root(root, batch_seal.into())
+                .await
+                .context("Failed to submit app merkle_root")?;
+        } else {
+            tracing::info!("Contract already contains root, skipping to fulfillment");
+        }
 
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };

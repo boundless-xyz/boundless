@@ -214,7 +214,7 @@ where
         &self,
         request: &ProvingRequest,
         client_sig: &Bytes,
-        priority_gas: Option<u128>,
+        priority_gas: Option<u64>,
     ) -> Result<u64, MarketError> {
         tracing::debug!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
@@ -236,8 +236,8 @@ where
                 .context("Failed to get priority gas fee")?;
 
             call = call
-                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas)
-                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas);
+                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
+                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
         }
 
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
