@@ -195,13 +195,19 @@ contract ProofMarket is IProofMarket, EIP712 {
         _lockinAuthed(request, client, idx, prover);
     }
 
-    function _lockinAuthed(ProvingRequest calldata request, address client, uint32 idx, address prover) internal {
+    /// Check that the request is valid, and not already locked or fulfilled by another prover.
+    /// Returns the auction price and deadline for the request.
+    function _validateRequestForLockin(ProvingRequest calldata request, address client, uint32 idx)
+        internal
+        view
+        returns (uint96 price, uint64 deadline)
+    {
         // Check that the request is internally consistent and is not expired.
         request.offer.requireValid();
 
         // We are ending the reverse Dutch auction at the current price.
-        uint96 price = request.offer.priceAtBlock(uint64(block.number));
-        uint64 deadline = request.offer.deadline();
+        price = request.offer.priceAtBlock(uint64(block.number));
+        deadline = request.offer.deadline();
         if (deadline < block.number) {
             revert RequestIsExpired({requestId: request.id, deadline: deadline});
         }
@@ -214,6 +220,12 @@ contract ProofMarket is IProofMarket, EIP712 {
         if (fulfilled) {
             revert RequestIsFulfilled({requestId: request.id});
         }
+
+        return (price, deadline);
+    }
+
+    function _lockinAuthed(ProvingRequest calldata request, address client, uint32 idx, address prover) internal {
+        (uint96 price, uint64 deadline) = _validateRequestForLockin(request, client, idx);
 
         // Lock the request such that only the given prover can fulfill it (or else face a penalty).
         Account storage clientAccount = accounts[client];
