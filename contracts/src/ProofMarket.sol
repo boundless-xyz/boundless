@@ -370,8 +370,8 @@ contract ProofMarket is IProofMarket, EIP712 {
         Fulfillment[] calldata fills,
         bytes calldata assessorSeal
     ) external {
-        IRiscZeroSetVerifier set_verifier = IRiscZeroSetVerifier(address(VERIFIER));
-        set_verifier.submitMerkleRoot(root, seal);
+        IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
+        setVerifier.submitMerkleRoot(root, seal);
         fulfillBatch(fills, assessorSeal);
     }
 }
