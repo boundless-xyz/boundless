@@ -168,6 +168,15 @@ interface IProofMarket {
     /// Fulfills a batch of locked requests
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external;
 
+    /// Optional path to combine submitting a new merkle root to the set-verifier and then calling fulfillBatch
+    /// Useful to reduce the transaction count for fulfillments
+    function submitRootAndFulfillBatch(
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal
+    ) external;
+
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
     function slash(uint192 requestId) external;
