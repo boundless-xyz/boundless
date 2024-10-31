@@ -106,7 +106,7 @@ interface IProofMarket {
     /// Event when a withdrawal is made from the proof market.
     event Withdrawal(address indexed account, uint256 value);
     /// Contract upgraded to a new version.
-    event Upgraded(uint64 indexed version, bytes32 imageId, string imageUrl);
+    event Upgraded(uint64 indexed version);
 
     /// Request is locked when it was not expected to be.
     error RequestIsLocked(uint192 requestId);

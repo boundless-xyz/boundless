@@ -17,26 +17,6 @@ set-builder-guest-url = "https://silver-adjacent-louse-491.mypinata.cloud/ipfs/Q
 assessor-image-id = "0x5c4d4a3fce44304ba47ce37fae9f418f60360755d64584cb6668ce43ede3e43d"
 assessor-guest-url = "https://silver-adjacent-louse-491.mypinata.cloud/ipfs/QmQPvU1yUEPdg76SpTbQVGYeejo5SoGqxFjiSdhRKLczH3"
 
-###
-
-[chains.ethereum-mainnet]
-name = "Ethereum Mainnet"
-id = 1
-etherscan-url = "https://etherscan.io/"
-
-# Accounts
-admin = "0xF616A4f81857CFEe54A4A049Ec187172574bd412"
-
-# Contracts
-router = "0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319"
-set-verifier = "0x0000000000000000000000000000000000000000"
-proof-market = "0x0000000000000000000000000000000000000000"
-
-# Guests info
-set-builder-image-id = "0xa6d595680f98dddcf6649199cb65a374f2e7d4a234c22cd28799d67f027db065"
-set-builder-guest-url = "https://silver-adjacent-louse-491.mypinata.cloud/ipfs/QmPobaLheQtpbSLn2QPGjnSM9Yy475hV9xAbMpyUXZ3zZA"
-assessor-image-id = "0x5c4d4a3fce44304ba47ce37fae9f418f60360755d64584cb6668ce43ede3e43d"
-assessor-guest-url = "https://silver-adjacent-louse-491.mypinata.cloud/ipfs/QmQPvU1yUEPdg76SpTbQVGYeejo5SoGqxFjiSdhRKLczH3"
 
 ###
 

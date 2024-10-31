@@ -10,7 +10,7 @@ import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {ControlID, RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
+import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 
 import {ProofMarket} from "../src/ProofMarket.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
@@ -45,12 +45,10 @@ contract Deploy is Script, RiscZeroCheats, ConfigLoader {
         uint256 chainId = block.chainid;
         console2.log("You are deploying on ChainID %d", chainId);
 
-        // Load the config and chain key
-        (string memory config, string memory chainKey) = ConfigLoader.loadConfig(
+        // Load the deployment config
+        DeploymentConfig memory deploymentConfig = ConfigLoader.loadDeploymentConfig(
             string.concat(vm.projectRoot(), "/", CONFIG_FILE)
         );
-
-        DeploymentConfig memory deploymentConfig = ConfigParser.parseConfig(config, chainKey);
 
         // Assign parsed config values to the variables
         verifier = IRiscZeroVerifier(deploymentConfig.router);

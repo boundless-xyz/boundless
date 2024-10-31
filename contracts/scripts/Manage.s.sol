@@ -54,15 +54,14 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
         console2.log("You are deploying on ChainID %d", chainId);
 
         // Load the config and chainKey
-        (string memory config, string memory chainKey) = ConfigLoader.loadConfig(
+        string memory chainKey = vm.envOr("CHAIN_KEY", string(""));
+        DeploymentConfig memory deploymentConfig = ConfigLoader.loadDeploymentConfig(
             string.concat(vm.projectRoot(), "/", CONFIG)
         );
-
-        DeploymentConfig memory deploymentConfig = ConfigParser.parseConfig(config, chainKey);
         _router = IRiscZeroVerifier(deploymentConfig.router);
 
         // Use a pre-deployed verifier, if not abort.
-        require(address(_router) != address(0), "A RiscZeroVerifier contract must be specified");
+        require(address(_router) != address(0), "An IRiscZeroVerifier contract must be specified");
         console2.log("Using IRiscZeroVerifier contract deployed at", address(_router));
 
         vm.broadcast(deployerAddress());
@@ -75,6 +74,7 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
         // Print in TOML format
         console2.log("");
         console2.log(string.concat("[[chains.", chainKey, ".verifiers]]"));
+        console2.log("name = RiscZeroSetVerifier");
         console2.log(string.concat("version = \"", _setVerifier.VERSION(), "\""));
         console2.log(string.concat("selector = \"", Strings.toHexString(uint256(uint32(_setVerifier.SELECTOR())), 4), "\""));
         console2.log(string.concat("verifier = \"", Strings.toHexString(uint256(uint160(address(_setVerifier)))), "\""));
@@ -98,11 +98,10 @@ contract DeployProofMarket is RiscZeroManagementScript {
         address newImplementation = address(new ProofMarket());
         console2.log("Deployed new ProofMarket implementation at", newImplementation);
 
-        // Load the config and chainKey
-        (string memory config, string memory chainKey) = ConfigLoader.loadConfig(
+        // Load the config
+        DeploymentConfig memory deploymentConfig = ConfigLoader.loadDeploymentConfig(
             string.concat(vm.projectRoot(), "/", CONFIG)
         );
-        DeploymentConfig memory deploymentConfig = ConfigParser.parseConfig(config, chainKey);
 
         address router = deploymentConfig.router;
         require(router != address(0), "RiscZeroVerifierRouter address must be set");
@@ -145,11 +144,10 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         address newImplementation = address(new ProofMarket());
         console2.log("Deployed new ProofMarket implementation at", newImplementation);
 
-         // Load the config and chainKey
-        (string memory config, string memory chainKey) = ConfigLoader.loadConfig(
+        // Load the config
+        DeploymentConfig memory deploymentConfig = ConfigLoader.loadDeploymentConfig(
             string.concat(vm.projectRoot(), "/", CONFIG)
         );
-        DeploymentConfig memory deploymentConfig = ConfigParser.parseConfig(config, chainKey);
         address proofMarketAddress = deploymentConfig.proofMarket;
         require(proofMarketAddress != address(0), "ProofMarket (proxy) address must be set");
         console2.log("Using ProofMarket (proxy) at address", proofMarketAddress);

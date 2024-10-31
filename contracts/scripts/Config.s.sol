@@ -22,7 +22,6 @@ struct DeploymentConfig {
 }
 
 contract ConfigLoader is Script {
-    using stdJson for string;
 
     function loadConfig(string memory configFilePath) internal view returns (string memory config, string memory chainKey) {
         // Load the config file
@@ -44,13 +43,10 @@ contract ConfigLoader is Script {
 
         return (config, chainKey);
     }
-}
 
-library ConfigParser {
-    using stdJson for string;
-
-    function parseConfig(string memory config, string memory chainKey) internal pure returns (DeploymentConfig memory) {
+    function loadDeploymentConfig(string memory configFilePath) internal view returns (DeploymentConfig memory) {
         DeploymentConfig memory deploymentConfig;
+        (string memory config, string memory chainKey) = loadConfig(configFilePath);
 
         string memory chain = string.concat(".chains.", chainKey);
 

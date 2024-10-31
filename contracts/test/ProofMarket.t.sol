@@ -14,7 +14,7 @@ import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {ProofMarket, MerkleProofish, AssessorJournal, VERSION} from "../src/ProofMarket.sol";
+import {ProofMarket, MerkleProofish, AssessorJournal} from "../src/ProofMarket.sol";
 import {
     Fulfillment,
     IProofMarket,
@@ -787,7 +787,7 @@ contract ProofMarketTest is Test {
 
     /// @dev Test the upgradeability of the contract under safe conditions.
     /// This mode requires to **always** start from a clean cache, as such, before running
-    /// forge test, make sure to run `orge clean && forge build` to clear the cache and build from scratch.
+    /// forge test, make sure to run `forge clean && forge build` to clear the cache and build from scratch.
     function testUpgradeability() public {
         address implAddressV1 = Upgrades.getImplementationAddress(proxy);
         vm.startPrank(OWNER_WALLET.addr);
@@ -815,7 +815,7 @@ contract ProofMarketTest is Test {
 
         // Should emit an `Upgraded` event
         vm.expectEmit(true, true, false, true);
-        emit IProofMarket.Upgraded(VERSION, ASSESSOR_IMAGE_ID, "https://assessor.dev.null");
+        emit IProofMarket.Upgraded(proofMarket.VERSION());
 
         UnsafeUpgrades.upgradeProxy(
             proxy,

@@ -35,9 +35,6 @@ import {ProofMarketLib} from "./ProofMarketLib.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
 
-/// @dev The version of the contract.
-uint64 constant VERSION = 2;
-
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
 struct Account {
     /// @dev uint96 is enough to represent the entire token supply of Ether.
@@ -110,6 +107,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for uint256;
 
+    /// @dev The version of the contract.
+    uint64 public constant VERSION = 2;
+
     // Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
     mapping(uint192 => RequestLock) public requestLocks;
     // Mapping of address to account state.
@@ -148,7 +148,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         ASSESSOR_ID = assessorId;
         imageUrl = _imageUrl;
 
-        emit Upgraded(VERSION, ASSESSOR_ID, imageUrl);
+        emit Upgraded(VERSION);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

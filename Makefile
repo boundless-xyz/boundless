@@ -11,7 +11,7 @@ CHAIN_KEY = "anvil"
 RUST_LOG = info,broker=debug,boundless_market=debug
 DEPLOYER_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-ADMIN_PUBLIC_KEY = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+ADMIN_ADDRESS = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 DEPOSIT_AMOUNT = 10
 
 LOGS_DIR = logs
@@ -40,7 +40,7 @@ devnet-up: check-deps
 		sleep 5; \
 	fi
 	echo "Deploying contracts..."
-	DEPLOYER_PRIVATE_KEY=$(DEPLOYER_PRIVATE_KEY) CHAIN_KEY=${CHAIN_KEY} RISC0_DEV_MODE=$(RISC0_DEV_MODE) PROOF_MARKET_OWNER=$(ADMIN_PUBLIC_KEY) forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$(ANVIL_PORT) --broadcast -vv || { echo "Failed to deploy contracts"; $(MAKE) devnet-down; exit 1; }
+	DEPLOYER_PRIVATE_KEY=$(DEPLOYER_PRIVATE_KEY) CHAIN_KEY=${CHAIN_KEY} RISC0_DEV_MODE=$(RISC0_DEV_MODE) PROOF_MARKET_OWNER=$(ADMIN_ADDRESS) forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$(ANVIL_PORT) --broadcast -vv || { echo "Failed to deploy contracts"; $(MAKE) devnet-down; exit 1; }
 	echo "Fetching contract addresses..."
 	{ \
 		SET_VERIFIER_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
