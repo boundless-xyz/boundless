@@ -16,6 +16,7 @@ import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/I
 
 import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "../../src/IProofMarket.sol";
 import {ProofMarketLib} from "../../src/ProofMarketLib.sol";
+import {IRiscZeroSetVerifier} from "../../src/IRiscZeroSetVerifier.sol";
 
 // TODO(#165): A potential issue with the current approach is: if the client
 // signs a request with a given ID, it expires with no bids, and they sign a
@@ -154,6 +155,8 @@ contract ProofMarketV2Test is
         __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
         ASSESSOR_ID = assessorId;
         imageUrl = _imageUrl;
+
+        emit Upgraded(VERSION);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
@@ -180,6 +183,7 @@ contract ProofMarketV2Test is
     // Deposit Ether into the market.
     function deposit() public payable {
         accounts[msg.sender].balance += msg.value.toUint96();
+        emit Deposit(msg.sender, msg.value);
     }
 
     // Withdraw Ether from the market.
@@ -187,6 +191,7 @@ contract ProofMarketV2Test is
         accounts[msg.sender].balance -= value.toUint96();
         (bool sent,) = msg.sender.call{value: value}("");
         require(sent, "failed to send Ether");
+        emit Withdrawal(msg.sender, value);
     }
 
     // Get the current balance of an account.
@@ -194,12 +199,12 @@ contract ProofMarketV2Test is
         return uint256(accounts[addr].balance);
     }
 
-    function submitRequest(ProvingRequest calldata request, bytes memory clientSignature) external payable {
+    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable {
         accounts[msg.sender].balance += msg.value.toUint96();
         emit RequestSubmitted(request, clientSignature);
     }
 
-    function lockin(ProvingRequest calldata request, bytes memory clientSignature) external {
+    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
 
         // Recover the prover address and require the client address to equal the address part of the ID.
@@ -211,7 +216,7 @@ contract ProofMarketV2Test is
 
     function lockinWithSig(
         ProvingRequest calldata request,
-        bytes memory clientSignature,
+        bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
@@ -295,7 +300,7 @@ contract ProofMarketV2Test is
         emit RequestFulfilled(fill.id, fill.journal, fill.seal);
     }
 
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external {
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) public {
         // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         uint192[] memory ids = new uint192[](fills.length);
@@ -390,6 +395,17 @@ contract ProofMarketV2Test is
 
     function imageInfo() external view returns (bytes32, string memory) {
         return (ASSESSOR_ID, imageUrl);
+    }
+
+    function submitRootAndFulfillBatch(
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal
+    ) external {
+        IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
+        setVerifier.submitMerkleRoot(root, seal);
+        fulfillBatch(fills, assessorSeal);
     }
 }
 
