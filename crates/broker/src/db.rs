@@ -9,8 +9,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use risc0_zkvm::sha::Digest;
 use sqlx::{
-    migrate::MigrateDatabase,
-    sqlite::{Sqlite, SqlitePool, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Acquire, Row,
 };
 use thiserror::Error;
@@ -131,27 +130,20 @@ pub struct SqliteDb {
 
 impl SqliteDb {
     pub async fn new(conn_str: &str) -> Result<Self, DbError> {
-        if !Sqlite::database_exists(conn_str).await? {
-            Sqlite::create_database(conn_str).await?
-        }
+        let opts = SqliteConnectOptions::from_str(conn_str)?
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .create_if_missing(true)
+            .busy_timeout(std::time::Duration::from_secs(1));
 
         let pool = SqlitePoolOptions::new()
             // set timeouts to None for sqlite in-memory:
             // https://github.com/launchbadge/sqlx/issues/1647
             .max_lifetime(None)
             .idle_timeout(None)
-            .connect(&conn_str)
+            .connect_with(opts)
             .await?;
 
         sqlx::migrate!("./migrations").run(&pool).await?;
-
-        let mut conn = pool.acquire().await?;
-
-        // Apply these here vs migrations because PRAGMAs can't be applied
-        // during transactions which happens during migrations
-        // additionally busy_timeout only apply per connection
-        sqlx::query("PRAGMA busy_timeout = 1000").execute(&mut *conn).await?;
-        sqlx::query("PRAGMA journal_mode = WAL").execute(&mut *conn).await?;
 
         Ok(Self { pool })
     }
