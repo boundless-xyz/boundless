@@ -270,7 +270,7 @@ async fn submit_order(
         return Err(AppError::InternalErr(anyhow!("Internal server error")));
     }
 
-    tracing::debug!("Proving request {:?} submitted", id);
+    tracing::debug!("Order 0x{id:x} submitted");
     Ok(Json(json!({ "status": "success", "request_id": id })))
 }
 
@@ -341,7 +341,7 @@ async fn broadcast_order(order: &Order, state: Arc<AppState>) {
     let order_json = match serde_json::to_string(&order) {
         Ok(order_json) => order_json,
         Err(err) => {
-            error!("Failed to serialize Order: {}", err);
+            error!("Failed to serialize order 0x{:x}: {}", order.request.id, err);
             return;
         }
     };
@@ -377,7 +377,7 @@ async fn broadcast_order(order: &Order, state: Arc<AppState>) {
         }
     }
 
-    tracing::debug!("Order {:?} broadcasted", order.request.id);
+    tracing::debug!("Order 0x{:x} broadcasted", order.request.id);
 }
 
 async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<AppState>) {
