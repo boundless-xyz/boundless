@@ -24,7 +24,7 @@ aws-sdk-s3 = "1.34"
 guest-assessor = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-ethereum-contracts = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde_json = { workspace = true }

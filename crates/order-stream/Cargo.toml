@@ -14,7 +14,7 @@ axum = { workspace = true, features = ["ws"] }
 boundless-market = { workspace = true, features = ["test-utils"] }
 clap = { workspace = true, features = ["env", "derive"] }
 futures-util = { workspace = true }
-rand = { workspace = true, features = ["small_rng"] }
+rand = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
