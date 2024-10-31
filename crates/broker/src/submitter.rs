@@ -36,6 +36,7 @@ pub struct Submitter<T, P> {
     market: ProofMarketService<T, Arc<P>>,
     set_verifier: SetVerifierService<T, Arc<P>>,
     set_builder_img_id: Digest,
+    config: ConfigLock,
 }
 
 impl<T, P> Submitter<T, P>
@@ -76,7 +77,7 @@ where
             set_verifier.with_timeout(Duration::from_secs(txn_timeout));
         }
 
-        Ok(Self { db, prover, market, set_verifier, set_builder_img_id })
+        Ok(Self { db, prover, market, set_verifier, set_builder_img_id, config })
     }
 
     async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
@@ -99,16 +100,12 @@ where
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<()> {
         tracing::info!("Submitting batch {batch_id}");
 
+        // Collect the needed parts for the new merkle root:
         let batch_seal = self.fetch_encode_g16(&batch.groth16_proof_id).await?;
         let batch_root = batch.root.context("Batch missing root digest")?;
         let root = B256::from_slice(batch_root.as_bytes());
 
-        tracing::info!("Submitting app merkle root: {root}");
-        self.set_verifier
-            .submit_merkle_root(root, batch_seal.into())
-            .await
-            .context("Failed to submit app merkle_root")?;
-
+        // Collect the needed parts for the fulfillBatch:
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
 
@@ -202,21 +199,73 @@ where
         let assessor_seal =
             assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
 
-        if let Err(err) =
-            self.market.fulfill_batch(fulfillments.clone(), assessor_seal.into()).await
-        {
-            tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
-            for fulfillment in fulfillments.iter() {
-                if let Err(db_err) =
-                    self.db.set_order_failure(U256::from(fulfillment.id), format!("{err:?}")).await
-                {
-                    tracing::error!(
-                        "Failed to set order failure during proof submission: {:x} {db_err:?}",
-                        fulfillment.id
-                    );
+        let single_txn_fulfill = {
+            let config = self.config.lock_all().context("Failed to read config")?;
+            config.batcher.single_txn_fulfill
+        };
+
+        if single_txn_fulfill {
+            if let Err(err) = self
+                .market
+                .submit_merkle_and_fulfill(
+                    root,
+                    batch_seal.into(),
+                    fulfillments.clone(),
+                    assessor_seal.into(),
+                )
+                .await
+            {
+                tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
+                for fulfillment in fulfillments.iter() {
+                    if let Err(db_err) = self
+                        .db
+                        .set_order_failure(U256::from(fulfillment.id), format!("{err:?}"))
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to set order failure during proof submission: {:x} {db_err:?}",
+                            fulfillment.id
+                        );
+                    }
                 }
+                bail!("transaction to fulfill batch failed");
             }
-            bail!("transaction to fulfill batch failed");
+        } else {
+            let contains_root = match self.set_verifier.contains_root(root).await {
+                Ok(res) => res,
+                Err(err) => {
+                    tracing::error!("Failed to query if set-verifier contains the new root, trying to submit anyway {err:?}");
+                    false
+                }
+            };
+            if !contains_root {
+                tracing::info!("Submitting app merkle root: {root}");
+                self.set_verifier
+                    .submit_merkle_root(root, batch_seal.into())
+                    .await
+                    .context("Failed to submit app merkle_root")?;
+            } else {
+                tracing::info!("Contract already contains root, skipping to fulfillment");
+            }
+
+            if let Err(err) =
+                self.market.fulfill_batch(fulfillments.clone(), assessor_seal.into()).await
+            {
+                tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
+                for fulfillment in fulfillments.iter() {
+                    if let Err(db_err) = self
+                        .db
+                        .set_order_failure(U256::from(fulfillment.id), format!("{err:?}"))
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to set order failure during proof submission: {:x} {db_err:?}",
+                            fulfillment.id
+                        );
+                    }
+                }
+                bail!("transaction to fulfill batch failed");
+            }
         }
 
         for fulfillment in fulfillments.iter() {
@@ -315,9 +364,7 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    #[tokio::test]
-    #[traced_test]
-    async fn submit_batch() {
+    async fn run_submit_batch(config: ConfigLock) {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
@@ -538,7 +585,6 @@ mod tests {
 
         market.lockin_request(&order.request, &client_sig.into(), None).await.unwrap();
 
-        let config = ConfigLock::default();
         let submitter = Submitter::new(
             db.clone(),
             config,
@@ -554,5 +600,20 @@ mod tests {
 
         let batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(batch.status, BatchStatus::Submitted);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn submit_batch() {
+        let config = ConfigLock::default();
+        run_submit_batch(config).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn submit_batch_merged_txn() {
+        let config = ConfigLock::default();
+        config.load_write().as_mut().unwrap().batcher.single_txn_fulfill = true;
+        run_submit_batch(config).await;
     }
 }

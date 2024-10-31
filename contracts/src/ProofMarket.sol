@@ -13,6 +13,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {IRiscZeroSetVerifier} from "./IRiscZeroSetVerifier.sol";
 
 import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "./IProofMarket.sol";
 import {ProofMarketLib} from "./ProofMarketLib.sol";
@@ -191,12 +192,12 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         return uint256(accounts[addr].balance);
     }
 
-    function submitRequest(ProvingRequest calldata request, bytes memory clientSignature) external payable {
+    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable {
         accounts[msg.sender].balance += msg.value.toUint96();
         emit RequestSubmitted(request, clientSignature);
     }
 
-    function lockin(ProvingRequest calldata request, bytes memory clientSignature) external {
+    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
 
         // Recover the prover address and require the client address to equal the address part of the ID.
@@ -208,7 +209,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
     function lockinWithSig(
         ProvingRequest calldata request,
-        bytes memory clientSignature,
+        bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
@@ -292,7 +293,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         emit RequestFulfilled(fill.id, fill.journal, fill.seal);
     }
 
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external {
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) public {
         // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         uint192[] memory ids = new uint192[](fills.length);
@@ -387,6 +388,17 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
     function imageInfo() external view returns (bytes32, string memory) {
         return (ASSESSOR_ID, imageUrl);
+    }
+
+    function submitRootAndFulfillBatch(
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal
+    ) external {
+        IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
+        setVerifier.submitMerkleRoot(root, seal);
+        fulfillBatch(fills, assessorSeal);
     }
 }
 

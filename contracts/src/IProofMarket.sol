@@ -143,14 +143,14 @@ interface IProofMarket {
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
     /// @dev Submitting the transaction only broadcasting it, and is not a required step.
-    function submitRequest(ProvingRequest calldata request, bytes memory clientSignature) external payable;
+    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method should be called from the address of the prover.
-    function lockin(ProvingRequest calldata request, bytes memory clientSignature) external;
+    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
@@ -159,7 +159,7 @@ interface IProofMarket {
     /// @dev This method uses the provided signature to authenticate the prover.
     function lockinWithSig(
         ProvingRequest calldata request,
-        bytes memory clientSignature,
+        bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external;
 
@@ -169,6 +169,15 @@ interface IProofMarket {
 
     /// Fulfills a batch of locked requests
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external;
+
+    /// Optional path to combine submitting a new merkle root to the set-verifier and then calling fulfillBatch
+    /// Useful to reduce the transaction count for fulfillments
+    function submitRootAndFulfillBatch(
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal
+    ) external;
 
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
