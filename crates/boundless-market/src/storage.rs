@@ -131,7 +131,7 @@ pub enum PinataStorageProviderError {
 }
 
 const DEFAULT_PINATA_API_URL: &str = "https://api.pinata.cloud";
-const DEFAULT_GATEWAY_URL: &str = "https://dweb.link";
+const DEFAULT_GATEWAY_URL: &str = "https://gateway.pinata.cloud/ipfs/";
 
 impl PinataStorageProvider {
     pub async fn from_env() -> Result<Self, PinataStorageProviderError> {
