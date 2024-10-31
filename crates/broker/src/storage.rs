@@ -31,6 +31,9 @@ pub enum StorageErr {
     #[error("HTTP status error {0}")]
     HttpStatusErr(String),
 
+    #[error("HTTP fetch failed after {0} retries")]
+    FetchRetryMax(u8),
+
     #[error("Authority missing")]
     AuthorityMissing,
 
@@ -45,7 +48,10 @@ pub struct UriHandler {
     uri: url::Url,
     uri_scheme: String,
     max_size: Option<usize>,
+    retries: u8,
 }
+
+const DEFAULT_RETRY_NUMB: u8 = 1;
 
 impl UriHandler {
     fn supported_scheme(scheme: &str) -> bool {
@@ -59,7 +65,11 @@ impl UriHandler {
         matches!(authority, "image" | "input")
     }
 
-    pub fn new(uri_str: &str, max_size: Option<usize>) -> Result<Self, StorageErr> {
+    pub fn new(
+        uri_str: &str,
+        max_size: Option<usize>,
+        retries: Option<u8>,
+    ) -> Result<Self, StorageErr> {
         let uri = url::Url::parse(uri_str)?;
 
         let scheme = uri.scheme().to_string();
@@ -86,7 +96,12 @@ impl UriHandler {
             }
         }
 
-        Ok(Self { uri, uri_scheme: scheme, max_size })
+        Ok(Self {
+            uri,
+            uri_scheme: scheme,
+            max_size,
+            retries: retries.unwrap_or(DEFAULT_RETRY_NUMB),
+        })
     }
 
     pub fn exists(&self) -> bool {
@@ -103,15 +118,29 @@ impl UriHandler {
         match self.uri_scheme.as_ref() {
             "bonsai" => Err(StorageErr::BonsaiFetch),
             "http" | "https" => {
-                let res = reqwest::get(self.uri.to_string()).await?;
-                let status = res.status();
-                if !status.is_success() {
-                    let body = res.text().await?;
-                    return Err(StorageErr::HttpStatusErr(format!(
-                        "HTTP fetch err: {} - {}",
-                        status, body
-                    )));
-                }
+                let mut retry = 0;
+                let res = loop {
+                    // TODO: move these ?'s to captures + retries
+                    // currently only retry on http status code failures
+                    let res = reqwest::get(self.uri.to_string()).await?;
+                    let status = res.status();
+                    if status.is_success() {
+                        break res;
+                    } else {
+                        let body = res.text().await?;
+                        tracing::error!(
+                            "HTTP error fetching contents {retry}/{}: {status} - {body}",
+                            self.retries
+                        );
+                        if retry == self.retries {
+                            return Err(StorageErr::FetchRetryMax(self.retries));
+                        }
+                        retry += 1;
+                        // TODO configurable...
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                };
 
                 let mut buffer = vec![];
                 if let Some(content_length) = res.content_length() {
@@ -163,11 +192,12 @@ impl UriHandler {
 pub struct UriHandlerBuilder {
     uri_str: String,
     max_size: Option<usize>,
+    retries: Option<u8>,
 }
 
 impl UriHandlerBuilder {
     pub fn new(uri_str: &str) -> Self {
-        Self { uri_str: uri_str.into(), max_size: None }
+        Self { uri_str: uri_str.into(), max_size: None, retries: None }
     }
 
     pub fn set_max_size(mut self, max_size: usize) -> Self {
@@ -175,8 +205,13 @@ impl UriHandlerBuilder {
         self
     }
 
+    pub fn set_retries(mut self, retries: u8) -> Self {
+        self.retries = Some(retries);
+        self
+    }
+
     pub fn build(self) -> Result<UriHandler, StorageErr> {
-        UriHandler::new(&self.uri_str, self.max_size)
+        UriHandler::new(&self.uri_str, self.max_size, self.retries)
     }
 }
 
@@ -189,6 +224,8 @@ impl Display for UriHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use httpmock::prelude::*;
+    use tracing_test::traced_test;
 
     #[test]
     fn bonsai_uri_parser() {
@@ -230,22 +267,65 @@ mod tests {
 
     #[tokio::test]
     async fn http_fetch() {
-        let handler = UriHandlerBuilder::new("https://risczero.com/")
-            .set_max_size(1_000_000)
-            .build()
-            .unwrap();
+        let server = MockServer::start();
+        let resp_data = vec![0x41, 0x41, 0x41, 0x41];
+        let get_mock = server.mock(|when, then| {
+            when.method(GET).path("/image");
+            then.status(200).body(&resp_data);
+        });
+
+        let url = format!("http://{}/image", server.address());
+        let handler = UriHandlerBuilder::new(&url).set_max_size(1_000_000).build().unwrap();
+        assert!(!handler.exists());
+
+        let data = handler.fetch().await.unwrap();
+        assert_eq!(data, resp_data);
+        get_mock.assert();
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn http_fetch_retry() {
+        static mut REQ_COUNT: u32 = 0;
+
+        let server = MockServer::start();
+        let get_mock = server.mock(|when, then| {
+            when.method(GET).path("/image").matches(|_req: &HttpMockRequest| {
+                let req = unsafe {
+                    let req = REQ_COUNT;
+                    REQ_COUNT += 1;
+                    req
+                };
+                req >= 1
+            });
+            then.status(200).body("TEST");
+        });
+
+        let url = format!("http://{}/image", server.address());
+        let handler =
+            UriHandlerBuilder::new(&url).set_max_size(1_000_000).set_retries(1).build().unwrap();
         assert!(!handler.exists());
 
         let _data = handler.fetch().await.unwrap();
+        get_mock.assert();
+        assert!(logs_contain("HTTP error fetching contents 0/1"));
     }
 
     #[tokio::test]
     #[should_panic(expected = "TooLarge")]
     async fn max_size_limit() {
-        let handler =
-            UriHandlerBuilder::new("https://risczero.com/").set_max_size(1).build().unwrap();
+        let server = MockServer::start();
+        let resp_data = vec![0x41, 0x41, 0x41, 0x41];
+        let get_mock = server.mock(|when, then| {
+            when.method(GET).path("/image");
+            then.status(200).body(&resp_data);
+        });
+
+        let url = format!("http://{}/image", server.address());
+        let handler = UriHandlerBuilder::new(&url).set_max_size(1).build().unwrap();
         assert!(!handler.exists());
 
         let _data = handler.fetch().await.unwrap();
+        get_mock.assert();
     }
 }
