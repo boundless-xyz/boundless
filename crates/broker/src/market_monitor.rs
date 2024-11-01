@@ -17,6 +17,7 @@ use boundless_market::contracts::{proof_market::ProofMarketService, IProofMarket
 use futures_util::StreamExt;
 
 use crate::{
+    db::DbError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, Order,
 };
@@ -178,7 +179,20 @@ where
                             )
                             .await
                         {
-                            tracing::error!("Failed to add new order into DB: {err:?}");
+                            match err {
+                                DbError::SqlErr(sqlx::Error::Database(db_err)) => {
+                                    if db_err.is_unique_violation() {
+                                        tracing::warn!("Duplicate order detected: {db_err:?}");
+                                    } else {
+                                        tracing::error!(
+                                            "Failed to add new order into DB: {db_err:?}"
+                                        );
+                                    }
+                                }
+                                _ => {
+                                    tracing::error!("Failed to add new order into DB: {err:?}");
+                                }
+                            }
                         }
                     }
                     Err(err) => {
