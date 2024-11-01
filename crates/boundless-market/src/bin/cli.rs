@@ -337,7 +337,11 @@ where
     tracing::debug!("Request: {}", serde_json::to_string_pretty(&request)?);
 
     if args.run_executor {
-        execute(&request).await?;
+        let session_info = execute(&request).await?;
+        let journal = session_info.journal.bytes;
+        if !request.requirements.predicate.eval(&journal) {
+            bail!("Predicate evaluation failed");
+        }
     }
 
     let request_id = market.submit_request(&request, &signer).await?;
@@ -402,7 +406,11 @@ where
     }
 
     if run_executor {
-        execute(&request).await?;
+        let session_info = execute(&request).await?;
+        let journal = session_info.journal.bytes;
+        if !request.requirements.predicate.eval(&journal) {
+            bail!("Predicate evaluation failed");
+        }
     }
 
     let request_id = market.submit_request(&request, &signer).await?;
