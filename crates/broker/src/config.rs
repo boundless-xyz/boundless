@@ -51,8 +51,10 @@ pub struct MarketConf {
     /// for increasing the priority if competing with multiple provers during the
     /// same block
     pub lockin_priority_gas: Option<u64>,
-    /// Max input / image file size
+    /// Max input / image file size allowed for downloading from request URLs
     pub max_file_size: usize,
+    /// Max retries for fetching input / image contents from URLs
+    pub max_fetch_retries: Option<u8>,
 }
 
 impl Default for MarketConf {
@@ -68,6 +70,7 @@ impl Default for MarketConf {
             allow_client_addresses: None,
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
+            max_fetch_retries: Some(2),
         }
     }
 }
@@ -336,6 +339,7 @@ lookback_blocks = 100
 max_stake = "0.1"
 skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
+max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
 lockin_priority_gas = 100
 
@@ -433,6 +437,7 @@ error = ?"#;
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
             assert_eq!(config.market.lockin_priority_gas, Some(100));
+            assert_eq!(config.market.max_fetch_retries, Some(10));
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
