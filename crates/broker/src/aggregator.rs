@@ -513,7 +513,6 @@ where
                 };
 
                 self_clone.aggregate_proofs().await.map_err(SupervisorErr::Recover)?;
-                // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
             }
         })
