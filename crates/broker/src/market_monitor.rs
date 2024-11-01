@@ -174,21 +174,13 @@ where
                     Ok((event, _log)) => {
                         tracing::info!("Detected new request {:x}", event.request.id);
 
-                        let valid_sig = match event.request.validate_signature(
+                        if let Err(err) = event.request.verify_signature(
                             &event.clientSignature,
                             market_addr,
                             chain_id,
                         ) {
-                            Ok(res) => res,
-                            Err(err) => {
-                                tracing::warn!("New order signature failure: {err:?}");
-                                return;
-                            }
-                        };
-
-                        if !valid_sig {
                             tracing::warn!(
-                                "Failed to validate order signature: 0x{:x}",
+                                "Failed to validate order signature: 0x{:x} - {err:?}",
                                 event.request.id
                             );
                             return;

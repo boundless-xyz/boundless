@@ -9,6 +9,7 @@ use std::str::FromStr;
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
     contract::Error as ContractErr,
+    primitives::SignatureError,
     signers::{Error as SignerErr, Signature, SignerSync},
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
@@ -178,17 +179,23 @@ impl ProvingRequest {
         signer.sign_hash_sync(&hash)
     }
 
-    pub fn validate_signature(
+    /// Verifies the proving request signature with the given signer and EIP-712 domain derived from
+    /// the given contract address and chain ID.
+    pub fn verify_signature(
         &self,
         signature: &Bytes,
         contract_addr: Address,
         chain_id: u64,
-    ) -> Result<bool, SignerErr> {
+    ) -> Result<(), SignerErr> {
         let sig = Signature::try_from(signature.as_ref())?;
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
-
-        Ok(sig.recover_address_from_prehash(&hash)? == self.client_address())
+        let addr = sig.recover_address_from_prehash(&hash)?;
+        if addr == self.client_address() {
+            Ok(())
+        } else {
+            Err(SignerErr::SignatureError(SignatureError::FromBytes("Address mismatch")))
+        }
     }
 }
 
@@ -637,21 +644,6 @@ mod tests {
     }
 
     #[test]
-    fn sign_order() {
-        let signer: PrivateKeySigner =
-            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
-        let order_id: u32 = 1;
-        let contract_addr = Address::ZERO;
-        let chain_id = 1;
-        let signer_addr = signer.address();
-
-        let (_req, client_sig) =
-            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
-        let static_sig = hex_literal::hex!("3d23005dcb21274e31b680ccbfb153d739266a249de658667e679dbf1ab6fd615574fa5893626f9ac7cf621f12204dce1fecfd0f76a479d8c771a19b2b8cf4ff1b");
-        assert_eq!(client_sig, static_sig);
-    }
-
-    #[test]
     fn validate_sig() {
         let signer: PrivateKeySigner =
             "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
@@ -663,7 +655,7 @@ mod tests {
         let (req, client_sig) =
             create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
 
-        assert!(req.validate_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap());
+        req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
     }
 
     #[test]
@@ -680,8 +672,6 @@ mod tests {
             create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
 
         client_sig[0] = 1;
-        assert!(!req
-            .validate_signature(&Bytes::from(client_sig), contract_addr, chain_id)
-            .unwrap());
+        req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
     }
 }

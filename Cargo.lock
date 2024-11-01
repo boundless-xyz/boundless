@@ -1822,7 +1822,6 @@ dependencies = [
  "guest-assessor",
  "guest-util",
  "hex",
- "hex-literal",
  "reqwest",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
