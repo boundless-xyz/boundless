@@ -125,7 +125,7 @@ where
             return Ok(());
         }
 
-        let (skip_preflight, max_size, peak_prove_khz) = {
+        let (skip_preflight, max_size, peak_prove_khz, fetch_retries) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             let skip_preflight =
                 if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
@@ -134,7 +134,12 @@ where
                     false
                 };
 
-            (skip_preflight, config.market.max_file_size, config.market.peak_prove_khz)
+            (
+                skip_preflight,
+                config.market.max_file_size,
+                config.market.peak_prove_khz,
+                config.market.max_fetch_retries,
+            )
         };
 
         if skip_preflight {
@@ -147,13 +152,13 @@ where
         }
 
         // TODO: Move URI handling like this into the prover impls
-        let image_id = crate::upload_image_uri(&self.prover, order, max_size)
+        let image_id = crate::upload_image_uri(&self.prover, order, max_size, fetch_retries)
             .await
-            .context("Failed to upload image_id")?;
+            .context("Failed to fetch and upload image_id")?;
 
-        let input_id = crate::upload_input_uri(&self.prover, order, max_size)
+        let input_id = crate::upload_input_uri(&self.prover, order, max_size, fetch_retries)
             .await
-            .context("Failed to upload input_id")?;
+            .context("Failed to fetch and upload input_id")?;
 
         // Record the image/input IDs for proving stage
         self.db
