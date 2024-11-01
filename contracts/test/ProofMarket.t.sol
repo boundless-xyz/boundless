@@ -539,6 +539,87 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
+    function testGratuitousFulfill() public {
+        Vm.Wallet memory client = createClient(1);
+        ProvingRequest memory request = defaultRequest(client.addr, 1);
+
+        bytes memory clientSignature = signRequest(client, request);
+        bytes memory proverSignature = signRequest(PROVER_WALLET, request);
+
+        proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL);
+        vm.expectEmit(true, true, false, true);
+        emit IProofMarket.RequestFulfilled(request.id, APP_JOURNAL, fill.seal);
+        proofMarket.gratuitousFulfill(fill, assessorSeal);
+        require(proofMarket.requestIsFulfilled(request.id));
+
+        vm.expectEmit(true, true, false, true);
+        emit IProofMarket.RequestFulfilled(request.id, APP_JOURNAL, fill.seal);
+        proofMarket.fulfill(fill, assessorSeal);
+        require(proofMarket.requestIsFulfilled(request.id));
+
+        checkProofMarketBalance();
+    }
+
+    function testGratuitousFulfillBatch() public {
+        // Provide a batch definition as an array of clients and how many requests each submits.
+        uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
+        uint256 batchSize = 0;
+        for (uint256 i = 0; i < batch.length; i++) {
+            batchSize += batch[i];
+        }
+
+        uint256 balanceBefore = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance before:", balanceBefore);
+
+        ProvingRequest[] memory requests = new ProvingRequest[](batchSize);
+        bytes[] memory journals = new bytes[](batchSize);
+        uint96 expectedRevenue = 0;
+        uint256 idx = 0;
+        for (uint256 i = 0; i < batch.length; i++) {
+            Vm.Wallet memory client = createClient(i);
+
+            for (uint256 j = 0; j < batch[i]; j++) {
+                ProvingRequest memory request = defaultRequest(client.addr, uint32(j));
+
+                bytes memory clientSignature = signRequest(client, request);
+                bytes memory proverSignature = signRequest(PROVER_WALLET, request);
+
+                // TODO: This is a fragile part of this test. It should be improved.
+                uint96 desiredPrice = uint96(1.5 ether);
+                vm.roll(request.offer.blockAtPrice(desiredPrice));
+                expectedRevenue += desiredPrice;
+
+                proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+
+                requests[idx] = request;
+                journals[idx] = APP_JOURNAL;
+                idx++;
+            }
+        }
+
+        (Fulfillment[] memory fills, bytes memory assessorSeal) = fulfillRequestBatch(requests, journals);
+
+        proofMarket.gratuitousFulfillBatch(fills, assessorSeal);
+        for (uint256 i = 0; i < fills.length; i++) {
+            // Check that the proof was submitted
+            assertTrue(proofMarket.requestIsFulfilled(fills[i].id), "Request should have fulfilled status");
+        }
+
+        proofMarket.fulfillBatch(fills, assessorSeal);
+
+        for (uint256 i = 0; i < fills.length; i++) {
+            // Check that the proof was submitted
+            assertTrue(proofMarket.requestIsFulfilled(fills[i].id), "Request should have fulfilled status");
+        }
+
+        uint256 balanceAfter = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance after:", balanceAfter);
+        assertEq(balanceBefore + expectedRevenue, balanceAfter);
+
+        checkProofMarketBalance();
+    }
+
     function testFulfillAlreadyFulfilled() public {
         // Submit request and fulfill it
         Vm.Wallet memory client = createClient(1);
@@ -547,8 +628,8 @@ contract ProofMarketTest is Test {
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL);
         // Attempt to fulfill a request already fulfilled
-        // should revert with "RequestIsFulfilled({requestId: request.id})"
-        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsFulfilled.selector, request.id));
+        // should revert with "RequestAlreadyFulfilledOrSlashed({requestId: request.id})"
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestAlreadyFulfilledOrSlashed.selector, request.id));
         vm.prank(PROVER_WALLET.addr);
         proofMarket.fulfill(fill, assessorSeal);
 
@@ -660,8 +741,8 @@ contract ProofMarketTest is Test {
         testFulfill();
 
         // Attempt to slash a fulfilled request
-        // should revert with "RequestIsFulfilled({requestId: request.id})"
-        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsFulfilled.selector, request.id));
+        // should revert with "RequestAlreadyFulfilledOrSlashed({requestId: request.id})"
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestAlreadyFulfilledOrSlashed.selector, request.id));
         proofMarket.slash(request.id);
 
         checkProofMarketBalance();
@@ -682,8 +763,8 @@ contract ProofMarketTest is Test {
         testSlash();
 
         // Attempt to slash a request twice
-        // should revert with "RequestAlreadySlashed({requestId: request.id})"
-        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestAlreadySlashed.selector, request.id));
+        // should revert with "RequestAlreadyFulfilledOrSlashed({requestId: request.id})"
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestAlreadyFulfilledOrSlashed.selector, request.id));
         proofMarket.slash(request.id);
 
         checkBurnedBalance(request.offer.lockinStake);

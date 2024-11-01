@@ -241,8 +241,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         emit RequestLockedin(request.id, prover);
     }
 
-    // TODO(victor): Add a path that allows a prover to fuilfill a request without first sending a lock-in.
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal) external {
+    function _fulfill(Fulfillment calldata fill, bytes calldata assessorSeal) internal view {
         // Verify the application guest proof. We need to verify it here, even though the market
         // guest already verified that the prover has knowledge of a verifying receipt, because
         // we need to make sure the _delivered_ seal is valid.
@@ -261,16 +260,50 @@ contract ProofMarket is IProofMarket, EIP712 {
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
+    }
 
+    // TODO(victor): Add a path that allows a prover to fuilfill a request without first sending a lock-in.
+    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal) external {
+        _fulfill(fill, assessorSeal);
         _fulfillVerified(fill.id);
 
         emit RequestFulfilled(fill.id, fill.journal, fill.seal);
     }
 
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) public {
+    function gratuitousFulfill(Fulfillment calldata fill, bytes calldata assessorSeal) external {
+        _fulfill(fill, assessorSeal);
+
+        uint192 id = fill.id;
+        address client = ProofMarketLib.requestFrom(id);
+        uint32 idx = ProofMarketLib.requestIndex(id);
+
+        (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
+        if (!locked) {
+            revert RequestIsNotLocked({requestId: id});
+        }
+
+        if (fulfilled) {
+            revert RequestIsFulfilled({requestId: id});
+        }
+
+        RequestLock memory lock = requestLocks[id];
+        if (lock.deadline < block.number) {
+            revert RequestIsExpired({requestId: id, deadline: lock.deadline});
+        }
+
+        // Mark the request as fulfilled.
+        accounts[client].setRequestFulfilled(idx);
+        emit RequestFulfilled(fill.id, fill.journal, fill.seal);
+    }
+
+    function _fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal)
+        internal
+        view
+        returns (uint192[] memory ids)
+    {
         // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
-        uint192[] memory ids = new uint192[](fills.length);
+        ids = new uint192[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
             ids[i] = fills[i].id;
             claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
@@ -285,6 +318,10 @@ contract ProofMarket is IProofMarket, EIP712 {
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
+    }
+
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) public {
+        uint192[] memory ids = _fulfillBatch(fills, assessorSeal);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the the same storage slot twice only costs 100 gas, so
@@ -296,23 +333,42 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
     }
 
+    function gratuitousFulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) public {
+        uint192[] memory ids = _fulfillBatch(fills, assessorSeal);
+        for (uint256 i = 0; i < fills.length; i++) {
+            uint192 id = ids[i];
+            address client = ProofMarketLib.requestFrom(id);
+            uint32 idx = ProofMarketLib.requestIndex(id);
+
+            (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
+            RequestLock memory lock = requestLocks[id];
+            // @NOTE: We are not reverting if any of the request is already fulfilled or expired
+            // because we want to prioritize fulfilling the rest of the requests in the batch.
+            if (locked && !fulfilled && lock.deadline >= block.number) {
+                // Mark the request as fulfilled.
+                accounts[client].setRequestFulfilled(idx);
+                emit RequestFulfilled(fills[i].id, fills[i].journal, fills[i].seal);
+            }
+        }
+    }
+
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
     function _fulfillVerified(uint192 id) internal {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
 
         // Check that the request is not locked to a different prover.
-        (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
+        (bool locked,) = accounts[client].requestFlags(idx);
 
         // Ensure the request is locked, and fetch the lock.
         if (!locked) {
             revert RequestIsNotLocked({requestId: id});
         }
-        if (fulfilled) {
-            revert RequestIsFulfilled({requestId: id});
-        }
 
         RequestLock memory lock = requestLocks[id];
+        if (lock.prover == address(0)) {
+            revert RequestAlreadyFulfilledOrSlashed({requestId: id});
+        }
 
         if (lock.deadline < block.number) {
             revert RequestIsExpired({requestId: id, deadline: lock.deadline});
@@ -329,14 +385,11 @@ contract ProofMarket is IProofMarket, EIP712 {
     function slash(uint192 requestId) external {
         address client = ProofMarketLib.requestFrom(requestId);
         uint32 idx = ProofMarketLib.requestIndex(requestId);
-        (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
+        (bool locked,) = accounts[client].requestFlags(idx);
 
         // Ensure the request is locked, and fetch the lock.
         if (!locked) {
             revert RequestIsNotLocked({requestId: requestId});
-        }
-        if (fulfilled) {
-            revert RequestIsFulfilled({requestId: requestId});
         }
 
         RequestLock memory lock = requestLocks[requestId];
@@ -346,7 +399,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
 
         if (lock.prover == address(0)) {
-            revert RequestAlreadySlashed({requestId: requestId});
+            revert RequestAlreadyFulfilledOrSlashed({requestId: requestId});
         }
 
         // Zero out the lock to prevent the same request from being slashed twice.
