@@ -427,8 +427,11 @@ contract ProofMarketTest is Test {
         console2.log("Prover balance before:", balanceBefore);
 
         vm.startPrank(PROVER_WALLET.addr);
+        uint96 price = request.offer.priceAtBlock(uint64(block.number));
         proofMarket.lockin(request, clientSignature);
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL);
+        vm.expectEmit(true, true, false, true);
+        emit IProofMarket.RequestFulfilled(request.id, fill.journal, fill.seal, price);
         proofMarket.fulfill(fill, assessorSeal);
         // console2.log("fulfill - Gas used:", vm.gasUsed());
         vm.stopPrank();

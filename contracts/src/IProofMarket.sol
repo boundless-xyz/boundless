@@ -98,7 +98,7 @@ interface IProofMarket {
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
     /// Event logged when a request is fulfilled, outside of a batch.
-    event RequestFulfilled(uint192 indexed requestId, bytes journal, bytes seal);
+    event RequestFulfilled(uint192 indexed requestId, bytes journal, bytes seal, uint96 price);
     /// Event when prover stake is burned for failing to fulfill a request by the deadline.
     event LockinStakeBurned(uint192 indexed requestId, uint96 stake);
     /// Event when a deposit is made to the proof market.

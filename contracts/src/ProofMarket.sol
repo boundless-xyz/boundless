@@ -262,9 +262,9 @@ contract ProofMarket is IProofMarket, EIP712 {
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
 
-        _fulfillVerified(fill.id);
+        uint96 price = _fulfillVerified(fill.id);
 
-        emit RequestFulfilled(fill.id, fill.journal, fill.seal);
+        emit RequestFulfilled(fill.id, fill.journal, fill.seal, price);
     }
 
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) public {
@@ -290,14 +290,14 @@ contract ProofMarket is IProofMarket, EIP712 {
         // batch update to storage. However, updating the the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(ids[i]);
+            uint96 price = _fulfillVerified(ids[i]);
 
-            emit RequestFulfilled(fills[i].id, fills[i].journal, fills[i].seal);
+            emit RequestFulfilled(fills[i].id, fills[i].journal, fills[i].seal, price);
         }
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillVerified(uint192 id) internal {
+    function _fulfillVerified(uint192 id) internal returns (uint96 price) {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
 
@@ -324,6 +324,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         // Mark the request as fulfilled and pay the prover.
         accounts[client].setRequestFulfilled(idx);
         accounts[lock.prover].balance += lock.price + lock.stake;
+        price = lock.price;
     }
 
     function slash(uint192 requestId) external {
