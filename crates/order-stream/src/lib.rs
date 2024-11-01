@@ -6,8 +6,9 @@ use std::{collections::HashMap, error::Error, pin::Pin};
 
 use alloy::{
     primitives::{utils::parse_ether, Address, Signature, SignatureError, B256, U256},
-    providers::ProviderBuilder,
+    providers::{ProviderBuilder, RootProvider},
     signers::{local::PrivateKeySigner, Error as SignerErr, Signer},
+    transports::http::Http,
 };
 use anyhow::{anyhow, Context, Error as AnyhowErr, Result};
 use async_stream::stream;
@@ -25,7 +26,7 @@ use boundless_market::contracts::{IProofMarket, ProvingRequest};
 use clap::Parser;
 use futures_util::{SinkExt, Stream, StreamExt};
 use rand::{seq::SliceRandom, thread_rng};
-use reqwest::Url;
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -225,6 +226,8 @@ pub struct AppState {
     connections: Arc<Mutex<ConnectionsMap>>,
     // Channel sender for orders
     order_tx: broadcast::Sender<Order>,
+    // Ethereum RPC provider
+    rpc_provider: RootProvider<Http<Client>>,
     // Configuration
     config: Config,
 }
@@ -235,6 +238,7 @@ impl AppState {
         Arc::new(Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             order_tx,
+            rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
             config: config.clone(),
         })
     }
@@ -274,7 +278,7 @@ async fn submit_order(
     Ok(Json(json!({ "status": "success", "request_id": id })))
 }
 
-fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg, AnyhowErr> {
+fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg> {
     let json_str = value.to_str().context("Invalid header encoding")?;
     serde_json::from_str(json_str).context("Failed to parse JSON")
 }
@@ -302,24 +306,6 @@ async fn websocket_handler(
         return (StatusCode::UNAUTHORIZED, err.to_string()).into_response();
     }
 
-    // Check the balance
-    // TODO: This check has several issues:
-    // - The balance could change between the check and the connection lifetime
-    // - It opens up to an unbounded number of RPC requests to the Ethereum node
-    // As such, a more robust solution would be to use a separate task that keeps track of the balances
-    // by subscribing to events from the ProofMarket contract. Then, the WebSocket connection would be allowed
-    // if the balance is above the threshold and the connection would be dropped if the balance falls below the threshold.
-    let provider = ProviderBuilder::new().on_http(state.config.rpc_url.clone());
-    let proof_market = IProofMarket::new(state.config.market_address, provider);
-    let balance = proof_market.balanceOf(auth_msg.address).call().await.unwrap()._0;
-    if balance < state.config.min_balance {
-        return (
-            StatusCode::UNAUTHORIZED,
-            format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
-        )
-            .into_response();
-    }
-
     // Check if the address is already connected
     let cloned_state = state.clone();
     let connections = cloned_state.connections.lock().await;
@@ -329,6 +315,23 @@ async fn websocket_handler(
     }
     if connections.len() >= state.config.max_connections {
         return (StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response();
+    }
+
+    // Check the balance
+    // TODO: This check has several issues:
+    // - The balance could change between the check and the connection lifetime
+    // - It opens up to an unbounded number of RPC requests to the Ethereum node
+    // As such, a more robust solution would be to use a separate task that keeps track of the balances
+    // by subscribing to events from the ProofMarket contract. Then, the WebSocket connection would be allowed
+    // if the balance is above the threshold and the connection would be dropped if the balance falls below the threshold.
+    let proof_market = IProofMarket::new(state.config.market_address, state.rpc_provider.clone());
+    let balance = proof_market.balanceOf(auth_msg.address).call().await.unwrap()._0;
+    if balance < state.config.min_balance {
+        return (
+            StatusCode::UNAUTHORIZED,
+            format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
+        )
+            .into_response();
     }
 
     // Proceed with WebSocket upgrade

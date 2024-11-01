@@ -29,7 +29,7 @@ use boundless_market::{
     },
     storage::StorageProvider,
 };
-use boundless_market_sdk::Client;
+use boundless_market_client::Client;
 
 // TODO(victor): Update corresponding docs
 #[derive(Subcommand, Clone, Debug)]

@@ -1,5 +1,5 @@
 [package]
-name = "boundless-market-sdk"
+name = "boundless-market-client"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }

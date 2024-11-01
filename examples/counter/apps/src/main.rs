@@ -12,7 +12,7 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::{Input, Offer, Predicate, ProvingRequest, Requirements};
-use boundless_market_sdk::Client;
+use boundless_market_client::Client;
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{
