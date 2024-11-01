@@ -126,7 +126,6 @@ pub trait BrokerDb {
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
 
 const SQL_BLOCK_KEY: i64 = 0;
-const SQLITE_MAX_CONNECTIONS: u32 = 5;
 
 pub struct SqliteDb {
     pool: SqlitePool,
@@ -139,22 +138,20 @@ impl SqliteDb {
             .create_if_missing(true)
             .busy_timeout(std::time::Duration::from_secs(1));
 
-        let max_conns = if let Ok(max_conns) = std::env::var("BROKER_SQLITE_MAX_CONN") {
-            max_conns.parse()?
-        } else {
-            SQLITE_MAX_CONNECTIONS
-        };
-        tracing::debug!("Connecting to sqlite with max connection pool size: {max_conns}");
-
-        let pool = SqlitePoolOptions::new()
+        let mut pool = SqlitePoolOptions::new()
             // set timeouts to None for sqlite in-memory:
             // https://github.com/launchbadge/sqlx/issues/1647
             .max_lifetime(None)
             .idle_timeout(None)
-            .min_connections(1)
-            .max_connections(max_conns)
-            .connect_with(opts)
-            .await?;
+            .min_connections(1);
+
+        // Only set max connections if a env var is defined:
+        if let Ok(max_conns) = std::env::var("BROKER_SQLITE_MAX_CONN") {
+            tracing::debug!("Connecting to sqlite with max connection pool size: {max_conns}");
+            pool = pool.max_connections(max_conns.parse()?);
+        }
+
+        let pool = pool.connect_with(opts).await?;
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
