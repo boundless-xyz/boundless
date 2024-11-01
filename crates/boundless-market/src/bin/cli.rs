@@ -17,8 +17,9 @@ use guest_util::ECHO_ELF;
 use hex::FromHex;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
 use risc0_zkvm::{
+    default_executor,
     sha::{Digest, Digestible},
-    Journal,
+    ExecutorEnv, Journal, SessionInfo,
 };
 use url::Url;
 
@@ -62,6 +63,9 @@ enum Command {
         /// Wait until the request is fulfilled
         #[clap(short, long, default_value = "false")]
         wait: bool,
+        /// Use the RISC Zero zkvm executor to run the program
+        #[clap(long, default_value = "false")]
+        run_executor: bool,
     },
     /// Slash a prover for a given request
     Slash {
@@ -100,6 +104,9 @@ struct SubmitOfferArgs {
     /// Wait until the request is fulfilled
     #[clap(short, long, default_value = "false")]
     wait: bool,
+    /// Use the RISC Zero zkvm executor to run the program
+    #[clap(long, default_value = "false")]
+    run_executor: bool,
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
@@ -193,12 +200,12 @@ async fn main() -> Result<()> {
             tracing::info!("Balance of {addr}: {balance}");
         }
         Command::SubmitOffer(args) => submit_offer(market, &args, signer).await?,
-        Command::SubmitRequest { yaml_request, id, wait } => {
+        Command::SubmitRequest { yaml_request, id, wait, run_executor } => {
             let id = match id {
                 Some(id) => id,
                 None => market.index_from_nonce().await?,
             };
-            submit_request(id, market, yaml_request, signer, wait).await?
+            submit_request(id, market, yaml_request, signer, wait, run_executor).await?
         }
         Command::Slash { request_id } => {
             market.slash(request_id).await?;
@@ -329,6 +336,10 @@ where
 
     tracing::debug!("Request: {}", serde_json::to_string_pretty(&request)?);
 
+    if args.run_executor {
+        execute(&request).await?;
+    }
+
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
         "Submitted request ID 0x{request_id:x}, bidding start at block number {}",
@@ -353,6 +364,7 @@ async fn submit_request<T, P>(
     request_path: String,
     signer: impl Signer + SignerSync,
     wait: bool,
+    run_executor: bool,
 ) -> Result<()>
 where
     T: Transport + Clone,
@@ -389,6 +401,10 @@ where
         request.id = request_yaml.id;
     }
 
+    if run_executor {
+        execute(&request).await?;
+    }
+
     let request_id = market.submit_request(&request, &signer).await?;
     tracing::info!(
         "Proving request ID 0x{request_id:x}, bidding start at block number {}",
@@ -405,4 +421,41 @@ where
         );
     };
     Ok(())
+}
+
+async fn execute(request: &ProvingRequest) -> Result<SessionInfo> {
+    let elf = fetch_url(&request.imageUrl.to_string()).await?;
+    let input = match request.input.inputType {
+        InputType::Inline => request.input.data.clone(),
+        InputType::Url => fetch_url(&request.input.data.to_string()).await?.into(),
+        _ => bail!("Unsupported input type"),
+    };
+    let env = ExecutorEnv::builder().write_slice(&input).build()?;
+    default_executor().execute(env, &elf)
+}
+
+async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
+    let url = Url::parse(url_str)?;
+
+    match url.scheme() {
+        "http" | "https" => fetch_http(&url).await,
+        "file" => fetch_file(&url).await,
+        _ => bail!("unsupported URL scheme: {}", url.scheme()),
+    }
+}
+
+async fn fetch_http(url: &Url) -> Result<Vec<u8>> {
+    let response = reqwest::get(url.as_str()).await?;
+    let status = response.status();
+    if !status.is_success() {
+        bail!("HTTP request failed with status: {}", status);
+    }
+
+    Ok(response.bytes().await?.to_vec())
+}
+
+async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
+    let path = std::path::Path::new(url.path());
+    let data = tokio::fs::read(path).await?;
+    Ok(data)
 }

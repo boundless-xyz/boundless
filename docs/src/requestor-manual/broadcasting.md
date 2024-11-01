@@ -101,6 +101,12 @@ The `cli` allows to:
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
    ````
 
+   You can also add the `--run-executor` option to run the proof request with a local executor to make sure your request is provable:
+
+   ```sh
+   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --run-executor
+   ```
+
 2. Request the status of a given proving request:
 
    ```sh
