@@ -125,6 +125,11 @@ pub struct BatcherConfig {
     /// The time between polls for new orders to aggregate and how often to check for
     /// batch finalize conditions
     pub batch_poll_time_ms: Option<u64>,
+    /// Use the single TXN submission that batches submit_merkle / fulfill_batch into
+    /// A single transaction. Requires the `submitRootAndFulfillBatch` method
+    /// be present on the deployed contract
+    #[serde(default)]
+    pub single_txn_fulfill: bool,
 }
 
 impl Default for BatcherConfig {
@@ -136,6 +141,7 @@ impl Default for BatcherConfig {
             block_deadline_buffer_secs: 120,
             txn_timeout: None,
             batch_poll_time_ms: Some(1000),
+            single_txn_fulfill: false,
         }
     }
 }
@@ -342,7 +348,8 @@ batch_max_time = 300
 batch_size = 2
 block_deadline_buffer_secs = 120
 txn_timeout = 45
-batch_poll_time_ms = 1200"#;
+batch_poll_time_ms = 1200
+single_txn_fulfill = true"#;
 
     const BAD_CONFIG: &str = r#"
 [market]
@@ -430,6 +437,7 @@ error = ?"#;
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
             assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
+            assert_eq!(config.batcher.single_txn_fulfill, true);
         }
         tracing::debug!("closing...");
     }
