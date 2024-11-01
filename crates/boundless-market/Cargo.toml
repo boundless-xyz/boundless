@@ -45,8 +45,8 @@ uuid = { workspace = true }
 [dev-dependencies]
 boundless-market = { path = ".", features = ["test-utils"] }
 guest-util = { workspace = true }
-tracing-test = "0.2"
 hex-literal = "0.4"
+tracing-test = "0.2"
 
 [[bin]]
 name = "cli"
