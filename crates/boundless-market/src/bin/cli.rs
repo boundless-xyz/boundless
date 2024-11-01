@@ -1,4 +1,3 @@
-use std::u64;
 // Copyright (c) 2024 RISC Zero, Inc.
 //
 // All rights reserved.
@@ -213,10 +212,7 @@ async fn main() -> Result<()> {
             );
         }
         Command::VerifyProof { request_id, image_id } => {
-            let (journal, seal) = market
-                .wait_for_request_fulfillment(request_id, Duration::from_secs(5), u64::MAX)
-                .await?;
-
+            let (journal, seal) = market.get_request_fulfillment(request_id).await?;
             let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
             set_verifier
                 .verify(seal, image_id, journal_digest)
