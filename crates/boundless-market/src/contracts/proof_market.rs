@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use alloy::{
     network::Ethereum,
@@ -436,21 +436,32 @@ where
     }
 
     /// Returns the [ProofStatus] of a proving request.
-    pub async fn get_status(&self, request_id: U256) -> Result<ProofStatus, MarketError> {
+    ///
+    /// The `expires_at` parameter is the block number at which the request expires.
+    pub async fn get_status(
+        &self,
+        request_id: U256,
+        expires_at: Option<u64>,
+    ) -> Result<ProofStatus, MarketError> {
         let block_number = self.get_latest_block().await?;
 
         if self.is_fulfilled(request_id).await.context("Failed to check fulfillment status")? {
             return Ok(ProofStatus::Fulfilled);
         }
 
-        if self.is_locked_in(request_id).await.context("Failed to check locked status")? {
-            return Ok(ProofStatus::Locked);
+        if let Some(expires_at) = expires_at {
+            if block_number > expires_at {
+                return Ok(ProofStatus::Expired);
+            }
         }
 
-        let deadline = self.instance.requestDeadline(U192::from(request_id)).call().await?._0;
-        if block_number > deadline && deadline > 0 {
-            return Ok(ProofStatus::Expired);
-        };
+        if self.is_locked_in(request_id).await.context("Failed to check locked status")? {
+            let deadline = self.instance.requestDeadline(U192::from(request_id)).call().await?._0;
+            if block_number > deadline && deadline > 0 {
+                return Ok(ProofStatus::Expired);
+            };
+            return Ok(ProofStatus::Locked);
+        }
 
         Ok(ProofStatus::Unknown)
     }
@@ -521,7 +532,7 @@ where
         &self,
         request_id: U256,
     ) -> Result<(Bytes, Bytes), MarketError> {
-        match self.get_status(request_id).await? {
+        match self.get_status(request_id, None).await? {
             ProofStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             ProofStatus::Fulfilled => self.query_fulfilled_event(request_id, None, None).await,
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
@@ -537,16 +548,10 @@ where
         &self,
         request_id: U256,
         retry_interval: Duration,
-        timeout: Option<Duration>,
+        expires_at: u64,
     ) -> Result<(Bytes, Bytes), MarketError> {
-        let start_time = Instant::now();
         loop {
-            if let Some(timeout_duration) = timeout {
-                if start_time.elapsed() >= timeout_duration {
-                    return Err(MarketError::TimeoutReached(request_id));
-                }
-            }
-            let status = self.get_status(request_id).await?;
+            let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
                 ProofStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 ProofStatus::Fulfilled => {
@@ -619,7 +624,7 @@ where
             .context(format!("Failed to get EOA nonce for {:?}", self.caller))?;
         let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
         let request_id = request_id(&self.caller, id);
-        match self.get_status(U256::from(request_id)).await? {
+        match self.get_status(U256::from(request_id), None).await? {
             ProofStatus::Unknown => return Ok(id),
             _ => Err(MarketError::Error(anyhow!("index already in use"))),
         }
@@ -877,6 +882,7 @@ mod tests {
         };
 
         let request = new_request(1, &ctx).await;
+        let expires_at = request.expires_at();
 
         let request_id =
             ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -895,7 +901,10 @@ mod tests {
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
         assert!(ctx.customer_market.is_locked_in(request_id).await.unwrap());
-        assert!(ctx.customer_market.get_status(request_id).await.unwrap() == ProofStatus::Locked);
+        assert!(
+            ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
+                == ProofStatus::Locked
+        );
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
@@ -932,6 +941,7 @@ mod tests {
         };
 
         let request = new_request(1, &ctx).await;
+        let expires_at = request.expires_at();
 
         let request_id =
             ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -950,7 +960,10 @@ mod tests {
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
         assert!(ctx.customer_market.is_locked_in(request_id).await.unwrap());
-        assert!(ctx.customer_market.get_status(request_id).await.unwrap() == ProofStatus::Locked);
+        assert!(
+            ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
+                == ProofStatus::Locked
+        );
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
