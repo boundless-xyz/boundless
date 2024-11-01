@@ -719,6 +719,7 @@ mod tests {
     fn mock_singleton(
         request_id: U256,
         eip712_domain: Eip712Domain,
+        prover: Address,
     ) -> (B256, Bytes, Fulfillment, Bytes) {
         let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
         let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
@@ -728,6 +729,7 @@ mod tests {
             requestIds: vec![U192::from(request_id)],
             root: to_b256(app_claim_digest),
             eip712DomainSeparator: eip712_domain.separator(),
+            prover,
         };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
@@ -899,7 +901,7 @@ mod tests {
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
-            mock_singleton(request_id, eip712_domain);
+            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -954,7 +956,7 @@ mod tests {
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
-            mock_singleton(request_id, eip712_domain);
+            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
         // publish the committed root + fulfillments

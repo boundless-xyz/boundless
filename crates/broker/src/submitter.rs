@@ -497,6 +497,7 @@ mod tests {
                         signature: client_sig.into(),
                         journal: echo_receipt.journal.bytes,
                     }],
+                    prover_address: prover_addr,
                 }
                 .to_vec(),
             )

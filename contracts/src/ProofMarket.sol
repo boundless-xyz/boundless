@@ -256,7 +256,12 @@ contract ProofMarket is IProofMarket, EIP712 {
         ids[0] = fill.id;
         bytes32 assessorJournalDigest = sha256(
             abi.encode(
-                AssessorJournal({requestIds: ids, root: claimDigest, eip712DomainSeparator: _domainSeparatorV4()})
+                AssessorJournal({
+                    requestIds: ids,
+                    root: claimDigest,
+                    eip712DomainSeparator: _domainSeparatorV4(),
+                    prover: msg.sender
+                })
             )
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
@@ -281,7 +286,14 @@ contract ProofMarket is IProofMarket, EIP712 {
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32 assessorJournalDigest = sha256(
-            abi.encode(AssessorJournal({requestIds: ids, root: batchRoot, eip712DomainSeparator: _domainSeparatorV4()}))
+            abi.encode(
+                AssessorJournal({
+                    requestIds: ids,
+                    root: batchRoot,
+                    eip712DomainSeparator: _domainSeparatorV4(),
+                    prover: msg.sender
+                })
+            )
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);

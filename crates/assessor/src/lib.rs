@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use alloy_primitives::Signature;
+use alloy_primitives::{Address, Signature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
 use boundless_market::contracts::{EIP721DomainSaltless, ProvingRequest};
@@ -54,6 +54,8 @@ pub struct AssessorInput {
     // This smart contract address is used solely to construct the EIP-712 Domain
     // and complete signature checks on the requests.
     pub domain: EIP721DomainSaltless,
+    // The address of the prover.
+    pub prover_address: Address,
 }
 
 impl AssessorInput {
@@ -235,8 +237,11 @@ mod tests {
     }
 
     fn assessor(claims: Vec<Fulfillment>, assumption_receipt: Receipt) {
-        let assessor_input =
-            AssessorInput { domain: eip712_domain(Address::ZERO, 1), fills: claims };
+        let assessor_input = AssessorInput {
+            domain: eip712_domain(Address::ZERO, 1),
+            fills: claims,
+            prover_address: Address::ZERO,
+        };
         let env = ExecutorEnv::builder()
             .write_slice(&assessor_input.to_vec())
             .add_assumption(assumption_receipt)

@@ -148,7 +148,7 @@ contract ProofMarketTest is Test {
         );
     }
 
-    function fulfillRequest(ProvingRequest memory request, bytes memory journal)
+    function fulfillRequest(ProvingRequest memory request, bytes memory journal, address prover)
         internal
         returns (Fulfillment memory, bytes memory assessorSeal)
     {
@@ -156,12 +156,13 @@ contract ProofMarketTest is Test {
         requests[0] = request;
         bytes[] memory journals = new bytes[](1);
         journals[0] = journal;
-        (Fulfillment[] memory fills, bytes memory seal) = fulfillRequestBatch(requests, journals);
+        (Fulfillment[] memory fills, bytes memory seal) = fulfillRequestBatch(requests, journals, prover);
         return (fills[0], seal);
     }
 
-    function createFills(ProvingRequest[] memory requests, bytes[] memory journals)
+    function createFills(ProvingRequest[] memory requests, bytes[] memory journals, address prover)
         internal
+        view
         returns (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root)
     {
         // initialize the fullfillments; one for each request;
@@ -179,7 +180,7 @@ contract ProofMarketTest is Test {
 
         // compute the assessor claim
         ReceiptClaim memory assessorClaim =
-            TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, proofMarket.eip712DomainSeparator());
+            TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, proofMarket.eip712DomainSeparator(), prover);
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 
@@ -193,12 +194,12 @@ contract ProofMarketTest is Test {
         return (fills, assessorSeal, root);
     }
 
-    function fulfillRequestBatch(ProvingRequest[] memory requests, bytes[] memory journals)
+    function fulfillRequestBatch(ProvingRequest[] memory requests, bytes[] memory journals, address prover)
         internal
         returns (Fulfillment[] memory fills, bytes memory assessorSeal)
     {
         bytes32 root;
-        (fills, assessorSeal, root) = createFills(requests, journals);
+        (fills, assessorSeal, root) = createFills(requests, journals, prover);
         // submit the root to the set verifier
         publishRoot(root);
         return (fills, assessorSeal);
@@ -428,7 +429,7 @@ contract ProofMarketTest is Test {
 
         vm.startPrank(PROVER_WALLET.addr);
         proofMarket.lockin(request, clientSignature);
-        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL);
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
         proofMarket.fulfill(fill, assessorSeal);
         // console2.log("fulfill - Gas used:", vm.gasUsed());
         vm.stopPrank();
@@ -473,7 +474,8 @@ contract ProofMarketTest is Test {
 
         // Note that this does not come from any particular address.
         proofMarket.lockinWithSig(request, clientSignature, proverSignature);
-        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL);
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
+        vm.prank(PROVER_WALLET.addr);
         proofMarket.fulfill(fill, assessorSeal);
 
         // Check that the proof was submitted
@@ -523,8 +525,9 @@ contract ProofMarketTest is Test {
             }
         }
 
-        (Fulfillment[] memory fills, bytes memory assessorSeal) = fulfillRequestBatch(requests, journals);
-
+        (Fulfillment[] memory fills, bytes memory assessorSeal) =
+            fulfillRequestBatch(requests, journals, PROVER_WALLET.addr);
+        vm.prank(PROVER_WALLET.addr);
         proofMarket.fulfillBatch(fills, assessorSeal);
 
         for (uint256 i = 0; i < fills.length; i++) {
@@ -545,7 +548,7 @@ contract ProofMarketTest is Test {
         ProvingRequest memory request = defaultRequest(client.addr, 1);
         testFulfill();
 
-        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL);
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
         // Attempt to fulfill a request already fulfilled
         // should revert with "RequestIsFulfilled({requestId: request.id})"
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsFulfilled.selector, request.id));
@@ -559,7 +562,7 @@ contract ProofMarketTest is Test {
         // Attempt to prove a non-existent request
         Vm.Wallet memory client = createClient(1);
         ProvingRequest memory request = defaultRequest(client.addr, 1);
-        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL);
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
 
         // Attempt to fulfill a request not lockeed
         // should revert with "RequestIsNotLocked({requestId: request.id})"
@@ -585,7 +588,7 @@ contract ProofMarketTest is Test {
 
         vm.startPrank(PROVER_WALLET.addr);
         proofMarket.lockin(request, clientSignature);
-        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL);
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
 
         vm.roll(2);
 
@@ -709,9 +712,11 @@ contract ProofMarketTest is Test {
 
     function benchFulfillBatch(uint256 batchSize) public {
         (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
-        (Fulfillment[] memory fills, bytes memory assessorSeal) = fulfillRequestBatch(requests, journals);
+        (Fulfillment[] memory fills, bytes memory assessorSeal) =
+            fulfillRequestBatch(requests, journals, PROVER_WALLET.addr);
 
         uint256 gasBefore = gasleft();
+        vm.prank(PROVER_WALLET.addr);
         proofMarket.fulfillBatch(fills, assessorSeal);
         uint256 gasAfter = gasleft();
         // Calculate the gas used
@@ -761,10 +766,12 @@ contract ProofMarketTest is Test {
 
     function testsubmitRootAndFulfillBatch() public {
         (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(2);
-        (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) = createFills(requests, journals);
+        (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) =
+            createFills(requests, journals, PROVER_WALLET.addr);
 
         bytes memory seal =
             verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
+        vm.prank(PROVER_WALLET.addr);
         proofMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal);
 
         for (uint256 j = 0; j < fills.length; j++) {

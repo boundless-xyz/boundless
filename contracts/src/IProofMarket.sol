@@ -88,8 +88,10 @@ struct AssessorJournal {
     // Root of the Merkle tree committing to the set of proven claims.
     // In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;
-    // EIP712 domain separator
+    // EIP712 domain separator.
     bytes32 eip712DomainSeparator;
+    // The address pf the prover.
+    address prover;
 }
 
 interface IProofMarket {
