@@ -177,6 +177,19 @@ impl ProvingRequest {
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         signer.sign_hash_sync(&hash)
     }
+
+    pub fn validate_signature(
+        &self,
+        signature: &Bytes,
+        contract_addr: Address,
+        chain_id: u64,
+    ) -> Result<bool, SignerErr> {
+        let sig = Signature::try_from(signature.as_ref())?;
+        let domain = eip712_domain(contract_addr, chain_id);
+        let hash = self.eip712_signing_hash(&domain.alloy_struct());
+
+        Ok(sig.recover_address_from_prehash(&hash)? == self.client_address())
+    }
 }
 
 impl Requirements {
@@ -580,5 +593,95 @@ pub mod test_utils {
                 set_verifier,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::signers::local::PrivateKeySigner;
+
+    fn create_order(
+        signer: &impl SignerSync,
+        signer_addr: Address,
+        order_id: u32,
+        contract_addr: Address,
+        chain_id: u64,
+    ) -> (ProvingRequest, [u8; 65]) {
+        let request_id = request_id(&signer_addr, order_id);
+
+        let req = ProvingRequest {
+            id: request_id,
+            requirements: Requirements {
+                imageId: B256::ZERO,
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            imageUrl: "test".to_string(),
+            input: Input { inputType: InputType::Url, data: Default::default() },
+            offer: Offer {
+                minPrice: U96::from(0),
+                maxPrice: U96::from(1),
+                biddingStart: 0,
+                timeout: 1000,
+                rampUpPeriod: 1,
+                lockinStake: U96::from(0),
+            },
+        };
+
+        let client_sig = req.sign_request(&signer, contract_addr, chain_id).unwrap();
+
+        (req, client_sig.as_bytes())
+    }
+
+    #[test]
+    fn sign_order() {
+        let signer: PrivateKeySigner =
+            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
+        let order_id: u32 = 1;
+        let contract_addr = Address::ZERO;
+        let chain_id = 1;
+        let signer_addr = signer.address();
+
+        let (_req, client_sig) =
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+        let static_sig = hex_literal::hex!("3d23005dcb21274e31b680ccbfb153d739266a249de658667e679dbf1ab6fd615574fa5893626f9ac7cf621f12204dce1fecfd0f76a479d8c771a19b2b8cf4ff1b");
+        assert_eq!(client_sig, static_sig);
+    }
+
+    #[test]
+    fn validate_sig() {
+        let signer: PrivateKeySigner =
+            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
+        let order_id: u32 = 1;
+        let contract_addr = Address::ZERO;
+        let chain_id = 1;
+        let signer_addr = signer.address();
+
+        let (req, client_sig) =
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+
+        assert!(req.validate_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "SignatureError")]
+    fn invalid_sig() {
+        let signer: PrivateKeySigner =
+            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
+        let order_id: u32 = 1;
+        let contract_addr = Address::ZERO;
+        let chain_id = 1;
+        let signer_addr = signer.address();
+
+        let (req, mut client_sig) =
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+
+        client_sig[0] = 1;
+        assert!(!req
+            .validate_signature(&Bytes::from(client_sig), contract_addr, chain_id)
+            .unwrap());
     }
 }
