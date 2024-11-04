@@ -9,8 +9,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use risc0_zkvm::sha::Digest;
 use sqlx::{
-    migrate::MigrateDatabase,
-    sqlite::{Sqlite, SqlitePool, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Acquire, Row,
 };
 use thiserror::Error;
@@ -52,6 +51,9 @@ pub enum DbError {
 
     #[error("Invalid order id: {0} missing field: {1}")]
     InvalidOrder(String, &'static str),
+
+    #[error("Invalid max connection env var value")]
+    MaxConnEnvVar(#[from] std::num::ParseIntError),
 }
 
 pub struct AggregationProofs {
@@ -131,17 +133,25 @@ pub struct SqliteDb {
 
 impl SqliteDb {
     pub async fn new(conn_str: &str) -> Result<Self, DbError> {
-        if !Sqlite::database_exists(conn_str).await? {
-            Sqlite::create_database(conn_str).await?
-        }
+        let opts = SqliteConnectOptions::from_str(conn_str)?
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .create_if_missing(true)
+            .busy_timeout(std::time::Duration::from_secs(1));
 
-        let pool = SqlitePoolOptions::new()
+        let mut pool = SqlitePoolOptions::new()
             // set timeouts to None for sqlite in-memory:
             // https://github.com/launchbadge/sqlx/issues/1647
             .max_lifetime(None)
             .idle_timeout(None)
-            .connect(&conn_str)
-            .await?;
+            .min_connections(1);
+
+        // Only set max connections if a env var is defined:
+        if let Ok(max_conns) = std::env::var("BROKER_SQLITE_MAX_CONN") {
+            tracing::debug!("Connecting to sqlite with max connection pool size: {max_conns}");
+            pool = pool.max_connections(max_conns.parse()?);
+        }
+
+        let pool = pool.connect_with(opts).await?;
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
@@ -932,12 +942,13 @@ impl BrokerDb for SqliteDb {
     async fn get_batch_peak_count(&self, batch_id: usize) -> Result<usize, DbError> {
         let mut conn = self.pool.acquire().await?;
 
-        let count: i64 = sqlx::query_scalar(
+        let count: Option<i64> = sqlx::query_scalar(
             "SELECT json_array_length(data->>'peaks') FROM batches WHERE id = $1",
         )
         .bind(batch_id as i64)
-        .fetch_one(&mut *conn)
+        .fetch_optional(&mut *conn)
         .await?;
+        let count = count.unwrap_or(0);
 
         Ok(count as usize)
     }
