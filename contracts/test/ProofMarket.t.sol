@@ -632,7 +632,7 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
-    function testFulfillfExpired() public {
+    function testFulfillExpired() public {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
@@ -662,6 +662,36 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
+    function testDeliver() public {
+        // Submit request
+        Vm.Wallet memory client = createClient(1);
+        ProvingRequest memory request = defaultRequest(client.addr, 1);
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
+
+        vm.expectEmit(true, true, true, false);
+        emit IProofMarket.ProofDelivered(request.id, hex"", hex"");
+        proofMarket.deliver(fill, assessorSeal, PROVER_WALLET.addr);
+
+        // Check that the proof is still marked as unfulfilled.
+        assertFalse(proofMarket.requestIsFulfilled(fill.id), "Request should not have fulfilled status");
+    }
+
+    function testDeliverBatch() public {
+        (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(5);
+        (Fulfillment[] memory fills, bytes memory assessorSeal) =
+            fulfillRequestBatch(requests, journals, PROVER_WALLET.addr);
+
+        for (uint256 i = 0; i < fills.length; i++) {
+            vm.expectEmit(true, true, true, false);
+            emit IProofMarket.ProofDelivered(fills[i].id, hex"", hex"");
+        }
+        proofMarket.deliverBatch(fills, assessorSeal, PROVER_WALLET.addr);
+
+        for (uint256 j = 0; j < fills.length; j++) {
+            assertFalse(proofMarket.requestIsFulfilled(fills[j].id), "Request should not have fulfilled status");
+        }
+    }
+
     function testSlash() public {
         Offer memory offer = Offer({
             minPrice: 1 ether,
@@ -674,7 +704,7 @@ contract ProofMarketTest is Test {
         Vm.Wallet memory client = createClient(1);
         ProvingRequest memory request = newRequest(offer, client.addr, 1);
 
-        testFulfillfExpired();
+        testFulfillExpired();
 
         // Slash the request
         vm.expectEmit(true, true, false, true);

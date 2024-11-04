@@ -241,8 +241,9 @@ contract ProofMarket is IProofMarket, EIP712 {
         emit RequestLockedin(request.id, prover);
     }
 
-    // TODO(victor): Add a path that allows a prover to fuilfill a request without first sending a lock-in.
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
+    /// Verify the application and assessor receipts, ensuring that the provided fulfillment
+    /// satisfies the request.
+    function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
         // Verify the application guest proof. We need to verify it here, even though the market
         // guest already verified that the prover has knowledge of a verifying receipt, because
         // we need to make sure the _delivered_ seal is valid.
@@ -266,13 +267,14 @@ contract ProofMarket is IProofMarket, EIP712 {
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
-
-        _fulfillVerified(fill.id);
-
-        emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
 
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
+    /// Verify the application and assessor receipts for the batch, ensuring that the provided
+    /// fulfillments satisfy the requests.
+    function verifyBatchDelivery(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover)
+        public
+        view
+    {
         // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         uint192[] memory ids = new uint192[](fills.length);
@@ -297,12 +299,26 @@ contract ProofMarket is IProofMarket, EIP712 {
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
+    }
+
+    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
+        verifyDelivery(fill, assessorSeal, prover);
+        _fulfillVerified(fill.id);
+
+        // TODO(victor): Potentially this should be (re)combined with RequestFulfilled. It would make
+        // the logic to watch for a proof a bit more complex, but the gas usage a little less (by
+        // about 1000 gas per fulfill based on benchmarks)
+        emit ProofDelivered(fill.id, fill.journal, fill.seal);
+    }
+
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
+        verifyBatchDelivery(fills, assessorSeal, prover);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(ids[i]);
+            _fulfillVerified(fills[i].id);
 
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
@@ -338,6 +354,18 @@ contract ProofMarket is IProofMarket, EIP712 {
         accounts[lock.prover].balance += lock.price + lock.stake;
 
         emit RequestFulfilled(id);
+    }
+
+    function deliver(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
+        verifyDelivery(fill, assessorSeal, prover);
+        emit ProofDelivered(fill.id, fill.journal, fill.seal);
+    }
+
+    function deliverBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external {
+        verifyBatchDelivery(fills, assessorSeal, prover);
+        for (uint256 i = 0; i < fills.length; i++) {
+            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+        }
     }
 
     function slash(uint192 requestId) external {
