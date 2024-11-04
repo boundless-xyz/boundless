@@ -540,6 +540,57 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
+    // Test that when the prover that produces the assessor receipt and the one that locked the
+    // request are different, the one that locked the request gets paid.
+    function testFulfillDistinctProvers() public {
+        Vm.Wallet memory client = createClient(1);
+
+        ProvingRequest memory request = defaultRequest(client.addr, 3);
+
+        bytes memory clientSignature = signRequest(client, request);
+        bytes memory proverSignature = signRequest(PROVER_WALLET, request);
+
+        uint256 balanceBefore = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance before:", balanceBefore);
+
+        // Note that this does not come from any particular address.
+        proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        // address(3) is just a standin for some other address.
+        address mockOtherProverAddr = address(uint160(3));
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, mockOtherProverAddr);
+        proofMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
+
+        // Check that the proof was submitted
+        assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+
+        uint256 balanceAfter = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance after:", balanceAfter);
+        assertEq(balanceBefore + 1 ether, balanceAfter);
+
+        checkProofMarketBalance();
+    }
+
+    function testFulfillFulfillProverAddrDoesNotMatchAssessorReceipt() public {
+        Vm.Wallet memory client = createClient(1);
+
+        ProvingRequest memory request = defaultRequest(client.addr, 3);
+
+        bytes memory clientSignature = signRequest(client, request);
+        bytes memory proverSignature = signRequest(PROVER_WALLET, request);
+
+        uint256 balanceBefore = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance before:", balanceBefore);
+
+        // Note that this does not come from any particular address.
+        proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        // address(3) is just a standin for some other address.
+        address mockOtherProverAddr = address(uint160(3));
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
+
+        vm.expectRevert();
+        proofMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
+    }
+
     function testFulfillAlreadyFulfilled() public {
         // Submit request and fulfill it
         Vm.Wallet memory client = createClient(1);

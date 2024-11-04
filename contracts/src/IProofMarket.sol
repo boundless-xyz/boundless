@@ -163,15 +163,21 @@ interface IProofMarket {
         bytes calldata proverSignature
     ) external;
 
-    /// Fulfill a locked request by delivering the proof for the application.
-    /// Upon proof verification, the prover will be paid.
+    /// @notice Fulfill a locked request by delivering the proof for the application.
+    /// Upon proof verification, the prover that locked the request will be paid.
+    /// @param fill The fulfillment information, including the journal and seal.
+    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// request's requirements are met.
+    /// @param prover The address of the prover that produced the fulfillment.
+    /// Note that this can differ from the address of the prover that locked the
+    /// request. When they differ, the locked-in prover is the one that received payment.
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
 
-    /// Fulfills a batch of locked requests
+    /// @notice Fulfills a batch of locked requests. See IProofMarket.fulfill for more information.
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
-    /// Optional path to combine submitting a new merkle root to the set-verifier and then calling fulfillBatch
-    /// Useful to reduce the transaction count for fulfillments
+    /// @notice Combined function to submit a new merkle root to the set-verifier and call fulfillBatch.
+    /// @dev Useful to reduce the transaction count for fulfillments
     function submitRootAndFulfillBatch(
         bytes32 root,
         bytes calldata seal,
