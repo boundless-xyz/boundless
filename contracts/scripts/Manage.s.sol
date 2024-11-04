@@ -16,7 +16,6 @@ import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
 import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-
 /// @notice Base contract for the scripts below, providing common context and functions.
 contract RiscZeroManagementScript is Script, ConfigLoader {
     // Path to deployment config file, relative to the project root.
@@ -55,9 +54,8 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
 
         // Load the config and chainKey
         string memory chainKey = vm.envOr("CHAIN_KEY", string(""));
-        DeploymentConfig memory deploymentConfig = ConfigLoader.loadDeploymentConfig(
-            string.concat(vm.projectRoot(), "/", CONFIG)
-        );
+        DeploymentConfig memory deploymentConfig =
+            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
         _router = IRiscZeroVerifier(deploymentConfig.router);
 
         // Use a pre-deployed verifier, if not abort.
@@ -65,7 +63,8 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
         console2.log("Using IRiscZeroVerifier contract deployed at", address(_router));
 
         vm.broadcast(deployerAddress());
-        _setVerifier = new RiscZeroSetVerifier(_router, deploymentConfig.setBuilderImageId, deploymentConfig.setBuilderGuestUrl);
+        _setVerifier =
+            new RiscZeroSetVerifier(_router, deploymentConfig.setBuilderImageId, deploymentConfig.setBuilderGuestUrl);
         console2.log("Deployed RiscZeroSetVerifier to", address(_setVerifier));
 
         vm.broadcast(deployerAddress());
@@ -76,7 +75,9 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
         console2.log(string.concat("[[chains.", chainKey, ".verifiers]]"));
         console2.log("name = RiscZeroSetVerifier");
         console2.log(string.concat("version = \"", _setVerifier.VERSION(), "\""));
-        console2.log(string.concat("selector = \"", Strings.toHexString(uint256(uint32(_setVerifier.SELECTOR())), 4), "\""));
+        console2.log(
+            string.concat("selector = \"", Strings.toHexString(uint256(uint32(_setVerifier.SELECTOR())), 4), "\"")
+        );
         console2.log(string.concat("verifier = \"", Strings.toHexString(uint256(uint160(address(_setVerifier)))), "\""));
         console2.log(string.concat("estop = \"", Strings.toHexString(uint256(uint160(address(_verifierEstop)))), "\""));
     }
@@ -99,9 +100,8 @@ contract DeployProofMarket is RiscZeroManagementScript {
         console2.log("Deployed new ProofMarket implementation at", newImplementation);
 
         // Load the config
-        DeploymentConfig memory deploymentConfig = ConfigLoader.loadDeploymentConfig(
-            string.concat(vm.projectRoot(), "/", CONFIG)
-        );
+        DeploymentConfig memory deploymentConfig =
+            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
         address router = deploymentConfig.router;
         require(router != address(0), "RiscZeroVerifierRouter address must be set");
@@ -118,12 +118,12 @@ contract DeployProofMarket is RiscZeroManagementScript {
         // Deploy the proxy contract and initialize the contract
         // TODO: Switch to using the Upgrades library once the development is more stable.
         address proofMarketAddress = UnsafeUpgrades.deployUUPSProxy(
-                newImplementation,
-                abi.encodeCall(
-                    ProofMarket.initialize, (proofMarketOwner, IRiscZeroVerifier(router), assessorImageId, assessorGuestUrl)
-                )
-            );
-        
+            newImplementation,
+            abi.encodeCall(
+                ProofMarket.initialize, (proofMarketOwner, IRiscZeroVerifier(router), assessorImageId, assessorGuestUrl)
+            )
+        );
+
         console2.log("Deployed ProofMarket (proxy) contract at", proofMarketAddress);
     }
 }
@@ -145,9 +145,8 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         console2.log("Deployed new ProofMarket implementation at", newImplementation);
 
         // Load the config
-        DeploymentConfig memory deploymentConfig = ConfigLoader.loadDeploymentConfig(
-            string.concat(vm.projectRoot(), "/", CONFIG)
-        );
+        DeploymentConfig memory deploymentConfig =
+            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
         address proofMarketAddress = deploymentConfig.proofMarket;
         require(proofMarketAddress != address(0), "ProofMarket (proxy) address must be set");
         console2.log("Using ProofMarket (proxy) at address", proofMarketAddress);
@@ -155,24 +154,25 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         // Get the current assessor image ID and guest URL
         ProofMarket market = ProofMarket(proofMarketAddress);
         (bytes32 imageID, string memory guestUrl) = market.imageInfo();
-        
+
         vm.startBroadcast(deployerAddress());
         // Upgrade the proxy contract and update assessor image info if needed
         bytes32 assessorImageId = deploymentConfig.assessorImageId;
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl;
         if (assessorImageId != imageID || keccak256(bytes(assessorGuestUrl)) == keccak256(bytes(guestUrl))) {
             // TODO: Switch to using the Upgrades library once the development is more stable.
-            UnsafeUpgrades.upgradeProxy(proofMarketAddress, newImplementation, abi.encodeCall(
-                    ProofMarket.upgrade, (assessorImageId, assessorGuestUrl)
-                ), proofMarketOwner);
-        }
-        else{
+            UnsafeUpgrades.upgradeProxy(
+                proofMarketAddress,
+                newImplementation,
+                abi.encodeCall(ProofMarket.upgrade, (assessorImageId, assessorGuestUrl)),
+                proofMarketOwner
+            );
+        } else {
             // TODO: Switch to using the Upgrades library once the development is more stable.
             UnsafeUpgrades.upgradeProxy(proofMarketAddress, newImplementation, "", proofMarketOwner);
         }
         vm.stopBroadcast();
-        
+
         console2.log("Upgraded ProofMarket (proxy) contract at", proofMarketAddress);
     }
 }
-

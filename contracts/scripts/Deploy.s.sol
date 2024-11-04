@@ -46,9 +46,8 @@ contract Deploy is Script, RiscZeroCheats, ConfigLoader {
         console2.log("You are deploying on ChainID %d", chainId);
 
         // Load the deployment config
-        DeploymentConfig memory deploymentConfig = ConfigLoader.loadDeploymentConfig(
-            string.concat(vm.projectRoot(), "/", CONFIG_FILE)
-        );
+        DeploymentConfig memory deploymentConfig =
+            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG_FILE));
 
         // Assign parsed config values to the variables
         verifier = IRiscZeroVerifier(deploymentConfig.router);
@@ -78,17 +77,11 @@ contract Deploy is Script, RiscZeroCheats, ConfigLoader {
         if (bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0) {
             // TODO: Create a more robust way of getting a URI for guests.
             string memory cwd = vm.envString("PWD");
-            setBuilderGuestUrl = string.concat(
-                "file://",
-                cwd,
-                "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
-            );
+            setBuilderGuestUrl =
+                string.concat("file://", cwd, "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest");
             console2.log("Set builder URI", setBuilderGuestUrl);
-            assessorGuestUrl = string.concat(
-                "file://",
-                cwd,
-                "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
-            );
+            assessorGuestUrl =
+                string.concat("file://", cwd, "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest");
             console2.log("Assessor URI", assessorGuestUrl);
         }
 
@@ -103,13 +96,11 @@ contract Deploy is Script, RiscZeroCheats, ConfigLoader {
         // Deploy the proof market
         address newImplementation = address(new ProofMarket());
         console2.log("Deployed new ProofMarket implementation at", newImplementation);
-        
+
         // Deploy the proof market proxy.
         proofMarketAddress = UnsafeUpgrades.deployUUPSProxy(
             newImplementation,
-            abi.encodeCall(
-                ProofMarket.initialize, (proofMarketOwner, setVerifier, assessorImageId, assessorGuestUrl)
-            )
+            abi.encodeCall(ProofMarket.initialize, (proofMarketOwner, setVerifier, assessorImageId, assessorGuestUrl))
         );
         console2.log("Deployed ProofMarket (proxy) to", proofMarketAddress);
 
