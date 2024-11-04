@@ -51,8 +51,10 @@ pub struct MarketConf {
     /// for increasing the priority if competing with multiple provers during the
     /// same block
     pub lockin_priority_gas: Option<u64>,
-    /// Max input / image file size
+    /// Max input / image file size allowed for downloading from request URLs
     pub max_file_size: usize,
+    /// Max retries for fetching input / image contents from URLs
+    pub max_fetch_retries: Option<u8>,
 }
 
 impl Default for MarketConf {
@@ -68,6 +70,7 @@ impl Default for MarketConf {
             allow_client_addresses: None,
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
+            max_fetch_retries: Some(2),
         }
     }
 }
@@ -120,6 +123,16 @@ pub struct BatcherConfig {
     pub block_deadline_buffer_secs: u64,
     /// Timeout, in seconds for transaction confirmations
     pub txn_timeout: Option<u64>,
+    /// Polling time, in milliseconds
+    ///
+    /// The time between polls for new orders to aggregate and how often to check for
+    /// batch finalize conditions
+    pub batch_poll_time_ms: Option<u64>,
+    /// Use the single TXN submission that batches submit_merkle / fulfill_batch into
+    /// A single transaction. Requires the `submitRootAndFulfillBatch` method
+    /// be present on the deployed contract
+    #[serde(default)]
+    pub single_txn_fulfill: bool,
 }
 
 impl Default for BatcherConfig {
@@ -130,6 +143,8 @@ impl Default for BatcherConfig {
             batch_max_fees: None,
             block_deadline_buffer_secs: 120,
             txn_timeout: None,
+            batch_poll_time_ms: Some(1000),
+            single_txn_fulfill: false,
         }
     }
 }
@@ -324,6 +339,7 @@ lookback_blocks = 100
 max_stake = "0.1"
 skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
+max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
 lockin_priority_gas = 100
 
@@ -335,7 +351,9 @@ req_retry_count = 0
 batch_max_time = 300
 batch_size = 2
 block_deadline_buffer_secs = 120
-txn_timeout = 45"#;
+txn_timeout = 45
+batch_poll_time_ms = 1200
+single_txn_fulfill = true"#;
 
     const BAD_CONFIG: &str = r#"
 [market]
@@ -378,6 +396,7 @@ error = ?"#;
         assert_eq!(config.batcher.batch_max_fees, Some("0.1".into()));
         assert_eq!(config.batcher.block_deadline_buffer_secs, 120);
         assert_eq!(config.batcher.txn_timeout, None);
+        assert_eq!(config.batcher.batch_poll_time_ms, None);
     }
 
     #[tokio::test]
@@ -418,9 +437,12 @@ error = ?"#;
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
             assert_eq!(config.market.lockin_priority_gas, Some(100));
+            assert_eq!(config.market.max_fetch_retries, Some(10));
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
+            assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
+            assert_eq!(config.batcher.single_txn_fulfill, true);
         }
         tracing::debug!("closing...");
     }

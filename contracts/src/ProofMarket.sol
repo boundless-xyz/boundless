@@ -9,6 +9,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {IRiscZeroSetVerifier} from "./IRiscZeroSetVerifier.sol";
 
 import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "./IProofMarket.sol";
 import {ProofMarketLib} from "./ProofMarketLib.sol";
@@ -293,8 +294,9 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
     }
 
-    // TODO(victor): Add a path that allows a prover to fuilfill a request without first sending a lock-in.
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal) external {
+    /// Verify the application and assessor receipts, ensuring that the provided fulfillment
+    /// satisfies the request.
+    function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
         // Verify the application guest proof. We need to verify it here, even though the assesor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
@@ -307,18 +309,24 @@ contract ProofMarket is IProofMarket, EIP712 {
         ids[0] = fill.id;
         bytes32 assessorJournalDigest = sha256(
             abi.encode(
-                AssessorJournal({requestIds: ids, root: claimDigest, eip712DomainSeparator: _domainSeparatorV4()})
+                AssessorJournal({
+                    requestIds: ids,
+                    root: claimDigest,
+                    eip712DomainSeparator: _domainSeparatorV4(),
+                    prover: prover
+                })
             )
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
-
-        _fulfillVerified(fill.id);
-
-        emit RequestFulfilled(fill.id, fill.journal, fill.seal);
     }
 
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external {
+    /// Verify the application and assessor receipts for the batch, ensuring that the provided
+    /// fulfillments satisfy the requests.
+    function verifyBatchDelivery(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover)
+        public
+        view
+    {
         // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         uint192[] memory ids = new uint192[](fills.length);
@@ -332,18 +340,39 @@ contract ProofMarket is IProofMarket, EIP712 {
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32 assessorJournalDigest = sha256(
-            abi.encode(AssessorJournal({requestIds: ids, root: batchRoot, eip712DomainSeparator: _domainSeparatorV4()}))
+            abi.encode(
+                AssessorJournal({
+                    requestIds: ids,
+                    root: batchRoot,
+                    eip712DomainSeparator: _domainSeparatorV4(),
+                    prover: prover
+                })
+            )
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
+    }
+
+    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
+        verifyDelivery(fill, assessorSeal, prover);
+        _fulfillVerified(fill.id);
+
+        // TODO(victor): Potentially this should be (re)combined with RequestFulfilled. It would make
+        // the logic to watch for a proof a bit more complex, but the gas usage a little less (by
+        // about 1000 gas per fulfill based on benchmarks)
+        emit ProofDelivered(fill.id, fill.journal, fill.seal);
+    }
+
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
+        verifyBatchDelivery(fills, assessorSeal, prover);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(ids[i]);
+            _fulfillVerified(fills[i].id);
 
-            emit RequestFulfilled(fills[i].id, fills[i].journal, fills[i].seal);
+            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
     }
 
@@ -411,6 +440,20 @@ contract ProofMarket is IProofMarket, EIP712 {
         // Mark the request as fulfilled and pay the prover.
         clientAccount.setRequestFulfilled(idx);
         accounts[prover].balance += price + stake;
+
+        emit RequestFulfilled(id);
+    }
+
+    function deliver(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
+        verifyDelivery(fill, assessorSeal, prover);
+        emit ProofDelivered(fill.id, fill.journal, fill.seal);
+    }
+
+    function deliverBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external {
+        verifyBatchDelivery(fills, assessorSeal, prover);
+        for (uint256 i = 0; i < fills.length; i++) {
+            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+        }
     }
 
     function slash(uint192 requestId) external {
@@ -449,6 +492,18 @@ contract ProofMarket is IProofMarket, EIP712 {
 
     function imageInfo() external view returns (bytes32, string memory) {
         return (ASSESSOR_ID, imageUrl);
+    }
+
+    function submitRootAndFulfillBatch(
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external {
+        IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
+        setVerifier.submitMerkleRoot(root, seal);
+        fulfillBatch(fills, assessorSeal, prover);
     }
 }
 

@@ -88,8 +88,10 @@ struct AssessorJournal {
     // Root of the Merkle tree committing to the set of proven claims.
     // In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;
-    // EIP712 domain separator
+    // EIP712 domain separator.
     bytes32 eip712DomainSeparator;
+    // The address of the prover that produced the assessor receipt.
+    address prover;
 }
 
 interface IProofMarket {
@@ -97,8 +99,13 @@ interface IProofMarket {
     event RequestSubmitted(ProvingRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
-    /// Event logged when a request is fulfilled, outside of a batch.
-    event RequestFulfilled(uint192 indexed requestId, bytes journal, bytes seal);
+    /// Event logged when a request is fulfilled.
+    event RequestFulfilled(uint192 indexed requestId);
+    /// @notice Event logged when a proof is delivered that satisfies the requests requirements.
+    /// @dev It is possible for this event to be logged multiple times for a single request. This
+    /// is usually logged as part of order fulfillment, however it can also be logged by a prover
+    /// sending the proof without payment.
+    event ProofDelivered(uint192 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is burned for failing to fulfill a request by the deadline.
     event LockinStakeBurned(uint192 indexed requestId, uint96 stake);
     /// Event when a deposit is made to the proof market.
@@ -161,12 +168,42 @@ interface IProofMarket {
         bytes calldata proverSignature
     ) external;
 
-    /// Fulfill a locked request by delivering the proof for the application.
-    /// Upon proof verification, the prover will be paid.
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal) external;
+    /// @notice Fulfill a locked request by delivering the proof for the application.
+    /// Upon proof verification, the prover that locked the request will be paid.
+    /// @param fill The fulfillment information, including the journal and seal.
+    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// request's requirements are met.
+    /// @param prover The address of the prover that produced the fulfillment.
+    /// Note that this can differ from the address of the prover that locked the
+    /// request. When they differ, the locked-in prover is the one that received payment.
+    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
+    /// @notice Fulfills a batch of locked requests. See IProofMarket.fulfill for more information.
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
-    /// Fulfills a batch of locked requests
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external;
+    /// @notice Delivers a proof satisfying a referenced request, without modifying contract state.
+    /// In particular, calling this method will not result in payment being sent to the prover, or
+    /// marking the request as fulfilled.
+    /// @dev This method is useful for when an interested third party wants to delivery a proof for
+    /// a request even if they will not be paid for doing so.
+    /// @param fill The fulfillment information, including the journal and seal.
+    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// request's requirements are met.
+    /// @param prover The address of the prover that produced the fulfillment.
+    /// Note that this can differ from the address of the prover that locked the
+    /// request.
+    function deliver(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
+    /// @notice Delivers a batch of proofs. See IProofMarket.deliver for more information.
+    function deliverBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
+
+    /// @notice Combined function to submit a new merkle root to the set-verifier and call fulfillBatch.
+    /// @dev Useful to reduce the transaction count for fulfillments
+    function submitRootAndFulfillBatch(
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external;
 
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
