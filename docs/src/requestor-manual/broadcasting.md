@@ -94,17 +94,19 @@ The `cli` allows to:
    2024-09-17T15:01:02.480340Z  INFO cli: Proving request ID 3554585979324098154284013313896898623039163403618679259140, bidding start at block number 619
    ```
 
-   ````
+   ### Wait until fulfilled
+
    You can also add the `--wait` option to wait until the submitted request has been fulfilled:
 
    ```sh
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
-   ````
+   ```
 
-   You can also add the `--run-executor` option to run the proof request with a local executor to make sure your request is provable:
+   ### Dry-run
+   You can also add the `--dry-run` option to simulate the proof request with a local executor to make sure your request is provable before actually submitting it:
 
    ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --run-executor
+   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --dry-run
    ```
 
 2. Request the status of a given proving request:
