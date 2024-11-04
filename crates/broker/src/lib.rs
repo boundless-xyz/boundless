@@ -92,7 +92,7 @@ pub struct Args {
 }
 
 /// Status of a order as it moves through the lifecycle
-#[derive(Clone, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
 enum OrderStatus {
     /// New order found on chain, waiting pricing analysis
     New,
