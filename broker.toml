@@ -7,6 +7,7 @@ lookback_blocks = 100
 max_stake = "0.5"
 skip_preflight_ids = []
 max_file_size = 50_000_000
+# max_fetch_retries = 2
 # allow_client_addresses = []
 # lockin_priority_gas = 100
 
@@ -22,3 +23,4 @@ batch_max_time = 1000
 batch_size = 1
 block_deadline_buffer_secs = 120
 txn_timeout = 45
+# batch_poll_time_ms = 500

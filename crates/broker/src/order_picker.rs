@@ -15,11 +15,27 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::proof_market::ProofMarketService;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum PriceOrderErr {
+    #[error("Failed to fetch / push input: {0}")]
+    FetchInputErr(anyhow::Error),
+
+    #[error("Failed to fetch / push image: {0}")]
+    FetchImageErr(anyhow::Error),
+
+    #[error("Guest execution faulted: {0}")]
+    GuestPanic(String),
+
+    #[error("Other: {0}")]
+    OtherErr(#[from] anyhow::Error),
+}
 
 use crate::{
     config::ConfigLock,
     db::DbObj,
-    provers::ProverObj,
+    provers::{ProverError, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     Order,
 };
@@ -55,7 +71,7 @@ where
         Self { db, config, prover, block_time, provider, market }
     }
 
-    async fn price_order(&self, order_id: U256, order: &Order) -> Result<()> {
+    async fn price_order(&self, order_id: U256, order: &Order) -> Result<(), PriceOrderErr> {
         tracing::debug!("Processing order {order_id:x}: {order:?}");
 
         let (min_deadline, allowed_addresses_opt) = {
@@ -89,7 +105,7 @@ where
         // Does the order expire within the min deadline
         let seconds_left = (expire_block - current_block) * self.block_time;
         if seconds_left <= min_deadline {
-            tracing::warn!("Removing order {order_id:x} because it expires within the deadline");
+            tracing::warn!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             self.db.skip_order(order_id).await.context("Failed to delete short deadline order")?;
             return Ok(());
         }
@@ -125,7 +141,7 @@ where
             return Ok(());
         }
 
-        let (skip_preflight, max_size, peak_prove_khz) = {
+        let (skip_preflight, max_size, peak_prove_khz, fetch_retries) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             let skip_preflight =
                 if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
@@ -134,7 +150,12 @@ where
                     false
                 };
 
-            (skip_preflight, config.market.max_file_size, config.market.peak_prove_khz)
+            (
+                skip_preflight,
+                config.market.max_file_size,
+                config.market.peak_prove_khz,
+                config.market.max_fetch_retries,
+            )
         };
 
         if skip_preflight {
@@ -147,13 +168,13 @@ where
         }
 
         // TODO: Move URI handling like this into the prover impls
-        let image_id = crate::upload_image_uri(&self.prover, order, max_size)
+        let image_id = crate::upload_image_uri(&self.prover, order, max_size, fetch_retries)
             .await
-            .context("Failed to upload image_id")?;
+            .map_err(PriceOrderErr::FetchImageErr)?;
 
-        let input_id = crate::upload_input_uri(&self.prover, order, max_size)
+        let input_id = crate::upload_input_uri(&self.prover, order, max_size, fetch_retries)
             .await
-            .context("Failed to upload input_id")?;
+            .map_err(PriceOrderErr::FetchInputErr)?;
 
         // Record the image/input IDs for proving stage
         self.db
@@ -195,7 +216,18 @@ where
                 /* TODO assumptions */ Some(exec_limit * 1024 * 1024),
             )
             .await
-            .context("Preflight failed")?;
+            .map_err(|err| match err {
+                ProverError::ProvingFailed(ref err_msg) => {
+                    // TODO: Get enum'd errors from the SDK to prevent str
+                    // checks
+                    if err_msg.contains("GuestPanic") {
+                        PriceOrderErr::GuestPanic(err_msg.clone())
+                    } else {
+                        PriceOrderErr::OtherErr(err.into())
+                    }
+                }
+                _ => PriceOrderErr::OtherErr(err.into()),
+            })?;
 
         // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently
         // can absorb that proving load, we need to cordinate this check with parallel
@@ -351,7 +383,17 @@ where
                                 .set_order_failure(order_id, err.to_string())
                                 .await
                                 .expect("Failed to set order failure");
-                            tracing::error!("pricing order failed: {order_id:x} {err:?}");
+                            match err {
+                                PriceOrderErr::OtherErr(err) => {
+                                    tracing::error!("Pricing order failed: {order_id:x} {err:?}");
+                                }
+                                // Only warn on known / classified errors
+                                _ => {
+                                    tracing::warn!(
+                                        "Pricing order soft failed: {order_id:x} {err:?}"
+                                    );
+                                }
+                            }
                         }
                     });
                 }

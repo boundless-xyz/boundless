@@ -92,7 +92,7 @@ pub struct Args {
 }
 
 /// Status of a order as it moves through the lifecycle
-#[derive(Clone, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
 enum OrderStatus {
     /// New order found on chain, waiting pricing analysis
     New,
@@ -533,11 +533,18 @@ where
     }
 }
 
-async fn upload_image_uri(prover: &ProverObj, order: &Order, max_size: usize) -> Result<String> {
-    let uri = UriHandlerBuilder::new(&order.request.imageUrl)
-        .set_max_size(max_size)
-        .build()
-        .context("Uri parse failure")?;
+async fn upload_image_uri(
+    prover: &ProverObj,
+    order: &Order,
+    max_size: usize,
+    retries: Option<u8>,
+) -> Result<String> {
+    let mut uri = UriHandlerBuilder::new(&order.request.imageUrl).set_max_size(max_size);
+
+    if let Some(retry) = retries {
+        uri = uri.set_retries(retry);
+    }
+    let uri = uri.build().context("Uri parse failure")?;
 
     if !uri.exists() {
         let image_data = uri
@@ -566,7 +573,12 @@ async fn upload_image_uri(prover: &ProverObj, order: &Order, max_size: usize) ->
         Ok(uri.id().context("Invalid image URI type")?)
     }
 }
-async fn upload_input_uri(prover: &ProverObj, order: &Order, max_size: usize) -> Result<String> {
+async fn upload_input_uri(
+    prover: &ProverObj,
+    order: &Order,
+    max_size: usize,
+    retries: Option<u8>,
+) -> Result<String> {
     Ok(match order.request.input.inputType {
         InputType::Inline => prover
             .upload_input(order.request.input.data.to_vec())
@@ -577,10 +589,12 @@ async fn upload_input_uri(prover: &ProverObj, order: &Order, max_size: usize) ->
             let input_uri_str =
                 std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");
-            let input_uri = UriHandlerBuilder::new(input_uri_str)
-                .set_max_size(max_size)
-                .build()
-                .context("Failed to parse input uri")?;
+            let mut input_uri = UriHandlerBuilder::new(input_uri_str).set_max_size(max_size);
+
+            if let Some(retry) = retries {
+                input_uri = input_uri.set_retries(retry);
+            }
+            let input_uri = input_uri.build().context("Failed to parse input uri")?;
 
             if !input_uri.exists() {
                 let input_data = input_uri

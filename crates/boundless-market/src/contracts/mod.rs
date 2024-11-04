@@ -130,6 +130,11 @@ impl ProvingRequest {
         Self { offer, ..self }
     }
 
+    /// Returns the block number at which the request expires.
+    pub fn expires_at(&self) -> u64 {
+        self.offer.biddingStart + self.offer.timeout as u64
+    }
+
     /// Check that the request is valid and internally consistent.
     ///
     /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min
