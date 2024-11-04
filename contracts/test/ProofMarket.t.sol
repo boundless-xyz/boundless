@@ -603,6 +603,41 @@ contract ProofMarketTest is Test {
         proofMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
     }
 
+    function testPriceAndFulfill() external {
+        Vm.Wallet memory client = createClient(1);
+
+        ProvingRequest memory request = defaultRequest(client.addr, 3);
+
+        bytes memory clientSignature = signRequest(client, request);
+
+        uint256 balanceBefore = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance before:", balanceBefore);
+
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
+
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = fill;
+        ProvingRequest[] memory requests = new ProvingRequest[](1);
+        requests[0] = request;
+        bytes[] memory clientSignatures = new bytes[](1);
+        clientSignatures[0] = clientSignature;
+
+        vm.expectEmit(true, true, true, true);
+        emit IProofMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IProofMarket.ProofDelivered(request.id, hex"", hex"");
+        proofMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorSeal, PROVER_WALLET.addr);
+
+        // Check that the proof was submitted
+        assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+
+        uint256 balanceAfter = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance after:", balanceAfter);
+        assertEq(balanceBefore + 1 ether, balanceAfter);
+
+        checkProofMarketBalance();
+    }
+
     function testFulfillAlreadyFulfilled() public {
         // Submit request and fulfill it
         Vm.Wallet memory client = createClient(1);

@@ -274,7 +274,7 @@ contract ProofMarket is IProofMarket, EIP712 {
 
     /// Validates the request and records the price to transient storage such that it can be
     /// fulfilled within the same transaction without taking a lock on it.
-    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) internal {
+    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) public {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
 
         // Recover the prover address and require the client address to equal the address part of the ID.
@@ -377,8 +377,21 @@ contract ProofMarket is IProofMarket, EIP712 {
         }
     }
 
+    function priceAndFulfillBatch(
+        ProvingRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external {
+        for (uint256 i = 0; i < requests.length; i++) {
+            priceRequest(requests[i], clientSignatures[i]);
+        }
+        fulfillBatch(fills, assessorSeal, prover);
+    }
+
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillVerified(uint192 id, address prover) internal {
+    function _fulfillVerified(uint192 id, address assesorProver) internal {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
 
@@ -416,7 +429,7 @@ contract ProofMarket is IProofMarket, EIP712 {
                 revert RequestIsNotLocked({requestId: id});
             }
 
-            prover = prover;
+            prover = assesorProver;
             price = tprice.price;
             stake = 0;
         }

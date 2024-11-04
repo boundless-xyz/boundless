@@ -180,6 +180,25 @@ interface IProofMarket {
     /// @notice Fulfills a batch of locked requests. See IProofMarket.fulfill for more information.
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
+    /// @notice Checks the validity of the request and then writes the current auction price to
+    /// transient storage.
+    /// @dev When called within the same transaction, this method can be used to fulfill a request
+    /// that is not locked. This is useful when the prover wishes to fulfill a request, but does
+    /// not want to issue a lock transaction e.g. because the stake is to high or to save money by
+    /// avoiding the gas costs of the lock transaction.
+    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) external;
+
+    /// @notice A combined call to `IProofMarket.priceRequest` and `IProofMarket.fulfillBatch`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
+    function priceAndFulfillBatch(
+        ProvingRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external;
+
     /// @notice Delivers a proof satisfying a referenced request, without modifying contract state.
     /// In particular, calling this method will not result in payment being sent to the prover, or
     /// marking the request as fulfilled.
