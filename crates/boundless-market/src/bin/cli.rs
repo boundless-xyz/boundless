@@ -179,14 +179,23 @@ async fn main() -> Result<()> {
 
     let args = MainArgs::try_parse()?;
 
+    run(&args).await.unwrap();
+    Ok(())
+}
+
+pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     let caller = args.private_key.address();
     let signer = args.private_key.clone();
     let wallet = EthereumWallet::from(args.private_key.clone());
-    let provider =
-        ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(args.rpc_url);
+    let provider = ProviderBuilder::new()
+        .with_recommended_fillers()
+        .wallet(wallet)
+        .on_http(args.rpc_url.clone());
     let market = ProofMarketService::new(args.proof_market_address, provider.clone(), caller);
     let set_verifier = IRiscZeroVerifier::new(args.set_verifier_address, provider.clone());
     let command = args.command.clone();
+
+    let mut request_id = None;
     match command {
         Command::Deposit { amount } => {
             market.deposit(amount).await?;
@@ -201,13 +210,15 @@ async fn main() -> Result<()> {
             let balance = market.balance_of(addr).await?;
             tracing::info!("Balance of {addr}: {balance}");
         }
-        Command::SubmitOffer(args) => submit_offer(market, &args, signer).await?,
+        Command::SubmitOffer(args) => {
+            request_id = submit_offer(market, &args, signer).await?;
+        }
         Command::SubmitRequest { yaml_request, id, wait, dry_run } => {
             let id = match id {
                 Some(id) => id,
                 None => market.index_from_nonce().await?,
             };
-            submit_request(id, market, yaml_request, signer, wait, dry_run).await?
+            request_id = submit_request(id, market, yaml_request, signer, wait, dry_run).await?;
         }
         Command::Slash { request_id } => {
             market.slash(request_id).await?;
@@ -246,14 +257,14 @@ async fn main() -> Result<()> {
         }
     };
 
-    Ok(())
+    Ok(request_id)
 }
 
 async fn submit_offer<T, P>(
     market: ProofMarketService<T, P>,
     args: &SubmitOfferArgs,
     signer: impl Signer + SignerSync,
-) -> Result<()>
+) -> Result<Option<U256>>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
@@ -345,7 +356,7 @@ where
             bail!("Predicate evaluation failed");
         }
         tracing::info!("Dry-run succeeded.");
-        return Ok(());
+        return Ok(None);
     }
 
     let request_id = market.submit_request(&request, &signer).await?;
@@ -363,7 +374,7 @@ where
             serde_json::to_string_pretty(&seal)?
         );
     };
-    Ok(())
+    Ok(Some(request_id))
 }
 
 async fn submit_request<T, P>(
@@ -373,7 +384,7 @@ async fn submit_request<T, P>(
     signer: impl Signer + SignerSync,
     wait: bool,
     dry_run: bool,
-) -> Result<()>
+) -> Result<Option<U256>>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
@@ -416,7 +427,7 @@ where
             bail!("Predicate evaluation failed");
         }
         tracing::info!("Dry-run succeeded.");
-        return Ok(());
+        return Ok(None);
     }
 
     let request_id = market.submit_request(&request, &signer).await?;
@@ -434,7 +445,7 @@ where
             serde_json::to_string_pretty(&seal)?
         );
     };
-    Ok(())
+    Ok(Some(request_id))
 }
 
 async fn execute(request: &ProvingRequest) -> Result<SessionInfo> {
@@ -472,4 +483,115 @@ async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
     let path = std::path::Path::new(url.path());
     let data = tokio::fs::read(path).await?;
     Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use alloy::{hex::FromHex, node_bindings::Anvil};
+    use boundless_market::contracts::test_utils::TestCtx;
+    use broker::test_utils::broker_from_test_ctx;
+    use tokio::time::timeout;
+    use tracing_test::traced_test;
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_deposit_withdraw() {
+        // Setup anvil
+        let anvil = Anvil::new().spawn();
+
+        let ctx = TestCtx::new(&anvil).await.unwrap();
+
+        let mut args = MainArgs {
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.prover_signer.clone(),
+            proof_market_address: ctx.proof_market_addr,
+            set_verifier_address: ctx.set_verifier_addr,
+            command: Command::Deposit { amount: U256::from(100) },
+        };
+
+        run(&args).await.unwrap();
+
+        let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
+        assert_eq!(balance, U256::from(100));
+
+        args.command = Command::Withdraw { amount: U256::from(100) };
+        run(&args).await.unwrap();
+
+        let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
+        assert_eq!(balance, U256::from(0));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    #[ignore]
+    // This test should run in dev mode, otherwise a prover backend is required.
+    // To run in dev mode, set the `RISC0_DEV_MODE` environment variable to `true`,
+    // e.g.: `RISC0_DEV_MODE=true cargo test -- --ignored`
+    async fn test_submit_request() {
+        // Setup anvil
+        let anvil = Anvil::new().spawn();
+
+        let ctx = TestCtx::new(&anvil).await.unwrap();
+        ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
+
+        // Start a broker
+        let broker = broker_from_test_ctx(&ctx, anvil.endpoint_url()).await.unwrap();
+        let broker_task = tokio::spawn(async move {
+            broker.start_service().await.unwrap();
+        });
+
+        let mut args = MainArgs {
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.customer_signer.clone(),
+            proof_market_address: ctx.proof_market_addr,
+            set_verifier_address: ctx.set_verifier_addr,
+            command: Command::SubmitRequest {
+                yaml_request: "../../request.yaml".to_string(),
+                id: None,
+                wait: true,
+                dry_run: false,
+            },
+        };
+
+        let result = timeout(Duration::from_secs(60), run(&args)).await;
+
+        let request_id = match result {
+            Ok(run_result) => match run_result {
+                Ok(value) => value.unwrap(),
+                Err(e) => {
+                    panic!("`run` returned an error: {:?}", e);
+                }
+            },
+            Err(_) => {
+                panic!("Test timed out after 1 minute");
+            }
+        };
+
+        // GetStatus
+        args.command = Command::Status { request_id };
+        run(&args).await.unwrap();
+
+        // GetProof
+        args.command = Command::GetProof { request_id, wait: true };
+        run(&args).await.unwrap();
+
+        // VerifyProof
+        args.command = Command::VerifyProof {
+            request_id,
+            image_id: B256::from_hex(
+                "0x257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d",
+            )
+            .unwrap(),
+        };
+        run(&args).await.unwrap();
+
+        // Check for a broker panic
+        if broker_task.is_finished() {
+            broker_task.await.unwrap();
+        } else {
+            broker_task.abort();
+        }
+    }
 }
