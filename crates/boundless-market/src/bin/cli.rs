@@ -562,11 +562,11 @@ mod tests {
         };
 
         // GetStatus
-        args.command = Command::Status { request_id };
+        args.command = Command::Status { request_id, expires_at: None };
         run(&args).await.unwrap();
 
         // GetProof
-        args.command = Command::GetProof { request_id, wait: true };
+        args.command = Command::GetProof { request_id };
         run(&args).await.unwrap();
 
         // VerifyProof
