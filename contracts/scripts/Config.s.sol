@@ -7,7 +7,6 @@ pragma solidity ^0.8.20;
 import {Script} from "forge-std/Script.sol";
 import "forge-std/Test.sol";
 
-
 struct DeploymentConfig {
     string name;
     uint256 chainId;
@@ -22,8 +21,11 @@ struct DeploymentConfig {
 }
 
 contract ConfigLoader is Script {
-
-    function loadConfig(string memory configFilePath) internal view returns (string memory config, string memory chainKey) {
+    function loadConfig(string memory configFilePath)
+        internal
+        view
+        returns (string memory config, string memory chainKey)
+    {
         // Load the config file
         config = vm.readFile(configFilePath);
 
@@ -45,8 +47,18 @@ contract ConfigLoader is Script {
     }
 
     function loadDeploymentConfig(string memory configFilePath) internal view returns (DeploymentConfig memory) {
-        DeploymentConfig memory deploymentConfig;
         (string memory config, string memory chainKey) = loadConfig(configFilePath);
+        return ConfigParser.parseConfig(config, chainKey);
+    }
+}
+
+library ConfigParser {
+    function parseConfig(string memory config, string memory chainKey)
+        internal
+        pure
+        returns (DeploymentConfig memory)
+    {
+        DeploymentConfig memory deploymentConfig;
 
         string memory chain = string.concat(".chains.", chainKey);
 
