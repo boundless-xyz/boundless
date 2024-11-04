@@ -356,7 +356,7 @@ contract ProofMarket is IProofMarket, EIP712 {
 
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
         verifyDelivery(fill, assessorSeal, prover);
-        _fulfillVerified(fill.id);
+        _fulfillVerified(fill.id, prover);
 
         // TODO(victor): Potentially this should be (re)combined with RequestFulfilled. It would make
         // the logic to watch for a proof a bit more complex, but the gas usage a little less (by
@@ -371,14 +371,14 @@ contract ProofMarket is IProofMarket, EIP712 {
         // batch update to storage. However, updating the the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(fills[i].id);
+            _fulfillVerified(fills[i].id, prover);
 
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillVerified(uint192 id) internal {
+    function _fulfillVerified(uint192 id, address prover) internal {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
 
@@ -416,8 +416,7 @@ contract ProofMarket is IProofMarket, EIP712 {
                 revert RequestIsNotLocked({requestId: id});
             }
 
-            // TODO(#90): Use the prover address committed by the assessor instead of msg.sender.
-            prover = msg.sender;
+            prover = prover;
             price = tprice.price;
             stake = 0;
         }
