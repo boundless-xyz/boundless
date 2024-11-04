@@ -122,13 +122,14 @@ where
                 continue;
             }
 
-            let req_status = match market.get_status(request_id).await {
-                Ok(val) => val,
-                Err(err) => {
-                    tracing::warn!("Failed to get request status: {err:?}");
-                    continue;
-                }
-            };
+            let req_status =
+                match market.get_status(request_id, Some(event.request.expires_at())).await {
+                    Ok(val) => val,
+                    Err(err) => {
+                        tracing::warn!("Failed to get request status: {err:?}");
+                        continue;
+                    }
+                };
 
             if !matches!(req_status, ProofStatus::Unknown) {
                 tracing::debug!(

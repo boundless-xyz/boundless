@@ -148,11 +148,11 @@ where
         &self,
         request_id: U256,
         check_interval: std::time::Duration,
-        timeout: Option<std::time::Duration>,
+        expires_at: u64,
     ) -> Result<(Bytes, Bytes), ClientError> {
         Ok(self
             .proof_market
-            .wait_for_request_fulfillment(request_id, check_interval, timeout)
+            .wait_for_request_fulfillment(request_id, check_interval, expires_at)
             .await?)
     }
 }

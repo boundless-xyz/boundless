@@ -81,8 +81,11 @@ where
             return Err(LockOrderErr::InvalidStatus(order.status));
         }
 
-        let order_status =
-            self.market.get_status(order_id).await.context("Failed to get order status")?;
+        let order_status = self
+            .market
+            .get_status(order_id, Some(order.request.expires_at()))
+            .await
+            .context("Failed to get order status")?;
         if order_status != ProofStatus::Unknown {
             tracing::warn!("Order {order_id:x} not open: {order_status:?}, skipping");
             // TODO: fetch some chain data to find out who / and for how much the order
