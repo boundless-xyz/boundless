@@ -90,7 +90,7 @@ struct AssessorJournal {
     bytes32 root;
     // EIP712 domain separator.
     bytes32 eip712DomainSeparator;
-    // The address pf the prover.
+    // The address of the prover that produced the assessor receipt.
     address prover;
 }
 
