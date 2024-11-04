@@ -26,14 +26,22 @@ use super::{
 pub enum MarketError {
     #[error("Transaction error: {0}")]
     TxnError(#[from] TxnErr),
+
     #[error("Request is not fulfilled {0}")]
     RequestNotFulfilled(U256),
+
     #[error("Request has expired {0}")]
     RequestHasExpired(U256),
+
     #[error("Proof not found {0}")]
     ProofNotFound(U256),
+
+    #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
+    LockRevert(B256),
+
     #[error("Market error: {0}")]
     Error(#[from] anyhow::Error),
+
     #[error("Timeout: {0}")]
     TimeoutReached(U256),
 }
@@ -252,10 +260,7 @@ where
 
         if !receipt.status() {
             // TODO: Get + print revertReason
-            return Err(MarketError::Error(anyhow!(
-                "LockinRequest failed [{}], possibly outbid",
-                receipt.transaction_hash
-            )));
+            return Err(MarketError::LockRevert(receipt.transaction_hash));
         }
 
         tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
