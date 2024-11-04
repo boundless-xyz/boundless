@@ -243,6 +243,7 @@ contract ProofMarket is IProofMarket, EIP712 {
 
     /// Verify the application and assessor receipts, ensuring that the provided fulfillment
     /// satisfies the request.
+    // TODO(#165) Return or check the request checksum here.
     function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
         // Verify the application guest proof. We need to verify it here, even though the market
         // guest already verified that the prover has knowledge of a verifying receipt, because
