@@ -40,7 +40,7 @@ pub async fn supervisor(count: usize, task: Arc<impl RetryTask>) -> AnyhowRes<()
                 Ok(_) => tracing::debug!("Task exited cleanly"),
                 Err(err) => match err {
                     SupervisorErr::Recover(err) => {
-                        tracing::error!(
+                        tracing::warn!(
                             "Recoverable failure detected: {err:?}, spawning replacement"
                         );
                         tasks.spawn(task.spawn());

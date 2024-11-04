@@ -17,6 +17,7 @@ use boundless_market::contracts::{proof_market::ProofMarketService, IProofMarket
 use futures_util::StreamExt;
 
 use crate::{
+    db::DbError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, Order,
 };
@@ -121,13 +122,14 @@ where
                 continue;
             }
 
-            let req_status = match market.get_status(request_id).await {
-                Ok(val) => val,
-                Err(err) => {
-                    tracing::warn!("Failed to get request status: {err:?}");
-                    continue;
-                }
-            };
+            let req_status =
+                match market.get_status(request_id, Some(event.request.expires_at())).await {
+                    Ok(val) => val,
+                    Err(err) => {
+                        tracing::warn!("Failed to get request status: {err:?}");
+                        continue;
+                    }
+                };
 
             if !matches!(req_status, ProofStatus::Unknown) {
                 tracing::debug!(
@@ -158,6 +160,8 @@ where
     }
 
     async fn monitor_orders(market_addr: Address, provider: Arc<P>, db: DbObj) -> Result<()> {
+        let chain_id = provider.get_chain_id().await?;
+
         let market = ProofMarketService::new(market_addr, provider, Address::ZERO);
         // TODO: RPC providers can drop filters over time or flush them
         // we should try and move this to a subscription filter if we have issue with the RPC
@@ -171,6 +175,19 @@ where
                 match log_res {
                     Ok((event, _log)) => {
                         tracing::info!("Detected new request {:x}", event.request.id);
+
+                        if let Err(err) = event.request.verify_signature(
+                            &event.clientSignature,
+                            market_addr,
+                            chain_id,
+                        ) {
+                            tracing::warn!(
+                                "Failed to validate order signature: 0x{:x} - {err:?}",
+                                event.request.id
+                            );
+                            return;
+                        }
+
                         if let Err(err) = db
                             .add_order(
                                 U256::from(event.request.id),
@@ -178,7 +195,20 @@ where
                             )
                             .await
                         {
-                            tracing::error!("Failed to add new order into DB: {err:?}");
+                            match err {
+                                DbError::SqlErr(sqlx::Error::Database(db_err)) => {
+                                    if db_err.is_unique_violation() {
+                                        tracing::warn!("Duplicate order detected: {db_err:?}");
+                                    } else {
+                                        tracing::error!(
+                                            "Failed to add new order into DB: {db_err:?}"
+                                        );
+                                    }
+                                }
+                                _ => {
+                                    tracing::error!("Failed to add new order into DB: {err:?}");
+                                }
+                            }
                         }
                     }
                     Err(err) => {
