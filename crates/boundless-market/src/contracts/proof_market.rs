@@ -346,10 +346,13 @@ where
         &self,
         fulfillment: &Fulfillment,
         market_seal: &Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfill({:?},{:?})", fulfillment, market_seal);
-        let call =
-            self.instance.fulfill(fulfillment.clone(), market_seal.clone()).from(self.caller);
+        let call = self
+            .instance
+            .fulfill(fulfillment.clone(), market_seal.clone(), prover_address)
+            .from(self.caller);
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -370,9 +373,13 @@ where
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_seal:x})");
-        let call = self.instance.fulfillBatch(fulfillments, assessor_seal).from(self.caller);
+        let call = self
+            .instance
+            .fulfillBatch(fulfillments, assessor_seal, prover_address)
+            .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -394,11 +401,12 @@ where
         seal: Bytes,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_seal:x})");
         let call = self
             .instance
-            .submitRootAndFulfillBatch(root, seal, fulfillments, assessor_seal)
+            .submitRootAndFulfillBatch(root, seal, fulfillments, assessor_seal, prover_address)
             .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -921,7 +929,10 @@ mod tests {
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
         // fulfill the request
-        ctx.prover_market.fulfill(&fulfillment, &market_seal).await.unwrap();
+        ctx.prover_market
+            .fulfill(&fulfillment, &market_seal, ctx.prover_signer.address())
+            .await
+            .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
         // retrieve journal and seal from the fulfilled request
@@ -979,7 +990,13 @@ mod tests {
         let fulfillments = vec![fulfillment];
         // publish the committed root + fulfillments
         ctx.prover_market
-            .submit_merkle_and_fulfill(root, set_verifier_seal, fulfillments.clone(), market_seal)
+            .submit_merkle_and_fulfill(
+                root,
+                set_verifier_seal,
+                fulfillments.clone(),
+                market_seal,
+                ctx.prover_signer.address(),
+            )
             .await
             .unwrap();
 

@@ -430,7 +430,7 @@ contract ProofMarketTest is Test {
         vm.startPrank(PROVER_WALLET.addr);
         proofMarket.lockin(request, clientSignature);
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
-        proofMarket.fulfill(fill, assessorSeal);
+        proofMarket.fulfill(fill, assessorSeal, PROVER_WALLET.addr);
         // console2.log("fulfill - Gas used:", vm.gasUsed());
         vm.stopPrank();
 
@@ -475,8 +475,7 @@ contract ProofMarketTest is Test {
         // Note that this does not come from any particular address.
         proofMarket.lockinWithSig(request, clientSignature, proverSignature);
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
-        vm.prank(PROVER_WALLET.addr);
-        proofMarket.fulfill(fill, assessorSeal);
+        proofMarket.fulfill(fill, assessorSeal, PROVER_WALLET.addr);
 
         // Check that the proof was submitted
         assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
@@ -527,8 +526,7 @@ contract ProofMarketTest is Test {
 
         (Fulfillment[] memory fills, bytes memory assessorSeal) =
             fulfillRequestBatch(requests, journals, PROVER_WALLET.addr);
-        vm.prank(PROVER_WALLET.addr);
-        proofMarket.fulfillBatch(fills, assessorSeal);
+        proofMarket.fulfillBatch(fills, assessorSeal, PROVER_WALLET.addr);
 
         for (uint256 i = 0; i < fills.length; i++) {
             // Check that the proof was submitted
@@ -552,8 +550,7 @@ contract ProofMarketTest is Test {
         // Attempt to fulfill a request already fulfilled
         // should revert with "RequestIsFulfilled({requestId: request.id})"
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsFulfilled.selector, request.id));
-        vm.prank(PROVER_WALLET.addr);
-        proofMarket.fulfill(fill, assessorSeal);
+        proofMarket.fulfill(fill, assessorSeal, PROVER_WALLET.addr);
 
         checkProofMarketBalance();
     }
@@ -567,8 +564,7 @@ contract ProofMarketTest is Test {
         // Attempt to fulfill a request not lockeed
         // should revert with "RequestIsNotLocked({requestId: request.id})"
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
-        vm.prank(PROVER_WALLET.addr);
-        proofMarket.fulfill(fill, assessorSeal);
+        proofMarket.fulfill(fill, assessorSeal, PROVER_WALLET.addr);
 
         checkProofMarketBalance();
     }
@@ -597,7 +593,7 @@ contract ProofMarketTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IProofMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
-        proofMarket.fulfill(fill, assessorSeal);
+        proofMarket.fulfill(fill, assessorSeal, PROVER_WALLET.addr);
         vm.stopPrank();
 
         checkProofMarketBalance();
@@ -716,8 +712,7 @@ contract ProofMarketTest is Test {
             fulfillRequestBatch(requests, journals, PROVER_WALLET.addr);
 
         uint256 gasBefore = gasleft();
-        vm.prank(PROVER_WALLET.addr);
-        proofMarket.fulfillBatch(fills, assessorSeal);
+        proofMarket.fulfillBatch(fills, assessorSeal, PROVER_WALLET.addr);
         uint256 gasAfter = gasleft();
         // Calculate the gas used
         uint256 gasUsed = gasBefore - gasAfter;
@@ -771,8 +766,7 @@ contract ProofMarketTest is Test {
 
         bytes memory seal =
             verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
-        vm.prank(PROVER_WALLET.addr);
-        proofMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal);
+        proofMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal, PROVER_WALLET.addr);
 
         for (uint256 j = 0; j < fills.length; j++) {
             assertTrue(proofMarket.requestIsFulfilled(fills[j].id), "Request should have fulfilled status");

@@ -883,7 +883,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer))
+                .wallet(EthereumWallet::from(signer.clone()))
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
@@ -915,6 +915,7 @@ mod tests {
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
+            signer.address(),
             config,
             prover,
             2,

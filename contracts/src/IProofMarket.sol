@@ -165,10 +165,10 @@ interface IProofMarket {
 
     /// Fulfill a locked request by delivering the proof for the application.
     /// Upon proof verification, the prover will be paid.
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal) external;
+    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
 
     /// Fulfills a batch of locked requests
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external;
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
     /// Optional path to combine submitting a new merkle root to the set-verifier and then calling fulfillBatch
     /// Useful to reduce the transaction count for fulfillments
@@ -176,7 +176,8 @@ interface IProofMarket {
         bytes32 root,
         bytes calldata seal,
         Fulfillment[] calldata fills,
-        bytes calldata assessorSeal
+        bytes calldata assessorSeal,
+        address prover
     ) external;
 
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn

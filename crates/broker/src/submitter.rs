@@ -36,6 +36,7 @@ pub struct Submitter<T, P> {
     market: ProofMarketService<T, Arc<P>>,
     set_verifier: SetVerifierService<T, Arc<P>>,
     set_builder_img_id: Digest,
+    prover_address: Address,
     config: ConfigLock,
 }
 
@@ -77,7 +78,9 @@ where
             set_verifier.with_timeout(Duration::from_secs(txn_timeout));
         }
 
-        Ok(Self { db, prover, market, set_verifier, set_builder_img_id, config })
+        let prover_address = provider.default_signer_address();
+
+        Ok(Self { db, prover, market, set_verifier, set_builder_img_id, prover_address, config })
     }
 
     async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
@@ -212,6 +215,7 @@ where
                     batch_seal.into(),
                     fulfillments.clone(),
                     assessor_seal.into(),
+                    self.prover_address,
                 )
                 .await
             {
@@ -248,8 +252,10 @@ where
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
 
-            if let Err(err) =
-                self.market.fulfill_batch(fulfillments.clone(), assessor_seal.into()).await
+            if let Err(err) = self
+                .market
+                .fulfill_batch(fulfillments.clone(), assessor_seal.into(), self.prover_address)
+                .await
             {
                 tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
                 for fulfillment in fulfillments.iter() {
