@@ -269,7 +269,7 @@ contract ProofMarket is IProofMarket, EIP712 {
 
         _fulfillVerified(fill.id);
 
-        emit RequestFulfilled(fill.id, fill.journal, fill.seal);
+        emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
 
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
@@ -304,7 +304,7 @@ contract ProofMarket is IProofMarket, EIP712 {
         for (uint256 i = 0; i < fills.length; i++) {
             _fulfillVerified(ids[i]);
 
-            emit RequestFulfilled(fills[i].id, fills[i].journal, fills[i].seal);
+            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
     }
 
@@ -336,6 +336,8 @@ contract ProofMarket is IProofMarket, EIP712 {
         // Mark the request as fulfilled and pay the prover.
         accounts[client].setRequestFulfilled(idx);
         accounts[lock.prover].balance += lock.price + lock.stake;
+
+        emit RequestFulfilled(id);
     }
 
     function slash(uint192 requestId) external {

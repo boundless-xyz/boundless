@@ -430,6 +430,11 @@ contract ProofMarketTest is Test {
         vm.startPrank(PROVER_WALLET.addr);
         proofMarket.lockin(request, clientSignature);
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
+
+        vm.expectEmit(true, true, true, true);
+        emit IProofMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IProofMarket.ProofDelivered(request.id, hex"", hex"");
         proofMarket.fulfill(fill, assessorSeal, PROVER_WALLET.addr);
         // console2.log("fulfill - Gas used:", vm.gasUsed());
         vm.stopPrank();
@@ -526,6 +531,13 @@ contract ProofMarketTest is Test {
 
         (Fulfillment[] memory fills, bytes memory assessorSeal) =
             fulfillRequestBatch(requests, journals, PROVER_WALLET.addr);
+
+        for (uint256 i = 0; i < fills.length; i++) {
+            vm.expectEmit(true, true, true, true);
+            emit IProofMarket.RequestFulfilled(fills[i].id);
+            vm.expectEmit(true, true, true, false);
+            emit IProofMarket.ProofDelivered(fills[i].id, hex"", hex"");
+        }
         proofMarket.fulfillBatch(fills, assessorSeal, PROVER_WALLET.addr);
 
         for (uint256 i = 0; i < fills.length; i++) {

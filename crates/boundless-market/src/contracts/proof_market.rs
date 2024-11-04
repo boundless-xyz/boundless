@@ -488,7 +488,7 @@ where
             .context("Failed to get latest block number")?)
     }
 
-    /// Query the RequestFulfilled event based on request ID and block options.
+    /// Query the ProofDelivered event based on request ID and block options.
     /// For each iteration, we query a range of blocks.
     /// If the event is not found, we move the range down and repeat until we find the event.
     /// If the event is not found after the configured max iterations, we return an error.
@@ -517,7 +517,7 @@ where
             let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
 
             // Set up the event filter for the specified block range
-            let mut event_filter = self.instance.RequestFulfilled_filter();
+            let mut event_filter = self.instance.ProofDelivered_filter();
             event_filter.filter = event_filter
                 .filter
                 .topic1(request_id)

@@ -99,8 +99,13 @@ interface IProofMarket {
     event RequestSubmitted(ProvingRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
-    /// Event logged when a request is fulfilled, outside of a batch.
-    event RequestFulfilled(uint192 indexed requestId, bytes journal, bytes seal);
+    /// Event logged when a request is fulfilled.
+    event RequestFulfilled(uint192 indexed requestId);
+    /// @notice Event logged when a proof is delivered that satisfies the requests requirements.
+    /// @dev It is possible for this event to be logged multiple times for a single request. This
+    /// is usually logged as part of order fulfillment, however it can also be logged by a prover
+    /// sending the proof without payment.
+    event ProofDelivered(uint192 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is burned for failing to fulfill a request by the deadline.
     event LockinStakeBurned(uint192 indexed requestId, uint96 stake);
     /// Event when a deposit is made to the proof market.
