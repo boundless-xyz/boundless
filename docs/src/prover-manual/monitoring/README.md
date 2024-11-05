@@ -17,6 +17,10 @@ The broker dashboard connects to the broker's sqlite database to see the status 
 
 Using the [Boundless market indexer](https://boundless-indexer-risczero.vercel.app/orders) is one of the best ways to monitor your broker's activity / health.
 
+### Balances
+
+When running the broker it is critical to monitor both your hot wallet balance of ETH and the proof market balance. If your broker runs out of ETH balance it will be unable to cover gas costs for transactions to locking / fulfill orders. If you run out of balance on the proof-market contract the broker will be unable to lockin orders with higher stakes. It is strongly recommended to keep your proof-market balance above the brokers configured `max_stake` parameter.
+
 ### Broker logs
 
 The logs from the broker service are the most helpful for monitoring what your prover is doing when interacting with the market. It is designed with the intention that DEBUG / INFO / WARN log should not require manual intervention, but anything logged at a ERROR level should be looked at by a operator.
