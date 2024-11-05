@@ -15,7 +15,7 @@ proof-market = "0x0000000000000000000000000000000000000000"
 set-builder-image-id = "0xa6d595680f98dddcf6649199cb65a374f2e7d4a234c22cd28799d67f027db065"
 set-builder-guest-url = "https://gateway.pinata.cloud/ipfs/QmPobaLheQtpbSLn2QPGjnSM9Yy475hV9xAbMpyUXZ3zZA"
 assessor-image-id = "0x4b379fe9f76ae2fda4afa7962f5cf502af02e95022fcc089f1629fb444dbf18e"
-assessgr-guest-url = "https://gateway.pinata.cloud/ipfs/QmbaAMsfA12WX5xeqjT1k1tzBZKCC11UMM5naQqtEaVw1R"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmbaAMsfA12WX5xeqjT1k1tzBZKCC11UMM5naQqtEaVw1R"
 
 
 ###
@@ -37,4 +37,4 @@ proof-market = "0x0000000000000000000000000000000000000000"
 set-builder-image-id = "0xa6d595680f98dddcf6649199cb65a374f2e7d4a234c22cd28799d67f027db065"
 set-builder-guest-url = "https://gateway.pinata.cloud/ipfs/QmPobaLheQtpbSLn2QPGjnSM9Yy475hV9xAbMpyUXZ3zZA"
 assessor-image-id = "0x4b379fe9f76ae2fda4afa7962f5cf502af02e95022fcc089f1629fb444dbf18e"
-assessgr-guest-url = "https://gateway.pinata.cloud/ipfs/QmbaAMsfA12WX5xeqjT1k1tzBZKCC11UMM5naQqtEaVw1R"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmbaAMsfA12WX5xeqjT1k1tzBZKCC11UMM5naQqtEaVw1R"
