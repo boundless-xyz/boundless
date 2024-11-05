@@ -129,17 +129,20 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     using TransientPriceLib for TransientPrice;
 
     /// @dev The version of the contract.
-    uint64 public constant VERSION = 2;
+    uint64 public constant VERSION = 1;
 
     // Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
     mapping(uint192 => RequestLock) public requestLocks;
     // Mapping of address to account state.
     mapping(address => Account) internal accounts;
 
-    // NOTE: Expected to be a verifier such at the RiscZeroSetVerifier where
-    // verifying individual claims is relatively cheap.
-    IRiscZeroVerifier public VERIFIER;
-    bytes32 public ASSESSOR_ID;
+    // Using immutable here means the image ID and verifier address is linked to the implementation
+    // contract, and not to the proxy. Any deployment that wants to update these values must deploy
+    // a new implementation contract.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    IRiscZeroVerifier public immutable VERIFIER;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 public immutable ASSESSOR_ID;
     string private imageUrl;
 
     /// In order to fulfill a request, the prover must provide a proof that can be verified with at
@@ -148,28 +151,18 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     uint256 public constant FULFILL_MAX_GAS_FOR_VERIFY = 50000;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(IRiscZeroVerifier verifier, bytes32 assessorId) {
+        VERIFIER = verifier;
+        ASSESSOR_ID = assessorId;
+
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, IRiscZeroVerifier verifier, bytes32 assessorId, string memory _imageUrl)
-        public
-        initializer
-    {
+    function initialize(address initialOwner, string calldata _imageUrl) external initializer {
         __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
         __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
-        VERIFIER = verifier;
-        ASSESSOR_ID = assessorId;
         imageUrl = _imageUrl;
-    }
-
-    function upgrade(bytes32 assessorId, string memory _imageUrl) public reinitializer(VERSION) {
-        __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
-        ASSESSOR_ID = assessorId;
-        imageUrl = _imageUrl;
-
-        emit Upgraded(VERSION);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
@@ -540,6 +533,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         bytes calldata assessorSeal,
         address prover
     ) external {
+        // TODO(victor): This will break when we change VERIFIER to point to the router.
         IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
         setVerifier.submitMerkleRoot(root, seal);
         fulfillBatch(fills, assessorSeal, prover);

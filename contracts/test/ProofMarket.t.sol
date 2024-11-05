@@ -12,7 +12,9 @@ import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
+import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
 
 import {ProofMarket, MerkleProofish, AssessorJournal, TransientPrice, TransientPriceLib} from "../src/ProofMarket.sol";
 import {
@@ -73,11 +75,12 @@ contract ProofMarketTest is Test {
         setVerifier = new RiscZeroSetVerifier(verifier, SET_BUILDER_IMAGE_ID, "https://set-builder.dev.null");
 
         // Deploy the UUPS proxy with the implementation
+        UpgradeOptions memory opts;
+        opts.constructorData = ProofMarketLib.encodeConstructorArgs(setVerifier, ASSESSOR_IMAGE_ID);
         proxy = Upgrades.deployUUPSProxy(
             "ProofMarket.sol:ProofMarket",
-            abi.encodeCall(
-                ProofMarket.initialize, (OWNER_WALLET.addr, setVerifier, ASSESSOR_IMAGE_ID, "https://assessor.dev.null")
-            )
+            abi.encodeCall(ProofMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null")),
+            opts
         );
         proofMarket = ProofMarket(proxy);
 
@@ -944,7 +947,11 @@ contract ProofMarketTest is Test {
         address implAddressV1 = Upgrades.getImplementationAddress(proxy);
         vm.startPrank(OWNER_WALLET.addr);
         // Deploy a new implementation of the same contract
-        Upgrades.upgradeProxy(proxy, "ProofMarketV2Test.sol:ProofMarketV2Test", "", OWNER_WALLET.addr);
+        vm.expectEmit(false, true, true, true);
+        emit IERC1967.Upgraded(address(0));
+        UpgradeOptions memory opts;
+        opts.constructorData = ProofMarketLib.encodeConstructorArgs(proofMarket.VERIFIER(), ASSESSOR_IMAGE_ID);
+        Upgrades.upgradeProxy(proxy, "ProofMarketV2Test.sol:ProofMarketV2Test", "", opts, OWNER_WALLET.addr);
         vm.stopPrank();
         address implAddressV2 = Upgrades.getImplementationAddress(proxy);
         assertFalse(implAddressV2 == implAddressV1);
@@ -957,23 +964,17 @@ contract ProofMarketTest is Test {
     function testUnsafeUpgrade() public {
         vm.startPrank(OWNER_WALLET.addr);
         proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(new ProofMarket()),
-            abi.encodeCall(
-                ProofMarket.initialize, (OWNER_WALLET.addr, setVerifier, ASSESSOR_IMAGE_ID, "https://assessor.dev.null")
-            )
+            address(new ProofMarket(setVerifier, ASSESSOR_IMAGE_ID)),
+            abi.encodeCall(ProofMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
         );
         proofMarket = ProofMarket(proxy);
         address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
 
         // Should emit an `Upgraded` event
-        vm.expectEmit(true, true, false, true);
-        emit IProofMarket.Upgraded(proofMarket.VERSION());
-
+        vm.expectEmit(false, true, true, true);
+        emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy,
-            address(new ProofMarket()),
-            abi.encodeCall(ProofMarket.upgrade, (ASSESSOR_IMAGE_ID, "https://assessor.dev.null")),
-            OWNER_WALLET.addr
+            proxy, address(new ProofMarket(setVerifier, ASSESSOR_IMAGE_ID)), "", OWNER_WALLET.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);
