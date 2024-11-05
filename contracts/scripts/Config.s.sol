@@ -4,7 +4,7 @@
 
 pragma solidity ^0.8.20;
 
-import {Script} from "forge-std/Script.sol";
+import {Vm} from "forge-std/Vm.sol";
 import "forge-std/Test.sol";
 
 struct DeploymentConfig {
@@ -20,21 +20,24 @@ struct DeploymentConfig {
     string assessorGuestUrl;
 }
 
-contract ConfigLoader is Script {
+/// Reference the vm address without needing to inherit from Script.
+Vm private constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+
+library ConfigLoader {
     function loadConfig(string memory configFilePath)
         internal
         view
         returns (string memory config, string memory chainKey)
     {
         // Load the config file
-        config = vm.readFile(configFilePath);
+        config = VM.readFile(configFilePath);
 
         // Get the config profile from the environment variable, or leave it empty
-        chainKey = vm.envOr("CHAIN_KEY", string(""));
+        chainKey = VM.envOr("CHAIN_KEY", string(""));
 
         // If no profile is set, select the default one based on the chainId
         if (bytes(chainKey).length == 0) {
-            string[] memory chainKeys = vm.parseTomlKeys(config, ".chains");
+            string[] memory chainKeys = VM.parseTomlKeys(config, ".chains");
             for (uint256 i = 0; i < chainKeys.length; i++) {
                 if (stdToml.readUint(config, string.concat(".chains.", chainKeys[i], ".id")) == block.chainid) {
                     chainKey = chainKeys[i];

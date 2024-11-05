@@ -19,7 +19,7 @@ import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
 import {ImageID as AssesorImgId} from "../src/AssessorImageID.sol";
 import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
 
-contract Deploy is Script, RiscZeroCheats, ConfigLoader {
+contract Deploy is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG_FILE = "contracts/deployment.toml";
 

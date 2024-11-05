@@ -17,7 +17,7 @@ import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 /// @notice Base contract for the scripts below, providing common context and functions.
-contract RiscZeroManagementScript is Script, ConfigLoader {
+contract RiscZeroManagementScript is Script {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG = "contracts/deployment.toml";
 
