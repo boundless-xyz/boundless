@@ -1001,7 +1001,7 @@ contract TransientPriceLibTest is Test {
     using TransientPriceLib for TransientPrice;
 
     /// forge-config: default.fuzz.runs = 10000
-    function testFuzz_PackUnpack(bool valid, uint96 price) public {
+    function testFuzz_PackUnpack(bool valid, uint96 price) public pure {
         TransientPrice memory original = TransientPrice({valid: valid, price: price});
 
         uint256 packed = TransientPriceLib.pack(original);
