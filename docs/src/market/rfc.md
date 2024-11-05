@@ -1,4 +1,4 @@
-# Boundless Market v0.2 RFC
+# Boundless Market v0.3 RFC
 
 ### Interaction flow
 
