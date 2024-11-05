@@ -943,6 +943,9 @@ contract ProofMarketTest is Test {
     /// @dev Test the upgradeability of the contract under safe conditions.
     /// This mode requires to **always** start from a clean cache, as such, before running
     /// forge test, make sure to run `forge clean && forge build` to clear the cache and build from scratch.
+    // TODO(#109) Refactor these tests to check for upgradeability from a prior commit to the latest version.
+    // With that, we might also check that it is possible to upgrade to a notional future version, or we might
+    // want to drop the ProofMarketV2Test contract.
     function testUpgradeability() public {
         address implAddressV1 = Upgrades.getImplementationAddress(proxy);
         vm.startPrank(OWNER_WALLET.addr);
