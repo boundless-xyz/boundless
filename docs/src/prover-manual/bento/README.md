@@ -13,10 +13,10 @@ Some core features of Bento include:
 
 Bento can run on a single machine with a single GPU with as low as 4GB of VRAM, but this would only be recommended for testing purposes. Below is a minium configuration for reasonable proving performance:
 
-* CPU - 16 threads, reasonable single core boost performance (>3Ghz)
-* Memory - 32 GB
-* Disk - 200 GB of solid state storage, NVME / SSD preferred
-* GPU - NVIDIA RTX 3080 or T4, minimum VRAM 10GB
+- CPU - 16 threads, reasonable single core boost performance (>3Ghz)
+- Memory - 32 GB
+- Disk - 200 GB of solid state storage, NVME / SSD preferred
+- GPU - NVIDIA RTX 3080 or T4, minimum VRAM 10GB
 
 ## Internals
 
@@ -145,7 +145,6 @@ The REST API provides a external interface to start / stop / monitor jobs and ta
 TODO: Write more here about brokers REST API
 
 </div>
-
 
 [page-broker]: ../broker/README.md
 [r0-docs-recursion]: https://dev.risczero.com/api/recursion

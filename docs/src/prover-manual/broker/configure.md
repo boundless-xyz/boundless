@@ -14,7 +14,7 @@ export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 export export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
 
 # Example: 'deposit 0.5'
-RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>```
+RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>
 ```
 
 ### Check current balance
