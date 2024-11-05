@@ -545,16 +545,16 @@ pub mod test_utils {
         P: Provider<T, Ethereum> + 'static + Clone,
     {
         let deployer_address = deployer_signer.address();
-        let proof_market = ProofMarket::deploy(&deployer_provider).await?;
+        let proof_market = ProofMarket::deploy(
+            &deployer_provider,
+            set_verifier,
+            <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
+        )
+        .await?;
 
         // Combine the function selector with the encoded parameters
         let data = ProofMarket::new(Address::default(), &deployer_provider)
-            .initialize(
-                deployer_address,
-                set_verifier,
-                <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
-                String::new(),
-            )
+            .initialize(deployer_address, String::new())
             .calldata()
             .clone();
 
