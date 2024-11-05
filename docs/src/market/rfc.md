@@ -141,8 +141,10 @@ struct AssessorJournal {
     // Root of the Merkle tree committing to the set of proven claims.
     // In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;
-    // EIP712 domain separator
+    // EIP712 domain separator.
     bytes32 eip712DomainSeparator;
+    // The address of the prover that produced the assessor receipt.
+    address prover;
 }
 ```
 
@@ -156,8 +158,13 @@ interface IProofMarket {
     event RequestSubmitted(ProvingRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
-    /// Event logged when a request is fulfilled, outside of a batch.
-    event RequestFulfilled(uint192 indexed requestId, bytes journal, bytes seal);
+    /// Event logged when a request is fulfilled.
+    event RequestFulfilled(uint192 indexed requestId);
+    /// @notice Event logged when a proof is delivered that satisfies the requests requirements.
+    /// @dev It is possible for this event to be logged multiple times for a single request. This
+    /// is usually logged as part of order fulfillment, however it can also be logged by a prover
+    /// sending the proof without payment.
+    event ProofDelivered(uint192 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is burned for failing to fulfill a request by the deadline.
     event LockinStakeBurned(uint192 indexed requestId, uint96 stake);
     /// Event when a deposit is made to the proof market.
@@ -200,14 +207,14 @@ interface IProofMarket {
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
     /// @dev Submitting the transaction only broadcasting it, and is not a required step.
-    function submitRequest(ProvingRequest calldata request, bytes memory clientSignature) external payable;
+    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method should be called from the address of the prover.
-    function lockin(ProvingRequest calldata request, bytes memory clientSignature) external;
+    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
@@ -216,16 +223,65 @@ interface IProofMarket {
     /// @dev This method uses the provided signature to authenticate the prover.
     function lockinWithSig(
         ProvingRequest calldata request,
-        bytes memory clientSignature,
+        bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external;
 
-    /// Fulfill a locked request by delivering the proof for the application.
-    /// Upon proof verification, the prover will be paid.
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal) external;
+    /// @notice Fulfill a locked request by delivering the proof for the application.
+    /// Upon proof verification, the prover that locked the request will be paid.
+    /// @param fill The fulfillment information, including the journal and seal.
+    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// request's requirements are met.
+    /// @param prover The address of the prover that produced the fulfillment.
+    /// Note that this can differ from the address of the prover that locked the
+    /// request. When they differ, the locked-in prover is the one that received payment.
+    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
+    /// @notice Fulfills a batch of locked requests. See IProofMarket.fulfill for more information.
+    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
-    /// Fulfills a batch of locked requests
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal) external;
+    /// @notice Delivers a proof satisfying a referenced request, without modifying contract state.
+    /// In particular, calling this method will not result in payment being sent to the prover, or
+    /// marking the request as fulfilled.
+    /// @dev This method is useful for when an interested third party wants to delivery a proof for
+    /// a request even if they will not be paid for doing so.
+    /// @param fill The fulfillment information, including the journal and seal.
+    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// request's requirements are met.
+    /// @param prover The address of the prover that produced the fulfillment.
+    /// Note that this can differ from the address of the prover that locked the
+    /// request.
+    function deliver(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
+    /// @notice Delivers a batch of proofs. See IProofMarket.deliver for more information.
+    function deliverBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
+
+    /// @notice Checks the validity of the request and then writes the current auction price to
+    /// transient storage.
+    /// @dev When called within the same transaction, this method can be used to fulfill a request
+    /// that is not locked. This is useful when the prover wishes to fulfill a request, but does
+    /// not want to issue a lock transaction e.g. because the stake is to high or to save money by
+    /// avoiding the gas costs of the lock transaction.
+    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) external;
+
+    /// @notice A combined call to `IProofMarket.priceRequest` and `IProofMarket.fulfillBatch`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
+    function priceAndFulfillBatch(
+        ProvingRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external;
+
+    /// @notice Combined function to submit a new merkle root to the set-verifier and call fulfillBatch.
+    /// @dev Useful to reduce the transaction count for fulfillments
+    function submitRootAndFulfillBatch(
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external;
 
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.

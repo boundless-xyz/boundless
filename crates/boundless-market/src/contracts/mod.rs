@@ -9,6 +9,7 @@ use std::str::FromStr;
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
     contract::Error as ContractErr,
+    primitives::SignatureError,
     signers::{Error as SignerErr, Signature, SignerSync},
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
@@ -181,6 +182,25 @@ impl ProvingRequest {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         signer.sign_hash_sync(&hash)
+    }
+
+    /// Verifies the proving request signature with the given signer and EIP-712 domain derived from
+    /// the given contract address and chain ID.
+    pub fn verify_signature(
+        &self,
+        signature: &Bytes,
+        contract_addr: Address,
+        chain_id: u64,
+    ) -> Result<(), SignerErr> {
+        let sig = Signature::try_from(signature.as_ref())?;
+        let domain = eip712_domain(contract_addr, chain_id);
+        let hash = self.eip712_signing_hash(&domain.alloy_struct());
+        let addr = sig.recover_address_from_prehash(&hash)?;
+        if addr == self.client_address() {
+            Ok(())
+        } else {
+            Err(SignerErr::SignatureError(SignatureError::FromBytes("Address mismatch")))
+        }
     }
 }
 
@@ -630,5 +650,78 @@ pub mod test_utils {
                 set_verifier,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::signers::local::PrivateKeySigner;
+
+    fn create_order(
+        signer: &impl SignerSync,
+        signer_addr: Address,
+        order_id: u32,
+        contract_addr: Address,
+        chain_id: u64,
+    ) -> (ProvingRequest, [u8; 65]) {
+        let request_id = request_id(&signer_addr, order_id);
+
+        let req = ProvingRequest {
+            id: request_id,
+            requirements: Requirements {
+                imageId: B256::ZERO,
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            imageUrl: "test".to_string(),
+            input: Input { inputType: InputType::Url, data: Default::default() },
+            offer: Offer {
+                minPrice: U96::from(0),
+                maxPrice: U96::from(1),
+                biddingStart: 0,
+                timeout: 1000,
+                rampUpPeriod: 1,
+                lockinStake: U96::from(0),
+            },
+        };
+
+        let client_sig = req.sign_request(&signer, contract_addr, chain_id).unwrap();
+
+        (req, client_sig.as_bytes())
+    }
+
+    #[test]
+    fn validate_sig() {
+        let signer: PrivateKeySigner =
+            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
+        let order_id: u32 = 1;
+        let contract_addr = Address::ZERO;
+        let chain_id = 1;
+        let signer_addr = signer.address();
+
+        let (req, client_sig) =
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+
+        req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "SignatureError")]
+    fn invalid_sig() {
+        let signer: PrivateKeySigner =
+            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
+        let order_id: u32 = 1;
+        let contract_addr = Address::ZERO;
+        let chain_id = 1;
+        let signer_addr = signer.address();
+
+        let (req, mut client_sig) =
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+
+        client_sig[0] = 1;
+        req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
     }
 }

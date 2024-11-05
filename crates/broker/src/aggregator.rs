@@ -36,6 +36,7 @@ pub struct AggregatorService<T, P> {
     set_builder_guest_id: Digest,
     assessor_guest_id: Digest,
     market_addr: Address,
+    prover_addr: Address,
     chain_id: u64,
     _phantom_t: PhantomData<T>,
 }
@@ -53,6 +54,7 @@ where
         assessor_guest_id: Digest,
         assessor_guest: Vec<u8>,
         market_addr: Address,
+        prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
         block_time: u64,
@@ -78,6 +80,7 @@ where
             set_builder_guest_id,
             assessor_guest_id,
             market_addr,
+            prover_addr,
             chain_id,
             _phantom_t: Default::default(),
         })
@@ -199,7 +202,11 @@ where
             })
         }
 
-        let input = AssessorInput { fills, domain: eip712_domain(self.market_addr, self.chain_id) };
+        let input = AssessorInput {
+            fills,
+            domain: eip712_domain(self.market_addr, self.chain_id),
+            prover_address: self.prover_addr,
+        };
         let input_data = input.to_vec();
 
         let input_id = self
@@ -600,6 +607,7 @@ mod tests {
     async fn aggregate_order() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
@@ -636,6 +644,7 @@ mod tests {
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
+            prover_addr,
             config,
             prover,
             2,
@@ -764,6 +773,7 @@ mod tests {
     async fn fee_finalize() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
@@ -799,6 +809,7 @@ mod tests {
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
+            prover_addr,
             config,
             prover,
             2,
@@ -872,7 +883,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer))
+                .wallet(EthereumWallet::from(signer.clone()))
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
@@ -904,6 +915,7 @@ mod tests {
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
+            signer.address(),
             config,
             prover,
             2,

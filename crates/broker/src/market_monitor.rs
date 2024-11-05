@@ -160,6 +160,8 @@ where
     }
 
     async fn monitor_orders(market_addr: Address, provider: Arc<P>, db: DbObj) -> Result<()> {
+        let chain_id = provider.get_chain_id().await?;
+
         let market = ProofMarketService::new(market_addr, provider, Address::ZERO);
         // TODO: RPC providers can drop filters over time or flush them
         // we should try and move this to a subscription filter if we have issue with the RPC
@@ -173,6 +175,19 @@ where
                 match log_res {
                     Ok((event, _log)) => {
                         tracing::info!("Detected new request {:x}", event.request.id);
+
+                        if let Err(err) = event.request.verify_signature(
+                            &event.clientSignature,
+                            market_addr,
+                            chain_id,
+                        ) {
+                            tracing::warn!(
+                                "Failed to validate order signature: 0x{:x} - {err:?}",
+                                event.request.id
+                            );
+                            return;
+                        }
+
                         if let Err(err) = db
                             .add_order(
                                 U256::from(event.request.id),

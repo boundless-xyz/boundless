@@ -58,6 +58,7 @@ fn main() {
         requestIds: ids,
         root: <[u8; 32]>::from(root).into(),
         eip712DomainSeparator: eip_domain_separator.hash_struct(),
+        prover: input.prover_address,
     };
 
     env::commit_slice(&journal.abi_encode());
