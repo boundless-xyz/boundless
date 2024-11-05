@@ -13,7 +13,7 @@ import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
 
-import {ProofMarket, MerkleProofish, AssessorJournal} from "../src/ProofMarket.sol";
+import {ProofMarket, MerkleProofish, AssessorJournal, TransientPrice, TransientPriceLib} from "../src/ProofMarket.sol";
 import {
     Fulfillment,
     IProofMarket,
@@ -918,5 +918,20 @@ contract ProofMarketTest is Test {
 
         bytes32 root = MerkleProofish.processTree(leaves);
         assertEq(root, 0xe004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef);
+    }
+}
+
+contract TransientPriceLibTest is Test {
+    using TransientPriceLib for TransientPrice;
+
+    /// forge-config: default.fuzz.runs = 10000
+    function testFuzz_PackUnpack(bool valid, uint96 price) public {
+        TransientPrice memory original = TransientPrice({valid: valid, price: price});
+
+        uint256 packed = TransientPriceLib.pack(original);
+        TransientPrice memory unpacked = TransientPriceLib.unpack(packed);
+
+        assertEq(unpacked.valid, original.valid, "Valid flag mismatch");
+        assertEq(unpacked.price, original.price, "Price mismatch");
     }
 }
