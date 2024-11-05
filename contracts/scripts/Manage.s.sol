@@ -13,7 +13,6 @@ import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
 import {ProofMarket} from "../src/ProofMarket.sol";
 import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
-import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 /// @notice Base contract for the scripts below, providing common context and functions.
