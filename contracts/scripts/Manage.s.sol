@@ -116,7 +116,7 @@ contract DeployProofMarket is RiscZeroManagementScript {
 
         vm.broadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
-        // TODO: Switch to using the Upgrades library once the development is more stable.
+        // TODO(#108): Switch to using the Upgrades library.
         address proofMarketAddress = UnsafeUpgrades.deployUUPSProxy(
             newImplementation, abi.encodeCall(ProofMarket.initialize, (proofMarketOwner, assessorGuestUrl))
         );
@@ -160,7 +160,7 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         // Upgrade the proxy contract and update assessor image info if needed
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl;
         if (assessorImageId != imageID || keccak256(bytes(assessorGuestUrl)) == keccak256(bytes(guestUrl))) {
-            // TODO: Switch to using the Upgrades library once the development is more stable.
+            // TODO(#108): Switch to using the Upgrades library.
             UnsafeUpgrades.upgradeProxy(
                 proofMarketAddress,
                 newImplementation,
@@ -168,7 +168,7 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
                 proofMarketOwner
             );
         } else {
-            // TODO: Switch to using the Upgrades library once the development is more stable.
+            // TODO(#108): Switch to using the Upgrades library.
             UnsafeUpgrades.upgradeProxy(proofMarketAddress, newImplementation, "", proofMarketOwner);
         }
         vm.stopBroadcast();
