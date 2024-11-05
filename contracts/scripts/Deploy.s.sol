@@ -16,8 +16,11 @@ import {ProofMarket} from "../src/ProofMarket.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
 
 // For local testing:
-import {ImageID as AssesorImgId} from "../src/AssessorImageID.sol";
-import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
+// TODO: Uncommenting these lines currently creates a chicken-egg problem in that
+// `cargo build -Ftest-utils` cannot complete without first running `forge build` and `forge build`
+// cannot run without building the guests.
+//import {ImageID as AssesorImgId} from "../src/AssessorImageID.sol";
+//import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
 
 contract Deploy is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
@@ -68,10 +71,14 @@ contract Deploy is Script, RiscZeroCheats {
 
         // Set the setBuilderImageId and assessorImageId if not set.
         if (setBuilderImageId == bytes32(0)) {
-            setBuilderImageId = SetBuidlerId.SET_BUILDER_GUEST_ID;
+            // TODO: Currently cannot work. See note in imports.
+            //setBuilderImageId = SetBuidlerId.SET_BUILDER_GUEST_ID;
+            revert("set builder image ID must be set in deployment.toml");
         }
         if (assessorImageId == bytes32(0)) {
-            assessorImageId = AssesorImgId.ASSESSOR_GUEST_ID;
+            // TODO: Currently cannot work. See note in imports.
+            //assessorImageId = AssesorImgId.ASSESSOR_GUEST_ID;
+            revert("assessor image ID must be set in deployment.toml");
         }
 
         if (bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0) {
