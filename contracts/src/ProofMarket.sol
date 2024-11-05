@@ -165,6 +165,10 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         imageUrl = _imageUrl;
     }
 
+    function setImageUrl(string calldata _imageUrl) external onlyOwner {
+        imageUrl = _imageUrl;
+    }
+
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     function requestIsFulfilled(uint192 id) external view returns (bool) {
