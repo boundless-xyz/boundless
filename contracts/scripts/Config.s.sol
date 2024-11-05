@@ -20,10 +20,10 @@ struct DeploymentConfig {
     string assessorGuestUrl;
 }
 
-/// Reference the vm address without needing to inherit from Script.
-Vm private constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
-
 library ConfigLoader {
+    /// Reference the vm address without needing to inherit from Script.
+    Vm private constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+
     function loadConfig(string memory configFilePath)
         internal
         view

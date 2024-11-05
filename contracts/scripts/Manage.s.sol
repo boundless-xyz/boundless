@@ -94,11 +94,6 @@ contract DeployProofMarket is RiscZeroManagementScript {
         address proofMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
         console2.log("proofMarketOwner:", proofMarketOwner);
 
-        vm.broadcast(deployerAddress());
-        // Deploy the proof market implementation
-        address newImplementation = address(new ProofMarket());
-        console2.log("Deployed new ProofMarket implementation at", newImplementation);
-
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
@@ -115,13 +110,15 @@ contract DeployProofMarket is RiscZeroManagementScript {
         console2.logString(assessorGuestUrl);
 
         vm.broadcast(deployerAddress());
+        // Deploy the proof market implementation
+        address newImplementation = address(new ProofMarket(IRiscZeroVerifier(router), assessorImageId));
+        console2.log("Deployed new ProofMarket implementation at", newImplementation);
+
+        vm.broadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         // TODO: Switch to using the Upgrades library once the development is more stable.
         address proofMarketAddress = UnsafeUpgrades.deployUUPSProxy(
-            newImplementation,
-            abi.encodeCall(
-                ProofMarket.initialize, (proofMarketOwner, IRiscZeroVerifier(router), assessorImageId, assessorGuestUrl)
-            )
+            newImplementation, abi.encodeCall(ProofMarket.initialize, (proofMarketOwner, assessorGuestUrl))
         );
 
         console2.log("Deployed ProofMarket (proxy) contract at", proofMarketAddress);
@@ -139,11 +136,6 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         address proofMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
         console2.log("proofMarketOwner:", proofMarketOwner);
 
-        vm.broadcast(deployerAddress());
-        // Deploy the proof market implementation
-        address newImplementation = address(new ProofMarket());
-        console2.log("Deployed new ProofMarket implementation at", newImplementation);
-
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
@@ -155,16 +147,24 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         ProofMarket market = ProofMarket(proofMarketAddress);
         (bytes32 imageID, string memory guestUrl) = market.imageInfo();
 
-        vm.startBroadcast(deployerAddress());
-        // Upgrade the proxy contract and update assessor image info if needed
+        // Use the same verifier as the existing implementation.
+        IRiscZeroVerifier verifier = market.VERIFIER();
         bytes32 assessorImageId = deploymentConfig.assessorImageId;
+
+        vm.startBroadcast(deployerAddress());
+
+        // Deploy the proof market implementation
+        address newImplementation = address(new ProofMarket(verifier, assessorImageId));
+        console2.log("Deployed new ProofMarket implementation at", newImplementation);
+
+        // Upgrade the proxy contract and update assessor image info if needed
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl;
         if (assessorImageId != imageID || keccak256(bytes(assessorGuestUrl)) == keccak256(bytes(guestUrl))) {
             // TODO: Switch to using the Upgrades library once the development is more stable.
             UnsafeUpgrades.upgradeProxy(
                 proofMarketAddress,
                 newImplementation,
-                abi.encodeCall(ProofMarket.upgrade, (assessorImageId, assessorGuestUrl)),
+                abi.encodeCall(ProofMarket.setImageUrl, (assessorGuestUrl)),
                 proofMarketOwner
             );
         } else {
