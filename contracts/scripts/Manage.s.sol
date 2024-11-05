@@ -99,12 +99,12 @@ contract DeployProofMarket is RiscZeroManagementScript {
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
         address router = deploymentConfig.router;
-        require(router != address(0), "RiscZeroVerifierRouter address must be set");
+        require(router != address(0), "RiscZeroVerifierRouter address must be set in config");
         console2.log("Using RiscZeroVerifierRouter at address", router);
         bytes32 assessorImageId = deploymentConfig.assessorImageId;
-        require(assessorImageId != bytes32(0), "Assessor image ID must be set");
+        require(assessorImageId != bytes32(0), "Assessor image ID must be set in config");
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl;
-        require(bytes(assessorGuestUrl).length != 0, "Assessor guest URL must be set");
+        require(bytes(assessorGuestUrl).length != 0, "Assessor guest URL must be set in config");
         console2.log("Assessor info:");
         console2.logBytes32(assessorImageId);
         console2.logString(assessorGuestUrl);
@@ -140,7 +140,7 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
         address proofMarketAddress = deploymentConfig.proofMarket;
-        require(proofMarketAddress != address(0), "ProofMarket (proxy) address must be set");
+        require(proofMarketAddress != address(0), "ProofMarket (proxy) address must be set in config");
         console2.log("Using ProofMarket (proxy) at address", proofMarketAddress);
 
         // Get the current assessor image ID and guest URL
