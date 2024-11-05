@@ -13,8 +13,10 @@ The bento dashboard connects to the taskdb postgresql instance to get live data 
 
 The broker dashboard connects to the broker's sqlite database to see the status of different orders and batches moving through the broker's workflows.
 
-
-
 ## Onchain
 
 Using the [Boundless market indexer](https://boundless-indexer-risczero.vercel.app/orders) is one of the best ways to monitor your broker's activity / health.
+
+### Broker logs
+
+The logs from the broker service are the most helpful for monitoring what your prover is doing when interacting with the market. It is designed with the intention that DEBUG / INFO / WARN log should not require manual intervention, but anything logged at a ERROR level should be looked at by a operator.
