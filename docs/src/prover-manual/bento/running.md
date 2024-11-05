@@ -16,7 +16,9 @@ Under the `exec_agent` service you can configure the segment size with the `--se
 
 Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host.
 
-Additionally, `NVCC_APPEND_FLAGS` should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/)
+Additionally, the `NVCC_APPEND_FLAGS` docker build arg (found in `compose.yml->services->exec_agent->build->args) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/)
+
+You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the exec_agent build args. A value of `3` might yield slightly better performance (a few %) but much longer build times.
 
 <div class="warning">
 
