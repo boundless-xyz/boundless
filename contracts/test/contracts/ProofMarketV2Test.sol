@@ -172,13 +172,6 @@ contract ProofMarketV2Test is
         imageUrl = _imageUrl;
     }
 
-    function upgrade(string calldata _imageUrl) external reinitializer(VERSION) {
-        __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
-        imageUrl = _imageUrl;
-
-        emit Upgraded(VERSION);
-    }
-
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     function requestIsFulfilled(uint192 id) external view returns (bool) {
