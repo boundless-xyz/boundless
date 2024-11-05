@@ -12,7 +12,7 @@ NOTE: there is no versioning presently, and these addresses may change at any ti
 
 | Contract Name            | Contract Address                                                                                                              |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `ProofMarket`            | [0xb3e579794B6ce24bC7233713289790d9bBEB656c](https://sepolia.etherscan.io/address/0xb3e579794B6ce24bC7233713289790d9bBEB656c) |
+| `ProofMarket`            | [0x977d5F9ef67e23ad3B704145C526bFCed21b87ab](https://sepolia.etherscan.io/address/0x977d5F9ef67e23ad3B704145C526bFCed21b87ab) |
 | `SetVerifier`            | [0x6860e6cC6E4705309b3e946947706b4a346422DB](https://sepolia.etherscan.io/address/0x6860e6cC6E4705309b3e946947706b4a346422DB) |
 | `RiscZeroVerifierRouter` | [0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187](https://sepolia.etherscan.io/address/0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187) |
 | (example only) `Counter` | [0x830aC8703F9735BF728517fB8946DbDcC222b9f9](https://sepolia.etherscan.io/address/0x830aC8703F9735BF728517fB8946DbDcC222b9f9) |
