@@ -3,7 +3,7 @@ src = "contracts/src"
 out = "contracts/out"
 fs_permissions = [{ access = "read", path = "contracts/out" }, { access = "read", path = "contracts/deployment.toml" }]
 libs = ["lib"]
-script = "contract/scripts"
+script = "contracts/scripts"
 test = "contracts/test"
 ffi = true
 evm_version = 'cancun'
