@@ -420,8 +420,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::{deploy_proof_market, ProofMarket},
-        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        test_utils::deploy_proof_market, Input, InputType, Offer, Predicate, PredicateType,
+        ProvingRequest, Requirements,
     };
     use chrono::Utc;
     use guest_util::{ECHO_ELF, ECHO_ID};

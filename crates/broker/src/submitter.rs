@@ -361,7 +361,7 @@ mod tests {
     };
     use assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
-        test_utils::{deploy_proof_market, MockVerifier, ProofMarket, SetVerifier, TestCtx},
+        test_utils::{deploy_proof_market, MockVerifier, SetVerifier},
         Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
     use chrono::Utc;
