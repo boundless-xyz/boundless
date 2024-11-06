@@ -36,6 +36,7 @@ pub struct Submitter<T, P> {
     market: ProofMarketService<T, Arc<P>>,
     set_verifier: SetVerifierService<T, Arc<P>>,
     set_builder_img_id: Digest,
+    prover_address: Address,
     config: ConfigLock,
 }
 
@@ -77,7 +78,9 @@ where
             set_verifier.with_timeout(Duration::from_secs(txn_timeout));
         }
 
-        Ok(Self { db, prover, market, set_verifier, set_builder_img_id, config })
+        let prover_address = provider.default_signer_address();
+
+        Ok(Self { db, prover, market, set_verifier, set_builder_img_id, prover_address, config })
     }
 
     async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
@@ -212,6 +215,7 @@ where
                     batch_seal.into(),
                     fulfillments.clone(),
                     assessor_seal.into(),
+                    self.prover_address,
                 )
                 .await
             {
@@ -248,8 +252,10 @@ where
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
 
-            if let Err(err) =
-                self.market.fulfill_batch(fulfillments.clone(), assessor_seal.into()).await
+            if let Err(err) = self
+                .market
+                .fulfill_batch(fulfillments.clone(), assessor_seal.into(), self.prover_address)
+                .await
             {
                 tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
                 for fulfillment in fulfillments.iter() {
@@ -355,7 +361,7 @@ mod tests {
     };
     use assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
-        test_utils::{MockVerifier, ProofMarket, SetVerifier},
+        test_utils::{deploy_proof_market, MockVerifier, ProofMarket, SetVerifier, TestCtx},
         Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
     use chrono::Utc;
@@ -375,7 +381,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer))
+                .wallet(EthereumWallet::from(signer.clone()))
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
 
@@ -395,24 +401,14 @@ mod tests {
         )
         .await
         .unwrap();
-        let proof_market = ProofMarket::deploy(
-            &provider,
-            *set_verifier.address(),
-            FixedBytes::from_slice(&Digest::from(ASSESSOR_GUEST_ID).as_bytes()),
-            String::new(),
-        )
-        .await
-        .unwrap();
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), *set_verifier.address()).await.unwrap();
 
-        let market =
-            ProofMarketService::new(*proof_market.address(), provider.clone(), prover_addr);
+        let market = ProofMarketService::new(market_address, provider.clone(), prover_addr);
         market.deposit(U256::from(10000000000u64)).await.unwrap();
 
-        let market_customer = ProofMarketService::new(
-            *proof_market.address(),
-            customer_provider.clone(),
-            customer_addr,
-        );
+        let market_customer =
+            ProofMarketService::new(market_address, customer_provider.clone(), customer_addr);
         market_customer.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
@@ -462,7 +458,7 @@ mod tests {
 
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig = order_request
-            .sign_request(&customer_signer, *proof_market.address(), chain_id)
+            .sign_request(&customer_signer, market_address, chain_id)
             .unwrap()
             .as_bytes();
 
@@ -488,15 +484,13 @@ mod tests {
         let assessor_input = prover
             .upload_input(
                 AssessorInput {
-                    domain: boundless_market::contracts::eip712_domain(
-                        *proof_market.address(),
-                        chain_id,
-                    ),
+                    domain: boundless_market::contracts::eip712_domain(market_address, chain_id),
                     fills: vec![Fulfillment {
                         request: order_request.clone(),
                         signature: client_sig.into(),
                         journal: echo_receipt.journal.bytes,
                     }],
+                    prover_address: prover_addr,
                 }
                 .to_vec(),
             )
@@ -604,7 +598,7 @@ mod tests {
             prover.clone(),
             provider.clone(),
             *set_verifier.address(),
-            *proof_market.address(),
+            market_address,
             set_builder_id,
         )
         .unwrap();

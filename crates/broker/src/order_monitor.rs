@@ -19,8 +19,7 @@ use boundless_market::contracts::{
     proof_market::{MarketError, ProofMarketService},
     ProofStatus,
 };
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -259,8 +258,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::ProofMarket, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
-        Requirements,
+        test_utils::{deploy_proof_market, ProofMarket},
+        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
     use chrono::Utc;
     use tracing_test::traced_test;
@@ -276,13 +275,11 @@ mod tests {
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
-        let contract_address =
-            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -322,7 +319,7 @@ mod tests {
         // let client_sig = proof_market.eip721_signature(&request, &signer).await.unwrap();
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig =
-            request.sign_request(&signer, contract_address, chain_id).unwrap().as_bytes();
+            request.sign_request(&signer, market_address, chain_id).unwrap().as_bytes();
 
         let order = Order {
             status: OrderStatus::Locking,
@@ -351,7 +348,7 @@ mod tests {
             provider.clone(),
             config.clone(),
             block_time,
-            contract_address,
+            market_address,
         )
         .unwrap();
 
@@ -377,13 +374,11 @@ mod tests {
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
-        let contract_address =
-            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -422,7 +417,7 @@ mod tests {
 
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig =
-            request.sign_request(&signer, contract_address, chain_id).unwrap().as_bytes().into();
+            request.sign_request(&signer, market_address, chain_id).unwrap().as_bytes().into();
         let order = Order {
             status: OrderStatus::Locking,
             updated_at: Utc::now(),
@@ -449,7 +444,7 @@ mod tests {
             provider.clone(),
             config.clone(),
             block_time,
-            contract_address,
+            market_address,
         )
         .unwrap();
 

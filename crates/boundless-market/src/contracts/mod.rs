@@ -453,14 +453,15 @@ pub mod test_utils {
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
                 WalletFiller,
             },
-            Identity, ProviderBuilder, RootProvider,
+            Identity, Provider, ProviderBuilder, RootProvider,
         },
         signers::local::PrivateKeySigner,
-        transports::BoxTransport,
+        transports::{BoxTransport, Transport},
     };
     use anyhow::Result;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use risc0_zkvm::sha::Digest;
+    use std::sync::Arc;
 
     use crate::contracts::{proof_market::ProofMarketService, set_verifier::SetVerifierService};
 
@@ -480,6 +481,12 @@ pub mod test_utils {
         #![sol(rpc)]
         ProofMarket,
         "../../contracts/out/ProofMarket.sol/ProofMarket.json"
+    );
+
+    alloy::sol!(
+        #![sol(rpc)]
+        ERC1967Proxy,
+        "../../contracts/out/ERC1967Proxy.sol/ERC1967Proxy.json"
     );
 
     // Note: I was completely unable to solve this with generics or trait objects
@@ -509,42 +516,80 @@ pub mod test_utils {
         pub set_verifier: SetVerifierService<BoxTransport, ProviderWallet>,
     }
 
+    pub async fn deploy_verifier(deployer_provider: Arc<ProviderWallet>) -> Result<Address> {
+        let verifier = MockVerifier::deploy(&deployer_provider, FixedBytes::ZERO).await?;
+        Ok(*verifier.address())
+    }
+
+    pub async fn deploy_set_verifier(
+        deployer_provider: Arc<ProviderWallet>,
+        verifier_address: Address,
+    ) -> Result<Address> {
+        let set_verifier = SetVerifier::deploy(
+            &deployer_provider,
+            verifier_address,
+            <[u8; 32]>::from(Digest::from(SET_BUILDER_GUEST_ID)).into(),
+            String::new(),
+        )
+        .await?;
+        Ok(*set_verifier.address())
+    }
+
+    pub async fn deploy_proof_market<T, P>(
+        deployer_signer: &PrivateKeySigner,
+        deployer_provider: P,
+        set_verifier: Address,
+    ) -> Result<Address>
+    where
+        T: Transport + Clone,
+        P: Provider<T, Ethereum> + 'static + Clone,
+    {
+        let deployer_address = deployer_signer.address();
+        let proof_market = ProofMarket::deploy(
+            &deployer_provider,
+            set_verifier,
+            <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
+        )
+        .await?;
+
+        // Combine the function selector with the encoded parameters
+        let data = ProofMarket::new(Address::default(), &deployer_provider)
+            .initialize(deployer_address, String::new())
+            .calldata()
+            .clone();
+
+        let proxy = ERC1967Proxy::deploy_builder(&deployer_provider, *proof_market.address(), data)
+            .deploy()
+            .await?;
+
+        Ok(proxy)
+    }
+
     impl TestCtx {
         async fn deploy_contracts(anvil: &AnvilInstance) -> Result<(Address, Address, Address)> {
             let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-            let deployer_provider = ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(deployer_signer.clone()))
-                .on_builtin(&anvil.endpoint())
-                .await
-                .unwrap();
+            let deployer_provider = Arc::new(
+                ProviderBuilder::new()
+                    .with_recommended_fillers()
+                    .wallet(EthereumWallet::from(deployer_signer.clone()))
+                    .on_builtin(&anvil.endpoint())
+                    .await
+                    .unwrap(),
+            );
 
-            let verifier =
-                MockVerifier::deploy(&deployer_provider, FixedBytes::ZERO).await.unwrap();
+            // Deploy contracts
+            let verifier = deploy_verifier(Arc::clone(&deployer_provider)).await?;
+            let set_verifier =
+                deploy_set_verifier(Arc::clone(&deployer_provider), verifier).await?;
+            let proof_market =
+                deploy_proof_market(&deployer_signer, Arc::clone(&deployer_provider), set_verifier)
+                    .await?;
 
-            let set_verifier = SetVerifier::deploy(
-                &deployer_provider,
-                *verifier.address(),
-                <[u8; 32]>::from(Digest::from(SET_BUILDER_GUEST_ID)).into(),
-                String::new(),
-            )
-            .await
-            .unwrap();
-
-            let proof_market = ProofMarket::deploy(
-                &deployer_provider,
-                *set_verifier.address(),
-                <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
-                String::new(),
-            )
-            .await
-            .unwrap();
-
-            // Mine forward some blocks
+            // Mine forward some blocks using the provider
             deployer_provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
             deployer_provider.anvil_set_interval_mining(2).await.unwrap();
 
-            Ok((*verifier.address(), *set_verifier.address(), *proof_market.address()))
+            Ok((verifier, set_verifier, proof_market))
         }
 
         pub async fn new(anvil: &AnvilInstance) -> Result<Self> {

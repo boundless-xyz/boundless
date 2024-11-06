@@ -13,10 +13,10 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
-import {IRiscZeroSetVerifier} from "./IRiscZeroSetVerifier.sol";
 
-import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "./IProofMarket.sol";
-import {ProofMarketLib} from "./ProofMarketLib.sol";
+import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "../../src/IProofMarket.sol";
+import {ProofMarketLib} from "../../src/ProofMarketLib.sol";
+import {IRiscZeroSetVerifier} from "../../src/IRiscZeroSetVerifier.sol";
 
 // TODO(#165): A potential issue with the current approach is: if the client
 // signs a request with a given ID, it expires with no bids, and they sign a
@@ -120,7 +120,14 @@ library TransientPriceLib {
     }
 }
 
-contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+/// @custom:oz-upgrades-from ProofMarket
+contract ProofMarketV2Test is
+    IProofMarket,
+    Initializable,
+    EIP712Upgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable
+{
     using AccountLib for Account;
     using ProofMarketLib for Offer;
     using ProofMarketLib for ProvingRequest;
@@ -129,7 +136,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     using TransientPriceLib for TransientPrice;
 
     /// @dev The version of the contract.
-    uint64 public constant VERSION = 1;
+    uint64 public constant VERSION = 2;
 
     // Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
     mapping(uint192 => RequestLock) public requestLocks;
@@ -162,10 +169,6 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
         __EIP712_init(ProofMarketLib.EIP712_DOMAIN, ProofMarketLib.EIP712_DOMAIN_VERSION);
-        imageUrl = _imageUrl;
-    }
-
-    function setImageUrl(string calldata _imageUrl) external onlyOwner {
         imageUrl = _imageUrl;
     }
 

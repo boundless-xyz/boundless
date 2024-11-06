@@ -346,10 +346,13 @@ where
         &self,
         fulfillment: &Fulfillment,
         market_seal: &Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfill({:?},{:?})", fulfillment, market_seal);
-        let call =
-            self.instance.fulfill(fulfillment.clone(), market_seal.clone()).from(self.caller);
+        let call = self
+            .instance
+            .fulfill(fulfillment.clone(), market_seal.clone(), prover_address)
+            .from(self.caller);
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -370,9 +373,13 @@ where
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_seal:x})");
-        let call = self.instance.fulfillBatch(fulfillments, assessor_seal).from(self.caller);
+        let call = self
+            .instance
+            .fulfillBatch(fulfillments, assessor_seal, prover_address)
+            .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -394,11 +401,12 @@ where
         seal: Bytes,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_seal:x})");
         let call = self
             .instance
-            .submitRootAndFulfillBatch(root, seal, fulfillments, assessor_seal)
+            .submitRootAndFulfillBatch(root, seal, fulfillments, assessor_seal, prover_address)
             .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -480,7 +488,7 @@ where
             .context("Failed to get latest block number")?)
     }
 
-    /// Query the RequestFulfilled event based on request ID and block options.
+    /// Query the ProofDelivered event based on request ID and block options.
     /// For each iteration, we query a range of blocks.
     /// If the event is not found, we move the range down and repeat until we find the event.
     /// If the event is not found after the configured max iterations, we return an error.
@@ -509,7 +517,7 @@ where
             let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
 
             // Set up the event filter for the specified block range
-            let mut event_filter = self.instance.RequestFulfilled_filter();
+            let mut event_filter = self.instance.ProofDelivered_filter();
             event_filter.filter = event_filter
                 .filter
                 .topic1(request_id)
@@ -729,6 +737,7 @@ mod tests {
     fn mock_singleton(
         request_id: U256,
         eip712_domain: Eip712Domain,
+        prover: Address,
     ) -> (B256, Bytes, Fulfillment, Bytes) {
         let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
         let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
@@ -738,6 +747,7 @@ mod tests {
             requestIds: vec![U192::from(request_id)],
             root: to_b256(app_claim_digest),
             eip712DomainSeparator: eip712_domain.separator(),
+            prover,
         };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
@@ -913,13 +923,16 @@ mod tests {
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
-            mock_singleton(request_id, eip712_domain);
+            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
         // fulfill the request
-        ctx.prover_market.fulfill(&fulfillment, &market_seal).await.unwrap();
+        ctx.prover_market
+            .fulfill(&fulfillment, &market_seal, ctx.prover_signer.address())
+            .await
+            .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
         // retrieve journal and seal from the fulfilled request
@@ -972,12 +985,18 @@ mod tests {
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
-            mock_singleton(request_id, eip712_domain);
+            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
         // publish the committed root + fulfillments
         ctx.prover_market
-            .submit_merkle_and_fulfill(root, set_verifier_seal, fulfillments.clone(), market_seal)
+            .submit_merkle_and_fulfill(
+                root,
+                set_verifier_seal,
+                fulfillments.clone(),
+                market_seal,
+                ctx.prover_signer.address(),
+            )
             .await
             .unwrap();
 

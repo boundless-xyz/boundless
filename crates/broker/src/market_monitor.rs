@@ -263,8 +263,9 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        proof_market::ProofMarketService, test_utils::ProofMarket, Input, InputType, Offer,
-        Predicate, PredicateType, ProvingRequest, Requirements,
+        proof_market::ProofMarketService,
+        test_utils::{deploy_proof_market, ProofMarket},
+        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
 
     #[tokio::test]
@@ -275,13 +276,11 @@ mod tests {
             .with_recommended_fillers()
             .wallet(EthereumWallet::from(signer.clone()))
             .on_http(anvil.endpoint().parse().unwrap());
-        let contract_address =
-            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -317,7 +316,7 @@ mod tests {
         // tx_receipt.inner.logs().into_iter().map(|log| Ok((decode_log(&log)?, log))).collect()
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let orders = MarketMonitor::find_open_orders(2, contract_address, Arc::new(provider), db)
+        let orders = MarketMonitor::find_open_orders(2, market_address, Arc::new(provider), db)
             .await
             .unwrap();
         assert_eq!(orders, 1);

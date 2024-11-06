@@ -1,4 +1,5 @@
 forge-std/=lib/forge-std/src/
 openzeppelin/=lib/openzeppelin-contracts/
+openzeppelin-upgradeable/=lib/openzeppelin-contracts-upgradeable/
 risc0/=lib/risc0-ethereum/contracts/src/
 

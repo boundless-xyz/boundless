@@ -8,6 +8,9 @@ out/
 /broadcast/*/11155111/
 /broadcast/**/dry-run/
 
+# Ignore the file with RPC and Etherscan API keys for deployment.
+deployment_secrets.toml
+
 # Devnet logs
 /logs
 
