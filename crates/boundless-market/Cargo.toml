@@ -44,7 +44,6 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 boundless-market = { path = ".", features = ["test-utils"] }
-broker = { path = "../broker", features = ["test-utils"] }
 guest-util = { workspace = true }
 tracing-test = "0.2"
 

@@ -481,9 +481,8 @@ async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
 
-    use alloy::{hex::FromHex, node_bindings::Anvil};
+    use alloy::node_bindings::Anvil;
     use boundless_market::contracts::test_utils::TestCtx;
-    use broker::test_utils::broker_from_test_ctx;
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
@@ -517,22 +516,12 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    #[ignore]
-    // This test should run in dev mode, otherwise a prover backend is required.
-    // To run in dev mode, set the `RISC0_DEV_MODE` environment variable to `true`,
-    // e.g.: `RISC0_DEV_MODE=true cargo test -- --ignored`
     async fn test_submit_request() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
         let ctx = TestCtx::new(&anvil).await.unwrap();
         ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
-
-        // Start a broker
-        let broker = broker_from_test_ctx(&ctx, anvil.endpoint_url()).await.unwrap();
-        let broker_task = tokio::spawn(async move {
-            broker.start_service().await.unwrap();
-        });
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -542,7 +531,7 @@ mod tests {
             command: Command::SubmitRequest {
                 yaml_request: "../../request.yaml".to_string(),
                 id: None,
-                wait: true,
+                wait: false,
                 dry_run: false,
             },
         };
@@ -564,26 +553,5 @@ mod tests {
         // GetStatus
         args.command = Command::Status { request_id, expires_at: None };
         run(&args).await.unwrap();
-
-        // GetProof
-        args.command = Command::GetProof { request_id };
-        run(&args).await.unwrap();
-
-        // VerifyProof
-        args.command = Command::VerifyProof {
-            request_id,
-            image_id: B256::from_hex(
-                "0x257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d",
-            )
-            .unwrap(),
-        };
-        run(&args).await.unwrap();
-
-        // Check for a broker panic
-        if broker_task.is_finished() {
-            broker_task.await.unwrap();
-        } else {
-            broker_task.abort();
-        }
     }
 }

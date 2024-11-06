@@ -1815,7 +1815,6 @@ dependencies = [
  "bincode",
  "bonsai-sdk",
  "boundless-market",
- "broker",
  "bytemuck",
  "clap",
  "dotenvy",
