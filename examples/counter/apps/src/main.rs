@@ -11,7 +11,10 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_market::{client::Client, contracts::{Input, Offer, Predicate, ProvingRequest, Requirements}};
+use boundless_market::{
+    client::Client,
+    contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
+};
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{
