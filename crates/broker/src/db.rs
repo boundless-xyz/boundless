@@ -10,7 +10,7 @@ use chrono::Utc;
 use risc0_zkvm::sha::Digest;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
-    Acquire, Row,
+    Row,
 };
 use thiserror::Error;
 
@@ -136,20 +136,18 @@ impl SqliteDb {
         let opts = SqliteConnectOptions::from_str(conn_str)?
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .create_if_missing(true)
-            .busy_timeout(std::time::Duration::from_secs(1));
+            .busy_timeout(std::time::Duration::from_secs(5));
 
-        let mut pool = SqlitePoolOptions::new()
+        let pool = SqlitePoolOptions::new()
             // set timeouts to None for sqlite in-memory:
             // https://github.com/launchbadge/sqlx/issues/1647
             .max_lifetime(None)
             .idle_timeout(None)
-            .min_connections(1);
-
-        // Only set max connections if a env var is defined:
-        if let Ok(max_conns) = std::env::var("BROKER_SQLITE_MAX_CONN") {
-            tracing::debug!("Connecting to sqlite with max connection pool size: {max_conns}");
-            pool = pool.max_connections(max_conns.parse()?);
-        }
+            .min_connections(1)
+            // Limit the DB to a single connection to prevent database-locked
+            // this does effectively make the DB single threaded but it should be
+            // a non-issue with the low DB contention
+            .max_connections(1);
 
         let pool = pool.connect_with(opts).await?;
 
@@ -164,13 +162,12 @@ impl SqliteDb {
     }
 
     async fn new_batch(&self) -> Result<usize, DbError> {
-        let mut conn = self.pool.acquire().await?;
         let mut batch = Batch::default();
         batch.start_time = Utc::now();
 
         let res: i64 = sqlx::query_scalar("INSERT INTO batches (data) VALUES ($1) RETURNING id")
             .bind(sqlx::types::Json(&batch))
-            .fetch_one(&mut *conn)
+            .fetch_one(&self.pool)
             .await?;
 
         Ok(res as usize)
@@ -194,30 +191,27 @@ struct DbBatch {
 #[async_trait]
 impl BrokerDb for SqliteDb {
     async fn add_order(&self, id: U256, order: Order) -> Result<Option<Order>, DbError> {
-        let mut conn = self.pool.acquire().await?;
         sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2)")
             .bind(format!("{id:x}"))
             .bind(sqlx::types::Json(&order))
-            .execute(&mut *conn)
+            .execute(&self.pool)
             .await?;
         Ok(Some(order))
     }
 
     async fn order_exists(&self, id: U256) -> Result<bool, DbError> {
-        let mut conn = self.pool.acquire().await?;
         let res: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM orders WHERE id = $1")
             .bind(format!("{id:x}"))
-            .fetch_one(&mut *conn)
+            .fetch_one(&self.pool)
             .await?;
 
         Ok(res == 1)
     }
 
     async fn get_order(&self, id: U256) -> Result<Option<Order>, DbError> {
-        let mut conn = self.pool.acquire().await?;
         let order: Option<DbOrder> = sqlx::query_as("SELECT * FROM orders WHERE id = $1 LIMIT 1")
             .bind(format!("{id:x}"))
-            .fetch_optional(&mut *conn)
+            .fetch_optional(&self.pool)
             .await?;
 
         Ok(order.map(|x| x.data))
@@ -237,7 +231,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError> {
-        let mut conn = self.pool.acquire().await?;
         let elm: Option<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -253,7 +246,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::Pricing)
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::New)
-        .fetch_optional(&mut *conn)
+        .fetch_optional(&self.pool)
         .await?;
 
         let Some(order) = elm else {
@@ -264,11 +257,10 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError> {
-        let mut conn = self.pool.acquire().await?;
         let orders: Vec<DbOrder> =
             sqlx::query_as("SELECT * FROM orders WHERE data->>'status' = $1")
                 .bind(OrderStatus::Pricing)
-                .fetch_all(&mut *conn)
+                .fetch_all(&self.pool)
                 .await?;
 
         let orders: Result<Vec<_>, _> = orders
@@ -285,8 +277,6 @@ impl BrokerDb for SqliteDb {
         lock_block: u64,
         expire_block: u64,
     ) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -309,7 +299,7 @@ impl BrokerDb for SqliteDb {
         .bind(expire_block as i64)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -320,8 +310,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -338,7 +326,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(lock_price.to_string())
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -349,8 +337,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -367,7 +353,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(failure_str)
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -378,8 +364,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_order_complete(&self, id: U256) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -393,7 +377,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::Done)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -404,8 +388,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_order_path(&self, id: U256, path: Vec<Digest>) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -422,7 +404,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(sqlx::types::Json(path))
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -433,8 +415,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn skip_order(&self, id: U256) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -448,7 +428,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::Skipped)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -459,12 +439,10 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_last_block(&self) -> Result<Option<u64>, DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         // TODO: query_as, seems to not work correctly here
         let res = sqlx::query("SELECT block FROM last_block WHERE id = $1")
             .bind(SQL_BLOCK_KEY)
-            .fetch_optional(&mut *conn)
+            .fetch_optional(&self.pool)
             .await?;
 
         let Some(row) = res else {
@@ -479,11 +457,10 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
         let res = sqlx::query("REPLACE INTO last_block (id, block) VALUES ($1, $2)")
             .bind(SQL_BLOCK_KEY)
             .bind(block_numb.to_string())
-            .execute(&mut *conn)
+            .execute(&self.pool)
             .await?;
 
         if res.rows_affected() == 0 {
@@ -494,14 +471,12 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_pending_lock_orders(&self, end_block: u64) -> Result<Vec<(U256, Order)>, DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let orders: Vec<DbOrder> = sqlx::query_as(
             "SELECT * FROM orders WHERE data->>'status' = $1 AND data->>'target_block' <= $2",
         )
         .bind(OrderStatus::Locking)
         .bind(end_block as i64)
-        .fetch_all(&mut *conn)
+        .fetch_all(&self.pool)
         .await?;
 
         // Break if any order-id's are invalid and raise
@@ -514,8 +489,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let elm: Option<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -531,7 +504,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::Proving)
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::Locked)
-        .fetch_optional(&mut *conn)
+        .fetch_optional(&self.pool)
         .await?;
 
         let Some(order) = elm else {
@@ -542,12 +515,10 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let orders: Vec<DbOrder> =
             sqlx::query_as("SELECT * FROM orders WHERE data->>'status' = $1")
                 .bind(OrderStatus::Proving)
-                .fetch_all(&mut *conn)
+                .fetch_all(&self.pool)
                 .await?;
 
         let orders: Result<Vec<_>, _> = orders
@@ -559,8 +530,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_order_proof_id(&self, id: U256, proof_id: &str) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -574,7 +543,7 @@ impl BrokerDb for SqliteDb {
         .bind(proof_id)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -590,8 +559,6 @@ impl BrokerDb for SqliteDb {
         image_id: &str,
         input_id: &str,
     ) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -608,7 +575,7 @@ impl BrokerDb for SqliteDb {
         .bind(input_id)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -619,8 +586,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_aggregation_status(&self, id: U256) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -634,7 +599,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::PendingAgg)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -645,8 +610,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationProofs>, DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -662,7 +625,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::Aggregating)
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::PendingAgg)
-        .fetch_all(&mut *conn)
+        .fetch_all(&self.pool)
         .await?;
 
         let mut agg_orders = vec![];
@@ -691,8 +654,6 @@ impl BrokerDb for SqliteDb {
         orders_root: Digest,
         g16_proof_id: String,
     ) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE batches
@@ -712,7 +673,7 @@ impl BrokerDb for SqliteDb {
         .bind(sqlx::types::Json(orders_root))
         .bind(g16_proof_id)
         .bind(batch_id as i64)
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -723,8 +684,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let elm: Option<DbBatch> = sqlx::query_as(
             r#"
             UPDATE batches
@@ -740,7 +699,7 @@ impl BrokerDb for SqliteDb {
         )
         .bind(BatchStatus::PendingSubmission)
         .bind(BatchStatus::Complete)
-        .fetch_optional(&mut *conn)
+        .fetch_optional(&self.pool)
         .await?;
 
         let Some(db_batch) = elm else {
@@ -751,8 +710,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE batches
@@ -763,7 +720,7 @@ impl BrokerDb for SqliteDb {
         )
         .bind(BatchStatus::Submitted)
         .bind(batch_id as i64)
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -774,8 +731,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_batch_failure(&self, batch_id: usize, err: String) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE batches
@@ -790,7 +745,7 @@ impl BrokerDb for SqliteDb {
         .bind(BatchStatus::Failed)
         .bind(err)
         .bind(batch_id as i64)
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -801,9 +756,8 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_current_batch(&self) -> Result<usize, DbError> {
-        let mut conn = self.pool.acquire().await?;
         let batch_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM batches").fetch_one(&mut *conn).await?;
+            sqlx::query_scalar("SELECT COUNT(*) FROM batches").fetch_one(&self.pool).await?;
 
         if batch_count == 0 {
             self.new_batch().await
@@ -811,7 +765,7 @@ impl BrokerDb for SqliteDb {
             let cur_batch: Option<DbBatch> =
                 sqlx::query_as("SELECT * FROM batches WHERE data->>'status' = $1 LIMIT 1")
                     .bind(BatchStatus::Aggregating)
-                    .fetch_optional(&mut *conn)
+                    .fetch_optional(&self.pool)
                     .await?;
 
             if let Some(batch) = cur_batch {
@@ -829,8 +783,7 @@ impl BrokerDb for SqliteDb {
         expire_block: u64,
         fees: U256,
     ) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-        let mut txn = conn.begin().await?;
+        let mut txn = self.pool.begin().await?;
 
         let rows = sqlx::query(r#"SELECT data->>'fees' as fees, data->>'block_deadline' as deadline FROM batches WHERE id = $1"#)
             .bind(batch_id as i64)
@@ -887,10 +840,9 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError> {
-        let mut conn = self.pool.acquire().await?;
         let batch: Option<DbBatch> = sqlx::query_as("SELECT * FROM batches WHERE id = $1")
             .bind(batch_id as i64)
-            .fetch_optional(&mut *conn)
+            .fetch_optional(&self.pool)
             .await?;
 
         if let Some(batch) = batch {
@@ -901,8 +853,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_batch_peaks(&self, batch_id: usize, peaks: Vec<Node>) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query(
             r#"
             UPDATE batches
@@ -913,7 +863,7 @@ impl BrokerDb for SqliteDb {
         )
         .bind(sqlx::types::Json(peaks))
         .bind(batch_id as i64)
-        .execute(&mut *conn)
+        .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
@@ -924,11 +874,9 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_batch_peaks(&self, batch_id: usize) -> Result<Vec<Node>, DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query("SELECT data->>'peaks' as peaks FROM batches WHERE id = $1")
             .bind(batch_id as i64)
-            .fetch_optional(&mut *conn)
+            .fetch_optional(&self.pool)
             .await?;
 
         let Some(rows) = res else {
@@ -940,13 +888,11 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_batch_peak_count(&self, batch_id: usize) -> Result<usize, DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let count: Option<i64> = sqlx::query_scalar(
             "SELECT json_array_length(data->>'peaks') FROM batches WHERE id = $1",
         )
         .bind(batch_id as i64)
-        .fetch_optional(&mut *conn)
+        .fetch_optional(&self.pool)
         .await?;
         let count = count.unwrap_or(0);
 
@@ -955,12 +901,10 @@ impl BrokerDb for SqliteDb {
 
     #[cfg(test)]
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError> {
-        let mut conn = self.pool.acquire().await?;
-
         let res = sqlx::query("INSERT INTO batches (id, data) VALUES ($1, $2)")
             .bind(batch_id as i64)
             .bind(sqlx::types::Json(batch))
-            .execute(&mut *conn)
+            .execute(&self.pool)
             .await?;
 
         if res.rows_affected() == 0 {

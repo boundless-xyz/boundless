@@ -424,9 +424,12 @@ where
             let block_number =
                 self.provider.get_block_number().await.context("Failed to get current block")?;
 
-            let remaining_secs = (batch.block_deadline.expect("batch missing block deadline")
-                - block_number)
-                * self.block_time;
+            let Some(block_deadline) = batch.block_deadline else {
+                tracing::warn!("batch does not yet have a block_deadline");
+                return Ok(());
+            };
+
+            let remaining_secs = (block_deadline - block_number) * self.block_time;
             let buffer_secs = conf_block_deadline_buf;
             // tracing::info!(
             //     "{:?} {} {} {} {}",
