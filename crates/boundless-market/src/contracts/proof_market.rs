@@ -1097,9 +1097,6 @@ mod tests {
         let request = log.inner.data.request;
         let customer_sig = log.inner.data.clientSignature;
 
-        // Deposit prover balances
-        ctx.prover_market.deposit(parse_ether("1").unwrap()).await.unwrap();
-
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
             mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
