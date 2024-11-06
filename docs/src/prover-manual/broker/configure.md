@@ -9,9 +9,9 @@ The proof-market works via a escrow system. Brokers must first deposit some ETH 
 ### Deposit to the market
 
 ```bash
-export RPC_URL=<BROKER_RPC_URL>
+export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-export export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
+export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
 
 # Example: 'deposit 0.5'
 RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>
@@ -20,9 +20,9 @@ RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>
 ### Check current balance
 
 ```bash
-export RPC_URL=<BROKER_RPC_URL>
+export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-export export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
+export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
 
 RUST_LOG=info cargo run --bin cli -- balance [wallet_address]
 ```
