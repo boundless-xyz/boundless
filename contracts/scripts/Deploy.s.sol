@@ -15,13 +15,6 @@ import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {ProofMarket} from "../src/ProofMarket.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
 
-// For local testing:
-// TODO: Uncommenting these lines currently creates a chicken-egg problem in that
-// `cargo build -Ftest-utils` cannot complete without first running `forge build` and `forge build`
-// cannot run without building the guests.
-//import {ImageID as AssesorImgId} from "../src/AssessorImageID.sol";
-//import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
-
 contract Deploy is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG_FILE = "contracts/deployment.toml";
@@ -71,26 +64,35 @@ contract Deploy is Script, RiscZeroCheats {
 
         // Set the setBuilderImageId and assessorImageId if not set.
         if (setBuilderImageId == bytes32(0)) {
-            // TODO: Currently cannot work. See note in imports.
-            //setBuilderImageId = SetBuidlerId.SET_BUILDER_GUEST_ID;
             revert("set builder image ID must be set in deployment.toml");
         }
         if (assessorImageId == bytes32(0)) {
-            // TODO: Currently cannot work. See note in imports.
-            //assessorImageId = AssesorImgId.ASSESSOR_GUEST_ID;
             revert("assessor image ID must be set in deployment.toml");
         }
 
         if (bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0) {
             // TODO: Create a more robust way of getting a URI for guests, and ensure that it is
             // in-sync with the configured image ID.
+            string memory setBuilderPath = "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest";
             string memory cwd = vm.envString("PWD");
             setBuilderGuestUrl =
-                string.concat("file://", cwd, "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest");
+                string.concat("file://", cwd, setBuilderPath);
             console2.log("Set builder URI", setBuilderGuestUrl);
+
+            string[] memory argv = new string[](4);
+            argv[0] = "r0vm";
+            argv[1] = "--id";
+            argv[2] = "--elf";
+            argv[3] = string.concat(".", setBuilderPath);
+            setBuilderImageId = abi.decode(vm.ffi(argv), (bytes32));
+
+            string memory assessorPath = "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest";
             assessorGuestUrl =
-                string.concat("file://", cwd, "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest");
+                string.concat("file://", cwd, assessorPath);
             console2.log("Assessor URI", assessorGuestUrl);
+
+            argv[3] = string.concat(".", assessorPath);
+            assessorImageId = abi.decode(vm.ffi(argv), (bytes32));
         }
 
         // Deploy the setVerifier, if not already deployed.
