@@ -75,8 +75,7 @@ contract Deploy is Script, RiscZeroCheats {
             // in-sync with the configured image ID.
             string memory setBuilderPath = "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest";
             string memory cwd = vm.envString("PWD");
-            setBuilderGuestUrl =
-                string.concat("file://", cwd, setBuilderPath);
+            setBuilderGuestUrl = string.concat("file://", cwd, setBuilderPath);
             console2.log("Set builder URI", setBuilderGuestUrl);
 
             string[] memory argv = new string[](4);
@@ -87,8 +86,7 @@ contract Deploy is Script, RiscZeroCheats {
             setBuilderImageId = abi.decode(vm.ffi(argv), (bytes32));
 
             string memory assessorPath = "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest";
-            assessorGuestUrl =
-                string.concat("file://", cwd, assessorPath);
+            assessorGuestUrl = string.concat("file://", cwd, assessorPath);
             console2.log("Assessor URI", assessorGuestUrl);
 
             argv[3] = string.concat(".", assessorPath);
