@@ -22,20 +22,21 @@ use alloy::{
     transports::{http::Http, Transport},
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{
+use reqwest::Client as HttpClient;
+use url::Url;
+
+use crate::{
     contracts::{
         proof_market::{MarketError, ProofMarketService},
         set_verifier::SetVerifierService,
         ProvingRequest,
     },
+    order_stream_client::Client as OrderStreamClient,
     storage::{
         storage_provider_from_env, BuiltinStorageProvider, BuiltinStorageProviderError,
         StorageProvider,
     },
 };
-use order_stream::client::Client as OrderStreamClient;
-use reqwest::Client as HttpClient;
-use url::Url;
 
 type ProviderWallet = FillProvider<
     JoinFill<

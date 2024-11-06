@@ -23,13 +23,13 @@ use risc0_zkvm::{
 use url::Url;
 
 use boundless_market::{
+    client::Client,
     contracts::{
         proof_market::ProofMarketService, Input, InputType, Offer, Predicate, PredicateType,
         ProvingRequest, Requirements,
     },
     storage::StorageProvider,
 };
-use boundless_market_client::Client;
 
 // TODO(victor): Update corresponding docs
 #[derive(Subcommand, Clone, Debug)]

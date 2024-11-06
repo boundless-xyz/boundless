@@ -12,14 +12,17 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{ensure, Context, Result};
-use boundless_market::contracts::{
-    proof_market::ProofMarketService, set_verifier::SetVerifierService, InputType, ProvingRequest,
+use boundless_market::{
+    contracts::{
+        proof_market::ProofMarketService, set_verifier::SetVerifierService, InputType,
+        ProvingRequest,
+    },
+    order_stream_client::Client as OrderStreamClient,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
-use order_stream::client::Client as OrderStreamClient;
 use provers::ProverObj;
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};

@@ -2,16 +2,14 @@
 //
 // All rights reserved.
 
-use std::{collections::HashMap, error::Error, pin::Pin};
+use std::collections::HashMap;
 
 use alloy::{
-    primitives::{utils::parse_ether, Address, Signature, SignatureError, B256, U256},
+    primitives::{utils::parse_ether, Address, U256},
     providers::{ProviderBuilder, RootProvider},
-    signers::{local::PrivateKeySigner, Error as SignerErr, Signer},
     transports::http::Http,
 };
 use anyhow::{anyhow, Context, Error as AnyhowErr, Result};
-use async_stream::stream;
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -22,9 +20,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use boundless_market::contracts::{IProofMarket, ProvingRequest};
+use boundless_market::{
+    contracts::IProofMarket,
+    order_stream_client::{AuthMsg, Order, OrderError, ORDER_SUBMISSION_PATH, ORDER_WS_PATH},
+};
 use clap::Parser;
-use futures_util::{SinkExt, Stream, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
@@ -32,15 +33,11 @@ use serde_json::json;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::{
-    net::TcpStream,
     sync::{broadcast, mpsc, Mutex},
     task::JoinHandle,
 };
-use tokio_tungstenite::{tungstenite, MaybeTlsStream, WebSocketStream};
 use tower_http::limit::RequestBodyLimitLayer;
 use tracing::error;
-
-pub mod client;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ErrMsg {
@@ -58,72 +55,11 @@ impl std::fmt::Display for ErrMsg {
     }
 }
 
-/// Order struct, containing a ProvingRequest and its Signature
-/// The contents of this struct match the calldata of the `submitOrder` function in the `ProofMarket` contract.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct Order {
-    pub request: ProvingRequest,
-    pub signature: Signature,
-}
-
-impl Order {
-    /// Create a new Order
-    pub fn new(request: ProvingRequest, signature: Signature) -> Self {
-        Self { request, signature }
-    }
-
-    /// Validate the Order
-    pub fn validate(&self, market_address: Address, chain_id: u64) -> Result<(), AppError> {
-        self.request.validate().map_err(|e| AppError::InvalidRequest(e))?;
-        self.request
-            .verify_signature(&self.signature.as_bytes().into(), market_address, chain_id)
-            .map_err(|e| AppError::InvalidSignature(e))?;
-        Ok(())
-    }
-}
-
-/// AuthMsg struct, containing a hash, an address, and a signature.
-/// It is used to authenticate WebSocket connections, where the authenticated
-/// address is used to check the balance in the ProofMarket contract.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct AuthMsg {
-    pub hash: B256,
-    pub address: Address,
-    pub signature: Signature,
-}
-
-impl AuthMsg {
-    /// Create a new AuthMsg
-    pub fn new(hash: B256, address: Address, signature: Signature) -> Self {
-        Self { hash, address, signature }
-    }
-
-    /// Create a new AuthMsg from a PrivateKeySigner. The hash is randomly generated.
-    pub async fn new_from_signer(signer: &PrivateKeySigner) -> Result<Self, SignerErr> {
-        let rand_bytes: [u8; 32] = rand::random();
-        let hash = B256::from(rand_bytes);
-        let signature = signer.sign_hash(&hash).await?;
-        Ok(Self::new(hash, signer.address(), signature))
-    }
-
-    /// Recover the address from the signature and compare it with the address field.
-    pub fn verify_signature(&self) -> Result<(), SignerErr> {
-        let addr = self.signature.recover_address_from_prehash(&self.hash)?;
-        if addr == self.address {
-            Ok(())
-        } else {
-            Err(SignerErr::SignatureError(SignatureError::FromBytes("Address mismatch")))
-        }
-    }
-}
-
 /// Error type for the application
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("invalid request: {0}")]
-    InvalidRequest(AnyhowErr),
-    #[error("invalid signature: {0}")]
-    InvalidSignature(SignerErr),
+    #[error("invalid order: {0}")]
+    InvalidOrder(OrderError),
     #[error("internal error")]
     InternalErr(AnyhowErr),
 }
@@ -131,8 +67,7 @@ pub enum AppError {
 impl AppError {
     fn type_str(&self) -> String {
         match self {
-            Self::InvalidRequest(_) => "InvalidRequest",
-            Self::InvalidSignature(_) => "InvalidSignature",
+            Self::InvalidOrder(_) => "InvalidOrder",
             Self::InternalErr(_) => "InternalErr",
         }
         .into()
@@ -145,10 +80,16 @@ impl From<AnyhowErr> for AppError {
     }
 }
 
+impl From<OrderError> for AppError {
+    fn from(err: OrderError) -> Self {
+        Self::InvalidOrder(err)
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let code = match self {
-            Self::InvalidRequest(_) | Self::InvalidSignature(_) => StatusCode::BAD_REQUEST,
+            Self::InvalidOrder(_) => StatusCode::BAD_REQUEST,
             Self::InternalErr(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         error!("api error, code {code}: {self:?}");
@@ -258,7 +199,6 @@ fn start_broadcast_task(
 
 const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
 
-const ORDER_SUBMISSION_PATH: &str = "orders";
 // Submit order handler
 async fn submit_order(
     State(state): State<Arc<AppState>>,
@@ -283,7 +223,6 @@ fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg> {
     serde_json::from_str(json_str).context("Failed to parse JSON")
 }
 
-const ORDER_WS_PATH: &str = "ws/orders";
 // WebSocket upgrade handler
 async fn websocket_handler(
     ws: WebSocketUpgrade,
@@ -421,46 +360,6 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
     tracing::debug!("WebSocket connection closed: {}", address);
 }
 
-/// Stream of Order messages from a WebSocket
-///
-/// This function takes a WebSocket stream and returns a stream of `Order` messages.
-/// Example usage:
-/// ```no_run
-/// use futures_util::StreamExt;
-/// use order_stream::{client::Client, order_stream, Order};
-/// async fn example_stream(client: Client) {
-///     let socket = client.connect_async().await.unwrap();
-///     let mut order_stream = order_stream(socket);
-///     while let Some(order) = order_stream.next().await {
-///         match order {
-///             Ok(order) => println!("Received order: {:?}", order),
-///             Err(err) => eprintln!("Error: {}", err),
-///         }
-///     }
-/// }
-/// ```
-pub fn order_stream(
-    mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-) -> Pin<Box<dyn Stream<Item = Result<Order, Box<dyn Error + Send + Sync>>> + Send>> {
-    Box::pin(stream! {
-        while let Some(msg_result) = socket.next().await {
-            match msg_result {
-                Ok(tungstenite::Message::Text(msg)) => {
-                    match serde_json::from_str::<Order>(&msg) {
-                        Ok(order) => yield Ok(order),
-                        Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
-                    }
-                }
-                Ok(other) => {
-                    tracing::debug!("Ignoring non-text message: {:?}", other);
-                    continue;
-                }
-                Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
-            }
-        }
-    })
-}
-
 /// Create the application router
 pub fn app(state: Arc<AppState>) -> Router {
     let body_size_limit = RequestBodyLimitLayer::new(MAX_ORDER_SIZE);
@@ -532,7 +431,10 @@ mod tests {
         node_bindings::Anvil,
         primitives::{aliases::U96, B256},
     };
-    use boundless_market::contracts::{test_utils::TestCtx, Input, Offer, Predicate, Requirements};
+    use boundless_market::{
+        contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProvingRequest, Requirements},
+        order_stream_client::{order_stream, Client},
+    };
     use reqwest::Url;
     use std::{
         future::IntoFuture,
@@ -585,7 +487,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         tokio::spawn(axum::serve(listener, self::app(app_state.clone())).into_future());
 
-        let client = client::Client::new(
+        let client = Client::new(
             Url::parse(&format!("http://{addr}", addr = addr)).unwrap(),
             ctx.prover_signer.clone(),
             config.market_address,

@@ -263,9 +263,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        proof_market::ProofMarketService,
-        test_utils::{deploy_proof_market, ProofMarket},
-        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        proof_market::ProofMarketService, test_utils::deploy_proof_market, Input, InputType, Offer,
+        Predicate, PredicateType, ProvingRequest, Requirements,
     };
 
     #[tokio::test]

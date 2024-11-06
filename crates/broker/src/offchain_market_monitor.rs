@@ -4,8 +4,8 @@
 
 use alloy::primitives::U256;
 use anyhow::Result;
+use boundless_market::order_stream_client::{order_stream, Client as OrderStreamClient};
 use futures_util::StreamExt;
-use order_stream::{client::Client as OrderStreamClient, order_stream};
 
 use crate::{
     task::{RetryRes, RetryTask, SupervisorErr},

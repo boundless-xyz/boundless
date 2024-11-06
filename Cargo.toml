@@ -6,7 +6,6 @@ members = [
     "crates/assessor",
     "crates/bento-client",
     "crates/boundless-market",
-    "crates/boundless-market-client",
     "crates/broker",
     "crates/guest/assessor",
     "crates/guest/set-builder",
@@ -28,7 +27,6 @@ aggregation-set = { path = "crates/aggregation-set" }
 assessor = { path = "crates/assessor" }
 bento-client = { path = "crates/bento-client" }
 boundless-market = { path = "crates/boundless-market" }
-boundless-market-client = { path = "crates/boundless-market-client" }
 guest-set-builder = { path = "crates/guest/set-builder" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
@@ -72,6 +70,7 @@ tempfile = "3.10"
 test-log = { version = "0.2", features = ["trace"] }
 thiserror = "1.0"
 tokio = { version = "1" }
+tokio-tungstenite = { version = "0.24" }
 tower-http = { version = "0.5", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
