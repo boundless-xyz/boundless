@@ -98,7 +98,7 @@ pub struct Args {
 }
 
 /// Status of a order as it moves through the lifecycle
-#[derive(Clone, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
 enum OrderStatus {
     /// New order found on chain, waiting pricing analysis
     New,
@@ -517,6 +517,7 @@ where
         let set_builder_img_data = self.get_set_builder_image().await?;
         let assessor_img_data = self.get_assessor_image().await?;
 
+        let prover_addr = self.args.private_key.address();
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
                 self.db.clone(),
@@ -526,6 +527,7 @@ where
                 assessor_img_data.0,
                 assessor_img_data.1,
                 self.args.proof_market_addr,
+                prover_addr,
                 self.config_watcher.config.clone(),
                 prover.clone(),
                 block_times,

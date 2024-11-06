@@ -6,6 +6,7 @@ pragma solidity ^0.8.20;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 
 import {
     IProofMarket,
@@ -206,5 +207,19 @@ library ProofMarketLib {
 
     function createUrlInput(string memory url) internal pure returns (Input memory) {
         return Input({inputType: InputType.Url, data: bytes(url)});
+    }
+
+    // UPDRAGES UTILS
+
+    /// @notice ABI encode the constructor args for this contract.
+    /// @dev This function exists to provide a type-safe way to ABI-encode constructor args, for
+    /// use in the deployment process with OpenZeppelin Upgrades. Must be kept in sync with the
+    /// signature of the ProofMarket constructor.
+    function encodeConstructorArgs(IRiscZeroVerifier verifier, bytes32 assessorId)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(verifier, assessorId);
     }
 }

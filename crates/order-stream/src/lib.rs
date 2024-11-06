@@ -76,7 +76,7 @@ impl Order {
     pub fn validate(&self, market_address: Address, chain_id: u64) -> Result<(), AppError> {
         self.request.validate().map_err(|e| AppError::InvalidRequest(e))?;
         self.request
-            .verify_signature(&self.signature, market_address, chain_id)
+            .verify_signature(&self.signature.as_bytes().into(), market_address, chain_id)
             .map_err(|e| AppError::InvalidSignature(e))?;
         Ok(())
     }

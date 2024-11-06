@@ -76,9 +76,6 @@ enum Command {
     GetProof {
         /// The proof request identifier
         request_id: U256,
-        /// Wait until the request is fulfilled
-        #[clap(short, long, default_value = "false")]
-        wait: bool,
     },
     /// Verify the proof of the given request against
     /// the SetVerifier contract.
@@ -92,6 +89,8 @@ enum Command {
     Status {
         /// The proof request identifier
         request_id: U256,
+        /// The block number at which the request expires
+        expires_at: Option<u64>,
     },
 }
 
@@ -223,14 +222,8 @@ async fn main() -> Result<()> {
             market.slash(request_id).await?;
             tracing::info!("Request slashed: 0x{request_id:x}");
         }
-        Command::GetProof { request_id, wait } => {
-            let (journal, seal) = if wait {
-                market
-                    .wait_for_request_fulfillment(request_id, Duration::from_secs(5), None)
-                    .await?
-            } else {
-                market.get_request_fulfillment(request_id).await?
-            };
+        Command::GetProof { request_id } => {
+            let (journal, seal) = market.get_request_fulfillment(request_id).await?;
             tracing::info!(
                 "Journal: {} - Seal: {}",
                 serde_json::to_string_pretty(&journal)?,
@@ -238,10 +231,7 @@ async fn main() -> Result<()> {
             );
         }
         Command::VerifyProof { request_id, image_id } => {
-            let (journal, seal) = market
-                .wait_for_request_fulfillment(request_id, Duration::from_secs(5), None)
-                .await?;
-
+            let (journal, seal) = market.get_request_fulfillment(request_id).await?;
             let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
             set_verifier
                 .verify(seal, image_id, journal_digest)
@@ -250,8 +240,8 @@ async fn main() -> Result<()> {
                 .map_err(|_| anyhow::anyhow!("Verification failed"))?;
             tracing::info!("Proof for request id 0x{request_id:x} verified successfully.");
         }
-        Command::Status { request_id } => {
-            let status = market.get_status(request_id).await?;
+        Command::Status { request_id, expires_at } => {
+            let status = market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
         }
     };
@@ -355,8 +345,10 @@ where
     );
 
     if args.wait {
-        let (journal, seal) =
-            client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), None).await?;
+        let (journal, seal) = client
+            .proof_market
+            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), request.expires_at())
+            .await?;
         tracing::info!(
             "Journal: {} - Seal: {}",
             serde_json::to_string_pretty(&journal)?,
@@ -421,8 +413,10 @@ where
     );
 
     if wait {
-        let (journal, seal) =
-            client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), None).await?;
+        let (journal, seal) = client
+            .proof_market
+            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), request.expires_at())
+            .await?;
         tracing::info!(
             "Journal: {} - Seal: {}",
             serde_json::to_string_pretty(&journal)?,

@@ -36,6 +36,7 @@ pub struct AggregatorService<T, P> {
     set_builder_guest_id: Digest,
     assessor_guest_id: Digest,
     market_addr: Address,
+    prover_addr: Address,
     chain_id: u64,
     _phantom_t: PhantomData<T>,
 }
@@ -53,6 +54,7 @@ where
         assessor_guest_id: Digest,
         assessor_guest: Vec<u8>,
         market_addr: Address,
+        prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
         block_time: u64,
@@ -78,6 +80,7 @@ where
             set_builder_guest_id,
             assessor_guest_id,
             market_addr,
+            prover_addr,
             chain_id,
             _phantom_t: Default::default(),
         })
@@ -199,7 +202,11 @@ where
             })
         }
 
-        let input = AssessorInput { fills, domain: eip712_domain(self.market_addr, self.chain_id) };
+        let input = AssessorInput {
+            fills,
+            domain: eip712_domain(self.market_addr, self.chain_id),
+            prover_address: self.prover_addr,
+        };
         let input_data = input.to_vec();
 
         let input_id = self
@@ -342,58 +349,18 @@ where
         Ok(())
     }
 
-    async fn aggregate_proofs(&mut self) -> Result<()> {
-        let new_proofs = self
-            .db
-            .get_aggregation_proofs()
-            .await
-            .context("Failed to get pending agg proofs from DB")?;
-
-        if new_proofs.is_empty() {
-            return Ok(());
-        }
-
-        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
-
-        for agg_proof in new_proofs {
-            match self.aggregate_proof(batch_id, agg_proof.order_id, agg_proof.proof_id).await {
-                Ok(_) => {
-                    tracing::info!("Completed aggregation of proof {:x}", agg_proof.order_id);
-                    self.db
-                        .update_batch(
-                            batch_id,
-                            agg_proof.order_id,
-                            agg_proof.expire_block,
-                            agg_proof.fee,
-                        )
-                        .await
-                        .context("Failed to update batch with new order details")?;
-                }
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to complete aggregation of proof {:x} {err:?}",
-                        agg_proof.order_id
-                    );
-                    if let Err(db_err) =
-                        self.db.set_order_failure(agg_proof.order_id, format!("{err:?}")).await
-                    {
-                        tracing::error!("Failed to mark order failure in db: {db_err}");
-                    }
-                }
-            }
-        }
-
-        // Check if we should finalize the batch
-        // - check current min-deadline and batch timer
-        // - need to fetch current block, might be good to make that a long polling service with a
-        //   Atomic everyone reads
-        // if so:
-        // - finalize
-        // - snark proof
-        // - insert batch data in to DB for finalizer
-        // - mark all orders in batch as Aggregated
-        // - reset batch timer
-
+    /// Check if we should finalize the batch
+    ///
+    /// - check current min-deadline and batch timer
+    /// - need to fetch current block, might be good to make that a long polling service with a
+    ///   Atomic everyone reads
+    ///
+    /// if so:
+    /// - finalize
+    /// - snark proof
+    /// - insert batch data in to DB for finalizer
+    /// - mark all orders in batch as Aggregated
+    async fn check_finalize(&mut self, batch_id: usize) -> Result<()> {
         let (conf_batch_size, conf_batch_time, conf_batch_fees) = {
             let config = self.config.lock_all().context("Failed to lock config")?;
 
@@ -457,11 +424,19 @@ where
             let block_number =
                 self.provider.get_block_number().await.context("Failed to get current block")?;
 
-            // tracing::info!("{} {} {}", self.current_deadline, block_number, self.block_time);
             let remaining_secs = (batch.block_deadline.expect("batch missing block deadline")
                 - block_number)
                 * self.block_time;
             let buffer_secs = conf_block_deadline_buf;
+            // tracing::info!(
+            //     "{:?} {} {} {} {}",
+            //     batch.block_deadline,
+            //     block_number,
+            //     self.block_time,
+            //     remaining_secs,
+            //     buffer_secs
+            // );
+
             if remaining_secs <= buffer_secs {
                 tracing::info!("Batch getting close to deadline {remaining_secs}, finalizing");
                 finalize = true;
@@ -474,6 +449,54 @@ where
 
         Ok(())
     }
+
+    async fn aggregate_proofs(&mut self) -> Result<()> {
+        let new_proofs = self
+            .db
+            .get_aggregation_proofs()
+            .await
+            .context("Failed to get pending agg proofs from DB")?;
+
+        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
+
+        self.check_finalize(batch_id).await?;
+
+        if new_proofs.is_empty() {
+            return Ok(());
+        }
+
+        for agg_proof in new_proofs {
+            match self.aggregate_proof(batch_id, agg_proof.order_id, agg_proof.proof_id).await {
+                Ok(_) => {
+                    tracing::info!("Completed aggregation of proof {:x}", agg_proof.order_id);
+                    self.db
+                        .update_batch(
+                            batch_id,
+                            agg_proof.order_id,
+                            agg_proof.expire_block,
+                            agg_proof.fee,
+                        )
+                        .await
+                        .context("Failed to update batch with new order details")?;
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to complete aggregation of proof {:x} {err:?}",
+                        agg_proof.order_id
+                    );
+                    if let Err(db_err) =
+                        self.db.set_order_failure(agg_proof.order_id, format!("{err:?}")).await
+                    {
+                        tracing::error!("Failed to mark order failure in db: {db_err}");
+                    }
+                }
+            }
+        }
+
+        self.check_finalize(batch_id).await?;
+
+        Ok(())
+    }
 }
 
 impl<T, P> RetryTask for AggregatorService<T, P>
@@ -483,12 +506,21 @@ where
 {
     fn spawn(&self) -> RetryRes {
         let mut self_clone = self.clone();
+
         Box::pin(async move {
             tracing::info!("Starting Aggregator service");
             loop {
+                let conf_poll_time_ms = {
+                    let config = self_clone
+                        .config
+                        .lock_all()
+                        .context("Failed to lock config")
+                        .map_err(SupervisorErr::Fault)?;
+                    config.batcher.batch_poll_time_ms.unwrap_or(1000)
+                };
+
                 self_clone.aggregate_proofs().await.map_err(SupervisorErr::Recover)?;
-                // TODO: configuration
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
             }
         })
     }
@@ -507,7 +539,7 @@ mod tests {
         network::EthereumWallet,
         node_bindings::Anvil,
         primitives::{aliases::U96, Keccak256, B256},
-        providers::ProviderBuilder,
+        providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -575,6 +607,7 @@ mod tests {
     async fn aggregate_order() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
@@ -611,6 +644,7 @@ mod tests {
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
+            prover_addr,
             config,
             prover,
             2,
@@ -739,6 +773,7 @@ mod tests {
     async fn fee_finalize() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
@@ -774,6 +809,7 @@ mod tests {
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
+            prover_addr,
             config,
             prover,
             2,
@@ -837,5 +873,114 @@ mod tests {
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
         assert!(!batch.orders.is_empty());
         assert_eq!(batch.status, BatchStatus::PendingSubmission);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn deadline_finalize() {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer.clone()))
+                .on_http(anvil.endpoint().parse().unwrap()),
+        );
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut config = config.load_write().unwrap();
+            config.batcher.batch_size = Some(2);
+            config.batcher.block_deadline_buffer_secs = 100;
+        }
+
+        let prover: ProverObj = Arc::new(MockProver::default());
+
+        // Pre-prove the echo aka app guest:
+        let image_id = Digest::from(ECHO_ID);
+        let image_id_str = image_id.to_string();
+        prover.upload_image(&image_id_str, ECHO_ELF.to_vec()).await.unwrap();
+        let input_id = prover
+            .upload_input(encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap())
+            .await
+            .unwrap();
+        let proof_res =
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+
+        let mut aggregator = AggregatorService::new(
+            db.clone(),
+            provider.clone(),
+            Digest::from(SET_BUILDER_GUEST_ID),
+            SET_BUILDER_GUEST_ELF.to_vec(),
+            Digest::from(ASSESSOR_GUEST_ID),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            signer.address(),
+            config,
+            prover,
+            2,
+        )
+        .await
+        .unwrap();
+
+        let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
+        let chain_id = provider.get_chain_id().await.unwrap();
+
+        let min_price = 200000000000000000u64;
+        let order_request = ProvingRequest::new(
+            0,
+            &customer_signer.address(),
+            Requirements {
+                imageId: B256::from_slice(image_id.as_bytes()),
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            "http://risczero.com/image".into(),
+            Input { inputType: InputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U96::from(min_price),
+                maxPrice: U96::from(250000000000000000u64),
+                biddingStart: 0,
+                timeout: 50,
+                rampUpPeriod: 1,
+                lockinStake: U96::from(10),
+            },
+        );
+
+        let client_sig = order_request
+            .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .unwrap()
+            .as_bytes();
+
+        let order = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_block: None,
+            request: order_request,
+            image_id: Some(image_id_str.clone()),
+            input_id: Some(input_id.clone()),
+            proof_id: Some(proof_res.id),
+            expire_block: Some(100),
+            path: None,
+            client_sig: client_sig.into(),
+            lock_price: Some(U256::from(min_price)),
+            error_msg: None,
+        };
+        let order_id = U256::from(order.request.id);
+        db.add_order(order_id, order.clone()).await.unwrap();
+
+        provider.anvil_mine(Some(U256::from(51)), Some(U256::from(2))).await.unwrap();
+
+        aggregator.aggregate_proofs().await.unwrap();
+
+        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::PendingSubmission);
+
+        let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
+        assert!(!batch.orders.is_empty());
+        assert_eq!(batch.status, BatchStatus::PendingSubmission);
+        assert!(logs_contain("Batch getting close to deadline"));
     }
 }

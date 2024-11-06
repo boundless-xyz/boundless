@@ -131,6 +131,11 @@ impl ProvingRequest {
         Self { offer, ..self }
     }
 
+    /// Returns the block number at which the request expires.
+    pub fn expires_at(&self) -> u64 {
+        self.offer.biddingStart + self.offer.timeout as u64
+    }
+
     /// Check that the request is valid and internally consistent.
     ///
     /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min
@@ -180,13 +185,14 @@ impl ProvingRequest {
     /// the given contract address and chain ID.
     pub fn verify_signature(
         &self,
-        signature: &Signature,
+        signature: &Bytes,
         contract_addr: Address,
         chain_id: u64,
     ) -> Result<(), SignerErr> {
+        let sig = Signature::try_from(signature.as_ref())?;
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
-        let addr = signature.recover_address_from_prehash(&hash)?;
+        let addr = sig.recover_address_from_prehash(&hash)?;
         if addr == self.client_address() {
             Ok(())
         } else {
@@ -444,14 +450,15 @@ pub mod test_utils {
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
                 WalletFiller,
             },
-            Identity, ProviderBuilder, RootProvider,
+            Identity, Provider, ProviderBuilder, RootProvider,
         },
         signers::local::PrivateKeySigner,
-        transports::BoxTransport,
+        transports::{BoxTransport, Transport},
     };
     use anyhow::Result;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use risc0_zkvm::sha::Digest;
+    use std::sync::Arc;
 
     use crate::contracts::{proof_market::ProofMarketService, set_verifier::SetVerifierService};
 
@@ -471,6 +478,12 @@ pub mod test_utils {
         #![sol(rpc)]
         ProofMarket,
         "../../contracts/out/ProofMarket.sol/ProofMarket.json"
+    );
+
+    alloy::sol!(
+        #![sol(rpc)]
+        ERC1967Proxy,
+        "../../contracts/out/ERC1967Proxy.sol/ERC1967Proxy.json"
     );
 
     // Note: I was completely unable to solve this with generics or trait objects
@@ -500,42 +513,80 @@ pub mod test_utils {
         pub set_verifier: SetVerifierService<BoxTransport, ProviderWallet>,
     }
 
+    pub async fn deploy_verifier(deployer_provider: Arc<ProviderWallet>) -> Result<Address> {
+        let verifier = MockVerifier::deploy(&deployer_provider, FixedBytes::ZERO).await?;
+        Ok(*verifier.address())
+    }
+
+    pub async fn deploy_set_verifier(
+        deployer_provider: Arc<ProviderWallet>,
+        verifier_address: Address,
+    ) -> Result<Address> {
+        let set_verifier = SetVerifier::deploy(
+            &deployer_provider,
+            verifier_address,
+            <[u8; 32]>::from(Digest::from(SET_BUILDER_GUEST_ID)).into(),
+            String::new(),
+        )
+        .await?;
+        Ok(*set_verifier.address())
+    }
+
+    pub async fn deploy_proof_market<T, P>(
+        deployer_signer: &PrivateKeySigner,
+        deployer_provider: P,
+        set_verifier: Address,
+    ) -> Result<Address>
+    where
+        T: Transport + Clone,
+        P: Provider<T, Ethereum> + 'static + Clone,
+    {
+        let deployer_address = deployer_signer.address();
+        let proof_market = ProofMarket::deploy(
+            &deployer_provider,
+            set_verifier,
+            <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
+        )
+        .await?;
+
+        // Combine the function selector with the encoded parameters
+        let data = ProofMarket::new(Address::default(), &deployer_provider)
+            .initialize(deployer_address, String::new())
+            .calldata()
+            .clone();
+
+        let proxy = ERC1967Proxy::deploy_builder(&deployer_provider, *proof_market.address(), data)
+            .deploy()
+            .await?;
+
+        Ok(proxy)
+    }
+
     impl TestCtx {
         async fn deploy_contracts(anvil: &AnvilInstance) -> Result<(Address, Address, Address)> {
             let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-            let deployer_provider = ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(deployer_signer.clone()))
-                .on_builtin(&anvil.endpoint())
-                .await
-                .unwrap();
+            let deployer_provider = Arc::new(
+                ProviderBuilder::new()
+                    .with_recommended_fillers()
+                    .wallet(EthereumWallet::from(deployer_signer.clone()))
+                    .on_builtin(&anvil.endpoint())
+                    .await
+                    .unwrap(),
+            );
 
-            let verifier =
-                MockVerifier::deploy(&deployer_provider, FixedBytes::ZERO).await.unwrap();
+            // Deploy contracts
+            let verifier = deploy_verifier(Arc::clone(&deployer_provider)).await?;
+            let set_verifier =
+                deploy_set_verifier(Arc::clone(&deployer_provider), verifier).await?;
+            let proof_market =
+                deploy_proof_market(&deployer_signer, Arc::clone(&deployer_provider), set_verifier)
+                    .await?;
 
-            let set_verifier = SetVerifier::deploy(
-                &deployer_provider,
-                *verifier.address(),
-                <[u8; 32]>::from(Digest::from(SET_BUILDER_GUEST_ID)).into(),
-                String::new(),
-            )
-            .await
-            .unwrap();
-
-            let proof_market = ProofMarket::deploy(
-                &deployer_provider,
-                *set_verifier.address(),
-                <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
-                String::new(),
-            )
-            .await
-            .unwrap();
-
-            // Mine forward some blocks
+            // Mine forward some blocks using the provider
             deployer_provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
             deployer_provider.anvil_set_interval_mining(2).await.unwrap();
 
-            Ok((*verifier.address(), *set_verifier.address(), *proof_market.address()))
+            Ok((verifier, set_verifier, proof_market))
         }
 
         pub async fn new(anvil: &AnvilInstance) -> Result<Self> {
@@ -596,5 +647,78 @@ pub mod test_utils {
                 set_verifier,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::signers::local::PrivateKeySigner;
+
+    fn create_order(
+        signer: &impl SignerSync,
+        signer_addr: Address,
+        order_id: u32,
+        contract_addr: Address,
+        chain_id: u64,
+    ) -> (ProvingRequest, [u8; 65]) {
+        let request_id = request_id(&signer_addr, order_id);
+
+        let req = ProvingRequest {
+            id: request_id,
+            requirements: Requirements {
+                imageId: B256::ZERO,
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            imageUrl: "test".to_string(),
+            input: Input { inputType: InputType::Url, data: Default::default() },
+            offer: Offer {
+                minPrice: U96::from(0),
+                maxPrice: U96::from(1),
+                biddingStart: 0,
+                timeout: 1000,
+                rampUpPeriod: 1,
+                lockinStake: U96::from(0),
+            },
+        };
+
+        let client_sig = req.sign_request(&signer, contract_addr, chain_id).unwrap();
+
+        (req, client_sig.as_bytes())
+    }
+
+    #[test]
+    fn validate_sig() {
+        let signer: PrivateKeySigner =
+            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
+        let order_id: u32 = 1;
+        let contract_addr = Address::ZERO;
+        let chain_id = 1;
+        let signer_addr = signer.address();
+
+        let (req, client_sig) =
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+
+        req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "SignatureError")]
+    fn invalid_sig() {
+        let signer: PrivateKeySigner =
+            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
+        let order_id: u32 = 1;
+        let contract_addr = Address::ZERO;
+        let chain_id = 1;
+        let signer_addr = signer.address();
+
+        let (req, mut client_sig) =
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+
+        client_sig[0] = 1;
+        req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
     }
 }

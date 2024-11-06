@@ -181,7 +181,7 @@ async fn run(
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
-            None,                   // no timeout
+            request.expires_at(),
         )
         .await?;
     tracing::info!("Request {} fulfilled", request_id);

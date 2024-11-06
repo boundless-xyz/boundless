@@ -15,11 +15,27 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::proof_market::ProofMarketService;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum PriceOrderErr {
+    #[error("Failed to fetch / push input: {0}")]
+    FetchInputErr(anyhow::Error),
+
+    #[error("Failed to fetch / push image: {0}")]
+    FetchImageErr(anyhow::Error),
+
+    #[error("Guest execution faulted: {0}")]
+    GuestPanic(String),
+
+    #[error("Other: {0}")]
+    OtherErr(#[from] anyhow::Error),
+}
 
 use crate::{
     config::ConfigLock,
     db::DbObj,
-    provers::ProverObj,
+    provers::{ProverError, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     Order,
 };
@@ -55,7 +71,7 @@ where
         Self { db, config, prover, block_time, provider, market }
     }
 
-    async fn price_order(&self, order_id: U256, order: &Order) -> Result<()> {
+    async fn price_order(&self, order_id: U256, order: &Order) -> Result<(), PriceOrderErr> {
         tracing::debug!("Processing order {order_id:x}: {order:?}");
 
         let (min_deadline, allowed_addresses_opt) = {
@@ -89,7 +105,7 @@ where
         // Does the order expire within the min deadline
         let seconds_left = (expire_block - current_block) * self.block_time;
         if seconds_left <= min_deadline {
-            tracing::warn!("Removing order {order_id:x} because it expires within the deadline");
+            tracing::warn!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             self.db.skip_order(order_id).await.context("Failed to delete short deadline order")?;
             return Ok(());
         }
@@ -154,11 +170,11 @@ where
         // TODO: Move URI handling like this into the prover impls
         let image_id = crate::upload_image_uri(&self.prover, order, max_size, fetch_retries)
             .await
-            .context("Failed to fetch and upload image_id")?;
+            .map_err(PriceOrderErr::FetchImageErr)?;
 
         let input_id = crate::upload_input_uri(&self.prover, order, max_size, fetch_retries)
             .await
-            .context("Failed to fetch and upload input_id")?;
+            .map_err(PriceOrderErr::FetchInputErr)?;
 
         // Record the image/input IDs for proving stage
         self.db
@@ -200,7 +216,18 @@ where
                 /* TODO assumptions */ Some(exec_limit * 1024 * 1024),
             )
             .await
-            .context("Preflight failed")?;
+            .map_err(|err| match err {
+                ProverError::ProvingFailed(ref err_msg) => {
+                    // TODO: Get enum'd errors from the SDK to prevent str
+                    // checks
+                    if err_msg.contains("GuestPanic") {
+                        PriceOrderErr::GuestPanic(err_msg.clone())
+                    } else {
+                        PriceOrderErr::OtherErr(err.into())
+                    }
+                }
+                _ => PriceOrderErr::OtherErr(err.into()),
+            })?;
 
         // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently
         // can absorb that proving load, we need to cordinate this check with parallel
@@ -356,7 +383,17 @@ where
                                 .set_order_failure(order_id, err.to_string())
                                 .await
                                 .expect("Failed to set order failure");
-                            tracing::error!("pricing order failed: {order_id:x} {err:?}");
+                            match err {
+                                PriceOrderErr::OtherErr(err) => {
+                                    tracing::error!("Pricing order failed: {order_id:x} {err:?}");
+                                }
+                                // Only warn on known / classified errors
+                                _ => {
+                                    tracing::warn!(
+                                        "Pricing order soft failed: {order_id:x} {err:?}"
+                                    );
+                                }
+                            }
                         }
                     });
                 }
@@ -383,8 +420,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::ProofMarket, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
-        Requirements,
+        test_utils::{deploy_proof_market, ProofMarket},
+        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
     use chrono::Utc;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -408,13 +445,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address =
-            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -430,7 +465,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {
@@ -503,13 +538,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address =
-            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -525,7 +558,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {
@@ -599,13 +632,11 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address =
-            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -621,7 +652,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
         let order_id = U256::from(proof_market.request_id_from_nonce().await.unwrap());
         let min_price = 200000000000u64;
@@ -686,13 +717,10 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let contract_address =
-            *ProofMarket::deploy(provider.clone(), Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -708,7 +736,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, contract_address, provider);
+        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {

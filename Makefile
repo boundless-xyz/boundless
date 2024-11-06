@@ -8,8 +8,11 @@ ANVIL_PORT = 8545
 ANVIL_BLOCK_TIME = 2
 CHAIN_ID = 31337
 RISC0_DEV_MODE = 1
+CHAIN_KEY = "anvil"
 RUST_LOG = info,broker=debug,boundless_market=debug,order_stream=debug
+DEPLOYER_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+ADMIN_ADDRESS = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 DEPOSIT_AMOUNT = 10
 ORDER_STREAM_PORT = 8585
 
@@ -31,15 +34,20 @@ devnet-up: check-deps
 	echo "Building Rust project..."
 	cargo build --bin broker || { echo "Failed to build broker binary"; $(MAKE) devnet-down; exit 1; }
 	cargo build --bin order_stream || { echo "Failed to build order_Stream binary"; $(MAKE) devnet-down; exit 1; }
-	echo "Starting Anvil..."
-	anvil -b $(ANVIL_BLOCK_TIME) --chain-id $(CHAIN_ID) > $(LOGS_DIR)/anvil.txt 2>&1 & echo $$! >> $(PID_FILE)
-	sleep 5
+	# Check if Anvil is already running
+	if nc -z localhost $(ANVIL_PORT); then \
+		echo "Anvil is already running on port $(ANVIL_PORT). Reusing existing instance."; \
+	else \
+		echo "Starting Anvil..."; \
+		anvil -b $(ANVIL_BLOCK_TIME) > $(LOGS_DIR)/anvil.txt 2>&1 & echo $$! >> $(PID_FILE); \
+		sleep 5; \
+	fi
 	echo "Deploying contracts..."
-	RISC0_DEV_MODE=$(RISC0_DEV_MODE) forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$(ANVIL_PORT) --broadcast -vv || { echo "Failed to deploy contracts"; $(MAKE) devnet-down; exit 1; }
+	DEPLOYER_PRIVATE_KEY=$(DEPLOYER_PRIVATE_KEY) CHAIN_KEY=${CHAIN_KEY} RISC0_DEV_MODE=$(RISC0_DEV_MODE) PROOF_MARKET_OWNER=$(ADMIN_ADDRESS) forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$(ANVIL_PORT) --broadcast -vv || { echo "Failed to deploy contracts"; $(MAKE) devnet-down; exit 1; }
 	echo "Fetching contract addresses..."
 	{ \
 		SET_VERIFIER_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
-		PROOF_MARKET_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "ProofMarket") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
+		PROOF_MARKET_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
 		echo "Contract deployed at addresses:"; \
 		echo "SET_VERIFIER_ADDRESS=$$SET_VERIFIER_ADDRESS"; \
 		echo "PROOF_MARKET_ADDRESS=$$PROOF_MARKET_ADDRESS"; \

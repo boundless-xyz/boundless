@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use alloy::{
     network::Ethereum,
@@ -26,14 +26,22 @@ use super::{
 pub enum MarketError {
     #[error("Transaction error: {0}")]
     TxnError(#[from] TxnErr),
+
     #[error("Request is not fulfilled {0}")]
     RequestNotFulfilled(U256),
+
     #[error("Request has expired {0}")]
     RequestHasExpired(U256),
+
     #[error("Proof not found {0}")]
     ProofNotFound(U256),
+
+    #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
+    LockRevert(B256),
+
     #[error("Market error: {0}")]
     Error(#[from] anyhow::Error),
+
     #[error("Timeout: {0}")]
     TimeoutReached(U256),
 }
@@ -252,10 +260,7 @@ where
 
         if !receipt.status() {
             // TODO: Get + print revertReason
-            return Err(MarketError::Error(anyhow!(
-                "LockinRequest failed [{}], possibly outbid",
-                receipt.transaction_hash
-            )));
+            return Err(MarketError::LockRevert(receipt.transaction_hash));
         }
 
         tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
@@ -341,10 +346,13 @@ where
         &self,
         fulfillment: &Fulfillment,
         market_seal: &Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfill({:?},{:?})", fulfillment, market_seal);
-        let call =
-            self.instance.fulfill(fulfillment.clone(), market_seal.clone()).from(self.caller);
+        let call = self
+            .instance
+            .fulfill(fulfillment.clone(), market_seal.clone(), prover_address)
+            .from(self.caller);
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -365,9 +373,13 @@ where
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_seal:x})");
-        let call = self.instance.fulfillBatch(fulfillments, assessor_seal).from(self.caller);
+        let call = self
+            .instance
+            .fulfillBatch(fulfillments, assessor_seal, prover_address)
+            .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -389,11 +401,12 @@ where
         seal: Bytes,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_seal:x})");
         let call = self
             .instance
-            .submitRootAndFulfillBatch(root, seal, fulfillments, assessor_seal)
+            .submitRootAndFulfillBatch(root, seal, fulfillments, assessor_seal, prover_address)
             .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -436,21 +449,32 @@ where
     }
 
     /// Returns the [ProofStatus] of a proving request.
-    pub async fn get_status(&self, request_id: U256) -> Result<ProofStatus, MarketError> {
+    ///
+    /// The `expires_at` parameter is the block number at which the request expires.
+    pub async fn get_status(
+        &self,
+        request_id: U256,
+        expires_at: Option<u64>,
+    ) -> Result<ProofStatus, MarketError> {
         let block_number = self.get_latest_block().await?;
 
         if self.is_fulfilled(request_id).await.context("Failed to check fulfillment status")? {
             return Ok(ProofStatus::Fulfilled);
         }
 
-        if self.is_locked_in(request_id).await.context("Failed to check locked status")? {
-            return Ok(ProofStatus::Locked);
+        if let Some(expires_at) = expires_at {
+            if block_number > expires_at {
+                return Ok(ProofStatus::Expired);
+            }
         }
 
-        let deadline = self.instance.requestDeadline(U192::from(request_id)).call().await?._0;
-        if block_number > deadline && deadline > 0 {
-            return Ok(ProofStatus::Expired);
-        };
+        if self.is_locked_in(request_id).await.context("Failed to check locked status")? {
+            let deadline = self.instance.requestDeadline(U192::from(request_id)).call().await?._0;
+            if block_number > deadline && deadline > 0 {
+                return Ok(ProofStatus::Expired);
+            };
+            return Ok(ProofStatus::Locked);
+        }
 
         Ok(ProofStatus::Unknown)
     }
@@ -464,7 +488,7 @@ where
             .context("Failed to get latest block number")?)
     }
 
-    /// Query the RequestFulfilled event based on request ID and block options.
+    /// Query the ProofDelivered event based on request ID and block options.
     /// For each iteration, we query a range of blocks.
     /// If the event is not found, we move the range down and repeat until we find the event.
     /// If the event is not found after the configured max iterations, we return an error.
@@ -493,7 +517,7 @@ where
             let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
 
             // Set up the event filter for the specified block range
-            let mut event_filter = self.instance.RequestFulfilled_filter();
+            let mut event_filter = self.instance.ProofDelivered_filter();
             event_filter.filter = event_filter
                 .filter
                 .topic1(request_id)
@@ -521,7 +545,7 @@ where
         &self,
         request_id: U256,
     ) -> Result<(Bytes, Bytes), MarketError> {
-        match self.get_status(request_id).await? {
+        match self.get_status(request_id, None).await? {
             ProofStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             ProofStatus::Fulfilled => self.query_fulfilled_event(request_id, None, None).await,
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
@@ -537,16 +561,10 @@ where
         &self,
         request_id: U256,
         retry_interval: Duration,
-        timeout: Option<Duration>,
+        expires_at: u64,
     ) -> Result<(Bytes, Bytes), MarketError> {
-        let start_time = Instant::now();
         loop {
-            if let Some(timeout_duration) = timeout {
-                if start_time.elapsed() >= timeout_duration {
-                    return Err(MarketError::TimeoutReached(request_id));
-                }
-            }
-            let status = self.get_status(request_id).await?;
+            let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
                 ProofStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 ProofStatus::Fulfilled => {
@@ -619,7 +637,7 @@ where
             .context(format!("Failed to get EOA nonce for {:?}", self.caller))?;
         let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
         let request_id = request_id(&self.caller, id);
-        match self.get_status(U256::from(request_id)).await? {
+        match self.get_status(U256::from(request_id), None).await? {
             ProofStatus::Unknown => return Ok(id),
             _ => Err(MarketError::Error(anyhow!("index already in use"))),
         }
@@ -642,7 +660,7 @@ where
         for _ in 0..attempts {
             let id: u32 = rand::random();
             let request_id = request_id(&self.caller, id);
-            match self.get_status(U256::from(request_id)).await? {
+            match self.get_status(U256::from(request_id), None).await? {
                 ProofStatus::Unknown => return Ok(id),
                 _ => continue,
             }
@@ -746,6 +764,7 @@ mod tests {
     fn mock_singleton(
         request_id: U256,
         eip712_domain: Eip712Domain,
+        prover: Address,
     ) -> (B256, Bytes, Fulfillment, Bytes) {
         let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
         let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
@@ -755,6 +774,7 @@ mod tests {
             requestIds: vec![U192::from(request_id)],
             root: to_b256(app_claim_digest),
             eip712DomainSeparator: eip712_domain.separator(),
+            prover,
         };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
@@ -904,6 +924,7 @@ mod tests {
         };
 
         let request = new_request(1, &ctx).await;
+        let expires_at = request.expires_at();
 
         let request_id =
             ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -922,17 +943,23 @@ mod tests {
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
         assert!(ctx.customer_market.is_locked_in(request_id).await.unwrap());
-        assert!(ctx.customer_market.get_status(request_id).await.unwrap() == ProofStatus::Locked);
+        assert!(
+            ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
+                == ProofStatus::Locked
+        );
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
-            mock_singleton(request_id, eip712_domain);
+            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
         // fulfill the request
-        ctx.prover_market.fulfill(&fulfillment, &market_seal).await.unwrap();
+        ctx.prover_market
+            .fulfill(&fulfillment, &market_seal, ctx.prover_signer.address())
+            .await
+            .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
         // retrieve journal and seal from the fulfilled request
@@ -959,6 +986,7 @@ mod tests {
         };
 
         let request = new_request(1, &ctx).await;
+        let expires_at = request.expires_at();
 
         let request_id =
             ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -977,16 +1005,25 @@ mod tests {
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
         assert!(ctx.customer_market.is_locked_in(request_id).await.unwrap());
-        assert!(ctx.customer_market.get_status(request_id).await.unwrap() == ProofStatus::Locked);
+        assert!(
+            ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
+                == ProofStatus::Locked
+        );
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, market_seal) =
-            mock_singleton(request_id, eip712_domain);
+            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
         // publish the committed root + fulfillments
         ctx.prover_market
-            .submit_merkle_and_fulfill(root, set_verifier_seal, fulfillments.clone(), market_seal)
+            .submit_merkle_and_fulfill(
+                root,
+                set_verifier_seal,
+                fulfillments.clone(),
+                market_seal,
+                ctx.prover_signer.address(),
+            )
             .await
             .unwrap();
 

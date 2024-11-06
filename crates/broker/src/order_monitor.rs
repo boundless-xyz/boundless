@@ -14,10 +14,28 @@ use alloy::{
     providers::{Provider, WalletProvider},
     transports::Transport,
 };
-use anyhow::{bail, Context, Result};
-use boundless_market::contracts::{proof_market::ProofMarketService, ProofStatus};
-use std::sync::Arc;
-use std::time::Duration;
+use anyhow::{Context, Result};
+use boundless_market::contracts::{
+    proof_market::{MarketError, ProofMarketService},
+    ProofStatus,
+};
+use std::{sync::Arc, time::Duration};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum LockOrderErr {
+    #[error("Failed to fetch / push image: {0}")]
+    OrderLockedInBlock(MarketError),
+
+    #[error("Invalid order status for locking: {0:?}")]
+    InvalidStatus(OrderStatus),
+
+    #[error("Order already locked")]
+    AlreadyLocked,
+
+    #[error("Other: {0}")]
+    OtherErr(#[from] anyhow::Error),
+}
 
 #[derive(Clone)]
 pub struct OrderMonitor<T, P> {
@@ -57,18 +75,21 @@ where
         Ok(Self { db, provider, block_time, config, market })
     }
 
-    async fn lock_order(&self, order_id: U256, order: &Order) -> Result<()> {
+    async fn lock_order(&self, order_id: U256, order: &Order) -> Result<(), LockOrderErr> {
         if order.status != OrderStatus::Locking {
-            bail!("Invalid order status for locking: {:?}", order.status);
+            return Err(LockOrderErr::InvalidStatus(order.status));
         }
 
-        let order_status =
-            self.market.get_status(order_id).await.context("Failed to get order status")?;
+        let order_status = self
+            .market
+            .get_status(order_id, Some(order.request.expires_at()))
+            .await
+            .context("Failed to get order status")?;
         if order_status != ProofStatus::Unknown {
             tracing::warn!("Order {order_id:x} not open: {order_status:?}, skipping");
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
-            bail!("Order already locked");
+            return Err(LockOrderErr::AlreadyLocked);
         }
 
         let conf_priority_gas = {
@@ -83,7 +104,8 @@ where
         let lock_block = self
             .market
             .lockin_request(&order.request, &order.client_sig, conf_priority_gas)
-            .await?;
+            .await
+            .map_err(LockOrderErr::OrderLockedInBlock)?;
 
         let lock_price = self
             .market
@@ -104,8 +126,16 @@ where
         for (order_id, order) in orders.iter() {
             match self.lock_order(*order_id, order).await {
                 Ok(_) => tracing::info!("Locked order: {order_id:x}"),
-                Err(err) => {
-                    tracing::error!("Failed to lock order: {order_id:x} {err}");
+                Err(ref err) => {
+                    match err {
+                        LockOrderErr::OtherErr(err) => {
+                            tracing::error!("Failed to lock order: {order_id:x} {err:?}");
+                        }
+                        // Only warn on known / classified errors
+                        _ => {
+                            tracing::warn!("Soft failed to lock order: {order_id:x} {err:?}");
+                        }
+                    }
                     if let Err(err) = self.db.set_order_failure(*order_id, format!("{err:?}")).await
                     {
                         tracing::error!(
@@ -228,8 +258,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::ProofMarket, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
-        Requirements,
+        test_utils::{deploy_proof_market, ProofMarket},
+        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
     use chrono::Utc;
     use tracing_test::traced_test;
@@ -245,13 +275,11 @@ mod tests {
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
-        let contract_address =
-            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -291,7 +319,7 @@ mod tests {
         // let client_sig = proof_market.eip721_signature(&request, &signer).await.unwrap();
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig =
-            request.sign_request(&signer, contract_address, chain_id).unwrap().as_bytes();
+            request.sign_request(&signer, market_address, chain_id).unwrap().as_bytes();
 
         let order = Order {
             status: OrderStatus::Locking,
@@ -320,7 +348,7 @@ mod tests {
             provider.clone(),
             config.clone(),
             block_time,
-            contract_address,
+            market_address,
         )
         .unwrap();
 
@@ -346,13 +374,11 @@ mod tests {
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
-        let contract_address =
-            *ProofMarket::deploy(&provider, Address::ZERO, B256::ZERO, String::new())
-                .await
-                .unwrap()
-                .address();
+
+        let market_address =
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
         let proof_market = ProofMarketService::new(
-            contract_address,
+            market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -391,7 +417,7 @@ mod tests {
 
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig =
-            request.sign_request(&signer, contract_address, chain_id).unwrap().as_bytes().into();
+            request.sign_request(&signer, market_address, chain_id).unwrap().as_bytes().into();
         let order = Order {
             status: OrderStatus::Locking,
             updated_at: Utc::now(),
@@ -418,7 +444,7 @@ mod tests {
             provider.clone(),
             config.clone(),
             block_time,
-            contract_address,
+            market_address,
         )
         .unwrap();
 

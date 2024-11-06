@@ -19,6 +19,9 @@ error SelectorMismatch(bytes4 received, bytes4 expected);
 contract RiscZeroSetVerifier is IRiscZeroSetVerifier {
     using ReceiptClaimLib for ReceiptClaim;
 
+    /// Semantic version of the the RISC Zero Set Verifier.
+    string public constant VERSION = "0.3.0";
+
     IRiscZeroVerifier public immutable VERIFIER;
 
     /// @notice A short key attached to the seal to select the correct verifier implementation.

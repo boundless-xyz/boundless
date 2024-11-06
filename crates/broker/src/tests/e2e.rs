@@ -105,7 +105,7 @@ async fn simple_e2e() {
         .wait_for_request_fulfillment(
             U256::from(request.id),
             Duration::from_secs(1),
-            Some(Duration::from_secs(60)),
+            request.expires_at(),
         )
         .await
         .unwrap();

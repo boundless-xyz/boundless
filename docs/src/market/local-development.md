@@ -108,7 +108,7 @@ If you require customizing a local devnet configuration, and need to operate it 
 
    ```sh
    source .env
-   RISC0_DEV_MODE=1 forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
+   DEPLOYER_PRIVATE_KEY=$PRIVATE_KEY CHAIN_KEY=anvil RISC0_DEV_MODE=$RISC0_DEV_MODE PROOF_MARKET_OWNER=$PUBLIC_KEY forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
    ```
 
    > NOTE: Starting from a fresh `anvil` instance, the deployed contract addresses will match the values in `.env`.
