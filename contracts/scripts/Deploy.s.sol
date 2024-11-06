@@ -14,6 +14,8 @@ import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 
 import {ProofMarket} from "../src/ProofMarket.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
+import {ImageID as AssesorImgId} from "../src/AssessorImageID.sol";
+import {ImageID as SetBuidlerId} from "../src/SetBuilderImageID.sol";
 
 // For local testing:
 // TODO: Uncommenting these lines currently creates a chicken-egg problem in that
@@ -88,9 +90,11 @@ contract Deploy is Script, RiscZeroCheats {
             setBuilderGuestUrl =
                 string.concat("file://", cwd, "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest");
             console2.log("Set builder URI", setBuilderGuestUrl);
+            setBuilderImageId = SetBuidlerId.SET_BUILDER_GUEST_ID;
             assessorGuestUrl =
                 string.concat("file://", cwd, "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest");
             console2.log("Assessor URI", assessorGuestUrl);
+            assessorImageId = AssesorImgId.ASSESSOR_GUEST_ID;
         }
 
         // Deploy the setVerifier, if not already deployed.
