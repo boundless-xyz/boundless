@@ -14,7 +14,6 @@ The `NVCC_APPEND_FLAGS` docker build arg (found in `compose.yml->services->exec_
 
 You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the exec_agent build args. A value of `3` might yield slightly better performance (a few %) but much longer build times.
 
-
 ## Recommended tools
 
 Prior to starting we recommend the following tools monitor performance and resource use:
