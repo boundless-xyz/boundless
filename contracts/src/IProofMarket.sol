@@ -133,7 +133,9 @@ interface IProofMarket {
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
     function requestIsLocked(uint192 requestId) external view returns (bool);
-    /// @notice Check if the given request has been fulfilled (i.e. a proof was delivered).
+    /// @notice Check if the given request has been fulfilled.
+    /// @dev This method returns true if and only if the request has been fulfilled; it does not
+    /// return true if the request has been delivered but not fulfilled.
     function requestIsFulfilled(uint192 requestId) external view returns (bool);
     /// @notice Return when the given request expires.
     function requestDeadline(uint192 requestId) external view returns (uint64);

@@ -422,6 +422,61 @@ where
         Ok(())
     }
 
+    /// Delivers a proof satisfying a referenced request, without modifying contract state.
+    /// In particular, calling this method will not result in payment being sent to the prover, or
+    /// marking the request as fulfilled.
+    pub async fn deliver(
+        &self,
+        fulfillment: &Fulfillment,
+        market_seal: &Bytes,
+        prover_address: Address,
+    ) -> Result<(), MarketError> {
+        tracing::debug!("Calling deliver({:?},{:?})", fulfillment, market_seal);
+        let call = self
+            .instance
+            .deliver(fulfillment.clone(), market_seal.clone(), prover_address)
+            .from(self.caller);
+        let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Delivered proof for request {}: {}", fulfillment.id, tx_hash);
+
+        Ok(())
+    }
+
+    /// Delivers a batch of proofs.
+    pub async fn deliver_batch(
+        &self,
+        fulfillments: Vec<Fulfillment>,
+        assessor_seal: Bytes,
+        prover_address: Address,
+    ) -> Result<(), MarketError> {
+        tracing::debug!("Calling deliverBatch({fulfillments:?}, {assessor_seal:x})");
+        let call = self
+            .instance
+            .deliverBatch(fulfillments, assessor_seal, prover_address)
+            .from(self.caller);
+        tracing::debug!("Calldata: {}", call.calldata());
+        let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Delivered proof for batch {}", tx_hash);
+
+        Ok(())
+    }
+
     /// Checks if a request is locked in.
     pub async fn is_locked_in(&self, request_id: U256) -> Result<bool, MarketError> {
         tracing::debug!("Calling requestIsLocked({})", request_id);
@@ -458,7 +513,11 @@ where
     ) -> Result<ProofStatus, MarketError> {
         let block_number = self.get_latest_block().await?;
 
-        if self.is_fulfilled(request_id).await.context("Failed to check fulfillment status")? {
+        if self.is_fulfilled(request_id).await? {
+            return Ok(ProofStatus::Fulfilled);
+        }
+
+        if self.query_delivered_event(request_id, None, Some(block_number)).await.is_ok() {
             return Ok(ProofStatus::Fulfilled);
         }
 
@@ -495,7 +554,7 @@ where
     /// The default range is set to 100 blocks for each iteration, and the default maximum number of
     /// iterations is 100. This means that the search will cover a maximum of 10,000 blocks.
     /// Optionally, you can specify a lower and upper bound to limit the search range.
-    async fn query_fulfilled_event(
+    async fn query_delivered_event(
         &self,
         request_id: U256,
         lower_bound: Option<u64>,
@@ -547,7 +606,7 @@ where
     ) -> Result<(Bytes, Bytes), MarketError> {
         match self.get_status(request_id, None).await? {
             ProofStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
-            ProofStatus::Fulfilled => self.query_fulfilled_event(request_id, None, None).await,
+            ProofStatus::Fulfilled => self.query_delivered_event(request_id, None, None).await,
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
     }
@@ -568,7 +627,7 @@ where
             match status {
                 ProofStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 ProofStatus::Fulfilled => {
-                    return self.query_fulfilled_event(request_id, None, None).await;
+                    return self.query_delivered_event(request_id, None, None).await;
                 }
                 _ => {
                     tracing::info!(
@@ -927,6 +986,19 @@ mod tests {
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
+
+        // Deliver the proof (unpaid)
+        ctx.prover_market
+            .deliver(&fulfillment, &market_seal, ctx.prover_signer.address())
+            .await
+            .unwrap();
+
+        // retrieve journal and seal from the fulfilled request
+        let (journal, seal) =
+            ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+
+        assert_eq!(journal, fulfillment.journal);
+        assert_eq!(seal, fulfillment.seal);
 
         // fulfill the request
         ctx.prover_market
