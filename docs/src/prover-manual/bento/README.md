@@ -9,6 +9,15 @@ Some core features of Bento include:
 - Robust retry system.
 - API for proof management
 
+## Minium specs
+
+Bento can run on a single machine with a single GPU with as low as 4GB of VRAM, but this would only be recommended for testing purposes. Below is a minium configuration for reasonable proving performance:
+
+- CPU - 16 threads, reasonable single core boost performance (>3Ghz)
+- Memory - 32 GB
+- Disk - 200 GB of solid state storage, NVME / SSD preferred
+- GPU - NVIDIA RTX 3080 or T4, minimum VRAM 8GB [PO2 relationship to VRAM](#more-on-the-gpu)
+
 ## Internals
 
 ### Core Infrastructure
@@ -129,7 +138,13 @@ This agent will convert a STARK proof into a SNARK proof using rapidsnark.Perfor
 
 ### REST API
 
-The REST API provides a external interface to start / stop / monitor jobs and tasks within taskdb. It is more completely documented in the Bento API section (TODO WRITE THAT)
+The REST API provides a external interface to start / stop / monitor jobs and tasks within taskdb.
+
+<div class="warning">
+
+TODO: Write more here about brokers REST API
+
+</div>
 
 [page-broker]: ../broker/README.md
 [r0-docs-recursion]: https://dev.risczero.com/api/recursion

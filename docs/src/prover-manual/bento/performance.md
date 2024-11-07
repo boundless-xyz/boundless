@@ -8,6 +8,12 @@ Bento performance is tightly couples to the specific environment, equipment, and
 
 </div>
 
+## Build configuration
+
+The `NVCC_APPEND_FLAGS` docker build arg (found in `compose.yml->services->exec_agent->build->args) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/)
+
+You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the exec_agent build args. A value of `3` might yield slightly better performance (a few %) but much longer build times.
+
 ## Recommended tools
 
 Prior to starting we recommend the following tools monitor performance and resource use:

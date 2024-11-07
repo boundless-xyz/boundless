@@ -6,7 +6,11 @@ use std::{borrow::Cow, fs::File, io::BufReader, path::PathBuf, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{aliases::U192, utils::parse_ether, Address, Bytes, B256, U256},
+    primitives::{
+        aliases::U192,
+        utils::{format_ether, parse_ether},
+        Address, Bytes, B256, U256,
+    },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer, SignerSync},
     transports::Transport,
@@ -180,16 +184,16 @@ async fn main() -> Result<()> {
     match command {
         Command::Deposit { amount } => {
             market.deposit(amount).await?;
-            tracing::info!("Deposited: {}", amount);
+            tracing::info!("Deposited: {}", format_ether(amount));
         }
         Command::Withdraw { amount } => {
             market.withdraw(amount).await?;
-            tracing::info!("Withdrew: {}", amount);
+            tracing::info!("Withdrew: {}", format_ether(amount));
         }
         Command::Balance { address } => {
             let addr = address.unwrap_or(caller);
             let balance = market.balance_of(addr).await?;
-            tracing::info!("Balance of {addr}: {balance}");
+            tracing::info!("Balance of {addr}: {}", format_ether(balance));
         }
         Command::SubmitOffer(args) => submit_offer(market, &args, signer).await?,
         Command::SubmitRequest { yaml_request, id, wait } => {

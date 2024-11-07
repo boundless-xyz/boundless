@@ -422,6 +422,68 @@ where
         Ok(())
     }
 
+    pub async fn price_and_fulfill_batch(
+        &self,
+        requests: Vec<ProvingRequest>,
+        client_sigs: Vec<Bytes>,
+        fulfillments: Vec<Fulfillment>,
+        assessor_seal: Bytes,
+        prover_address: Address,
+        priority_gas: Option<u64>,
+    ) -> Result<(), MarketError> {
+        for request in requests.iter() {
+            tracing::debug!("Calling requestIsLocked({:x})", request.id);
+            let is_locked_in: bool =
+                self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
+            if is_locked_in {
+                return Err(MarketError::Error(anyhow!(
+                    "request {:x} is already locked-in",
+                    request.id
+                )));
+            }
+        }
+
+        tracing::debug!("Calling priceAndFulfillBatch({fulfillments:?}, {assessor_seal:x})");
+
+        let mut call = self
+            .instance
+            .priceAndFulfillBatch(
+                requests,
+                client_sigs,
+                fulfillments,
+                assessor_seal,
+                prover_address,
+            )
+            .from(self.caller);
+        tracing::debug!("Calldata: {}", call.calldata());
+
+        if let Some(gas) = priority_gas {
+            let priority_fee = self
+                .instance
+                .provider()
+                .estimate_eip1559_fees(None)
+                .await
+                .context("Failed to get priority gas fee")?;
+
+            call = call
+                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
+                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
+        }
+
+        let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Fulfilled proof for batch {}", tx_hash);
+
+        Ok(())
+    }
+
     /// Checks if a request is locked in.
     pub async fn is_locked_in(&self, request_id: U256) -> Result<bool, MarketError> {
         tracing::debug!("Calling requestIsLocked({})", request_id);
@@ -996,6 +1058,63 @@ mod tests {
                 fulfillments.clone(),
                 market_seal,
                 ctx.prover_signer.address(),
+            )
+            .await
+            .unwrap();
+
+        // retrieve journal and seal from the fulfilled request
+        let (journal, seal) =
+            ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+
+        assert_eq!(journal, fulfillments[0].journal);
+        assert_eq!(seal, fulfillments[0].seal);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_e2e_price_and_fulfill_batch() {
+        // Setup anvil
+        let anvil = Anvil::new().spawn();
+
+        let ctx = TestCtx::new(&anvil).await.unwrap();
+
+        let eip712_domain = eip712_domain! {
+            name: "IProofMarket",
+            version: "1",
+            chain_id: anvil.chain_id(),
+            verifying_contract: *ctx.customer_market.instance().address(),
+        };
+
+        let request = new_request(1, &ctx).await;
+        let request_id =
+            ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        // fetch logs to retrieve the customer signature from the event
+        let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
+
+        let (_, log) = logs.first().unwrap();
+        let log = log.log_decode::<IProofMarket::RequestSubmitted>().unwrap();
+        let request = log.inner.data.request;
+        let customer_sig = log.inner.data.clientSignature;
+
+        // mock the fulfillment
+        let (root, set_verifier_seal, fulfillment, market_seal) =
+            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
+
+        let fulfillments = vec![fulfillment];
+
+        // publish the committed root
+        ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
+
+        // Price and fulfill the request
+        ctx.prover_market
+            .price_and_fulfill_batch(
+                vec![request],
+                vec![customer_sig],
+                fulfillments.clone(),
+                market_seal,
+                ctx.prover_signer.address(),
+                None,
             )
             .await
             .unwrap();
