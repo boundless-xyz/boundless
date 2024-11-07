@@ -332,6 +332,12 @@ jobs:
         run: |
           forge test --gas-report | grep "|" > pr-gas-report.txt
 
+      - name: Upload PR Gas Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: pr-gas-report
+          path: pr-gas-report.txt
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
@@ -341,6 +347,12 @@ jobs:
       - name: Run gas report on main branch
         run: |
           forge test --gas-report | grep "|" > main-gas-report.txt
+
+      - name: Download PR Gas Report
+        uses: actions/download-artifact@v3
+        with:
+          name: pr-gas-report
+          path: .
         
       - name: Compare Gas Reports
         run: |
