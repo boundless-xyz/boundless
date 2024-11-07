@@ -332,11 +332,6 @@ jobs:
         run: |
           forge test --gas-report | grep "|" > pr-gas-report.txt
 
-      - name: Save PR gas report
-        id: save_pr_gas_report
-        run: |
-          cp pr-gas-report.txt $GITHUB_WORKSPACE
-
       - name: checkout code
         uses: actions/checkout@v4
         with:
