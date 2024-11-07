@@ -10,7 +10,6 @@ export default defineConfig({
   sidebar: [
     {
       text: "Market",
-      collapsed: false,
       items: [
         {
           text: "Introduction",
@@ -36,11 +35,49 @@ export default defineConfig({
     },
     {
       text: "Requestor Manual",
-      collapsed: false,
       items: [
         {
           text: "Broadcasting Requests",
           link: "/requestor-manual/broadcasting-requests",
+        },
+      ],
+    },
+    {
+      text: "Prover Manual",
+      items: [
+        {
+          text: "Bento",
+          items: [
+            {
+              text: "Running",
+              link: "/prover-manual/bento/running",
+            },
+            {
+              text: "Performance Tuning",
+              link: "/prover-manual/bento/performance-tuning",
+            },
+          ],
+        },
+        {
+          text: "Broker",
+          items: [
+            {
+              text: "Introduction",
+              link: "/prover-manual/broker/introduction",
+            },
+            {
+              text: "Configuration",
+              link: "/prover-manual/broker/configuration",
+            },
+            {
+              text: "Operation",
+              link: "/prover-manual/broker/operation",
+            },
+          ],
+        },
+        {
+          text: "Monitoring",
+          link: "/prover-manual/monitoring",
         },
       ],
     },

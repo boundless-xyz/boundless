@@ -33,7 +33,7 @@ Before you can interact with any network, you will need to configure an EVM RPC,
 
 #### Configure an EVM RPC Provider
 
-You need an RPC provider to interact with any EVM network. [Alchemy](https://www.alchemy.com/) supports various EVM networks, so creating a free account there is recommended, but many other options exist. Set the following environment variables according to your chosen RPC:
+You need an RPC provider to interact with any EVM network. [Alchemy](https://www.alchemy.com) supports various EVM networks, so creating a free account there is recommended, but many other options exist. Set the following environment variables according to your chosen RPC:
 
 ```bash
 export RPC_URL="<SEPOLIA-URL>"
@@ -48,7 +48,7 @@ Boundless requires that ELF Image of the program requested, and optionally the i
 <!-- TODO: link to rustdocs and document how one might create a storage provider (perhaps via a DA?) -->
 
 The best supported options are listed in the `boundless-market::BuiltinStorageProvider` enum.
-IPFS storage is presently the best supported, specifically through [Pinata](https://www.pinata.cloud/) which offers a free tier sufficient for most Boundless use cases.
+IPFS storage is presently the best supported, specifically through [Pinata](https://www.pinata.cloud) which offers a free tier sufficient for most Boundless use cases.
 To use Pinata, [fetch the JWT credentials](https://docs.pinata.cloud/account-management/api-keys) and set the `PINATA_JWT` environment variable.
 
 ### Sepolia Testnet
@@ -173,7 +173,7 @@ The `cli` allows to:
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
    ```
 
+[boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template
+[boundless-repo]: https://github.com/boundless-xyz/boundless-foundry-template
 [id-deployments-sepolia-testnet]: ../market/deployments.md#sepolia-testnet
 [local-development]: ../market/local-development.md
-[boundless-repo]: https://github.com/boundless-xyz/boundless-foundry-template/
-[boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template/
