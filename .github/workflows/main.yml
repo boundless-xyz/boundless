@@ -361,7 +361,7 @@ jobs:
           echo '```diff' >> gas-comparison.md
 
           # Use diff to capture changes in gas costs
-          diff -u main-gas-report.txt pr-gas-report.txt >> gas-comparison.md
+          diff -u main-gas-report.txt pr-gas-report.txt >> gas-comparison.md || true
 
           echo '```' >> gas-comparison.md
           echo "" >> gas-comparison.md
