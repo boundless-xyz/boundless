@@ -1765,9 +1765,9 @@ dependencies = [
 
 [[package]]
 name = "bonsai-sdk"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4db32b2f09c464c802dfdce859031ef5db920795614f74123d5d4e687412e8a9"
+checksum = "94032d3eece78099780ba07605d8ba6943e47ee152f76d73f1682e2f40cf889c"
 dependencies = [
  "duplicate",
  "maybe-async",
@@ -1837,6 +1837,23 @@ dependencies = [
  "tracing-test",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "boundless-prover"
+version = "0.2.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "bonsai-sdk",
+ "boundless-market",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
+ "serde",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -10,9 +10,10 @@ members = [
     "crates/guest/assessor",
     "crates/guest/set-builder",
     "crates/guest/util",
+    "crates/prover",
     "crates/taskdb",
     "crates/workflow",
-    "crates/workflow-common"
+    "crates/workflow-common",
 ]
 
 [workspace.package]

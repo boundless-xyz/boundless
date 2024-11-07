@@ -1,0 +1,21 @@
+[package]
+name = "boundless-prover"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+alloy = { workspace = true, features = ["node-bindings", "network", "providers", "transports", "signer-local"] }
+# alloy-sol-types = { version = "0.8.2", features = ["json"] }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+boundless-market = { workspace = true }
+risc0-ethereum-contracts = { workspace = true }
+risc0-zkvm = { workspace = true }
+serde = { workspace = true }
+# TODO check feats
+tokio = { workspace = true }
+tracing = { workspace = true }
+bonsai-sdk = { workspace = true }
+bincode = { workspace = true }
