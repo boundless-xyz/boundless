@@ -316,3 +316,57 @@ jobs:
 
       - name: docker compose build
         run: docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
+
+  gas-comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run gas report on PR branch
+        run: |
+          forge test --gas-report | grep "|" > pr-gas-report.txt
+
+      - name: Save PR gas report
+        id: save_pr_gas_report
+        run: |
+          cp pr-gas-report.txt $GITHUB_WORKSPACE
+
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: recursive
+
+      - name: Run gas report on main branch
+        run: |
+          forge test --gas-report | grep "|" > main-gas-report.txt
+        
+      - name: Compare Gas Reports
+        run: |
+          echo "# Gas Cost Comparison for ${GITHUB_HEAD_REF} vs main" > gas-comparison.md
+          echo "" >> gas-comparison.md
+          echo '```diff' >> gas-comparison.md
+
+          # Use diff to capture changes in gas costs
+          diff -u main-gas-report.txt pr-gas-report.txt >> gas-comparison.md
+
+          echo '```' >> gas-comparison.md
+          echo "" >> gas-comparison.md
+          cat gas-comparison.md
+
+      - name: Post Comment on Pull Request
+        run: |
+          COMMENT_BODY=$(cat gas-comparison.md)
+          COMMENT_PAYLOAD=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          curl -s -H "Authorization: token $GITHUB_TOKEN" \
+               -H "Content-Type: application/json" \
+               -X POST \
+               -d "$COMMENT_PAYLOAD" \
+               "https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/comments"
