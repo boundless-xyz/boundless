@@ -16,7 +16,7 @@ Bento can run on a single machine with a single GPU with as low as 4GB of VRAM, 
 - CPU - 16 threads, reasonable single core boost performance (>3Ghz)
 - Memory - 32 GB
 - Disk - 200 GB of solid state storage, NVME / SSD preferred
-- GPU - NVIDIA RTX 3080 or T4, minimum VRAM 10GB [PO2 relationship to VRAM](#more-on-the-gpu)
+- GPU - NVIDIA RTX 3080 or T4, minimum VRAM 8GB [PO2 relationship to VRAM](#more-on-the-gpu)
 
 ## Internals
 
