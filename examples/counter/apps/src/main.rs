@@ -14,6 +14,7 @@ use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::Client,
     contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
+    storage::storage_provider_from_env,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
@@ -101,6 +102,7 @@ async fn run(
         proof_market_address,
         set_verifier_address,
         order_stream_url,
+        storage_provider_from_env().await?,
     )
     .await?;
 
