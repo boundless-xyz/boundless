@@ -27,15 +27,8 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
 ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
 
-RUN \
-    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
-    --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_orderstream_sccache \
-    source ./sccache-config.sh && \
-    ls /root/.cache/sccache/ && \
-    cargo install --version 1.6.9 cargo-binstall && \
-    cargo binstall -y --force cargo-risczero --version 1.1 && \
-    cargo risczero install && \
-    sccache --show-stats
+RUN curl -L https://risczero.com/install | bash && \
+    PATH="$PATH:/root/.risc0/bin" rzup install rust r0.1.81.0
 
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4229
