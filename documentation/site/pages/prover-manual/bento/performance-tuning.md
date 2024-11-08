@@ -1,3 +1,8 @@
+---
+title: Bento Performance Tuning
+description: This guide offers practical techniques for optimizing your initial Bento deployment.
+---
+
 # Bento Performance Tuning
 
 This guide offers practical techniques for optimizing your initial Bento deployment.

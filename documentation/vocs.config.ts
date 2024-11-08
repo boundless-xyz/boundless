@@ -125,7 +125,10 @@ export default defineConfig({
 	],
 	rootDir: "site",
 	title: "Boundless Docs",
-	logoUrl: "/logo.png",
+	logoUrl: {
+		light: "/logo.png",
+		dark: "/logo-dark.png",
+	},
 	ogImageUrl:
-		"https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
+		"https://vocs.dev/api/og?logo=https://boundless-documentation.vercel.app/logo-dark.png&title=%title&description=%description",
 });
