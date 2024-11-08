@@ -34,7 +34,7 @@ jobs:
               - 'foundry.toml'
 
   gas-comparison:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     needs: files-changed
     if: needs.files-changed.outputs.contracts == 'true'
     steps:
