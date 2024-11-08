@@ -110,11 +110,15 @@ body,
   @apply font-sans;
 }
 
-.vocs_H1,
+body {
+  @apply bg-inherit;
+}
+
+/*.vocs_H1,
 .vocs_H2,
 .vocs_H3,
 .vocs_H4,
 .vocs_H5,
 .vocs_H6 {
   @apply font-serif font-semibold;
-}
+}*/
