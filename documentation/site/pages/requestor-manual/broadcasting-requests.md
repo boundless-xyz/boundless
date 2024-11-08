@@ -76,7 +76,7 @@ The `cli` allows to:
 
 ##### 1. Submit proving request via a YAML file, an example can be found in `request.yaml`.
 
-```sh
+```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
 ```
 
@@ -96,13 +96,13 @@ Should output something similar to
 
 You can also add the `--wait` option to wait until the submitted request has been fulfilled:
 
-```sh
+```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
 ```
 
 ##### 2. Request the status of a given proving request:
 
-```sh
+```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- status 3554585979324098154284013313896898623039163403618679259143
 ```
 
@@ -125,7 +125,7 @@ or when fulfilled:
 
 With the `get-proof` command you can get the Journal and Seal of a fulfilled request:
 
-```sh
+```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- get-proof 3554585979324098154284013313896898623039163403618679259143
 ```
 
@@ -140,13 +140,13 @@ Should output something like:
 
 With the `verify-proof` subcommand, you can verify a proof for a given request id and image id.
 
-```sh
+```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- verify-proof 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d
 ```
 
 Should output something like:
 
-```sh
+```sh [Terminal]
 2024-10-07T14:50:54.442260Z  INFO cli: Proof for request id 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 verified successfully.
 ```
 
@@ -160,7 +160,7 @@ In order to use this command, setup an account with Pinata and provide your JWT 
 If instead the env variable `RISC0_DEV_MODE` is enabled, a temporary file storage provider will be used,
 and the Pinata one will be ignored.
 
-```sh
+```sh [Terminal]
 PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
 ```
 
@@ -168,7 +168,7 @@ PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer -
 
 With the `slash` subcommand, you can slash a given `request ID` and get a refund of your offer:
 
-```sh
+```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
 ```
 

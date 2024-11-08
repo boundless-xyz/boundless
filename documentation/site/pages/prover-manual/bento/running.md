@@ -28,7 +28,7 @@ At this time Ubuntu is the only supported Operating system. Other operating syst
 
 For a quick set up of boundless host dependencies on Ubuntu 22.04 LTS, please run:
 
-```sh
+```sh [Terminal]
 scripts/setup.sh
 ```
 
@@ -36,19 +36,19 @@ scripts/setup.sh
 
 To build and spin up a Bento cluster locally using docker:
 
-```sh
+```sh [Terminal]
 docker compose --env-file ./.env-compose up --build
 ```
 
 Optionally you can use the startup script included in this repo:
 
-```sh
+```sh [Terminal]
 scripts/boundless_service.sh start
 ```
 
 To stop the boundless service:
 
-```sh
+```sh [Terminal]
 scripts/boundless_service.sh stop
 ```
 
@@ -56,12 +56,12 @@ scripts/boundless_service.sh stop
 
 Using a simple test vector for testing different cycle counts (via the -c flag):
 
-```sh
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
 Or with a existing elf / input file:
 
-```sh
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin
 ```

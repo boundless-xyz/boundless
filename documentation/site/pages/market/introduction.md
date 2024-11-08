@@ -7,8 +7,8 @@ This section includes details pertinent to both:
 
 Key concepts and designs are discussed, as well as details both need for [local Boundless development][page-local-development].
 
-[page-local-development]: ./local-development.md
-[page-prover-manual]: ../prover-manual/README.md
-[page-requestor-manual]: ../requestor-manual/README.md
-[term-prover]: ../glossary.md#prover
-[term-requestor]: ../glossary.md#requestor
+[page-local-development]: ../market/local-development
+[page-prover-manual]: ../prover-manual/introduction
+[page-requestor-manual]: ../requestor-manual/introduction
+[term-prover]: ../glossary#prover
+[term-requestor]: ../glossary#requestor

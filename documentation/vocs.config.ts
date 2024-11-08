@@ -13,7 +13,7 @@ export default defineConfig({
       items: [
         {
           text: "Introduction",
-          link: "/market",
+          link: "/market/introduction",
         },
         {
           text: "Boundless Market RFC",
@@ -37,6 +37,10 @@ export default defineConfig({
       text: "Requestor Manual",
       items: [
         {
+          text: "Introduction",
+          link: "/requestor-manual/introduction",
+        },
+        {
           text: "Broadcasting Requests",
           link: "/requestor-manual/broadcasting-requests",
         },
@@ -45,6 +49,10 @@ export default defineConfig({
     {
       text: "Prover Manual",
       items: [
+        {
+          text: "Introduction",
+          link: "/prover-manual/introduction",
+        },
         {
           text: "Bento",
           items: [

@@ -3,11 +3,27 @@
 To develop Boundless applications both as a requestor and prover, a running Market is required.
 The workflow is generally:
 
-1. (One-time [Install](#install-boundless))
-2. [Spin up a devnet](#run-a-market-devnet)
-3. [Submit proof requests](#submit-proof-requests)
-4. Tweak you app & submit more requests
-5. [Tear down the devnet](#tear-down)
+::::steps
+##### Step 1 
+
+(One-time [Install](#install-boundless))
+
+##### Step 2 
+
+[Spin up a devnet](#run-a-market-devnet)
+
+##### Step 3 
+
+[Submit proof requests](#submit-proof-requests)
+
+##### Step 4 
+
+Tweak you app & submit more requests
+
+##### Step 5 
+
+[Tear down the devnet](#tear-down)
+::::
 
 To accelerate development, there are helpful utilities provided:
 
@@ -34,17 +50,19 @@ Ensure the following software is installed on your machine:
 - **[Rust](https://www.rust-lang.org/tools/install) version 1.79 or higher**
 - **[Foundry](https://book.getfoundry.sh/getting-started/installation) version 0.2 or higher**
 
-1. Clone Boundless (SSH or github login required)
-   ```sh
-   # SSH or github login required
-   git clone git clone git@github.com:boundless-xyz/boundless.git
-   cd boundless
-   ```
+##### 1. Clone Boundless (SSH or github login required)
 
-2. Initialize recursive submodules (located in `lib`, required by Foundry)
-   ```sh
-   git submodule update --init
-   ```
+```sh [Terminal]
+# SSH or github login required
+git clone git clone git@github.com:boundless-xyz/boundless.git
+cd boundless
+```
+
+##### 2. Initialize recursive submodules (located in `lib`, required by Foundry)
+
+```sh [Terminal]
+git submodule update --init
+```
 
 ## Run a Market devnet
 
@@ -63,18 +81,19 @@ An instance of the Market needs to be running in the background for applications
 
 The included `makefile` in boundless is the most effective way to do this, and can be modified to suit specific needs.
 
-1. Start a local devnet service (running in the background)
-   ```sh
-   make devnet-up
-   source .env
-   ```
+##### 1. Start a local devnet service (running in the background)
+
+```sh [Terminal]
+make devnet-up
+source .env
+```
 
 🎉 Congratulations!
 You now have a local devnet service running in the background and a prover that will respond to proving requests.
 
 When finished, tear down a running devnet run:
 
-```sh
+```sh [Terminal]
 make devnet-down
 ```
 
@@ -84,19 +103,19 @@ If you require customizing a local devnet configuration, and need to operate it 
 
 ##### 1. Build the contracts
 
-```sh
+```sh [Terminal]
 forge build
 ```
 
 ##### 2. Build the project
 
-```sh
+```sh [Terminal]
 cargo build
 ```
 
 ##### 3. Start `anvil`
 
-```sh
+```sh [Terminal]
 anvil -b 2
 ```
 
@@ -106,7 +125,7 @@ This will deploy the market contracts.
 Configuration environment variables are read from the `.env` file.
 By setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be deployed.
 
-```sh
+```sh [Terminal]
 source .env
 DEPLOYER_PRIVATE_KEY=$PRIVATE_KEY CHAIN_KEY=anvil RISC0_DEV_MODE=$RISC0_DEV_MODE PROOF_MARKET_OWNER=$PUBLIC_KEY forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
 ```
@@ -126,7 +145,7 @@ The Broker can use either [Bonsai][bonsai-homepage] or [Bento][page-bento] as ba
 The Broker needs to have funds deposited on the Boundless market contract to cover lock-in stake on requests.
 Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
-```sh
+```sh [Terminal]
 RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
 ```
 
@@ -137,7 +156,7 @@ You now have a local devnet running and a prover that will respond to proving re
 
 Test your devnet with the boundless CLI:
 
-```sh
+```sh [Terminal]
 RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
 ```
 
@@ -151,7 +170,7 @@ Try editing `request.yaml` to send a request to the Market with different values
 
 When finished, tear down a running devnet from the [`make devnet-up` workflow](#make) run:
 
-```sh
+```sh [Terminal]
 make devnet-down
 ```
 
