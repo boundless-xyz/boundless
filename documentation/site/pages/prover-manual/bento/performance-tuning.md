@@ -137,7 +137,7 @@ The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env-compose
 
 Once you have selected a `MAXIMUM` segment size you should verify that the GPU does in fact have enough memory to complete.
 
-In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` docker logs to determine the cause of the failure (note boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running):
+In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` docker logs to determine the cause of the failure (note Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running):
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096

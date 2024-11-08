@@ -10,14 +10,14 @@ It includes docker build files for internal services as well as external images 
 
 ## Dependencies
 
-- Docker compose
+- [Docker compose](https://docs.docker.com/compose)
 - Docker Nvidia support
 
 ## Configuration
 
 The `compose.yml` file defines all the services within the Bento. Here you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
 
-Under the `exec_agent` service you can configure the segment size with the `--segment-po2` flag. Bigger segments are preferable for performance but do impact the proving systems conjectured security bits slightly. In order to pick the right segment po2 for your GPU VRAM see [reports -> datasheet](https://reports.risczero.com) for details.
+Under the `exec_agent` service you can configure the segment size with the `--segment-po2` flag. Bigger segments are preferable for performance but do impact the proving systems conjectured security bits slightly. In order to pick the right segment po2 for your GPU VRAM see [reports.risczero.com](https://reports.risczero.com) for details.
 
 Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host. See the `.env-compose` \*\_HOST configuration options here to adjust them.
 
@@ -29,7 +29,7 @@ TODO: Write more here about how to do multi-host services like gpu-agent / exec-
 
 At this time Ubuntu is the only supported Operating system. Other operating systems _should_ work, but driver support (host Nvidia drivers matching container drivers etc.), compile dependencies, and testing fall to the user to complete.
 
-For a quick set up of boundless host dependencies on Ubuntu 22.04 LTS, please run:
+For a quick set up of Boundless host dependencies on Ubuntu 22.04 LTS, please run:
 
 ```sh [Terminal]
 scripts/setup.sh
@@ -49,7 +49,7 @@ Optionally you can use the startup script included in this repo:
 scripts/boundless_service.sh start
 ```
 
-To stop the boundless service:
+To stop the Boundless service:
 
 ```sh [Terminal]
 scripts/boundless_service.sh stop

@@ -75,9 +75,9 @@ For both requestors and provers, you will need to:
 
 An instance of the Market needs to be running in the background for applications to interact with, using the included `make` utilities or manually.
 
-#### `make`
+### `make`
 
-The included `makefile` in boundless is the most effective way to do this, and can be modified to suit specific needs.
+The included `makefile` in Boundless is the most effective way to do this, and can be modified to suit specific needs.
 
 ##### 1. Start a Local Devnet Service (Running in the Background)
 
@@ -89,35 +89,35 @@ source .env
 🎉 Congratulations!
 You now have a local devnet service running in the background and a prover that will respond to proving requests.
 
-When finished, tear down a running devnet run:
+When finished, to tear down a running devnet run:
 
 ```sh [Terminal]
 make devnet-down
 ```
 
-#### Manually
+### Manually
 
 If you require customizing a local devnet configuration, and need to operate it manually, you can run the following commands:
 
-##### 1. Build the Contracts
+#### 1. Build the Contracts
 
 ```sh [Terminal]
 forge build
 ```
 
-##### 2. Build the Project
+#### 2. Build the Project
 
 ```sh [Terminal]
 cargo build
 ```
 
-##### 3. Start `anvil`
+#### 3. Start `anvil`
 
 ```sh [Terminal]
 anvil -b 2
 ```
 
-##### 4. Deploy Market Contracts
+#### 4. Deploy Market Contracts
 
 This will deploy the market contracts.
 Configuration environment variables are read from the `.env` file.
@@ -131,7 +131,7 @@ DEPLOYER_PRIVATE_KEY=$PRIVATE_KEY CHAIN_KEY=anvil RISC0_DEV_MODE=$RISC0_DEV_MODE
 > NOTE: Starting from a fresh `anvil` instance, the deployed contract addresses will match the values in `.env`.
 > If you need to deploy again, restart `anvil` first or change the `.env` file to match your newly deployed contract addresses.
 
-##### 5. Deposit Prover Funds and Start the [Broker][page-broker]
+#### 5. Deposit Prover Funds and Start the [Broker][page-broker]
 
 Here we will use a mock prover by setting `RISC0_DEV_MODE`.
 The Broker can use either [Bonsai][bonsai-homepage] or [Bento][page-bento] as backend, remove `RISC0_DEV_MODE` and:
@@ -152,7 +152,7 @@ You now have a local devnet running and a prover that will respond to proving re
 
 ### Submit Proof Requests
 
-Test your devnet with the boundless CLI:
+Test your devnet with the Boundless CLI:
 
 ```sh [Terminal]
 RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
@@ -166,7 +166,7 @@ Try editing `request.yaml` to send a request to the Market with different values
 
 ### Tear Down
 
-When finished, tear down a running devnet from the [`make devnet-up` workflow](#make) run:
+When finished, to tear down a running devnet from the [`make devnet-up` workflow](#make) run:
 
 ```sh [Terminal]
 make devnet-down

@@ -145,17 +145,17 @@ export default defineConfig({
 	},
 	theme: {
 		accentColor: {
-			light: "#537263", // Forest - primary accent
+			light: "#474444", // Forest - primary accent
 			dark: "#AED8C4", // Leaf - lighter accent for dark mode
 		},
 		variables: {
 			color: {
 				backgroundDark: {
-					light: "#EfECE3", // Sand
+					light: "#EFECE3", // Sand
 					dark: "#1e1d1f",
 				},
 				background: {
-					light: "#F7F7F7",
+					light: "#FFFFFF",
 					dark: "#232225",
 				},
 			},
@@ -168,7 +168,7 @@ export default defineConfig({
 		light: "/favicon.png",
 		dark: "/favicon-dark.png",
 	},
-	// banner: "Head to our new [Discord](https://discord.gg/JUrRkGweXV)!",
+	// banner: "Read the [Boundless Blog Article](https://risczero.com/blog/boundless-the-verifiable-compute-layer)",
 	editLink: {
 		pattern:
 			"https://github.com/boundless-xyz/boundless/edit/main/documentation/site/pages/:path",

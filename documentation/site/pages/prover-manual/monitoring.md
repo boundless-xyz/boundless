@@ -13,7 +13,7 @@ In order to access them, grafana is hosted at `http://localhost:3000`. Default c
 
 ### Bento Dashboard
 
-The bento dashboard connects to the taskdb postgresql instance to get live data for the status of different proofs flowing through the proving cluster. It is useful to monitor performance and queue depth.
+The bento dashboard connects to the TaskDB postgresql instance to get live data for the status of different proofs flowing through the proving cluster. It is useful to monitor performance and queue depth.
 
 ### Broker Dashboard
 

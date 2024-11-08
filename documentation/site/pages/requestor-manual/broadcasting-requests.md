@@ -62,7 +62,7 @@ To interact with [Sepolia's Boundless contracts][id-deployments-sepolia-testnet]
 
 - A Sepolia Ethereum account with at least 0.5 Sepolia ETH for gas.
   - The tooling presently requires the use of raw private key in scripting, although there are [better ways to do this](https://book.getfoundry.sh/tutorials/best-practices#private-key-management) that one could implement.
-  <!-- TODO: need better ways to get funds for boundless users! faucets are a HUGE pain, considering the round trip gas costs! -->
+  <!-- TODO: need better ways to get funds for Boundless users! faucets are a HUGE pain, considering the round trip gas costs! -->
   - Faucets exist to obtain 0.1 ETH at a time, but almost all require an account
 
 Make sure to export the env variable:

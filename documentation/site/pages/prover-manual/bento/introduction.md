@@ -12,7 +12,7 @@ Some core features of Bento include:
 - Support for arbitrarily sized proofs.
 - Durable storage and caching for receipts (stark and snark), images and inputs.
 - Robust retry system.
-- API for proof management
+- API for proof management.
 
 ## Minimum Specs
 
@@ -33,7 +33,7 @@ Bento's infrastructure is composed of a few core open source projects:
 - [PostgreSQL](https://www.postgresql.org)
 - [Redis](https://redis.io)
 - [MinIO](https://min.io)
-- [Grafana](https://grafana.com) (optional for monitoring)
+- [Grafana](https://grafana.com) _(optional for monitoring)_
 
 ### Bento Components
 
@@ -61,13 +61,15 @@ From there Bento has the application containers
 As demonstrated above, Bento breaks down tasks into these major actions:
 
 - Init/Setup (executor) - This action generates continuations or "segments" to be proven and places them on Redis.
-- Prove + lift (GPU/CPU agent) - Proves a segment on a CPU or GPU and lifts the result to Redis
-- Join - takes two lifted proofs and joins them together into one proof
+- Prove + lift (GPU/CPU agent) - Proves a segment on a CPU or GPU and lifts the result to Redis.
+- Join - takes two lifted proofs and joins them together into one proof.
 - Resolve - produce a final join - Resolve verifies all the unverified claims, effectively completing any composition tasks.
-- Finalize - Uploads the final proof to minio
-- SNARK - Convert a STARK proof into a SNARK proof using [rapidsnark](https://github.com/iden3/rapidsnark)
+- Finalize - Uploads the final proof to minio.
+- SNARK - Convert a STARK proof into a SNARK proof using [rapidsnark](https://github.com/iden3/rapidsnark).
 
-> For a more in depth information see [the recursive proving docs][r0-docs-recursion].
+:::tip
+For a more in depth information see [the recursive proving docs][r0-docs-recursion].
+:::
 
 ### Redis
 
@@ -114,7 +116,7 @@ Some examples of key hardware requirements for each stream:
 - CPU (optional) - run prove+lift on a CPU instead of a GPU, not advised
 - SNARK - Needs a high CPU thread count and core speed node.
 
-The agent polls for work, runs the work, monitors for failures and reports status back to `taskdb`.
+The agent polls for work, runs the work, monitors for failures and reports status back to TaskDB.
 
 ### More on Executor
 
@@ -134,11 +136,11 @@ The GPU agent does the heavy lifting of proving itself. Work is broken into powe
 
 ### More on SNARK
 
-This agent will convert a STARK proof into a SNARK proof using rapidsnark.Performance is dependent on core clocks AND thread counts. Lots of cores but a very low core clock can adversely affect performance.
+This agent will convert a STARK proof into a SNARK proof using [rapidsnark](https://github.com/iden3/rapidsnark). Performance is dependent on core clocks AND thread counts. Lots of cores but a very low core clock can adversely affect performance.
 
 ### REST API
 
-The REST API provides a external interface to start / stop / monitor jobs and tasks within taskdb.
+The REST API provides a external interface to start / stop / monitor jobs and tasks within TaskDB.
 
 :::warning[Warning]
 TODO: Write more here about brokers REST API
