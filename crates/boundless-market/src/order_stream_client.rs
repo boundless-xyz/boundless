@@ -205,8 +205,20 @@ impl Client {
             .insert("X-Auth-Data", auth_json.parse().context("failed to parse auth message")?);
 
         // Connect to the WebSocket server and return the socket
-        let (socket, _) =
-            connect_async(request).await.context("failed to connect to server at {ws_url}")?;
+        let (socket, _) = match connect_async(request).await {
+            Ok(res) => res,
+            Err(tokio_tungstenite::tungstenite::Error::Http(err)) => {
+                let http_err = if let Some(http_body) = err.body() {
+                    String::from_utf8_lossy(&http_body)
+                } else {
+                    "Empty http error body".into()
+                };
+                anyhow::bail!("Failed to connect to ws endpoint: {} {}", self.base_url, http_err);
+            }
+            Err(err) => {
+                anyhow::bail!("Failed to connect to ws endpoint: {} {err:?}", self.base_url);
+            }
+        };
         Ok(socket)
     }
 }

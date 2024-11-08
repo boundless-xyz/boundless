@@ -161,7 +161,7 @@ struct SubmitOfferRequirements {
 struct MainArgs {
     #[clap(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
-    #[clap(long, env)]
+    #[clap(long, env, default_value = "http://localhost:8585")]
     order_stream_url: Url,
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -526,7 +526,7 @@ mod tests {
             private_key: ctx.prover_signer.clone(),
             proof_market_address: ctx.proof_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
-            order_stream_url: Url::parse("http://localhost:8080").unwrap(),
+            order_stream_url: Url::parse("http://localhost:8585").unwrap(),
             command: Command::Deposit { amount: U256::from(100) },
         };
 
@@ -568,7 +568,7 @@ mod tests {
             private_key: ctx.customer_signer.clone(),
             proof_market_address: ctx.proof_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
-            order_stream_url: Url::parse("http://localhost:8080").unwrap(),
+            order_stream_url: Url::parse("http://localhost:8585").unwrap(),
             command: Command::SubmitRequest {
                 yaml_request: "../../request.yaml".to_string(),
                 id: None,

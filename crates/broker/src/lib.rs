@@ -55,7 +55,7 @@ pub struct Args {
     pub rpc_url: Url,
 
     /// Order stream server URL
-    #[clap(long, env)]
+    #[clap(long, env, default_value = "http://localhost:8585")]
     pub order_stream_url: Option<Url>,
 
     /// wallet key
