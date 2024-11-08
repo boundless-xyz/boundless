@@ -6,7 +6,11 @@ use std::{borrow::Cow, fs::File, io::BufReader, path::PathBuf, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{aliases::U192, utils::parse_ether, Address, Bytes, B256, U256},
+    primitives::{
+        aliases::U192,
+        utils::{format_ether, parse_ether},
+        Address, Bytes, B256, U256,
+    },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::Transport,
@@ -17,8 +21,9 @@ use guest_util::ECHO_ELF;
 use hex::FromHex;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
 use risc0_zkvm::{
+    default_executor,
     sha::{Digest, Digestible},
-    Journal,
+    ExecutorEnv, Journal, SessionInfo,
 };
 use url::Url;
 
@@ -66,6 +71,10 @@ enum Command {
         /// Submit the request offchain via the order stream service
         #[clap(short, long, default_value = "false")]
         offchain: bool,
+        /// Use the RISC Zero zkvm executor to run the program
+        /// without submitting the request
+        #[clap(long, default_value = "false")]
+        dry_run: bool,
     },
     /// Slash a prover for a given request
     Slash {
@@ -106,6 +115,10 @@ struct SubmitOfferArgs {
     /// Submit the request offchain via the order stream service
     #[clap(short, long, default_value = "false")]
     offchain: bool,
+    /// Use the RISC Zero zkvm executor to run the program
+    /// without submitting the request
+    #[clap(long, default_value = "false")]
+    dry_run: bool,
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
@@ -178,6 +191,11 @@ async fn main() -> Result<()> {
 
     let args = MainArgs::try_parse()?;
 
+    run(&args).await.unwrap();
+    Ok(())
+}
+
+pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     let caller = args.private_key.address();
     let wallet = EthereumWallet::from(args.private_key.clone());
     let provider = ProviderBuilder::new()
@@ -188,35 +206,40 @@ async fn main() -> Result<()> {
     let set_verifier = IRiscZeroVerifier::new(args.set_verifier_address, provider.clone());
     let client = Client::from_parts(
         args.private_key.clone(),
-        args.rpc_url,
+        args.rpc_url.clone(),
         args.proof_market_address,
         args.set_verifier_address,
-        args.order_stream_url,
+        args.order_stream_url.clone(),
     )
     .await
     .context("Failed to create client")?;
     let command = args.command.clone();
+
+    let mut request_id = None;
     match command {
         Command::Deposit { amount } => {
             market.deposit(amount).await?;
-            tracing::info!("Deposited: {}", amount);
+            tracing::info!("Deposited: {}", format_ether(amount));
         }
         Command::Withdraw { amount } => {
             market.withdraw(amount).await?;
-            tracing::info!("Withdrew: {}", amount);
+            tracing::info!("Withdrew: {}", format_ether(amount));
         }
         Command::Balance { address } => {
             let addr = address.unwrap_or(caller);
             let balance = market.balance_of(addr).await?;
-            tracing::info!("Balance of {addr}: {balance}");
+            tracing::info!("Balance of {addr}: {}", format_ether(balance));
         }
-        Command::SubmitOffer(args) => submit_offer(client.clone(), &args).await?,
-        Command::SubmitRequest { yaml_request, id, wait, offchain } => {
+        Command::SubmitOffer(args) => {
+            request_id = submit_offer(client.clone(), &args).await?;
+        }
+        Command::SubmitRequest { yaml_request, id, wait, offchain, dry_run } => {
             let id = match id {
                 Some(id) => id,
                 None => market.index_from_rand().await?,
             };
-            submit_request(id, yaml_request, client.clone(), wait, offchain).await?
+            request_id =
+                submit_request(id, yaml_request, client.clone(), wait, offchain, dry_run).await?;
         }
         Command::Slash { request_id } => {
             market.slash(request_id).await?;
@@ -246,10 +269,13 @@ async fn main() -> Result<()> {
         }
     };
 
-    Ok(())
+    Ok(request_id)
 }
 
-async fn submit_offer<T, P, S>(client: Client<T, P, S>, args: &SubmitOfferArgs) -> Result<()>
+async fn submit_offer<T, P, S>(
+    client: Client<T, P, S>,
+    args: &SubmitOfferArgs,
+) -> Result<Option<U256>>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
@@ -334,6 +360,16 @@ where
 
     tracing::debug!("Request: {}", serde_json::to_string_pretty(&request)?);
 
+    if args.dry_run {
+        let session_info = execute(&request).await?;
+        let journal = session_info.journal.bytes;
+        if !request.requirements.predicate.eval(&journal) {
+            bail!("Predicate evaluation failed");
+        }
+        tracing::info!("Dry-run succeeded.");
+        return Ok(None);
+    }
+
     let request_id = if args.offchain {
         client.submit_request_offchain(&request).await?
     } else {
@@ -355,7 +391,7 @@ where
             serde_json::to_string_pretty(&seal)?
         );
     };
-    Ok(())
+    Ok(Some(request_id))
 }
 
 async fn submit_request<T, P, S>(
@@ -364,7 +400,8 @@ async fn submit_request<T, P, S>(
     client: Client<T, P, S>,
     wait: bool,
     offchain: bool,
-) -> Result<()>
+    dry_run: bool,
+) -> Result<Option<U256>>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
@@ -402,6 +439,16 @@ where
         request.id = request_yaml.id;
     }
 
+    if dry_run {
+        let session_info = execute(&request).await?;
+        let journal = session_info.journal.bytes;
+        if !request.requirements.predicate.eval(&journal) {
+            bail!("Predicate evaluation failed");
+        }
+        tracing::info!("Dry-run succeeded.");
+        return Ok(None);
+    }
+
     let request_id = if offchain {
         client.submit_request_offchain(&request).await?
     } else {
@@ -423,5 +470,124 @@ where
             serde_json::to_string_pretty(&seal)?
         );
     };
-    Ok(())
+    Ok(Some(request_id))
+}
+
+async fn execute(request: &ProvingRequest) -> Result<SessionInfo> {
+    let elf = fetch_url(&request.imageUrl.to_string()).await?;
+    let input = match request.input.inputType {
+        InputType::Inline => request.input.data.clone(),
+        InputType::Url => fetch_url(&request.input.data.to_string()).await?.into(),
+        _ => bail!("Unsupported input type"),
+    };
+    let env = ExecutorEnv::builder().write_slice(&input).build()?;
+    default_executor().execute(env, &elf)
+}
+
+async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
+    let url = Url::parse(url_str)?;
+
+    match url.scheme() {
+        "http" | "https" => fetch_http(&url).await,
+        "file" => fetch_file(&url).await,
+        _ => bail!("unsupported URL scheme: {}", url.scheme()),
+    }
+}
+
+async fn fetch_http(url: &Url) -> Result<Vec<u8>> {
+    let response = reqwest::get(url.as_str()).await?;
+    let status = response.status();
+    if !status.is_success() {
+        bail!("HTTP request failed with status: {}", status);
+    }
+
+    Ok(response.bytes().await?.to_vec())
+}
+
+async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
+    let path = std::path::Path::new(url.path());
+    let data = tokio::fs::read(path).await?;
+    Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use alloy::node_bindings::Anvil;
+    use boundless_market::contracts::test_utils::TestCtx;
+    use tokio::time::timeout;
+    use tracing_test::traced_test;
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_deposit_withdraw() {
+        // Setup anvil
+        let anvil = Anvil::new().spawn();
+
+        let ctx = TestCtx::new(&anvil).await.unwrap();
+
+        let mut args = MainArgs {
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.prover_signer.clone(),
+            proof_market_address: ctx.proof_market_addr,
+            set_verifier_address: ctx.set_verifier_addr,
+            order_stream_url: Url::parse("http://localhost:8080").unwrap(),
+            command: Command::Deposit { amount: U256::from(100) },
+        };
+
+        run(&args).await.unwrap();
+
+        let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
+        assert_eq!(balance, U256::from(100));
+
+        args.command = Command::Withdraw { amount: U256::from(100) };
+        run(&args).await.unwrap();
+
+        let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
+        assert_eq!(balance, U256::from(0));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_submit_request() {
+        // Setup anvil
+        let anvil = Anvil::new().spawn();
+
+        let ctx = TestCtx::new(&anvil).await.unwrap();
+        ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
+
+        let mut args = MainArgs {
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.customer_signer.clone(),
+            proof_market_address: ctx.proof_market_addr,
+            set_verifier_address: ctx.set_verifier_addr,
+            order_stream_url: Url::parse("http://localhost:8080").unwrap(),
+            command: Command::SubmitRequest {
+                yaml_request: "../../request.yaml".to_string(),
+                id: None,
+                wait: false,
+                offchain: false,
+                dry_run: false,
+            },
+        };
+
+        let result = timeout(Duration::from_secs(60), run(&args)).await;
+
+        let request_id = match result {
+            Ok(run_result) => match run_result {
+                Ok(value) => value.unwrap(),
+                Err(e) => {
+                    panic!("`run` returned an error: {:?}", e);
+                }
+            },
+            Err(_) => {
+                panic!("Test timed out after 1 minute");
+            }
+        };
+
+        // GetStatus
+        args.command = Command::Status { request_id, expires_at: None };
+        run(&args).await.unwrap();
+    }
 }

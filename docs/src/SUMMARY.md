@@ -23,6 +23,7 @@
   - [Broker](./prover-manual/broker/README.md)
     - [Configuration](./prover-manual/broker/configure.md)
     - [Operation](./prover-manual/broker/operation.md)
+  - [Monitoring](./prover-manual/monitoring/README.md)
 
 - [🔗 Reference](./reference.md)
 - [📑 Glossary](./glossary.md)
