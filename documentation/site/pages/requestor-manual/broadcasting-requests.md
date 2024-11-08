@@ -82,7 +82,7 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request reque
 
 Should output something similar to
 
-```txt
+```txt [Terminal]
 2024-09-17T15:01:00.213804Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259140)
 2024-09-17T15:01:00.215374Z DEBUG boundless_market::contracts::proof_market: Calling requestIsLocked(3554585979324098154284013313896898623039163403618679259140)
 2024-09-17T15:01:00.216056Z  INFO cli: Client addr: 0x90F79bf6EB2c4f870365E785982E1f101E93b906
@@ -108,7 +108,7 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli -- status 3554585979324
 
 While not fulfilled, this will print something like
 
-```txt
+```txt [Terminal]
 2024-09-17T15:07:50.598471Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
 2024-09-17T15:07:50.598873Z DEBUG boundless_market::contracts::proof_market: Calling requestIsLocked(3554585979324098154284013313896898623039163403618679259143)
 2024-09-17T15:07:50.599142Z  INFO cli: Status: Locked
@@ -116,7 +116,7 @@ While not fulfilled, this will print something like
 
 or when fulfilled:
 
-```txt
+```txt [Terminal]
 2024-09-17T15:10:15.807123Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
 2024-09-17T15:10:15.807584Z  INFO cli: Status: Fulfilled
 ```
@@ -131,7 +131,7 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli -- get-proof 3554585979
 
 Should output something like:
 
-```txt
+```txt [Terminal]
 2024-09-17T15:14:01.312995Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
 2024-09-17T15:14:01.314302Z  INFO cli: Journal: "0x576564204a756c2020332031343a33373a31322050445420323032340a" - Seal: "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000164578a3cc24cf38d1173509a99db4f70d57ff3a6c43cb2e8552a2a5d252968ba"
 ```
@@ -174,5 +174,5 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 35545859793240
 
 [boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template
 [boundless-repo]: https://github.com/boundless-xyz/boundless-foundry-template
-[id-deployments-sepolia-testnet]: ../market/deployments.md#sepolia-testnet
+[id-deployments-sepolia-testnet]: ../market/deployments#sepolia-testnet
 [local-development]: ../market/local-development

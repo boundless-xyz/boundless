@@ -72,4 +72,4 @@ The `[prover]` settings in `broker.toml` are used to configure the prover servic
 
 The most important one to monitor/tune on initial configuration is `txn_timeout`. This is the number of seconds to wait for a transaction to be mined before timing out, if you see timeouts in your logs this can be increased to enable TX operations to chain to finish.
 
-[page-bento-running]: ../bento/running.md
+[page-bento-running]: ../bento/running

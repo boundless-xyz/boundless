@@ -17,7 +17,7 @@ A Broker requires a [running Bento instance][page-bento-run], that can be affirm
 RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
-```txt
+```txt [Terminal]
 2024-10-23T14:37:37.364844Z  INFO bento_cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: eccc8f06-488a-426c-ae3d-e5acada9ae22
 2024-10-23T14:37:37.368613Z  INFO bento_cli: STARK job_id: 0d89e2ca-a1e3-478f-b89d-8ab23b89f51e
 2024-10-23T14:37:37.369346Z  INFO bento_cli: STARK Job running....
@@ -68,7 +68,7 @@ source .env-compose
 RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS_DEPOSIT:?}
 ```
 
-```txt
+```txt [Terminal]
 2024-10-23T14:29:52.704754Z DEBUG boundless_market::contracts::proof_market: Calling deposit() value: 500000000000000000
 2024-10-23T14:29:52.993892Z DEBUG boundless_market::contracts::proof_market: Broadcasting deposit tx 0xfc5c11e75101a9158735ec9e9519f5692b2f64b3337268b7ed999502956cd982
 2024-10-23T14:30:07.175952Z DEBUG boundless_market::contracts::proof_market: Submitted deposit 0xfc5c11e75101a9158735ec9e9519f5692b2f64b3337268b7ed999502956cd982
@@ -99,8 +99,8 @@ UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = YOUR
 # Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
 ```
 
-[page-bento-perf]: ../bento/performance.md
-[page-bento-run]: ../bento/running.md
-[page-broker-config]: ./configure.md
-[page-deployments]: ../../market/deployments.md
-[page-local-dev]: ../../market/local-development.md
+[page-bento-perf]: ../bento/performance
+[page-bento-run]: ../bento/running
+[page-broker-config]: ./configure
+[page-deployments]: ../../market/deployments
+[page-local-dev]: ../../market/local-developmen

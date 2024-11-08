@@ -1,6 +1,6 @@
 # Boundless Market v0.3 RFC
 
-### Interaction flow
+## Interaction flow
 
 Below is a diagram of the interaction flow assuming a user with a wallet is driving it.
 
@@ -51,11 +51,11 @@ Requestor fetches the Merkle inclusion path, which acts as their receipt seal fr
 Requestor sends a transaction to complete their application flow, with authentication provided by the receipt.
 :::
 
-### Market contract and guest
+## Market contract and guest
 
 Market operations such as the auction and settlement are implemented in a smart contract.
 
-#### Order placement
+### Order placement
 
 **Order broadcast:** Requestors will initiate an order by broadcasting a `ProvingRequest` to the provers. Requestors have a choice of two broadcast channels depending on their needs:
 
@@ -130,7 +130,7 @@ struct Offer {
 }
 ```
 
-#### Order matching
+### Order matching
 
 > For details, see the [Market Matching Design][page-market-design] document.
 
@@ -140,7 +140,7 @@ struct Offer {
 
 **Escrow**: As part of the lock-in, funds are deducted from both the requestor and prover accounts. Funds are deducted from the requestor account and held in escrow on the market to ensure the prover will be paid upon delivering the proofs. Funds are deducted from the prover account to cover any lock-in stake specified by the requestor. These funds are sent to the prover upon fulfillment of the order. If the deadline passes, the price of the proof can be returned to the requestor, and the prover stake is burned.
 
-#### Order fulfillment
+### Order fulfillment
 
 **Requirements checking**: Once the prover has a proof that satisfies the requirements they will run the [Assessor](#assessor), which is a guest program that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request does not need to be provided as part of fulfillment, only the associated identifier.
 
@@ -175,11 +175,11 @@ struct AssessorJournal {
 }
 ```
 
-#### Market Contract Interface
+### Market Contract Interface
 
 > See `contracts/src/IProofMarket.sol` for the present implementation.
 
-```solidity
+```solidity [IProofMarket.sol]
 interface IProofMarket {
     /// Event logged when a new proving request is submitted by a client.
     event RequestSubmitted(ProvingRequest request, bytes clientSignature);
@@ -328,7 +328,7 @@ Verification of SNARKs in the EVM is expensive. In the case of our Groth16 recei
 
 In order to amortize this on-chain verification cost, we use recursive verification to verify a set of receipts such that a single receipt attests to every claim in the set. In order to make inclusion proofs efficient, this process builds a binary Merkle tree of the receipt claims.
 
-#### Set Verifier Contract
+### Set Verifier Contract
 
 In the EVM, the Groth16 receipt of set builder execution for the root of the Merkle tree is verified, and the verified root is written to EVM storage. Once this root is recorded, a Merkle inclusion path can act as a proof for the individual claims in the set. In this way, the set verifier implements the `IRiscZeroVerifier` interface, accepting this Merkle inclusion path as the seal in the `verify` call.
 

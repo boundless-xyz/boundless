@@ -146,5 +146,5 @@ TODO: Write more here about brokers REST API
 
 </div>
 
-[page-broker]: ../broker/README.md
+[page-broker]: ../broker/README
 [r0-docs-recursion]: https://dev.risczero.com/api/recursion

@@ -62,7 +62,7 @@ Example test run of 1024 iterations:
 RUST_LOG=info cargo run --bin bento_cli -- -c 1024
 ```
 
-```txt
+```txt [Terminal]
 2024-10-17T15:27:34.469227Z  INFO bento_cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: 3740ebbd-3bef-475f-b23d-6c2bf96c6551
 2024-10-17T15:27:34.479904Z  INFO bento_cli: STARK job_id: 895a996b-b0fa-4fc8-ae7a-ba92eeb6b0b1
 2024-10-17T15:27:34.480919Z  INFO bento_cli: STARK Job running....
@@ -75,7 +75,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 1024
 echo 895a996b-b0fa-4fc8-ae7a-ba92eeb6b0b1 | bash scripts/job_status.sh
 ```
 
-```txt
+```txt [Terminal]
  jobs_count 
 ------------
          19
@@ -142,7 +142,7 @@ In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMEN
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
-```txt
+```txt [Terminal]
 2024-10-17T15:58:15.205138Z  INFO bento_cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: fe7f4251-25f4-436f-b782-f134d4c80538
 2024-10-17T15:58:15.210646Z  INFO bento_cli: STARK job_id: bbf442eb-40db-44fb-8df4-f13a8ce10bf2
 2024-10-17T15:58:15.211686Z  INFO bento_cli: STARK Job running....
@@ -169,15 +169,15 @@ Indicating that the GPU is out of memory. In this case, the `SEGMENT_SIZE` shoul
 
 Note that if you have a multi-GPU system, your `SEGMENT_SIZE` should be set to the lowest common denominator of the GPUs in the system, so benchmarking should be performed on that card by tuning device-id in `compose.yml`.
 
-\*\*\* NOTE: \*\*\*: If a job fails to complete due to OOM, it may be resumed after Bento has been restarted. It's important to ensure that resumed jobs are not in progress during the test harness execution.
+:::tip[NOTE]
+If a job fails to complete due to OOM, it may be resumed after Bento has been restarted. It's important to ensure that resumed jobs are not in progress during the test harness execution.
+:::
 
 ## Benchmark single GPU's `SEGMENT_SIZE`
 
 Configure a single GPU instance:
 
-_**compose.yml**_:
-
-```
+```yml [compose.yml]
 gpu_agent0: &gpu
     image: agent
     runtime: nvidia
@@ -198,7 +198,7 @@ Confirm the `SEGMENT_SIZE` is set to the maximum as determined above in the `.en
 
 Execute the test harness:
 
-```
+```bash [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
@@ -211,13 +211,13 @@ Confirm single GPU utilization using `nvtop`:
 
 Review the effective Hz:
 
-```
+```bash [Terminal]
 echo <JOB_ID> | bash scripts/job_status.sh
 ```
 
 Example results:
 
-```
+```txt [Terminal]
 ...
 
 Effective Hz:
@@ -233,9 +233,7 @@ Here we see that our single `gpu-agent` at max `SEGMENT_SIZE` is able to achieve
 
 We can incorporate multiple GPUs into a configuration. In this example, we have two 16GB GPU as that proved to be optimal above:
 
-`compose.yml`
-
-```yml
+```yml [compose.yml]
 ...
   gpu_agent0: &gpu
     image: agent
@@ -284,7 +282,7 @@ We can incorporate multiple GPUs into a configuration. In this example, we have 
 
 Here are the effective results on our example system:
 
-```txt
+```txt [Terminal]
 431375.207834042771 | 35127296     |   81.430957
 ```
 
@@ -297,6 +295,6 @@ In this case we suggest:
 - Reconfigure the system back to higher PO2 with single agent per GPU and establish a new baseline performance level to compare against.
 - In lower `SEGMENT_SIZE` configurations experiment with `cpu_count` and `mem_limit` (removing, increasing, or decreasing) to see if the performance can be improved. In cases where bus contention is the limiting factor, running fewer agents at higher maximum `SEGMENT_SIZE` may be optimal. Systems in this configuration should avoid GPU expansion, and instead opt to expand into remote workers.
 
-[page-broker]: ../broker/README.md
+[page-broker]: ../broker/README
 [r0-term-continuations]: https://dev.risczero.com/terminology#continuations
 [r0-term-segment]: https://dev.risczero.com/terminology#segment

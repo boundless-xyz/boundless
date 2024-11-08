@@ -186,10 +186,10 @@ Further instructions for:
 
 [bonsai-homepage]: https://www.bonsai.xyz
 [boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template
-[page-bento]: ../prover-manual/bento/README.md
-[page-bento-running]: ../prover-manual/bento/running.md
-[page-broker]: ../prover-manual/broker/README.md
-[page-market-design]: ./matching.md
-[page-prover-manual]: ../prover-manual/README.md
-[page-requestor-broadcast]: ../requestor-manual/broadcasting.md
-[term-broker]: ../prover-manual/broker/README.md
+[page-bento]: ../prover-manual/bento/introduction
+[page-bento-running]: ../prover-manual/bento/running
+[page-broker]: ../prover-manual/broker/README
+[page-market-design]: ./matching
+[page-prover-manual]: ../prover-manual/README
+[page-requestor-broadcast]: ../requestor-manual/broadcasting
+[term-broker]: ../prover-manual/broker/README
