@@ -135,64 +135,16 @@ export default defineConfig({
 			dark: "#AED8C4", // Leaf - lighter accent for dark mode
 		},
 		variables: {
-			/*color: {
+			color: {
+				backgroundDark: {
+					light: "#EfECE3", // Sand
+					dark: "#1e1d1f",
+				},
 				background: {
-					light: "#EFECE3", // Sand
+					light: "#FFFFFF", // White
 					dark: "#000000", // Black
 				},
-				text: {
-					light: "#000000", // Black
-					dark: "#EFECE3", // Sand
-				},
-				text2: {
-					light: "#537263", // Forest
-					dark: "#AED8C4", // Leaf
-				},
-				text3: {
-					light: "#D6D3C7", // Tan
-					dark: "#537263", // Forest
-				},
-				backgroundAccent: {
-					light: "#537263", // Forest
-					dark: "#AED8C4", // Leaf
-				},
-				backgroundAccentHover: {
-					light: "#445e52", // Darker Forest
-					dark: "#9bc4b0", // Darker Leaf
-				},
-				border: {
-					light: "#D6D3C7", // Tan
-					dark: "#537263", // Forest
-				},
-				codeBlockBackground: {
-					light: "#FFFFFF", // White
-					dark: "#1a1a1a", // Dark gray
-				},
-				codeInlineBackground: {
-					light: "#F2E2E0", // Sunrise
-					dark: "#D1C6EA", // Lilac
-				},
-				link: {
-					light: "#537263", // Forest
-					dark: "#AED8C4", // Leaf
-				},
-				linkHover: {
-					light: "#445e52", // Darker Forest
-					dark: "#9bc4b0", // Darker Leaf
-				},
-				noteBackground: {
-					light: "#F2E2E0", // Sunrise
-					dark: "#D1C6EA", // Lilac
-				},
-				noteBorder: {
-					light: "#537263", // Forest
-					dark: "#AED8C4", // Leaf
-				},
-			},*/
-			/*fontFamily: {
-				default: "system-ui, sans-serif",
-				mono: "ui-monospace, monospace",
-			},*/
+			},
 			content: {
 				width: "calc(90ch + (var(--vocs-content_horizontalPadding) * 2))",
 			},
