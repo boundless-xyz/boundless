@@ -70,7 +70,7 @@ Also referred to as the Client in the context of contracts, the party submitting
 [r0-term-elf-binary]: https://dev.risczero.com/terminology#elf-binary
 [r0-term-reciept]: https://dev.risczero.com/terminology#receipt
 [r0-page-dev-mode]: https://dev.risczero.com/api/next/generating-proofs/dev-mode
-[page-boundless-market]: ./market/introduction
+[page-boundless-market]: ./market/README.md
 [page-bento]: ./prover-manual/bento/README.md
 [page-broker]: ./prover-manual/broker/README.md
 [page-deployments]: ./market/deployments.md
