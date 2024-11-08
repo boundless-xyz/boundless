@@ -102,7 +102,7 @@ export default defineConfig({
 		},
 	],
 	topNav: [
-		/*{ text: "Blog", link: "/blog" },*/
+		{ text: "Indexer", link: "https://boundless-indexer-risczero.vercel.app/" },
 		{
 			text: "0.2.0",
 			items: [
@@ -128,6 +128,23 @@ export default defineConfig({
 	logoUrl: {
 		light: "/logo.png",
 		dark: "/logo-dark.png",
+	},
+	theme: {
+		variables: {
+			content: {
+				width: "calc(90ch + (var(--vocs-content_horizontalPadding) * 2))",
+			},
+		},
+	},
+	iconUrl: {
+		light: "/favicon.png",
+		dark: "/favicon-dark.png",
+	},
+	// banner: "Head to our new [Discord](https://discord.gg/JUrRkGweXV)!",
+	editLink: {
+		pattern:
+			"https://github.com/boundless-xyz/boundless/edit/main/documentation/site/pages/:path",
+		text: "Edit on GitHub",
 	},
 	ogImageUrl:
 		"https://vocs.dev/api/og?logo=https://boundless-documentation.vercel.app/logo-dark.png&title=%title&description=%description",

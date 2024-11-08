@@ -10,25 +10,17 @@ The workflow is generally:
 
 :::steps
 
-## Step 1
+##### One-time Install
 
-(One-time [Install](#install-boundless))
+[See instructions](#install-boundless)
 
-## Step 2
+##### [Spin up a devnet](#run-a-market-devnet)
 
-[Spin up a devnet](#run-a-market-devnet)
+##### [Submit proof requests](#submit-proof-requests)
 
-## Step 3
+##### Tweak you app & submit more requests
 
-[Submit proof requests](#submit-proof-requests)
-
-## Step 4
-
-Tweak you app & submit more requests
-
-## Step 5
-
-[Tear down the devnet](#tear-down)
+##### [Tear down the devnet](#tear-down)
 
 :::
 
