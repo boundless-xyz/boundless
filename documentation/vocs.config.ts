@@ -1,4 +1,18 @@
+import { execSync } from "node:child_process";
 import { defineConfig } from "vocs";
+
+function getLatestTag(): string {
+	try {
+		// Fetch the latest tag from git
+		return execSync("git describe --tags --abbrev=0")
+			.toString()
+			.trim()
+			.replace("v", ""); // Remove 'v' prefix if present
+	} catch (error) {
+		console.warn("Failed to fetch git tag, falling back to default version");
+		return "N/A"; // Fallback version
+	}
+}
 
 export default defineConfig({
 	font: {
@@ -104,7 +118,7 @@ export default defineConfig({
 	topNav: [
 		{ text: "Indexer", link: "https://boundless-indexer-risczero.vercel.app/" },
 		{
-			text: "0.2.0",
+			text: getLatestTag(),
 			items: [
 				{
 					text: "Releases",
