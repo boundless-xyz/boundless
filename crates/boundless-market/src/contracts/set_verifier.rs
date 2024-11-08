@@ -39,9 +39,8 @@ where
         &self.instance
     }
 
-    pub fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
-        self.tx_timeout = timeout;
-        self
+    pub fn with_timeout(self, tx_timeout: Duration) -> Self {
+        Self { tx_timeout, ..self }
     }
 
     pub async fn contains_root(&self, root: B256) -> Result<bool> {
