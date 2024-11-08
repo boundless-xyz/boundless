@@ -10,6 +10,7 @@ members = [
     "crates/guest/assessor",
     "crates/guest/set-builder",
     "crates/guest/util",
+    "crates/order-stream",
     "crates/taskdb",
     "crates/workflow",
     "crates/workflow-common"
@@ -29,6 +30,7 @@ boundless-market = { path = "crates/boundless-market" }
 guest-set-builder = { path = "crates/guest/set-builder" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
+order-stream = { path = "crates/order-stream" }
 taskdb = { path = "crates/taskdb" }
 workflow = { path = "crates/workflow" }
 workflow-common = { path = "crates/workflow-common" }
@@ -68,6 +70,7 @@ tempfile = "3.10"
 test-log = { version = "0.2", features = ["trace"] }
 thiserror = "1.0"
 tokio = { version = "1" }
+tokio-tungstenite = { version = "0.24" }
 tower-http = { version = "0.5", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"

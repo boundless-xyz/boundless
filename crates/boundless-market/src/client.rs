@@ -4,17 +4,6 @@
 
 use std::{env, str::FromStr};
 
-use crate::{
-    contracts::{
-        proof_market::{MarketError, ProofMarketService},
-        set_verifier::SetVerifierService,
-        ProvingRequest,
-    },
-    storage::{
-        storage_provider_from_env, BuiltinStorageProvider, BuiltinStorageProviderError,
-        StorageProvider,
-    },
-};
 use alloy::{
     network::Ethereum,
     primitives::{aliases::U192, Address, Bytes, U256},
@@ -35,6 +24,19 @@ use alloy::{
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client as HttpClient;
 use url::Url;
+
+use crate::{
+    contracts::{
+        proof_market::{MarketError, ProofMarketService},
+        set_verifier::SetVerifierService,
+        ProvingRequest,
+    },
+    order_stream_client::Client as OrderStreamClient,
+    storage::{
+        storage_provider_from_env, BuiltinStorageProvider, BuiltinStorageProviderError,
+        StorageProvider,
+    },
+};
 
 type ProviderWallet = FillProvider<
     JoinFill<
@@ -68,6 +70,7 @@ pub struct Client<T, P, S> {
     pub set_verifier: SetVerifierService<T, P>,
     pub signer: LocalSigner<SigningKey>,
     pub storage_provider: S,
+    pub offchain_client: OrderStreamClient,
 }
 
 impl<T, P, S> Client<T, P, S>
@@ -82,8 +85,9 @@ where
         set_verifier: SetVerifierService<T, P>,
         signer: LocalSigner<SigningKey>,
         storage_provider: S,
+        offchain_client: OrderStreamClient,
     ) -> Self {
-        Self { proof_market, set_verifier, signer, storage_provider }
+        Self { proof_market, set_verifier, signer, storage_provider, offchain_client }
     }
 
     /// Get the provider
@@ -140,6 +144,44 @@ where
         Ok(self.proof_market.submit_request(&request, &self.signer.clone()).await?)
     }
 
+    /// Submit a proving request offchain via the order stream service.
+    ///
+    /// If the request ID is not set, a random ID will be generated.
+    /// If the bidding start is not set, the current block number will be used.
+    pub async fn submit_request_offchain(
+        &self,
+        request: &ProvingRequest,
+    ) -> Result<U256, ClientError>
+    where
+        <S as StorageProvider>::Error: std::fmt::Debug,
+    {
+        let mut request = request.clone();
+
+        if request.id == U192::ZERO {
+            request.id = self.proof_market.request_id_from_rand().await?;
+        };
+        if request.offer.biddingStart == 0 {
+            request.offer.biddingStart = self
+                .provider()
+                .get_block_number()
+                .await
+                .context("Failed to get current block number")?
+        };
+        // Ensure address' balance is sufficient to cover the request
+        let balance = self.proof_market.balance_of(request.client_address()).await?;
+        if balance < U256::from(request.offer.maxPrice) {
+            return Err(ClientError::Error(anyhow!(
+                "Insufficient balance to cover request: {} < {}",
+                balance,
+                request.offer.maxPrice
+            )));
+        }
+
+        let order = self.offchain_client.submit_request(&request).await?;
+
+        Ok(U256::from(order.request.id))
+    }
+
     /// Wait for a request to be fulfilled.
     ///
     /// The check interval is the time between each check for fulfillment.
@@ -163,6 +205,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
     /// The following environment variables are required:
     /// - PRIVATE_KEY: The private key of the wallet
     /// - RPC_URL: The URL of the RPC server
+    /// - ORDER_STREAM_URL: The URL of the order stream server
     /// - PROOF_MARKET_ADDRESS: The address of the proof market contract
     /// - SET_VERIFIER_ADDRESS: The address of the set verifier contract
     pub async fn from_env() -> Result<Self, ClientError> {
@@ -187,11 +230,20 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
         let proof_market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
-        let set_verifier = SetVerifierService::new(set_verifier_address, provider, caller);
+        let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
         let storage_provider = storage_provider_from_env().await?;
 
-        Ok(Self { proof_market, set_verifier, signer, storage_provider })
+        let order_stream_url = env::var("ORDER_STREAM_URL").context("ORDER_STREAM_URL not set")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let offchain_client = OrderStreamClient::new(
+            Url::parse(&order_stream_url).context("Invalid ORDER_STREAM_URL")?,
+            signer.clone(),
+            proof_market_address,
+            chain_id,
+        );
+
+        Ok(Self { proof_market, set_verifier, signer, storage_provider, offchain_client })
     }
 
     /// Create a new client from parts
@@ -200,11 +252,14 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
     /// The RPC URL is the URL of the RPC server.
     /// The proof market address is the address of the proof market contract.
     /// The set verifier address is the address of the set verifier contract.
+    /// The order stream URL is the URL of the order stream server.
     pub async fn from_parts(
         private_key: PrivateKeySigner,
         rpc_url: Url,
         proof_market_address: Address,
         set_verifier_address: Address,
+        order_stream_url: Url,
+        storage_provider: BuiltinStorageProvider,
     ) -> Result<Self, ClientError> {
         let caller = private_key.address();
         let signer = private_key.clone();
@@ -213,10 +268,16 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
         let proof_market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
-        let set_verifier = SetVerifierService::new(set_verifier_address, provider, caller);
+        let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
-        let storage_provider = storage_provider_from_env().await?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let offchain_client = OrderStreamClient::new(
+            order_stream_url,
+            signer.clone(),
+            proof_market_address,
+            chain_id,
+        );
 
-        Ok(Self { proof_market, set_verifier, signer, storage_provider })
+        Ok(Self { proof_market, set_verifier, signer, storage_provider, offchain_client })
     }
 }

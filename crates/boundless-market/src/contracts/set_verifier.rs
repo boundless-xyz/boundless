@@ -4,6 +4,10 @@
 
 use std::time::Duration;
 
+use super::{
+    IRiscZeroSetVerifier::{self, IRiscZeroSetVerifierErrors, IRiscZeroSetVerifierInstance},
+    TXN_CONFIRM_TIMEOUT,
+};
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, B256},
@@ -11,11 +15,7 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{Context, Result};
-
-use super::{
-    IRiscZeroSetVerifier::{self, IRiscZeroSetVerifierErrors, IRiscZeroSetVerifierInstance},
-    TXN_CONFIRM_TIMEOUT,
-};
+use risc0_ethereum_contracts::IRiscZeroVerifier;
 
 #[derive(Clone)]
 pub struct SetVerifierService<T, P> {
@@ -63,6 +63,19 @@ where
             .context("failed to confirm tx")?;
 
         tracing::info!("Submitted Merkle root {}: {}", root, tx_hash);
+
+        Ok(())
+    }
+
+    pub async fn verify(&self, seal: Bytes, image_id: B256, journal_digest: B256) -> Result<()> {
+        tracing::debug!("Calling verify({:?},{:?},{:?})", seal, image_id, journal_digest);
+        let verifier =
+            IRiscZeroVerifier::new(*self.instance().address(), self.instance().provider().clone());
+        verifier
+            .verify(seal, image_id, journal_digest)
+            .call()
+            .await
+            .map_err(|_| anyhow::anyhow!("Verification failed"))?;
 
         Ok(())
     }

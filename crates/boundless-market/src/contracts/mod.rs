@@ -140,10 +140,7 @@ impl ProvingRequest {
     ///
     /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min
     /// price) this function will return an error.
-    // TODO: Should this function be replaced with a proper builder that checks the ProvingRequest
-    // before it finalizes the construction?
-    #[cfg_attr(target_os = "zkvm", allow(dead_code))]
-    pub(crate) fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> anyhow::Result<()> {
         if self.imageUrl.is_empty() {
             anyhow::bail!("Image URL must not be empty");
         };

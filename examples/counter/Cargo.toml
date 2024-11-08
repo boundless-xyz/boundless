@@ -13,6 +13,7 @@ aggregation-set = { path = "../../crates/aggregation-set" }
 guest-assessor = { path = "../../crates/guest/assessor" }
 guest-util = { path = "../../crates/guest/util" }
 boundless-market = { path = "../../crates/boundless-market" }
+boundless-market-client = { path = "../../crates/boundless-market-client" }
 broker = { path = "../../crates/broker" }
 
 # risc0 monorepo dependencies.

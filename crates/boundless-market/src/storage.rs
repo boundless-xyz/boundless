@@ -5,7 +5,7 @@
 //! Provider implementations for uploading image and input files such that they are publicly
 //! accessible to provers.
 
-use std::{env::VarError, result::Result::Ok, sync::Arc, time::Duration};
+use std::{env::VarError, fmt::Debug, result::Result::Ok, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
@@ -25,7 +25,7 @@ use tempfile::TempDir;
 
 #[async_trait]
 pub trait StorageProvider {
-    type Error;
+    type Error: Debug;
 
     // TODO(victor): Should this be upload_elf?
     /// Upload a risc0-zkvm ELF binary.
