@@ -14,6 +14,7 @@ use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::Client,
     contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
+    input::InputBuilder,
     storage::storage_provider_from_env,
 };
 use clap::Parser;
@@ -115,7 +116,7 @@ async fn run(
     let timestamp = format! {"{:?}", SystemTime::now()};
 
     // Encode the input and upload it to the storage provider.
-    let input = encode_input(timestamp.as_bytes())?;
+    let input = InputBuilder::new().write(&timestamp.as_bytes())?.build();
     let input_url = boundless_client.upload_input(&input).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
@@ -218,11 +219,6 @@ async fn run(
     tracing::info!("Counter value for address: {:?} is {:?}", boundless_client.caller(), count);
 
     Ok(())
-}
-
-// Encode the input as expected by the echo guest.
-fn encode_input(input: &[u8]) -> Result<Vec<u8>> {
-    Ok(bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(input)?))
 }
 
 #[cfg(test)]
