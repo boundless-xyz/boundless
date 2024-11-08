@@ -75,7 +75,7 @@ where
             provider.default_signer_address(),
         );
         if let Some(txn_timeout) = txn_timeout_opt {
-            set_verifier.with_timeout(Duration::from_secs(txn_timeout));
+            set_verifier = set_verifier.with_timeout(Duration::from_secs(txn_timeout));
         }
 
         let prover_address = provider.default_signer_address();

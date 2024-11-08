@@ -159,16 +159,25 @@ struct SubmitOfferRequirements {
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct MainArgs {
+    /// URL of the Ethereum RPC endpoint
     #[clap(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
+    /// URL of the order stream service
     #[clap(long, env)]
     order_stream_url: Url,
+    /// Private key of the wallet
     #[clap(long, env)]
     private_key: PrivateKeySigner,
+    /// Address of the proof market contract
     #[clap(short, long, env)]
     proof_market_address: Address,
+    /// Address of the SetVerifier contract
     #[clap(short, long, env)]
     set_verifier_address: Address,
+    /// Tx timeout in seconds
+    #[clap(long, env)]
+    tx_timeout: Option<u64>,
+    /// Subcommand to run
     #[command(subcommand)]
     command: Command,
 }
@@ -187,7 +196,7 @@ async fn main() -> Result<()> {
 
     let args = MainArgs::try_parse()?;
 
-    let client = Client::from_parts(
+    let mut client = Client::from_parts(
         args.private_key.clone(),
         args.rpc_url.clone(),
         args.proof_market_address,
@@ -197,6 +206,10 @@ async fn main() -> Result<()> {
     )
     .await
     .context("Failed to create client")?;
+
+    if let Some(tx_timeout) = args.tx_timeout {
+        client = client.with_timeout(Duration::from_secs(tx_timeout));
+    }
 
     run(&args, client).await.unwrap();
     Ok(())
@@ -527,6 +540,7 @@ mod tests {
             proof_market_address: ctx.proof_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
             order_stream_url: Url::parse("http://localhost:8080").unwrap(),
+            tx_timeout: None,
             command: Command::Deposit { amount: U256::from(100) },
         };
 
@@ -569,6 +583,7 @@ mod tests {
             proof_market_address: ctx.proof_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
             order_stream_url: Url::parse("http://localhost:8080").unwrap(),
+            tx_timeout: None,
             command: Command::SubmitRequest {
                 yaml_request: "../../request.yaml".to_string(),
                 id: None,
