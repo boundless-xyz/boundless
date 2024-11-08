@@ -118,11 +118,18 @@ body {
   @apply object-contain;
 }
 
-/*.vocs_H1,
-.vocs_H2,
-.vocs_H3,
-.vocs_H4,
-.vocs_H5,
-.vocs_H6 {
-  @apply font-serif font-semibold;
-}*/
+.vocs_H1 {
+  @apply font-serif;
+}
+
+#vocs-content {
+  @apply flex flex-col;
+}
+
+.vocs_Content {
+  @apply flex-1;
+}
+
+.vocs_HomePage {
+  @apply !pt-40;
+}
