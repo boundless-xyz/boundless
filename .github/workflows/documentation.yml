@@ -4,9 +4,6 @@ on:
   push:
     paths:
       - "documentation/**"
-  pull_request:
-    paths:
-      - "documentation/**"
 
 jobs:
   build-and-deploy:
