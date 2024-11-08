@@ -74,18 +74,18 @@ echo 895a996b-b0fa-4fc8-ae7a-ba92eeb6b0b1 | bash scripts/job_status.sh
 ```
 
 ```txt [Terminal]
- jobs_count 
+ jobs_count
 ------------
          19
 (1 row)
 
- remaining_jobs 
+ remaining_jobs
 ----------------
               0
 (1 row)
 
 task times:
- task_id | task_type | state | wall_time |         started_at         
+ task_id | task_type | state | wall_time |         started_at
 ---------+-----------+-------+-----------+----------------------------
  init    | Executor  | done  |  0.530216 | 2024-10-17 15:27:35.00974
  0       | Prove     | done  |  3.299771 | 2024-10-17 15:27:35.661319
@@ -100,7 +100,7 @@ task times:
 (10 rows)
 
 Effective Hz:
-         hz          | total_cycles | elapsed_sec 
+         hz          | total_cycles | elapsed_sec
 ---------------------+--------------+-------------
  399385.599822715909 | 8650752      |   21.660150
 (1 row)
@@ -171,7 +171,9 @@ If a job fails to complete due to OOM, it may be resumed after Bento has been re
 
 ## Benchmark Single GPU's `SEGMENT_SIZE`
 
-Configure a single GPU instance:
+:::steps
+
+### Configure a Single GPU Instance
 
 ```yml [compose.yml]
 gpu_agent0: &gpu
@@ -188,42 +190,41 @@ gpu_agent0: &gpu
     cpu_count: 4
 ```
 
-Verify that no other GPU definitions are present in the compose file.
+### Verify that No Other GPU Definitions Are Present in the Compose File
 
-Confirm the `SEGMENT_SIZE` is set to the maximum as determined above in the `.env-compose` file.
+### Confirm the `SEGMENT_SIZE` Is Set to the Maximum as Determined Above in the `.env-compose` File
 
-Execute the test harness:
+### Execute the Test Harness
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
-Confirm single GPU utilization using `nvtop`:
+### Confirm Single GPU Utilization Using `nvtop`
 
-<figure>
-  <img src="../../images/nvtop-1.png"/>
-  <cap>Monitoring Bento with <a target="_blank" href="https://github.com/Syllo/nvtop">nvtop</a> </cap>
-</figure>
+![Bento diagram](/nvtop-1.png)
 
-Review the effective Hz:
+> Monitoring Bento with [nvtop](https://github.com/Syllo/nvtop)
+
+### Review the Effective Hz
 
 ```sh [Terminal]
 echo <JOB_ID> | bash scripts/job_status.sh
 ```
 
-Example results:
-
-```txt [Terminal]
+```txt [Example Results]
 ...
 
 Effective Hz:
-         hz          | total_cycles | elapsed_sec 
+         hz          | total_cycles | elapsed_sec
 ---------------------+--------------+-------------
  264892.074666431500 | 34603008     |  130.630590
 (1 row)
 ```
 
 Here we see that our single `gpu-agent` at max `SEGMENT_SIZE` is able to achieve an effective 264kHz.
+
+:::
 
 ## Multiple Agents and GPUs
 

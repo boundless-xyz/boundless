@@ -4,12 +4,9 @@
 
 Below is a diagram of the interaction flow assuming a user with a wallet is driving it.
 
-<figure>
-  <img src="../images/boundless_market_diagram.png" />
+![Boundless market diagram](/boundless_market_diagram.png)
 
-<cap>Boundless market diagram (<a href="https://excalidraw.com/#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q" target="_blank">source</a>)</cap>
-
-</figure>
+[Diagram source](https://excalidraw.com/#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q)
 
 :::steps
 ### Step1
@@ -389,12 +386,9 @@ struct AssessorJournal {
 
 After the Assessor is executed and proven, it is added to a running batch for efficient on-chain verification. A diagram showing the Merkle tree constructed by the set builder for aggregate verification.
 
-<figure>
-  <img src="../images/assessor.png" />
+![Assessor diagram](/assessor.png)
 
-<cap>Assessor diagram (<a href="https://excalidraw.com/#json=7Zh4h6tXCY2mR2NLW8DvF,ixQZR3mEgm4Z5w6vtT86Xg" target="_blank">source</a>)</cap>
-
-</figure>
+[Diagram source](https://excalidraw.com/#json=7Zh4h6tXCY2mR2NLW8DvF,ixQZR3mEgm4Z5w6vtT86Xg)
 
 [page-market-design]: /market/market-matching-design
 [r0-term-elf-binary]: https://dev.risczero.com/terminology#elf-binary

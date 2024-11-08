@@ -4,13 +4,18 @@
   "type": "module",
   "scripts": {
     "build": "vocs build",
-    "check": "bunx @biomejs/biome check --write --unsafe .",
+    "check-links": "bun ./check-links.ts",
+    "check-markdown": "remark . --quiet",
+    "ci": "run-p check-markdown check-links && bun run build",
     "dev": "vocs dev",
-    "fmt-markdown": "remark . --output --use sort-definitions --use remark-lint-match-punctuation --use remark-lint-no-url-trailing-slash",
+    "format-markdown": "remark . --output --use sort-definitions --use remark-lint-match-punctuation --use remark-lint-no-url-trailing-slash",
     "preview": "vocs preview"
   },
   "dependencies": {
+    "@biomejs/biome": "1.9.4",
     "@types/react": "18.3.12",
+    "markdown-link-check": "3.13.6",
+    "npm-run-all": "4.1.5",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "remark": "15.0.1",

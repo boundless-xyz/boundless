@@ -1,5 +1,7 @@
 # Boundless Market Contract Deployments
 
+## Contracts
+
 The Boundless Market's contracts are deployed only on [Sepolia](#sepolia) so far, with more to be determined.
 
 :::warning[Sepolia Testnet]

@@ -117,5 +117,5 @@ export default defineConfig({
   ],
   rootDir: "site",
   title: "Boundless Docs",
-  ogImageUrl: 'https://vocs.dev/api/og?logo=%logo&title=%title&description=%description', 
+  ogImageUrl: "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
 });
