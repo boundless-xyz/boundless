@@ -4,6 +4,7 @@ To develop Boundless applications both as a requestor and prover, a running Mark
 The workflow is generally:
 
 :::steps
+
 ##### Step 1
 
 (One-time [Install](#install-boundless))
@@ -23,6 +24,7 @@ Tweak you app & submit more requests
 ##### Step 5
 
 [Tear down the devnet](#tear-down)
+
 :::
 
 To accelerate development, there are helpful utilities provided:

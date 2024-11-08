@@ -12,6 +12,7 @@ Below is a diagram of the interaction flow assuming a user with a wallet is driv
 </figure>
 
 :::steps
+
 ##### Step1
 
 [Requestor][term-requestor] broadcasts their proof request to make it available to all provers.
@@ -49,6 +50,7 @@ Requestor fetches the Merkle inclusion path, which acts as their receipt seal fr
 ##### Step 8
 
 Requestor sends a transaction to complete their application flow, with authentication provided by the receipt.
+
 :::
 
 ## Market contract and guest

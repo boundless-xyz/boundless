@@ -109,16 +109,13 @@ export default defineConfig({
       text: "0.0.1",
       items: [
         {
-          text: "Changelog",
-          link: "https://github.com/wevm/vocs/blob/main/src/CHANGELOG.md",
-        },
-        {
-          text: "Contributing",
-          link: "https://github.com/wevm/vocs/blob/main/.github/CONTRIBUTING.md",
+          text: "Releases",
+          link: "https://github.com/boundless-xyz/boundless/releases",
         },
       ],
     },
   ],
   rootDir: "site",
   title: "Boundless Docs",
+  ogImageUrl: 'https://vocs.dev/api/og?logo=%logo&title=%title&description=%description', 
 });
