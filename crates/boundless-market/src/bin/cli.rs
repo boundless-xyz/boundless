@@ -163,7 +163,7 @@ struct MainArgs {
     #[clap(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
     /// URL of the order stream service
-    #[clap(long, env)]
+    #[clap(long, env, default_value = "http://localhost:8585")]
     order_stream_url: Url,
     /// Private key of the wallet
     #[clap(long, env)]
