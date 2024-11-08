@@ -1,3 +1,8 @@
+---
+title: Broadcasting Proof Requests
+description: This guide covers the broadcasting of proof requests to the Boundless Market.
+---
+
 # Broadcast a Proof Request
 
 Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `ProofMarketService` struct.

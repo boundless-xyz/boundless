@@ -1,3 +1,8 @@
+---
+title: Broker Configuration
+description: Broker configuration is primarily managed through the `broker.toml` file in the Boundless directory.
+---
+
 # Broker Configuration
 
 Broker configuration is primarily managed through the `broker.toml` file in the Boundless directory. This file is mounted into the Broker container and is used to configure the Broker daemon. This allows for dynamic configuration of the Broker without needing to restart the daemon as in most cases variables are refreshed. If you have changed a `broker.toml` configuration, and it does not appear to take effect you can restart the Broker service to apply the changes.

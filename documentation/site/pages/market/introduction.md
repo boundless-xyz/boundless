@@ -1,3 +1,8 @@
+---
+title: Market Documentation Overview
+description: This section includes details pertinent to both requestors and provers.
+---
+
 # Market Documentation Overview
 
 This section includes details pertinent to both:

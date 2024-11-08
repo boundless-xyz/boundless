@@ -1,3 +1,8 @@
+---
+title: Bento Technical Design
+description: Bento is designed to be a horizontally scalable, semi multi-tenant proving cluster for the RISC0 zkVM.
+---
+
 # Bento Technical Design
 
 Bento is designed to be a horizontally scalable, semi multi-tenant proving cluster for the [RISC0 zkVM](https://risczero.com).

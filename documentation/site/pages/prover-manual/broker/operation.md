@@ -1,3 +1,8 @@
+---
+title: Broker Operation
+description: This guide covers the operation of the Broker service.
+---
+
 # Broker Operation
 
 :::warning[Warning]

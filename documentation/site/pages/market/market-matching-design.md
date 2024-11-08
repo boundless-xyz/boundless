@@ -1,3 +1,8 @@
+---
+title: Market Matching Design
+description: The Boundless Market uses a reverse-Dutch auction to match requests to provers.
+---
+
 # Market Matching Design
 
 ## The Reverse-Dutch Auction

@@ -1,3 +1,8 @@
+---
+title: Boundless Market Contract Deployments
+description: The Boundless Market's contracts are deployed only on Sepolia so far.
+---
+
 # Boundless Market Contract Deployments
 
 ## Contracts

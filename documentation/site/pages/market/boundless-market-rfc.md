@@ -1,3 +1,8 @@
+---
+title: Boundless Market v0.3 RFC
+description: A high-level overview of the Boundless Market v0.3 RFC
+---
+
 # Boundless Market v0.3 RFC
 
 ## Interaction Flow

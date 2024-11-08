@@ -1,3 +1,8 @@
+---
+title: Glossary
+description: A list of terms used in the Boundless documentation.
+---
+
 # Glossary
 
 ## Assessor

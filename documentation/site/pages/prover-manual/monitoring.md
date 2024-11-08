@@ -1,3 +1,8 @@
+---
+title: Monitoring
+description: This guide covers the monitoring of the Bento and Broker services.
+---
+
 # Monitoring
 
 ## Grafana

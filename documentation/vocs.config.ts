@@ -130,5 +130,5 @@ export default defineConfig({
 		dark: "/logo-dark.png",
 	},
 	ogImageUrl:
-		"https://vocs.dev/api/og?logo=https://boundless-documentation.vercel.app/logo-dark.png&title=%title&description=%description",
+		"https://vocs.dev/api/og?logo=boundless-documentation.vercel.app/logo-dark.png&title=%title&description=%description",
 });

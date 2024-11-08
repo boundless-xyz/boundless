@@ -1,3 +1,8 @@
+---
+title: Local Development Guide
+description: To develop Boundless applications both as a requestor and prover, a running Market is required.
+---
+
 # Local Development Guide
 
 To develop Boundless applications both as a requestor and prover, a running Market is required.

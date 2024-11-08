@@ -1,3 +1,8 @@
+---
+title: Running Bento
+description: Bento is a docker compose stack containing all the services to run a Bento cluster on a single or many machines.
+---
+
 # Running Bento
 
 Bento is a docker compose stack containing all the services to run a Bento cluster on a single or many machines.
