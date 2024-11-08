@@ -34,7 +34,7 @@ jobs:
               - 'foundry.toml'
 
   gas-comparison:
-    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    runs-on: ubuntu-latest
     needs: contracts-changed
     if: needs.contracts-changed.outputs.contracts != '[]'
     steps:
