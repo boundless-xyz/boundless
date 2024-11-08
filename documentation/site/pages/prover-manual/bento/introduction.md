@@ -9,7 +9,7 @@ Some core features of Bento include:
 - Robust retry system.
 - API for proof management
 
-## Minium specs
+## Minimum Specs
 
 Bento can run on a single machine with a single GPU with as low as 4GB of VRAM, but this would only be recommended for testing purposes. Below is a minium configuration for reasonable proving performance:
 
@@ -71,13 +71,11 @@ As demonstrated above, Bento breaks down tasks into these major actions:
 
 In order to share intermediate files (such as Segments) between workers, Redis is using as fast intermediary. Bento writes to Redis for fast cross machine file access and provides a high bandwidth backbone for sharing data between nodes and workers.
 
-<div class="warning">
-
-Note: The Redis node's memory configuration is important for the size of proofs running. Because each segment is \~5 - 10 MB in size it is possible to overload Redis's node memory with too much data if the STARK proof is large enough and the GPU workers are not consuming the segments fast enough.
+:::warning[Warning]
+The Redis node's memory configuration is important for the size of proofs running. Because each segment is \~5 - 10 MB in size it is possible to overload Redis's node memory with too much data if the STARK proof is large enough and the GPU workers are not consuming the segments fast enough.
 
 We recommend a high memory node for the Redis container as well as active monitoring / alerts (See Grafana for monitor) on the Redis node to ensure it does not overflow the possible memory.
-
-</div>
+:::
 
 ### TaskDB
 
@@ -88,11 +86,11 @@ TaskDB also has the ability to prioritize different work over others using two s
 - Priority multiplier
 - Dedicated resources
 
-#### The priority multiplier
+#### The Priority Multiplier
 
 Priority multiplier allows for individual users and task types to be schedules ahead of other users.
 
-#### The Dedicated resources' mode
+#### The Dedicated Resources Mode
 
 Dedicated Resources allows for a stream's user to get priority access to N workers on that stream. For example if user1 has 10 GPU stream dedicated resources then that work will always get priority over the normal pool of users that have dedicated count of 0. But once user1 has 10 concurrent GPU tasks, any additional work is scheduled with the rest of the priority pool of user work.
 
@@ -140,11 +138,9 @@ This agent will convert a STARK proof into a SNARK proof using rapidsnark.Perfor
 
 The REST API provides a external interface to start / stop / monitor jobs and tasks within taskdb.
 
-<div class="warning">
-
+:::warning[Warning]
 TODO: Write more here about brokers REST API
+:::
 
-</div>
-
-[page-broker]: ../broker/README
+[page-broker]: /prover-manual/broker/introduction
 [r0-docs-recursion]: https://dev.risczero.com/api/recursion

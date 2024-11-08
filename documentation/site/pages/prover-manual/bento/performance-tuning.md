@@ -2,19 +2,17 @@
 
 This guide offers practical techniques for optimizing your initial Bento deployment.
 
-<div class="warning">
-
+:::warning[Warning]
 Bento performance is tightly couples to the specific environment, equipment, and provider's requirements. Recommendations in this guide should be used as reference rather than a concrete recommendation on configuration.
+:::
 
-</div>
-
-## Build configuration
+## Build Configuration
 
 The `NVCC_APPEND_FLAGS` docker build arg (found in \`compose.yml->services->exec\_agent->build->args) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards)
 
 You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the exec\_agent build args. A value of `3` might yield slightly better performance (a few %) but much longer build times.
 
-## Recommended tools
+## Recommended Tools
 
 Prior to starting we recommend the following tools monitor performance and resource use:
 
@@ -23,28 +21,28 @@ Prior to starting we recommend the following tools monitor performance and resou
 
 Both of these tools warrant a decent size terminal window on your desktop to monitor the performance during experiments.
 
-## Isolating tests
+## Isolating Tests
 
 Operating competing workloads on the same system as your Bento deployment can lead to unpredictable results. We recommend isolating your test system from other workloads to ensure that the performance tuning results are consistent and reliable. This includes stopping configured [Broker][page-broker] services:
 
-```bash [Terminal]
+```sh [Terminal]
 docker ps
 docker stop <BROKER_CONTAINER_ID>
 ```
 
 Alternatively you can modify your `scripts/boundless_service.sh` to remove `--profile broker`.
 
-## Defining a test harness
+## Defining a Test Harness
 
 It is preferable to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate. To try a realistic example:
 
-```bash [Terminal]
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -f /path/to/elf -i /path/to/input`
 ```
 
 If you intend to operate across a variety of different workloads (such as those that may be fed by [Broker][page-broker]) you can also use the following command to generate a synthetic workload:
 
-```bash [Terminal]
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c <ITERATION_COUNT>
 ```
 
@@ -54,11 +52,11 @@ The typical test process will be:
 
 1. start `nvtop` and `htop`
 2. execute the test harness above and copy the job id
-3. upon completion of the job use [the `script/job_status.sh`](https://github.com/boundless-xyz/boundless/blob/main/scripts/job_status.sh) to view the results
+3. upon completion of the job use the [`script/job_status.sh`](https://github.com/boundless-xyz/boundless/blob/main/scripts/job_status.sh) to view the results
 
 Example test run of 1024 iterations:
 
-```bash [Terminal]
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 1024
 ```
 
@@ -71,7 +69,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 1024
 2024-10-17T15:27:58.513718Z  INFO bento_cli: Job done!
 ```
 
-```bash [Terminal]
+```sh [Terminal]
 echo 895a996b-b0fa-4fc8-ae7a-ba92eeb6b0b1 | bash scripts/job_status.sh
 ```
 
@@ -108,15 +106,13 @@ Effective Hz:
 (1 row)
 ```
 
-<div class="warning">
-
+:::note[Note]
 Note that in the `job_status.sh` output above, the Hz is only accurate if the job has completed with no error conditions. Failed and in-progress jobs will have an inflated Hz value.
-
-</div>
+:::
 
 In the final table, the effective Hz is the primary metric for consideration. This represents the (number of cycles) / (elapsed wallclock time). In the example above, the effective Hz is roughly 400kHz.
 
-## Finding a maximum `SEGMENT_SIZE` for GPU VRAM
+## Finding a Maximum `SEGMENT_SIZE` for GPU VRAM
 
 In most scenarios it makes sense to start by optimizing our GPU workers. This is because the bulk of the RISC Zero workload is executed by the `gpu-agent` and GPU resources a most often the performance bottleneck.
 
@@ -138,7 +134,7 @@ Once you have selected a `MAXIMUM` segment size you should verify that the GPU d
 
 In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` docker logs to determine the cause of the failure (note boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running):
 
-```bash [Terminal]
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
@@ -152,7 +148,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 We then examine the `gpu-agent` logs and see a series of out of memory errors:
 `docker logs bento-gpu_agent0`
 
-```
+```log [Terminal]
 2024-10-17T15:57:43.667484Z  INFO workflow::tasks::prove: Starting proof of idx: 6f95e238-d0be-4e94-9e81-fefdc0b7d8c4 - 1
 thread 'main' panicked at /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/risc0-zkp-1.1.1/src/hal/cuda.rs:206:61:
 called `Result::unwrap()` on an `Err` value: OutOfMemory
@@ -169,11 +165,11 @@ Indicating that the GPU is out of memory. In this case, the `SEGMENT_SIZE` shoul
 
 Note that if you have a multi-GPU system, your `SEGMENT_SIZE` should be set to the lowest common denominator of the GPUs in the system, so benchmarking should be performed on that card by tuning device-id in `compose.yml`.
 
-:::tip[NOTE]
+:::note[NOTE]
 If a job fails to complete due to OOM, it may be resumed after Bento has been restarted. It's important to ensure that resumed jobs are not in progress during the test harness execution.
 :::
 
-## Benchmark single GPU's `SEGMENT_SIZE`
+## Benchmark Single GPU's `SEGMENT_SIZE`
 
 Configure a single GPU instance:
 
@@ -198,7 +194,7 @@ Confirm the `SEGMENT_SIZE` is set to the maximum as determined above in the `.en
 
 Execute the test harness:
 
-```bash [Terminal]
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
@@ -211,7 +207,7 @@ Confirm single GPU utilization using `nvtop`:
 
 Review the effective Hz:
 
-```bash [Terminal]
+```sh [Terminal]
 echo <JOB_ID> | bash scripts/job_status.sh
 ```
 
@@ -229,7 +225,7 @@ Effective Hz:
 
 Here we see that our single `gpu-agent` at max `SEGMENT_SIZE` is able to achieve an effective 264kHz.
 
-## Multiple agents and GPUs
+## Multiple Agents and GPUs
 
 We can incorporate multiple GPUs into a configuration. In this example, we have two 16GB GPU as that proved to be optimal above:
 
@@ -295,6 +291,6 @@ In this case we suggest:
 - Reconfigure the system back to higher PO2 with single agent per GPU and establish a new baseline performance level to compare against.
 - In lower `SEGMENT_SIZE` configurations experiment with `cpu_count` and `mem_limit` (removing, increasing, or decreasing) to see if the performance can be improved. In cases where bus contention is the limiting factor, running fewer agents at higher maximum `SEGMENT_SIZE` may be optimal. Systems in this configuration should avoid GPU expansion, and instead opt to expand into remote workers.
 
-[page-broker]: ../broker/README
+[page-broker]: /prover-manual/broker/introduction
 [r0-term-continuations]: https://dev.risczero.com/terminology#continuations
 [r0-term-segment]: https://dev.risczero.com/terminology#segment

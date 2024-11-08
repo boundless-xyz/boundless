@@ -1,6 +1,6 @@
 # Boundless Market v0.3 RFC
 
-## Interaction flow
+## Interaction Flow
 
 Below is a diagram of the interaction flow assuming a user with a wallet is driving it.
 
@@ -12,20 +12,19 @@ Below is a diagram of the interaction flow assuming a user with a wallet is driv
 </figure>
 
 :::steps
-
-##### Step1
+### Step1
 
 [Requestor][term-requestor] broadcasts their proof request to make it available to all provers.
 
-##### Step 2
+### Step 2
 
 [Prover][term-prover] receives the request, attempts to fetch the [ELF binary][r0-term-elf-binary] with associated [Image ID][r0-term-image-id] and inputs, and evaluates it via preflight in the [executor][r0-term-executor]. Preflight allows the prover to know both that the request can actually be fulfilled and allows it to estimate the cost of proving. After evaluation, the prover will determine a price they would like to bid.
 
-##### Step 3
+### Step 3
 
 Prover sends a transaction to place their bid and lock-in the request. Upon lock-in, they have exclusive rights to be paid for the request, and must provide a requestor-specified amount of stake as collateral, burned in the event they fail to deliver a proof by the deadline.
 
-##### Step 4
+### Step 4
 
 Prover produces the receipt:
 
@@ -35,29 +34,28 @@ Prover produces the receipt:
 4. Adds the Assessor receipt to the batch via the set builder guest.
 5. Compresses the batch receipt via Groth16
 
-##### Step 5
+### Step 5
 
 Prover sends a transaction to post the set commitment (i.e. Merkle root) to the set verifier contract.
 
-##### Step 6
+### Step 6
 
 Prover sends a transaction to the market contract to post the Merkle inclusion proof for the application and Assessor receipts in the batch, and to fulfill the request. At this point, the prover has delivered the requested proof and is paid for their work.
 
-##### Step 7
+### Step 7
 
 Requestor fetches the Merkle inclusion path, which acts as their receipt seal from the EVM calldata or event logs.
 
-##### Step 8
+### Step 8
 
 Requestor sends a transaction to complete their application flow, with authentication provided by the receipt.
-
 :::
 
-## Market contract and guest
+## Market Contract and Guest
 
 Market operations such as the auction and settlement are implemented in a smart contract.
 
-### Order placement
+### Order Placement
 
 **Order broadcast:** Requestors will initiate an order by broadcasting a `ProvingRequest` to the provers. Requestors have a choice of two broadcast channels depending on their needs:
 
@@ -132,7 +130,7 @@ struct Offer {
 }
 ```
 
-### Order matching
+### Order Matching
 
 > For details, see the [Market Matching Design][page-market-design] document.
 
@@ -142,7 +140,7 @@ struct Offer {
 
 **Escrow**: As part of the lock-in, funds are deducted from both the requestor and prover accounts. Funds are deducted from the requestor account and held in escrow on the market to ensure the prover will be paid upon delivering the proofs. Funds are deducted from the prover account to cover any lock-in stake specified by the requestor. These funds are sent to the prover upon fulfillment of the order. If the deadline passes, the price of the proof can be returned to the requestor, and the prover stake is burned.
 
-### Order fulfillment
+### Order Fulfillment
 
 **Requirements checking**: Once the prover has a proof that satisfies the requirements they will run the [Assessor](#assessor), which is a guest program that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request does not need to be provided as part of fulfillment, only the associated identifier.
 
@@ -398,10 +396,10 @@ After the Assessor is executed and proven, it is added to a running batch for ef
 
 </figure>
 
-[page-market-design]: ../market/market-matching-design
+[page-market-design]: /market/market-matching-design
 [r0-term-elf-binary]: https://dev.risczero.com/terminology#elf-binary
 [r0-term-executor]: https://dev.risczero.com/terminology#executor
 [r0-term-guest-program]: https://dev.risczero.com/terminology#guest-program
 [r0-term-image-id]: https://dev.risczero.com/terminology#image-id
-[term-prover]: ../glossary#prover
-[term-requestor]: ../glossary#requestor
+[term-prover]: /glossary#prover
+[term-requestor]: /glossary#requestor

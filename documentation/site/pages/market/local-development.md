@@ -4,27 +4,25 @@ To develop Boundless applications both as a requestor and prover, a running Mark
 The workflow is generally:
 
 :::steps
-
-##### Step 1
+## Step 1
 
 (One-time [Install](#install-boundless))
 
-##### Step 2
+## Step 2
 
 [Spin up a devnet](#run-a-market-devnet)
 
-##### Step 3
+## Step 3
 
 [Submit proof requests](#submit-proof-requests)
 
-##### Step 4
+## Step 4
 
 Tweak you app & submit more requests
 
-##### Step 5
+## Step 5
 
 [Tear down the devnet](#tear-down)
-
 :::
 
 To accelerate development, there are helpful utilities provided:
@@ -52,21 +50,20 @@ Ensure the following software is installed on your machine:
 - **[Rust](https://www.rust-lang.org/tools/install) version 1.79 or higher**
 - **[Foundry](https://book.getfoundry.sh/getting-started/installation) version 0.2 or higher**
 
-##### 1. Clone Boundless (SSH or github login required)
+### 1. Clone Boundless (SSH or GitHub Login Required)
 
 ```sh [Terminal]
-# SSH or github login required
 git clone git clone git@github.com:boundless-xyz/boundless.git
 cd boundless
 ```
 
-##### 2. Initialize recursive submodules (located in `lib`, required by Foundry)
+### 2. Initialize Recursive Submodules (Located in `lib`, Required by Foundry)
 
 ```sh [Terminal]
 git submodule update --init
 ```
 
-## Run a Market devnet
+## Run a Market Devnet
 
 For both requestors and provers, you will need to:
 
@@ -75,7 +72,7 @@ For both requestors and provers, you will need to:
 - Run a [Broker][page-broker] instance that will lock in and return proofs to all proof requests
 - Submit proof requests to be fulfilled by the Broker
 
-### Spin up
+### Spin Up
 
 An instance of the Market needs to be running in the background for applications to interact with, using the included `make` utilities or manually.
 
@@ -83,7 +80,7 @@ An instance of the Market needs to be running in the background for applications
 
 The included `makefile` in boundless is the most effective way to do this, and can be modified to suit specific needs.
 
-##### 1. Start a local devnet service (running in the background)
+##### 1. Start a Local Devnet Service (Running in the Background)
 
 ```sh [Terminal]
 make devnet-up
@@ -103,13 +100,13 @@ make devnet-down
 
 If you require customizing a local devnet configuration, and need to operate it manually, you can run the following commands:
 
-##### 1. Build the contracts
+##### 1. Build the Contracts
 
 ```sh [Terminal]
 forge build
 ```
 
-##### 2. Build the project
+##### 2. Build the Project
 
 ```sh [Terminal]
 cargo build
@@ -121,7 +118,7 @@ cargo build
 anvil -b 2
 ```
 
-##### 4. Deploy market contracts
+##### 4. Deploy Market Contracts
 
 This will deploy the market contracts.
 Configuration environment variables are read from the `.env` file.
@@ -135,7 +132,7 @@ DEPLOYER_PRIVATE_KEY=$PRIVATE_KEY CHAIN_KEY=anvil RISC0_DEV_MODE=$RISC0_DEV_MODE
 > NOTE: Starting from a fresh `anvil` instance, the deployed contract addresses will match the values in `.env`.
 > If you need to deploy again, restart `anvil` first or change the `.env` file to match your newly deployed contract addresses.
 
-##### 5. Deposit Prover funds and start the [Broker][page-broker]
+##### 5. Deposit Prover Funds and Start the [Broker][page-broker]
 
 Here we will use a mock prover by setting `RISC0_DEV_MODE`.
 The Broker can use either [Bonsai][bonsai-homepage] or [Bento][page-bento] as backend, remove `RISC0_DEV_MODE` and:
@@ -168,7 +165,7 @@ RISC0_DEV_MODE=1 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- sub
 
 Try editing `request.yaml` to send a request to the Market with different values.
 
-### Tear down
+### Tear Down
 
 When finished, tear down a running devnet from the [`make devnet-up` workflow](#make) run:
 
@@ -188,10 +185,8 @@ Further instructions for:
 
 [bonsai-homepage]: https://www.bonsai.xyz
 [boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template
-[page-bento]: ../prover-manual/bento/introduction
-[page-bento-running]: ../prover-manual/bento/running
-[page-broker]: ../prover-manual/broker/README
-[page-market-design]: ./matching
-[page-prover-manual]: ../prover-manual/README
-[page-requestor-broadcast]: ../requestor-manual/broadcasting
-[term-broker]: ../prover-manual/broker/README
+[page-bento]: /prover-manual/bento/introduction
+[page-bento-running]: /prover-manual/bento/running
+[page-broker]: /prover-manual/broker/introduction
+[page-prover-manual]: /prover-manual/introduction
+[page-requestor-broadcast]: /requestor-manual/broadcasting-requests

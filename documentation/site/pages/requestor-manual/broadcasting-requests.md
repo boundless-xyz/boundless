@@ -12,7 +12,7 @@ To setup a local devnet follow the [local development guide][local-development].
 
 You can override settings found in `.env` and more to use local devnet settings with by exporting or prefixing commands:
 
-```bash [Terminal]
+```sh [Terminal]
 # Use dev mode in this terminal session
 export RISC0_DEV_MODE=1
 # Use dev mode for this command only
@@ -31,17 +31,17 @@ See the [CLI usage](#cli-usage) section or `examples/counter`'s `ProofMarketServ
 The Boundless Market is officially deployed only on [the Sepolia Testnet][id-deployments-sepolia-testnet] so far, with more networks to be announced.
 Before you can interact with any network, you will need to configure an EVM RPC, Funds to pay for gas, and Image Storage Provider.
 
-#### Configure an EVM RPC Provider
+### Configure an EVM RPC Provider
 
 You need an RPC provider to interact with any EVM network. [Alchemy](https://www.alchemy.com) supports various EVM networks, so creating a free account there is recommended, but many other options exist. Set the following environment variables according to your chosen RPC:
 
-```bash [Terminal]
+```sh [Terminal]
 export RPC_URL="<SEPOLIA-URL>"
 ```
 
 Or just modify the .env file and finally run `source .env`.
 
-#### Configure a Storage Provider
+### Configure a Storage Provider
 
 Boundless requires that ELF Image of the program requested, and optionally the input, to be proven be accessible to provers.
 
@@ -62,7 +62,7 @@ To interact with [Sepolia's Boundless contracts][id-deployments-sepolia-testnet]
 
 Make sure to export the env variable:
 
-```bash [Terminal]
+```sh [Terminal]
 export PRIVATE_KEY="<YOUR-WALLET-PRIVATE_KEY>"
 ```
 
@@ -74,7 +74,9 @@ See the [CLI usage](#cli-usage) section for further instructions.
 
 The `cli` allows to:
 
-##### 1. Submit proving request via a YAML file, an example can be found in `request.yaml`.
+### 1. Submit a Proving Request via a YAML File
+
+An example can be found in `request.yaml`.
 
 ```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
@@ -100,7 +102,7 @@ You can also add the `--wait` option to wait until the submitted request has bee
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
 ```
 
-##### 2. Request the status of a given proving request:
+### 2. Request the Status of a Given Proving Request
 
 ```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- status 3554585979324098154284013313896898623039163403618679259143
@@ -121,7 +123,7 @@ or when fulfilled:
 2024-09-17T15:10:15.807584Z  INFO cli: Status: Fulfilled
 ```
 
-##### 3. Get the proof of a request
+### 3. Get the Proof of a Request
 
 With the `get-proof` command you can get the Journal and Seal of a fulfilled request:
 
@@ -136,7 +138,7 @@ Should output something like:
 2024-09-17T15:14:01.314302Z  INFO cli: Journal: "0x576564204a756c2020332031343a33373a31322050445420323032340a" - Seal: "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000164578a3cc24cf38d1173509a99db4f70d57ff3a6c43cb2e8552a2a5d252968ba"
 ```
 
-##### 4. Verify a proof of a request
+### 4. Verify a Proof of a Request
 
 With the `verify-proof` subcommand, you can verify a proof for a given request id and image id.
 
@@ -150,7 +152,7 @@ Should output something like:
 2024-10-07T14:50:54.442260Z  INFO cli: Proof for request id 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 verified successfully.
 ```
 
-##### 5. Send an offer with the requirements specified as command line arguments:
+### 5. Send an Offer with the Requirements Specified as Command Line Arguments
 
 With the `submit-offer` subcommand, you can specify the requirements and input as command-line options.
 It will upload the image and input, and place public URLs in the request.
@@ -164,7 +166,7 @@ and the Pinata one will be ignored.
 PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
 ```
 
-##### 6. Slash a request and get back funds
+### 6. Slash a Request and Get Back Funds
 
 With the `slash` subcommand, you can slash a given `request ID` and get a refund of your offer:
 
@@ -174,5 +176,5 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 35545859793240
 
 [boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template
 [boundless-repo]: https://github.com/boundless-xyz/boundless-foundry-template
-[id-deployments-sepolia-testnet]: ../market/deployments#sepolia-testnet
-[local-development]: ../market/local-development
+[id-deployments-sepolia-testnet]: /market/public-deployments#sepolia-testnet
+[local-development]: /market/local-development

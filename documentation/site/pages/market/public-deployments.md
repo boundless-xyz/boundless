@@ -17,5 +17,5 @@ There is no versioning presently, and these addresses may change at any time!
 
 To interact with Boundless on any network see:
 
-- The [requestor broadcasting guide](../requestor-manual/broadcasting#public-networks)
-- The [prover running Bento guide](../prover-manual/bento/running)
+- The [requestor broadcasting guide](/requestor-manual/broadcasting-requests#public-networks)
+- The [prover running Bento guide](/prover-manual/bento/running)

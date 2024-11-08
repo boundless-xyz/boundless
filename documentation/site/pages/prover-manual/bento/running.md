@@ -16,13 +16,11 @@ Under the `exec_agent` service you can configure the segment size with the `--se
 
 Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host. See the `.env-compose` \*\_HOST configuration options here to adjust them.
 
-<div class="warning">
-
+:::warning[Warning]
 TODO: Write more here about how to do multi-host services like gpu-agent / exec-agent
+:::
 
-</div>
-
-## Host setup
+## Host Setup
 
 At this time Ubuntu is the only supported Operating system. Other operating systems _should_ work, but driver support (host Nvidia drivers matching container drivers etc.), compile dependencies, and testing fall to the user to complete.
 
@@ -52,7 +50,7 @@ To stop the boundless service:
 scripts/boundless_service.sh stop
 ```
 
-## Sending a sample proof to the cluster
+## Sending a Sample Proof to the Cluster
 
 Using a simple test vector for testing different cycle counts (via the -c flag):
 

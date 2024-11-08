@@ -1,7 +1,5 @@
 # Prover Manual Overview
 
-<div class="warning">
-
+:::warning[Warning]
 TODO: Write more here about provers
-
-</div>
+:::

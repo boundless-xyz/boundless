@@ -6,9 +6,9 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 
 The proof-market works via a escrow system. Brokers must first deposit some ETH (or SepETH) into the market contract to cover staking during lock-in. It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
 
-### Deposit to the market
+### Deposit to the Market
 
-```bash [Terminal]
+```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
@@ -17,9 +17,9 @@ export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
 RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>
 ```
 
-### Check current balance
+### Check Current Balance
 
-```bash [Terminal]
+```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
@@ -46,11 +46,9 @@ You can omit the `PRIVATE_KEY` env var here and specify your `wallet_address` as
 | allow\_client\_addresses | `[]`          | When defined, acts as a firewall to limit proving only to specific client addresses.                           |
 | lockin\_priority\_gas    | `100`         | Additional gas to add to the base price when locking in stake on a contract to increase priority.              |
 
-<div class="warning">
-
+:::warning[Warning]
 Pay particular attention to quotation for config values, as they matter in TOML.
-
-</div>
+:::
 
 ## Increasing Lock-in Rate
 
@@ -62,14 +60,14 @@ The following examples would be methods of making your Broker more competitive i
 
 Before running Broker you will need to ensure you have setup and are able to run Bento, the documentation for that can be found in [Running Bento][page-bento-running].
 
-```bash [Terminal]
+```sh [Terminal]
 docker compose --profile broker --env-file ./.env-compose up --build
 ```
 
-## Tuning service settings
+## Tuning Service Settings
 
 The `[prover]` settings in `broker.toml` are used to configure the prover service and largely impact the operation of the service rather than the market dynamics.
 
 The most important one to monitor/tune on initial configuration is `txn_timeout`. This is the number of seconds to wait for a transaction to be mined before timing out, if you see timeouts in your logs this can be increased to enable TX operations to chain to finish.
 
-[page-bento-running]: ../bento/running
+[page-bento-running]: /prover-manual/bento/running
