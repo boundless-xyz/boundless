@@ -13,7 +13,7 @@ Before operation Bento (except in basic [local development][page-local-dev] only
 
 A Broker requires a [running Bento instance][page-bento-run], that can be affirmed with a test proof fulfillment:
 
-```bash
+```bash [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
@@ -41,7 +41,7 @@ The following process will guide you through setting up a new wallet and funding
 
 1. Set the environment variables `PRIVATE_KEY`, `SET_VERIFIER_ADDR`,`PROOF_MARKET_ADDR` in `.env-compose`:
 
-```bash
+```bash [Terminal]
 # Prover node configs
 ...
 PRIVATE_KEY=0xYOUR_TEST_WALLET_PRIVATE_KEY_HERE
@@ -54,13 +54,13 @@ RPC_URL="https://rpc.sepolia.org" # This is the RPC URL of the target chain.
 
 2. Load the `.env-compose` file into the environment:
 
-```bash
+```bash [Terminal]
 source .env-compose
 ```
 
 3. The Broker needs to have funds deposited on the Boundless market contract to cover lock-in stake on requests. Run the following command to deposit an initial amount of ETH into the market contract.
 
-```bash
+```bash [Terminal]
 # Set amount in ETH denominated units
 # 0.5 Sepolia ETH should be OK for basic testing
 # BOUNDLESS_DEPOSIT=0.5
@@ -87,14 +87,14 @@ Additionally it is possible to re-drive orders that are "stuck" via the followin
 
 2. Finding the batch that contains the order:
 
-```bash
+```bash [Terminal]
 SELECT id FROM batches WHERE data->>'orders' LIKE '%"TARGET_ORDER_ID"%';
 # Example: SELECT id FROM batches WHERE data->>'orders' LIKE '%"0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000caa"%';
 ```
 
 3. Trigger a rerun of the submitter task:
 
-```bash
+```bash [Terminal]
 UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = YOUR_BATCH_ID_FROM_STEP_2;
 # Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
 ```

@@ -8,11 +8,11 @@ It builds upon the `boundless_market::contracts` library.
 
 ## Local Devnet
 
-To setup a local devnet follow the [local development][local-development] instructions.
+To setup a local devnet follow the [local development guide][local-development].
 
 You can override settings found in `.env` and more to use local devnet settings with by exporting or prefixing commands:
 
-```bash
+```bash [Terminal]
 # Use dev mode in this terminal session
 export RISC0_DEV_MODE=1
 # Use dev mode for this command only
@@ -35,7 +35,7 @@ Before you can interact with any network, you will need to configure an EVM RPC,
 
 You need an RPC provider to interact with any EVM network. [Alchemy](https://www.alchemy.com) supports various EVM networks, so creating a free account there is recommended, but many other options exist. Set the following environment variables according to your chosen RPC:
 
-```bash
+```bash [Terminal]
 export RPC_URL="<SEPOLIA-URL>"
 ```
 
@@ -62,7 +62,7 @@ To interact with [Sepolia's Boundless contracts][id-deployments-sepolia-testnet]
 
 Make sure to export the env variable:
 
-```bash
+```bash [Terminal]
 export PRIVATE_KEY="<YOUR-WALLET-PRIVATE_KEY>"
 ```
 
@@ -74,106 +74,105 @@ See the [CLI usage](#cli-usage) section for further instructions.
 
 The `cli` allows to:
 
-1. Submit proving request via a YAML file, an example can be found in `request.yaml`.
+##### 1. Submit proving request via a YAML file, an example can be found in `request.yaml`.
 
-   ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
-   ```
+```sh
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
+```
 
-   Should output something similar to
+Should output something similar to
 
-   ```txt
-   2024-09-17T15:01:00.213804Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259140)
-   2024-09-17T15:01:00.215374Z DEBUG boundless_market::contracts::proof_market: Calling requestIsLocked(3554585979324098154284013313896898623039163403618679259140)
-   2024-09-17T15:01:00.216056Z  INFO cli: Client addr: 0x90F79bf6EB2c4f870365E785982E1f101E93b906
-   2024-09-17T15:01:00.216085Z DEBUG boundless_market::contracts::proof_market: Calling deposit() value: 2000000000000000
-   2024-09-17T15:01:00.217754Z DEBUG boundless_market::contracts::proof_market: Broadcasting deposit tx 0x001cb8e549af5e7617c9c1eb465d81db3054870c0f197f6e860710f68b8bff91
-   2024-09-17T15:01:00.471591Z DEBUG boundless_market::contracts::proof_market: Submitted deposit 0x001c…ff91
-   2024-09-17T15:01:00.471634Z DEBUG boundless_market::contracts::proof_market: Calling submitRequest(ProvingRequest { id: 3554585979324098154284013313896898623039163403618679259140, requirements: Requirements { imageId: 0x257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d, predicate: Predicate { predicateType: PrefixMatch, data: 0x57656420 } }, imageUrl: "https://dweb.link/ipfs/QmTx3vDKicYG5RxzMxrZEiCQJqhpgYNrSFABdVz9ri2m5P", input: Input { inputType: Inline, data: 0x1d000000570000006500000064000000200000004a000000750000006c0000002000000020000000330000002000000031000000340000003a00000033000000370000003a00000031000000320000002000000050000000440000005400000020000000320000003000000032000000340000000a000000 }, offer: Offer { minPrice: 100000000000000, maxPrice: 2000000000000000, biddingStart: 619, rampUpPeriod: 1000, timeout: 2000, lockinStake: 100000000000000 } })
-   2024-09-17T15:01:00.476867Z DEBUG boundless_market::contracts::proof_market: Broadcasting tx 0xd25d00d87fc57c8c5da47236dd6980fb250ae748f2e38e33f7c17cd3cb968b7e
-   2024-09-17T15:01:02.480340Z  INFO cli: Proving request ID 3554585979324098154284013313896898623039163403618679259140, bidding start at block number 619
-   ```
+```txt
+2024-09-17T15:01:00.213804Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259140)
+2024-09-17T15:01:00.215374Z DEBUG boundless_market::contracts::proof_market: Calling requestIsLocked(3554585979324098154284013313896898623039163403618679259140)
+2024-09-17T15:01:00.216056Z  INFO cli: Client addr: 0x90F79bf6EB2c4f870365E785982E1f101E93b906
+2024-09-17T15:01:00.216085Z DEBUG boundless_market::contracts::proof_market: Calling deposit() value: 2000000000000000
+2024-09-17T15:01:00.217754Z DEBUG boundless_market::contracts::proof_market: Broadcasting deposit tx 0x001cb8e549af5e7617c9c1eb465d81db3054870c0f197f6e860710f68b8bff91
+2024-09-17T15:01:00.471591Z DEBUG boundless_market::contracts::proof_market: Submitted deposit 0x001c…ff91
+2024-09-17T15:01:00.471634Z DEBUG boundless_market::contracts::proof_market: Calling submitRequest(ProvingRequest { id: 3554585979324098154284013313896898623039163403618679259140, requirements: Requirements { imageId: 0x257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d, predicate: Predicate { predicateType: PrefixMatch, data: 0x57656420 } }, imageUrl: "https://dweb.link/ipfs/QmTx3vDKicYG5RxzMxrZEiCQJqhpgYNrSFABdVz9ri2m5P", input: Input { inputType: Inline, data: 0x1d000000570000006500000064000000200000004a000000750000006c0000002000000020000000330000002000000031000000340000003a00000033000000370000003a00000031000000320000002000000050000000440000005400000020000000320000003000000032000000340000000a000000 }, offer: Offer { minPrice: 100000000000000, maxPrice: 2000000000000000, biddingStart: 619, rampUpPeriod: 1000, timeout: 2000, lockinStake: 100000000000000 } })
+2024-09-17T15:01:00.476867Z DEBUG boundless_market::contracts::proof_market: Broadcasting tx 0xd25d00d87fc57c8c5da47236dd6980fb250ae748f2e38e33f7c17cd3cb968b7e
+2024-09-17T15:01:02.480340Z  INFO cli: Proving request ID 3554585979324098154284013313896898623039163403618679259140, bidding start at block number 619
+```
 
-   ````
-   You can also add the `--wait` option to wait until the submitted request has been fulfilled:
+You can also add the `--wait` option to wait until the submitted request has been fulfilled:
 
-   ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
-   ````
+```sh
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
+```
 
-2. Request the status of a given proving request:
+##### 2. Request the status of a given proving request:
 
-   ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- status 3554585979324098154284013313896898623039163403618679259143
-   ```
+```sh
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- status 3554585979324098154284013313896898623039163403618679259143
+```
 
-   While not fulfilled, this will print something like
+While not fulfilled, this will print something like
 
-   ```txt
-   2024-09-17T15:07:50.598471Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
-   2024-09-17T15:07:50.598873Z DEBUG boundless_market::contracts::proof_market: Calling requestIsLocked(3554585979324098154284013313896898623039163403618679259143)
-   2024-09-17T15:07:50.599142Z  INFO cli: Status: Locked
-   ```
+```txt
+2024-09-17T15:07:50.598471Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
+2024-09-17T15:07:50.598873Z DEBUG boundless_market::contracts::proof_market: Calling requestIsLocked(3554585979324098154284013313896898623039163403618679259143)
+2024-09-17T15:07:50.599142Z  INFO cli: Status: Locked
+```
 
-   or when fulfilled:
+or when fulfilled:
 
-   ```txt
-   2024-09-17T15:10:15.807123Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
-   2024-09-17T15:10:15.807584Z  INFO cli: Status: Fulfilled
-   ```
+```txt
+2024-09-17T15:10:15.807123Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
+2024-09-17T15:10:15.807584Z  INFO cli: Status: Fulfilled
+```
 
-3. Get the proof of a request
+##### 3. Get the proof of a request
 
-   With the `get-proof` command you can get the Journal and Seal of a fulfilled request:
+With the `get-proof` command you can get the Journal and Seal of a fulfilled request:
 
-   ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- get-proof 3554585979324098154284013313896898623039163403618679259143
-   ```
+```sh
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- get-proof 3554585979324098154284013313896898623039163403618679259143
+```
 
-   Should output something like:
+Should output something like:
 
-   ```txt
-   2024-09-17T15:14:01.312995Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
-   2024-09-17T15:14:01.314302Z  INFO cli: Journal: "0x576564204a756c2020332031343a33373a31322050445420323032340a" - Seal: "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000164578a3cc24cf38d1173509a99db4f70d57ff3a6c43cb2e8552a2a5d252968ba"
-   ```
+```txt
+2024-09-17T15:14:01.312995Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
+2024-09-17T15:14:01.314302Z  INFO cli: Journal: "0x576564204a756c2020332031343a33373a31322050445420323032340a" - Seal: "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000164578a3cc24cf38d1173509a99db4f70d57ff3a6c43cb2e8552a2a5d252968ba"
+```
 
-4. Verify a proof of a request
+##### 4. Verify a proof of a request
 
-   With the `verify-proof` subcommand, you can verify a proof for a given request id and image id.
+With the `verify-proof` subcommand, you can verify a proof for a given request id and image id.
 
-   ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- verify-proof 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d
-   ```
+```sh
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- verify-proof 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d
+```
 
-   Should output something like:
+Should output something like:
 
-   ```sh
-   2024-10-07T14:50:54.442260Z  INFO cli: Proof for request id 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 verified successfully.
-   ```
+```sh
+2024-10-07T14:50:54.442260Z  INFO cli: Proof for request id 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 verified successfully.
+```
 
-5. Send an offer with the requirements specified as command line arguments:
+##### 5. Send an offer with the requirements specified as command line arguments:
 
-   With the `submit-offer` subcommand, you can specify the requirements and input as command-line options.
-   It will upload the image and input, and place public URLs in the request.
+With the `submit-offer` subcommand, you can specify the requirements and input as command-line options.
+It will upload the image and input, and place public URLs in the request.
 
-   Images and (optionally) input can be hosted on IPFS via [Pinata](https://pinata.cloud).
-   In order to use this command, setup an account with Pinata and provide your JWT API key.
-   If instead the env variable `RISC0_DEV_MODE` is enabled, a temporary file storage provider will be used,
-   and the Pinata one will be ignored.
+Images and (optionally) input can be hosted on IPFS via [Pinata](https://pinata.cloud).
+In order to use this command, setup an account with Pinata and provide your JWT API key.
+If instead the env variable `RISC0_DEV_MODE` is enabled, a temporary file storage provider will be used,
+and the Pinata one will be ignored.
 
-   ```sh
-   PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
-   ```
+```sh
+PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
+```
 
-6. Slash a request and get back funds
+##### 6. Slash a request and get back funds
 
-   With the `slash` subcommand, you can slash a given `request ID` and get a refund of your offer:
+With the `slash` subcommand, you can slash a given `request ID` and get a refund of your offer:
 
-   ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
-   ```
+```sh
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
+```
 
 [boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template
 [boundless-repo]: https://github.com/boundless-xyz/boundless-foundry-template
 [id-deployments-sepolia-testnet]: ../market/deployments.md#sepolia-testnet
-[local-development]: ../market/local-development.md
+[local-development]: ../market/local-development

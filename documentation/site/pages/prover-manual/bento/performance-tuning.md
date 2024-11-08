@@ -27,7 +27,7 @@ Both of these tools warrant a decent size terminal window on your desktop to mon
 
 Operating competing workloads on the same system as your Bento deployment can lead to unpredictable results. We recommend isolating your test system from other workloads to ensure that the performance tuning results are consistent and reliable. This includes stopping configured [Broker][page-broker] services:
 
-```bash
+```bash [Terminal]
 docker ps
 docker stop <BROKER_CONTAINER_ID>
 ```
@@ -38,13 +38,13 @@ Alternatively you can modify your `scripts/boundless_service.sh` to remove `--pr
 
 It is preferable to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate. To try a realistic example:
 
-```bash
+```bash [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -f /path/to/elf -i /path/to/input`
 ```
 
 If you intend to operate across a variety of different workloads (such as those that may be fed by [Broker][page-broker]) you can also use the following command to generate a synthetic workload:
 
-```bash
+```bash [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c <ITERATION_COUNT>
 ```
 
@@ -58,7 +58,7 @@ The typical test process will be:
 
 Example test run of 1024 iterations:
 
-```bash
+```bash [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 1024
 ```
 
@@ -71,7 +71,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 1024
 2024-10-17T15:27:58.513718Z  INFO bento_cli: Job done!
 ```
 
-```bash
+```bash [Terminal]
 echo 895a996b-b0fa-4fc8-ae7a-ba92eeb6b0b1 | bash scripts/job_status.sh
 ```
 
@@ -138,7 +138,7 @@ Once you have selected a `MAXIMUM` segment size you should verify that the GPU d
 
 In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` docker logs to determine the cause of the failure (note boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running):
 
-```bash
+```bash [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 

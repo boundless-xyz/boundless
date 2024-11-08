@@ -2,10 +2,8 @@
 
 The Boundless Market's contracts are deployed only on [Sepolia](#sepolia) so far, with more to be determined.
 
-:::warning
-## Sepolia Testnet
-
-NOTE: there is no versioning presently, and these addresses may change at any time!
+:::warning[Sepolia Testnet]
+There is no versioning presently, and these addresses may change at any time!
 :::
 
 | Contract Name            | Contract Address                                                                                                              |

@@ -8,7 +8,7 @@ The proof-market works via a escrow system. Brokers must first deposit some ETH 
 
 ### Deposit to the market
 
-```bash
+```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
@@ -19,7 +19,7 @@ RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>
 
 ### Check current balance
 
-```bash
+```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
@@ -62,7 +62,7 @@ The following examples would be methods of making your Broker more competitive i
 
 Before running Broker you will need to ensure you have setup and are able to run Bento, the documentation for that can be found in [Running Bento][page-bento-running].
 
-```bash
+```bash [Terminal]
 docker compose --profile broker --env-file ./.env-compose up --build
 ```
 

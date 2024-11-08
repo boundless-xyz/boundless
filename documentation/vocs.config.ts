@@ -49,6 +49,10 @@ export default defineConfig({
           text: "Bento",
           items: [
             {
+              text: "Introduction",
+              link: "/prover-manual/bento/introduction",
+            },
+            {
               text: "Running",
               link: "/prover-manual/bento/running",
             },
