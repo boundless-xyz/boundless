@@ -7,7 +7,7 @@ description: This guide covers the monitoring of the Bento and Broker services.
 
 ## Grafana
 
-The bento / broker docker compose including a grafana instance with some template dashboards.
+The bento / broker Docker compose including a grafana instance with some template dashboards.
 
 In order to access them, grafana is hosted at `http://localhost:3000`. Default credentials are defined in `.env-compose` as `admin:admin`
 

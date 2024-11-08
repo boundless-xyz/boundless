@@ -1,12 +1,12 @@
 ---
 title: Running Bento
-description: Bento is a docker compose stack containing all the services to run a Bento cluster on a single or many machines.
+description: Bento is a Docker compose stack containing all the services to run a Bento cluster on a single or many machines.
 ---
 
 # Running Bento
 
-Bento is a docker compose stack containing all the services to run a Bento cluster on a single or many machines.
-It includes docker build files for internal services as well as external images for `postgres/redis/grafana/minio` for support services.
+Bento is a Docker compose stack containing all the services to run a Bento cluster on a single or many machines.
+It includes Docker build files for internal services as well as external images for `postgres/redis/grafana/minio` for support services.
 
 ## Dependencies
 
@@ -37,7 +37,7 @@ scripts/setup.sh
 
 ## Running
 
-To build and spin up a Bento cluster locally using docker:
+To build and spin up a Bento cluster locally using Docker:
 
 ```sh [Terminal]
 docker compose --env-file ./.env-compose up --build

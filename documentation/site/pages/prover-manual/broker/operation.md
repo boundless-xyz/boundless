@@ -86,7 +86,7 @@ If on the indexer you see your broker having a high number of orders locked-in b
 
 Additionally it is possible to re-drive orders that are "stuck" via the following:
 
-1. Manually connect to the sqlite DB for broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` docker volume
+1. Manually connect to the sqlite DB for broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` Docker volume
 
 2. Finding the batch that contains the order:
 

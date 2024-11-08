@@ -13,7 +13,7 @@ Bento performance is tightly couples to the specific environment, equipment, and
 
 ## Build Configuration
 
-The `NVCC_APPEND_FLAGS` docker build arg (found in \`compose.yml->services->exec\_agent->build->args) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards)
+The `NVCC_APPEND_FLAGS` Docker build arg (found in `compose.yml -> services -> exec_agent -> build -> args`) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards)
 
 You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the exec\_agent build args. A value of `3` might yield slightly better performance (a few %) but much longer build times.
 
@@ -137,7 +137,7 @@ The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env-compose
 
 Once you have selected a `MAXIMUM` segment size you should verify that the GPU does in fact have enough memory to complete.
 
-In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` docker logs to determine the cause of the failure (note Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running):
+In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` Docker logs to determine the cause of the failure (note Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running):
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
