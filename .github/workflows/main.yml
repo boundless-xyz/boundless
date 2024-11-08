@@ -145,7 +145,8 @@ jobs:
       - name: run lychee
         # lychee does not respect the .gitignore natively
         # https://github.com/lycheeverse/lychee/issues/470#issuecomment-1094690229
-        run: git ls-files '*.md' | xargs lychee --base . --cache --
+        # don't run on `documentation` folder, it has it's own checker for links
+        run: git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
 
       - name: save lychee cache
         uses: actions/cache/save@v4

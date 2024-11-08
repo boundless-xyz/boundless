@@ -11,9 +11,10 @@ Below is a diagram of the interaction flow assuming a user with a wallet is driv
 
 ![Boundless market diagram](/boundless_market_diagram.png)
 
-[Diagram source](https://excalidraw.com/#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q)
+[Diagram source](https://excalidraw.com#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q)
 
 :::steps
+
 ### Step1
 
 [Requestor][term-requestor] broadcasts their proof request to make it available to all provers.
@@ -51,6 +52,7 @@ Requestor fetches the Merkle inclusion path, which acts as their receipt seal fr
 ### Step 8
 
 Requestor sends a transaction to complete their application flow, with authentication provided by the receipt.
+
 :::
 
 ## Market Contract and Guest
@@ -393,7 +395,7 @@ After the Assessor is executed and proven, it is added to a running batch for ef
 
 ![Assessor diagram](/assessor.png)
 
-[Diagram source](https://excalidraw.com/#json=7Zh4h6tXCY2mR2NLW8DvF,ixQZR3mEgm4Z5w6vtT86Xg)
+[Diagram source](https://excalidraw.com#json=7Zh4h6tXCY2mR2NLW8DvF,ixQZR3mEgm4Z5w6vtT86Xg)
 
 [page-market-design]: /market/market-matching-design
 [r0-term-elf-binary]: https://dev.risczero.com/terminology#elf-binary

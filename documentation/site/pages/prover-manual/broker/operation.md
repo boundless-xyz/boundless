@@ -6,10 +6,12 @@ description: This guide covers the operation of the Broker service.
 # Broker Operation
 
 :::warning[Warning]
+
 Before operation Bento (except in basic [local development][page-local-dev] only), we highly suggest:
 
 1. [Optimizing Bento performance][page-bento-perf] you will connect the Broker to
 2. Researching the best [configuration][page-broker-config] options fitting your specific needs
+
 :::
 
 ## Connect a Bento Instance
