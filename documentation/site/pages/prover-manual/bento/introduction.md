@@ -24,11 +24,11 @@ Bento can run on a single machine with a single GPU with as low as 4GB of VRAM, 
 
 Bento's infrastructure is composed of a few core open source projects:
 
-- [Docker](https://docs.docker.com/get-started/docker-overview/)
-- [PostgreSQL](https://www.postgresql.org/)
-- [Redis](https://redis.io/)
-- [MinIO](https://min.io/)
-- [Grafana](https://grafana.com/) (optional for monitoring)
+- [Docker](https://docs.docker.com/get-started/docker-overview)
+- [PostgreSQL](https://www.postgresql.org)
+- [Redis](https://redis.io)
+- [MinIO](https://min.io)
+- [Grafana](https://grafana.com) (optional for monitoring)
 
 ### Bento Components
 
@@ -73,7 +73,7 @@ In order to share intermediate files (such as Segments) between workers, Redis i
 
 <div class="warning">
 
-Note: The Redis node's memory configuration is important for the size of proofs running. Because each segment is ~5 - 10 MB in size it is possible to overload Redis's node memory with too much data if the STARK proof is large enough and the GPU workers are not consuming the segments fast enough.
+Note: The Redis node's memory configuration is important for the size of proofs running. Because each segment is \~5 - 10 MB in size it is possible to overload Redis's node memory with too much data if the STARK proof is large enough and the GPU workers are not consuming the segments fast enough.
 
 We recommend a high memory node for the Redis container as well as active monitoring / alerts (See Grafana for monitor) on the Redis node to ensure it does not overflow the possible memory.
 
@@ -128,9 +128,9 @@ Then each stream has settings for priority multiplier and dedicated resources de
 
 The GPU agent does the heavy lifting of proving itself. Work is broken into powers of 2 segments sizes (128K, 256K, 500K, 1M, 2M, 4M cycles). Which GPU you have will dictate which power of 2 you will select. As a general rule of thumb:
 
-- 1mcycle (1 million cycles) requires 9~10GB of GPU VRAM
-- 2mcycle (2 million cycles) requires 17~18GB of GPU VRAM
-- 4mcycle (4 million cycles) requires 32~34GB of GPU VRAM
+- 1mcycle (1 million cycles) requires 9\~10GB of GPU VRAM
+- 2mcycle (2 million cycles) requires 17\~18GB of GPU VRAM
+- 4mcycle (4 million cycles) requires 32\~34GB of GPU VRAM
 
 ### More on SNARK
 

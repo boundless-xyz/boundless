@@ -11,10 +11,10 @@ Below is a diagram of the interaction flow assuming a user with a wallet is driv
 
 </figure>
 
-::::steps
+:::steps
 ##### Step1
 
- [Requestor][term-requestor] broadcasts their proof request to make it available to all provers.
+[Requestor][term-requestor] broadcasts their proof request to make it available to all provers.
 
 ##### Step 2
 
@@ -37,7 +37,7 @@ Prover produces the receipt:
 ##### Step 5
 
 Prover sends a transaction to post the set commitment (i.e. Merkle root) to the set verifier contract.
-  
+
 ##### Step 6
 
 Prover sends a transaction to the market contract to post the Merkle inclusion proof for the application and Assessor receipts in the batch, and to fulfill the request. At this point, the prover has delivered the requested proof and is paid for their work.
@@ -49,7 +49,7 @@ Requestor fetches the Merkle inclusion path, which acts as their receipt seal fr
 ##### Step 8
 
 Requestor sends a transaction to complete their application flow, with authentication provided by the receipt.
-::::
+:::
 
 ### Market contract and guest
 

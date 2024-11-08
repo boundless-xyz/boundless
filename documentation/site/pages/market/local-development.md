@@ -3,27 +3,27 @@
 To develop Boundless applications both as a requestor and prover, a running Market is required.
 The workflow is generally:
 
-::::steps
-##### Step 1 
+:::steps
+##### Step 1
 
 (One-time [Install](#install-boundless))
 
-##### Step 2 
+##### Step 2
 
 [Spin up a devnet](#run-a-market-devnet)
 
-##### Step 3 
+##### Step 3
 
 [Submit proof requests](#submit-proof-requests)
 
-##### Step 4 
+##### Step 4
 
 Tweak you app & submit more requests
 
-##### Step 5 
+##### Step 5
 
 [Tear down the devnet](#tear-down)
-::::
+:::
 
 To accelerate development, there are helpful utilities provided:
 
