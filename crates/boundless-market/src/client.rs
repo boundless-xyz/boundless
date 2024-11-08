@@ -259,6 +259,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         proof_market_address: Address,
         set_verifier_address: Address,
         order_stream_url: Url,
+        storage_provider: BuiltinStorageProvider,
     ) -> Result<Self, ClientError> {
         let caller = private_key.address();
         let signer = private_key.clone();
@@ -268,8 +269,6 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
 
         let proof_market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
-
-        let storage_provider = storage_provider_from_env().await?;
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         let offchain_client = OrderStreamClient::new(
