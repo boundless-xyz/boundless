@@ -141,8 +141,8 @@ export default defineConfig({
 					dark: "#1e1d1f",
 				},
 				background: {
-					light: "#FFFFFF", // White
-					dark: "#000000", // Black
+					light: "#F7F7F7",
+					dark: "#232225",
 				},
 			},
 			content: {
