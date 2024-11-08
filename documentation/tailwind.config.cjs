@@ -5,8 +5,9 @@ const config = deepmerge(tailwindConfig, {
 	theme: {
 		extend: {
 			fontFamily: {
-				sans: ["var(--font-noto-sans)", "system-ui"],
-				mono: ["var(--font-ubuntu-mono)"],
+				serif: ["var(--font-self-modern)", "system-ui"],
+				sans: ["var(--font-replica)", "system-ui"],
+				mono: ["var(--font-ubuntu-mono)", "monospace"],
 			},
 		},
 	},

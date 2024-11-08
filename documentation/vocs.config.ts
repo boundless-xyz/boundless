@@ -2,7 +2,6 @@ import { defineConfig } from "vocs";
 
 export default defineConfig({
 	font: {
-		google: "Noto Sans",
 		mono: {
 			google: "Ubuntu Mono",
 		},
@@ -126,6 +125,7 @@ export default defineConfig({
 	],
 	rootDir: "site",
 	title: "Boundless Docs",
+	logoUrl: "/logo.png",
 	ogImageUrl:
 		"https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
 });
