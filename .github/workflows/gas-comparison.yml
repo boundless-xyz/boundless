@@ -74,7 +74,7 @@ jobs:
         
       - name: Compare Gas Reports
         run: |
-          echo "# Gas Cost Comparison for `${GITHUB_HEAD_REF}` vs `main`" > gas-comparison.md
+          echo "# Gas Cost Comparison for \`${GITHUB_HEAD_REF}\` vs \`main\`" > gas-comparison.md
           echo "" >> gas-comparison.md
           echo '```diff' >> gas-comparison.md
 
