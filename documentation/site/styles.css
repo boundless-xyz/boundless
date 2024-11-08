@@ -114,6 +114,10 @@ body {
   @apply bg-inherit;
 }
 
+.vocs_Logo {
+  @apply object-contain;
+}
+
 /*.vocs_H1,
 .vocs_H2,
 .vocs_H3,
