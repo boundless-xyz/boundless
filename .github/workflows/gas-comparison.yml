@@ -17,7 +17,7 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  files-changed:
+  contracts-changed:
     runs-on: ubuntu-latest
     outputs:
       contracts: ${{ steps.changes.outputs.contracts }}
@@ -35,8 +35,8 @@ jobs:
 
   gas-comparison:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
-    needs: files-changed
-    if: needs.files-changed.outputs.contracts == 'true'
+    needs: contracts-changed
+    if: needs.contracts-changed.outputs.contracts == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
