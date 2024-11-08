@@ -319,8 +319,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Status: {:?}", status);
         }
         Command::Execute { request_id, tx_hash } => {
-            let (request, _) =
-                client.proof_market.get_submitted_request(request_id, tx_hash).await?;
+            let (request, _) = proof_market.get_submitted_request(request_id, tx_hash).await?;
             let session_info = execute(&request).await?;
             let journal = session_info.journal.bytes;
             if !request.requirements.predicate.eval(&journal) {
