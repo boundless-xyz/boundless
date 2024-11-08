@@ -2,7 +2,10 @@ import { readFile } from "node:fs/promises";
 import { glob } from "glob";
 
 // Add ignore list configuration
-const IGNORED_URL_PREFIXES = new Set(["https://github.com/boundless-xyz"]);
+const IGNORED_URL_PREFIXES = new Set([
+	"https://github.com/boundless-xyz",
+	"https://sepolia.etherscan.io",
+]);
 
 async function checkRemoteUrl(url: string): Promise<boolean> {
 	// Check if URL starts with any of the ignored prefixes
