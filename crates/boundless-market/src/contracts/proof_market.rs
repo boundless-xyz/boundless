@@ -602,6 +602,58 @@ where
         Err(MarketError::ProofNotFound(request_id))
     }
 
+    /// Query the RequestSubmitted event based on request ID and block options.
+    /// For each iteration, we query a range of blocks.
+    /// If the event is not found, we move the range down and repeat until we find the event.
+    /// If the event is not found after the configured max iterations, we return an error.
+    /// The default range is set to 100 blocks for each iteration, and the default maximum number of
+    /// iterations is 100. This means that the search will cover a maximum of 10,000 blocks.
+    /// Optionally, you can specify a lower and upper bound to limit the search range.
+    async fn query_request_submitted_event(
+        &self,
+        request_id: U256,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
+    ) -> Result<(ProvingRequest, Bytes), MarketError> {
+        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block().await?);
+        let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
+            self.event_query_config.block_range * self.event_query_config.max_iterations,
+        ));
+
+        // Loop to progressively search through blocks
+        for _ in 0..self.event_query_config.max_iterations {
+            // If the current end block is less than or equal to the starting block, stop searching
+            if upper_block <= start_block {
+                break;
+            }
+
+            // Calculate the block range to query: from [lower_block] to [upper_block]
+            let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
+
+            // Set up the event filter for the specified block range
+            let mut event_filter = self.instance.RequestSubmitted_filter();
+            event_filter.filter = event_filter
+                .filter
+                .topic1(request_id)
+                .from_block(lower_block)
+                .to_block(upper_block);
+
+            // Query the logs for the event
+            let logs = event_filter.query().await?;
+
+            // If we find a log, return the journal and seal
+            if let Some((log, _)) = logs.first() {
+                return Ok((log.request.clone(), log.clientSignature.clone()));
+            }
+
+            // Move the upper_block down for the next iteration
+            upper_block = lower_block.saturating_sub(1);
+        }
+
+        // Return error if no logs are found after all iterations
+        Err(MarketError::ProofNotFound(request_id))
+    }
+
     /// Returns journal and seal if the request is fulfilled.
     pub async fn get_request_fulfillment(
         &self,
@@ -612,6 +664,33 @@ where
             ProofStatus::Fulfilled => self.query_fulfilled_event(request_id, None, None).await,
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
+    }
+
+    /// Returns journal and seal if the request is fulfilled.
+    pub async fn get_submitted_request(
+        &self,
+        request_id: U256,
+        tx_hash: Option<B256>,
+    ) -> Result<(ProvingRequest, Bytes), MarketError> {
+        if let Some(tx_hash) = tx_hash {
+            let receipt = self
+                .instance
+                .provider()
+                .get_transaction_receipt(tx_hash)
+                .await
+                .context("Failed to get transaction receipt")?
+                .context("Transaction not found")?;
+            let logs = receipt.inner.logs().iter().filter_map(|log| {
+                let log = log.log_decode::<IProofMarket::RequestSubmitted>();
+                log.ok()
+            });
+            for log in logs {
+                if U256::from(log.inner.data.request.id) == request_id {
+                    return Ok((log.inner.data.request, log.inner.data.clientSignature));
+                }
+            }
+        }
+        self.query_request_submitted_event(request_id, None, None).await
     }
 
     /// Returns journal and seal if the request is fulfilled.
