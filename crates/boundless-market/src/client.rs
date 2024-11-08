@@ -86,7 +86,14 @@ where
         signer: LocalSigner<SigningKey>,
         storage_provider: S,
         offchain_client: OrderStreamClient,
+        tx_timeout: Option<std::time::Duration>,
     ) -> Self {
+        let mut proof_market = proof_market.clone();
+        let mut set_verifier = set_verifier.clone();
+        if let Some(timeout) = tx_timeout {
+            proof_market = proof_market.with_timeout(timeout);
+            set_verifier = set_verifier.with_timeout(timeout);
+        }
         Self { proof_market, set_verifier, signer, storage_provider, offchain_client }
     }
 
@@ -98,6 +105,17 @@ where
     /// Get the caller address
     pub fn caller(&self) -> Address {
         self.signer.address()
+    }
+
+    pub fn with_timeout(self, tx_timeout: std::time::Duration) -> Self {
+        Self::new(
+            self.proof_market,
+            self.set_verifier,
+            self.signer,
+            self.storage_provider,
+            self.offchain_client,
+            Some(tx_timeout),
+        )
     }
 
     /// Upload an image to the storage provider

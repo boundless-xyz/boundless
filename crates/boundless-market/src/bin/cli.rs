@@ -11,7 +11,7 @@ use alloy::{
         utils::{format_ether, parse_ether},
         Address, Bytes, B256, U256,
     },
-    providers::Provider,
+    providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::Transport,
 };
@@ -19,6 +19,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use guest_util::ECHO_ELF;
 use hex::FromHex;
+use risc0_ethereum_contracts::IRiscZeroVerifier;
 use risc0_zkvm::{
     default_executor,
     sha::{Digest, Digestible},
@@ -28,8 +29,13 @@ use url::Url;
 
 use boundless_market::{
     client::Client,
-    contracts::{Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements},
-    storage::{storage_provider_from_env, StorageProvider},
+    contracts::{
+        proof_market::ProofMarketService, Input, InputType, Offer, Predicate, PredicateType,
+        ProvingRequest, Requirements,
+    },
+    storage::{
+        storage_provider_from_env, BuiltinStorageProvider, StorageProvider, TempFileStorageProvider,
+    },
 };
 
 // TODO(victor): Update corresponding docs
@@ -166,16 +172,25 @@ struct SubmitOfferRequirements {
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct MainArgs {
+    /// URL of the Ethereum RPC endpoint
     #[clap(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
-    #[clap(long, env)]
+    /// URL of the order stream service
+    #[clap(long, env, default_value = "http://localhost:8585")]
     order_stream_url: Url,
+    /// Private key of the wallet
     #[clap(long, env)]
     private_key: PrivateKeySigner,
+    /// Address of the proof market contract
     #[clap(short, long, env)]
     proof_market_address: Address,
+    /// Address of the SetVerifier contract
     #[clap(short, long, env)]
     set_verifier_address: Address,
+    /// Tx timeout in seconds
+    #[clap(long, env)]
+    tx_timeout: Option<u64>,
+    /// Subcommand to run
     #[command(subcommand)]
     command: Command,
 }
@@ -193,62 +208,95 @@ async fn main() -> Result<()> {
     }
 
     let args = MainArgs::try_parse()?;
+    run(&args).await.unwrap();
 
-    let client = Client::from_parts(
-        args.private_key.clone(),
-        args.rpc_url.clone(),
-        args.proof_market_address,
-        args.set_verifier_address,
-        args.order_stream_url.clone(),
-        storage_provider_from_env().await?,
-    )
-    .await
-    .context("Failed to create client")?;
-
-    run(&args, client).await.unwrap();
     Ok(())
 }
 
-pub(crate) async fn run<T, P, S>(args: &MainArgs, client: Client<T, P, S>) -> Result<Option<U256>>
-where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
-    S: StorageProvider + Clone,
-{
+pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
+    let caller = args.private_key.address();
+    let signer = args.private_key.clone();
+    let wallet = EthereumWallet::from(args.private_key.clone());
+    let provider = ProviderBuilder::new()
+        .with_recommended_fillers()
+        .wallet(wallet)
+        .on_http(args.rpc_url.clone());
+    let mut proof_market =
+        ProofMarketService::new(args.proof_market_address, provider.clone(), caller);
+    if let Some(tx_timeout) = args.tx_timeout {
+        proof_market = proof_market.with_timeout(Duration::from_secs(tx_timeout));
+    }
+
     let command = args.command.clone();
 
     let mut request_id = None;
     match command {
         Command::Deposit { amount } => {
-            client.proof_market.deposit(amount).await?;
+            proof_market.deposit(amount).await?;
             tracing::info!("Deposited: {}", format_ether(amount));
         }
         Command::Withdraw { amount } => {
-            client.proof_market.withdraw(amount).await?;
+            proof_market.withdraw(amount).await?;
             tracing::info!("Withdrew: {}", format_ether(amount));
         }
         Command::Balance { address } => {
-            let addr = address.unwrap_or(client.signer.address());
-            let balance = client.proof_market.balance_of(addr).await?;
+            let addr = address.unwrap_or(caller);
+            let balance = proof_market.balance_of(addr).await?;
             tracing::info!("Balance of {addr}: {}", format_ether(balance));
         }
-        Command::SubmitOffer(args) => {
-            request_id = submit_offer(client.clone(), &args).await?;
+        Command::SubmitOffer(offer_args) => {
+            let storage_provider = if cfg!(test) {
+                BuiltinStorageProvider::File(TempFileStorageProvider::new().await?)
+            } else {
+                storage_provider_from_env().await?
+            };
+            let mut client = Client::from_parts(
+                signer.clone(),
+                args.rpc_url.clone(),
+                args.proof_market_address,
+                args.set_verifier_address,
+                args.order_stream_url.clone(),
+                storage_provider,
+            )
+            .await?;
+            if let Some(tx_timeout) = args.tx_timeout {
+                client = client.with_timeout(Duration::from_secs(tx_timeout));
+            }
+
+            request_id = submit_offer(client, &offer_args).await?;
         }
         Command::SubmitRequest { yaml_request, id, wait, offchain, dry_run } => {
             let id = match id {
                 Some(id) => id,
-                None => client.proof_market.index_from_rand().await?,
+                None => proof_market.index_from_rand().await?,
             };
-            request_id =
-                submit_request(id, yaml_request, client.clone(), wait, offchain, dry_run).await?;
+
+            let storage_provider = if cfg!(test) {
+                BuiltinStorageProvider::File(TempFileStorageProvider::new().await?)
+            } else {
+                storage_provider_from_env().await?
+            };
+            let mut client = Client::from_parts(
+                signer.clone(),
+                args.rpc_url.clone(),
+                args.proof_market_address,
+                args.set_verifier_address,
+                args.order_stream_url.clone(),
+                storage_provider,
+            )
+            .await?;
+            if let Some(tx_timeout) = args.tx_timeout {
+                client = client.with_timeout(Duration::from_secs(tx_timeout));
+            }
+
+            request_id = submit_request(id, yaml_request, client, wait, offchain, dry_run).await?;
         }
         Command::Slash { request_id } => {
-            client.proof_market.slash(request_id).await?;
+            proof_market.slash(request_id).await?;
             tracing::info!("Request slashed: 0x{request_id:x}");
         }
         Command::GetProof { request_id } => {
-            let (journal, seal) = client.proof_market.get_request_fulfillment(request_id).await?;
+            let (journal, seal) = proof_market.get_request_fulfillment(request_id).await?;
             tracing::info!(
                 "Journal: {} - Seal: {}",
                 serde_json::to_string_pretty(&journal)?,
@@ -256,13 +304,18 @@ where
             );
         }
         Command::VerifyProof { request_id, image_id } => {
-            let (journal, seal) = client.proof_market.get_request_fulfillment(request_id).await?;
+            let (journal, seal) = proof_market.get_request_fulfillment(request_id).await?;
             let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
-            client.set_verifier.verify(seal, image_id, journal_digest).await?;
+            let set_verifier = IRiscZeroVerifier::new(args.set_verifier_address, provider.clone());
+            set_verifier
+                .verify(seal, image_id, journal_digest)
+                .call()
+                .await
+                .map_err(|_| anyhow::anyhow!("Verification failed"))?;
             tracing::info!("Proof for request id 0x{request_id:x} verified successfully.");
         }
         Command::Status { request_id, expires_at } => {
-            let status = client.proof_market.get_status(request_id, expires_at).await?;
+            let status = proof_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
         }
         Command::Execute { request_id, tx_hash } => {
@@ -524,10 +577,7 @@ mod tests {
     use super::*;
 
     use alloy::node_bindings::Anvil;
-    use boundless_market::{
-        contracts::test_utils::TestCtx,
-        storage::{BuiltinStorageProvider, TempFileStorageProvider},
-    };
+    use boundless_market::contracts::test_utils::TestCtx;
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
@@ -545,28 +595,17 @@ mod tests {
             proof_market_address: ctx.proof_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
             order_stream_url: Url::parse("http://localhost:8080").unwrap(),
+            tx_timeout: None,
             command: Command::Deposit { amount: U256::from(100) },
         };
 
-        let client = Client::from_parts(
-            args.private_key.clone(),
-            args.rpc_url.clone(),
-            args.proof_market_address,
-            args.set_verifier_address,
-            args.order_stream_url.clone(),
-            BuiltinStorageProvider::File(TempFileStorageProvider::new().await.unwrap()),
-        )
-        .await
-        .context("Failed to create client")
-        .unwrap();
-
-        run(&args, client.clone()).await.unwrap();
+        run(&args).await.unwrap();
 
         let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
         assert_eq!(balance, U256::from(100));
 
         args.command = Command::Withdraw { amount: U256::from(100) };
-        run(&args, client).await.unwrap();
+        run(&args).await.unwrap();
 
         let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
         assert_eq!(balance, U256::from(0));
@@ -587,6 +626,7 @@ mod tests {
             proof_market_address: ctx.proof_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
             order_stream_url: Url::parse("http://localhost:8080").unwrap(),
+            tx_timeout: None,
             command: Command::SubmitRequest {
                 yaml_request: "../../request.yaml".to_string(),
                 id: None,
@@ -596,19 +636,7 @@ mod tests {
             },
         };
 
-        let client = Client::from_parts(
-            args.private_key.clone(),
-            args.rpc_url.clone(),
-            args.proof_market_address,
-            args.set_verifier_address,
-            args.order_stream_url.clone(),
-            BuiltinStorageProvider::File(TempFileStorageProvider::new().await.unwrap()),
-        )
-        .await
-        .context("Failed to create client")
-        .unwrap();
-
-        let result = timeout(Duration::from_secs(60), run(&args, client.clone())).await;
+        let result = timeout(Duration::from_secs(60), run(&args)).await;
 
         let request_id = match result {
             Ok(run_result) => match run_result {
@@ -624,6 +652,6 @@ mod tests {
 
         // GetStatus
         args.command = Command::Status { request_id, expires_at: None };
-        run(&args, client).await.unwrap();
+        run(&args).await.unwrap();
     }
 }
