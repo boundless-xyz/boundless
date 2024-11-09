@@ -37,9 +37,3 @@ bun run dev
 
 1. Create your feature branch
 2. Submit a pull request with your changes
-
----
-
-## Need Help?
-
-- Ask `@cohan` on Slack
