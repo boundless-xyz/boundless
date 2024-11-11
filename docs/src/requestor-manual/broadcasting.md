@@ -130,6 +130,30 @@ The `cli` allows to:
    2024-09-17T15:10:15.807584Z  INFO cli: Status: Fulfilled
    ```
 
+   - You can check your proof request status on the [Boundless indexer]
+
+   - Locally executing a submitted request: with the `execute` subcommand, you can locally execute a given `request ID` to check if a submitted request is actually provable:
+
+     ```sh
+     RUST_LOG=info,boundless_market=debug cargo run --bin cli -- execute 0x90f79bf6eb2c4f870365e785982e1f101e93b906eb47a9c3
+     ```
+
+     Should output something like:
+
+     ```sh
+     2024-11-08T11:40:08.050192Z  INFO risc0_zkvm::host::server::exec::executor: execution time: 1.438583ms
+     2024-11-08T11:40:08.050234Z  INFO risc0_zkvm::host::server::session: number of segments: 1
+     2024-11-08T11:40:08.050236Z  INFO risc0_zkvm::host::server::session: total cycles: 65536
+     2024-11-08T11:40:08.050237Z  INFO risc0_zkvm::host::server::session: user cycles: 4611
+     2024-11-08T11:40:08.051839Z  INFO cli: Execution succeeded.
+     ```
+
+     Optionally the tx hash can be provided to refine the query:
+
+     ```sh
+     RUST_LOG=info,boundless_market=debug cargo run --bin cli -- execute 0x90f79bf6eb2c4f870365e785982e1f101e93b906eb47a9c3 0x2b20092bbd2ee55dd5bc5f8556264a61f07ef5f1f68441ea0fc24f5bc3caeb56
+     ```
+
 3. Get the proof of a request
 
    With the `get-proof` command you can get the Journal and Seal of a fulfilled request:
@@ -181,31 +205,8 @@ The `cli` allows to:
    RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 3554585979324098154284013313896898623039163403618679259143
    ```
 
-7. Locally executing a submitted request
-
-   With the `execute` subcommand, you can locally execute a given `request ID` to check if a submitted request is actually provable:
-
-   ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- execute 0x90f79bf6eb2c4f870365e785982e1f101e93b906eb47a9c3
-   ```
-
-   Should output something like:
-
-   ```sh
-   2024-11-08T11:40:08.050192Z  INFO risc0_zkvm::host::server::exec::executor: execution time: 1.438583ms
-   2024-11-08T11:40:08.050234Z  INFO risc0_zkvm::host::server::session: number of segments: 1
-   2024-11-08T11:40:08.050236Z  INFO risc0_zkvm::host::server::session: total cycles: 65536
-   2024-11-08T11:40:08.050237Z  INFO risc0_zkvm::host::server::session: user cycles: 4611
-   2024-11-08T11:40:08.051839Z  INFO cli: Execution succeeded.
-   ```
-
-   Optionally the tx hash can be provided to refine the query:
-
-   ```sh
-   RUST_LOG=info,boundless_market=debug cargo run --bin cli -- execute 0x90f79bf6eb2c4f870365e785982e1f101e93b906eb47a9c3 0x2b20092bbd2ee55dd5bc5f8556264a61f07ef5f1f68441ea0fc24f5bc3caeb56
-   ```
-
 [id-deployments-sepolia-testnet]: ../market/deployments.md#sepolia-testnet
 [local-development]: ../market/local-development.md
 [boundless-repo]: https://github.com/boundless-xyz/boundless-foundry-template/
 [boundless-foundry-template-repo]: https://github.com/boundless-xyz/boundless-foundry-template/
+[Boundless indexer]: https://boundless-indexer-risczero.vercel.app/orders
