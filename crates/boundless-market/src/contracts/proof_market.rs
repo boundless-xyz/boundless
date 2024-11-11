@@ -603,6 +603,7 @@ where
     }
 
     /// Query the RequestSubmitted event based on request ID and block options.
+    ///
     /// For each iteration, we query a range of blocks.
     /// If the event is not found, we move the range down and repeat until we find the event.
     /// If the event is not found after the configured max iterations, we return an error.
@@ -641,7 +642,6 @@ where
             // Query the logs for the event
             let logs = event_filter.query().await?;
 
-            // If we find a log, return the journal and seal
             if let Some((log, _)) = logs.first() {
                 return Ok((log.request.clone(), log.clientSignature.clone()));
             }
