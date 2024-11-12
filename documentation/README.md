@@ -2,7 +2,7 @@
 
 Welcome to the Boundless documentation.
 
-## 📚 Contents
+## Contents
 
 - [Getting Started](#getting-started)
 - [Contributing](#contributing)
