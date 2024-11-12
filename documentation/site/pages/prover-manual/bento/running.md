@@ -63,7 +63,7 @@ Using a simple test vector for testing different cycle counts (via the -c flag):
 RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
-Or with a existing elf / input file:
+Or with a existing ELF / input file:
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin

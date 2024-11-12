@@ -32,7 +32,7 @@ export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
 RUST_LOG=info cargo run --bin cli -- balance [wallet_address]
 ```
 
-You can omit the `PRIVATE_KEY` env var here and specify your `wallet_address` as a optional param to the `balance` command, ex: `balance 0x000...`
+You can omit the `PRIVATE_KEY` env var here and specify your `wallet_address` as a optional param to the `balance` command, ex: `balance 0x000....`
 
 ## Settings
 

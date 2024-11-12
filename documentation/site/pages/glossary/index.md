@@ -48,7 +48,7 @@ This allows one to:
 
 ## Prover
 
-The market participant that fulfills [proof order](#proof-order)
+The market participant that fulfills [proof orders](#proof-order).
 
 ## Proof Order
 

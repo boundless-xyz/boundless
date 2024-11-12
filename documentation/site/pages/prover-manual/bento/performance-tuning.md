@@ -13,7 +13,7 @@ Bento performance is tightly couples to the specific environment, equipment, and
 
 ## Build Configuration
 
-The `NVCC_APPEND_FLAGS` Docker build arg (found in `compose.yml -> services -> exec_agent -> build -> args`) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards)
+The `NVCC_APPEND_FLAGS` Docker build arg (found in `compose.yml -> services -> exec_agent -> build -> args`) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards).
 
 You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the exec\_agent build args. A value of `3` might yield slightly better performance (a few %) but much longer build times.
 
@@ -37,6 +37,22 @@ docker stop <BROKER_CONTAINER_ID>
 
 Alternatively you can modify your `scripts/boundless_service.sh` to remove `--profile broker`.
 
+```sh [scripts/boundless_service.sh]
+start_services() {
+    # Trap SIGINT (Ctrl-C) and SIGTERM to execute cleanup
+    trap cleanup SIGINT SIGTERM
+
+    log_info "Starting Docker Compose services using environment file: $ENV_FILE"
+
+    # Start Docker Compose in foreground mode
+    docker compose --profile broker --env-file "$ENV_FILE" up --build -d # [!code --]
+    docker compose --env-file "$ENV_FILE" up --build -d # [!code ++]
+
+    # After docker compose up exits normally (without interruption)
+    log_success "Docker Compose services have been started."
+}
+```
+
 ## Defining a Test Harness
 
 It is preferable to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate. To try a realistic example:
@@ -55,9 +71,9 @@ Where iteration count is the number of times the synthetic guest is executed. A 
 
 The typical test process will be:
 
-1. start `nvtop` and `htop`
-2. execute the test harness above and copy the job id
-3. upon completion of the job use the [`script/job_status.sh`](https://github.com/boundless-xyz/boundless/blob/main/scripts/job_status.sh) to view the results
+1. Start `nvtop` and `htop`
+2. Execute the test harness above and copy the job id
+3. Upon completion of the job use the [`script/job_status.sh`](https://github.com/boundless-xyz/boundless/blob/main/scripts/job_status.sh) to view the results
 
 Example test run of 1024 iterations:
 
@@ -69,7 +85,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 1024
 2024-10-17T15:27:34.469227Z  INFO bento_cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: 3740ebbd-3bef-475f-b23d-6c2bf96c6551
 2024-10-17T15:27:34.479904Z  INFO bento_cli: STARK job_id: 895a996b-b0fa-4fc8-ae7a-ba92eeb6b0b1
 2024-10-17T15:27:34.480919Z  INFO bento_cli: STARK Job running....
-...
+....
 2024-10-17T15:27:56.509275Z  INFO bento_cli: STARK Job running....
 2024-10-17T15:27:58.513718Z  INFO bento_cli: Job done!
 ```
@@ -111,8 +127,8 @@ Effective Hz:
 (1 row)
 ```
 
-:::note[Note]
-Note that in the `job_status.sh` output above, the Hz is only accurate if the job has completed with no error conditions. Failed and in-progress jobs will have an inflated Hz value.
+:::tip[Note]
+In the `job_status.sh` output above, the Hz is only accurate if the job has completed with no error conditions. Failed and in-progress jobs will have an inflated Hz value.
 :::
 
 In the final table, the effective Hz is the primary metric for consideration. This represents the (number of cycles) / (elapsed wallclock time). In the example above, the effective Hz is roughly 400kHz.
@@ -137,7 +153,11 @@ The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env-compose
 
 Once you have selected a `MAXIMUM` segment size you should verify that the GPU does in fact have enough memory to complete.
 
-In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` Docker logs to determine the cause of the failure (note Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running):
+In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` Docker logs to determine the cause of the failure.
+
+:::tip[Note]
+Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running.
+:::
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
@@ -151,7 +171,10 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
 We then examine the `gpu-agent` logs and see a series of out of memory errors:
-`docker logs bento-gpu_agent0`
+
+```sh [Terminal]
+docker logs bento-gpu_agent0
+```
 
 ```log [Terminal]
 2024-10-17T15:57:43.667484Z  INFO workflow::tasks::prove: Starting proof of idx: 6f95e238-d0be-4e94-9e81-fefdc0b7d8c4 - 1
@@ -168,9 +191,11 @@ stack backtrace:
 
 Indicating that the GPU is out of memory. In this case, the `SEGMENT_SIZE` should be reduced.
 
-Note that if you have a multi-GPU system, your `SEGMENT_SIZE` should be set to the lowest common denominator of the GPUs in the system, so benchmarking should be performed on that card by tuning device-id in `compose.yml`.
+:::tip[Note]
+If you have a multi-GPU system, your `SEGMENT_SIZE` should be set to the lowest common denominator of the GPUs in the system, so benchmarking should be performed on that card by tuning device-id in `compose.yml`.
+:::
 
-:::note[NOTE]
+:::tip[Note]
 If a job fails to complete due to OOM, it may be resumed after Bento has been restarted. It's important to ensure that resumed jobs are not in progress during the test harness execution.
 :::
 
@@ -218,7 +243,7 @@ echo <JOB_ID> | bash scripts/job_status.sh
 ```
 
 ```txt [Example Results]
-...
+....
 
 Effective Hz:
          hz          | total_cycles | elapsed_sec
@@ -236,7 +261,7 @@ Here we see that our single `gpu-agent` at max `SEGMENT_SIZE` is able to achieve
 We can incorporate multiple GPUs into a configuration. In this example, we have two 16GB GPU as that proved to be optimal above:
 
 ```yml [compose.yml]
-...
+....
   gpu_agent0: &gpu
     image: agent
     runtime: nvidia
@@ -246,7 +271,7 @@ We can incorporate multiple GPUs into a configuration. In this example, we have 
       - postgres
       - redis
       - minio
-...
+....
   gpu_agent1:
      <<: *gpu
 
@@ -279,7 +304,7 @@ We can incorporate multiple GPUs into a configuration. In this example, we have 
              - driver: nvidia
                device_ids: ['1']
                capabilities: [gpu]
-...
+....
 ```
 
 Here are the effective results on our example system:

@@ -52,7 +52,7 @@ Ensure the following software is installed on your machine:
 ### 1. Clone Boundless (SSH or GitHub Login Required)
 
 ```sh [Terminal]
-git clone git clone git@github.com:boundless-xyz/boundless.git
+git clone git@github.com:boundless-xyz/boundless.git
 cd boundless
 ```
 
@@ -125,11 +125,17 @@ By setting the environment variable `RISC0_DEV_MODE`, a mock verifier will be de
 
 ```sh [Terminal]
 source .env
-DEPLOYER_PRIVATE_KEY=$PRIVATE_KEY CHAIN_KEY=anvil RISC0_DEV_MODE=$RISC0_DEV_MODE PROOF_MARKET_OWNER=$PUBLIC_KEY forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
+DEPLOYER_PRIVATE_KEY=$PRIVATE_KEY \
+CHAIN_KEY=anvil \
+RISC0_DEV_MODE=$RISC0_DEV_MODE \
+PROOF_MARKET_OWNER=$PUBLIC_KEY \
+forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
 ```
 
-> NOTE: Starting from a fresh `anvil` instance, the deployed contract addresses will match the values in `.env`.
-> If you need to deploy again, restart `anvil` first or change the `.env` file to match your newly deployed contract addresses.
+:::tip[Note]
+Starting from a fresh `anvil` instance, the deployed contract addresses will match the values in `.env`.
+If you need to deploy again, restart `anvil` first or change the `.env` file to match your newly deployed contract addresses.
+:::
 
 #### 5. Deposit Prover Funds and Start the [Broker][page-broker]
 

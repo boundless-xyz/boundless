@@ -42,26 +42,28 @@ Gas costs for market operation in future market versions should be significantly
 
 The following process will guide you through setting up a new wallet and funding it with testnet ETH:
 
-1. Set the environment variables `PRIVATE_KEY`, `SET_VERIFIER_ADDR`,`PROOF_MARKET_ADDR` in `.env-compose`:
+:::steps
+
+##### Set the environment variables `PRIVATE_KEY`, `SET_VERIFIER_ADDR`,`PROOF_MARKET_ADDR` in `.env-compose`
 
 ```sh [Terminal]
 # Prover node configs
-...
+....
 PRIVATE_KEY=0xYOUR_TEST_WALLET_PRIVATE_KEY_HERE
-...
+....
 PROOF_MARKET_ADDR=0x261D8c5e9742e6f7f1076Fa1F560894524e19cad # This is the address of the market contract on the target chain.
-...
+....
 RPC_URL="https://rpc.sepolia.org" # This is the RPC URL of the target chain.
-...
+....
 ```
 
-2. Load the `.env-compose` file into the environment:
+##### Load the `.env-compose` file into the environment
 
 ```sh [Terminal]
 source .env-compose
 ```
 
-3. The Broker needs to have funds deposited on the Boundless market contract to cover lock-in stake on requests. Run the following command to deposit an initial amount of ETH into the market contract.
+##### The Broker needs to have funds deposited on the Boundless market contract to cover lock-in stake on requests. Run the following command to deposit an initial amount of ETH into the market contract
 
 ```sh [Terminal]
 # Set amount in ETH denominated units
@@ -78,6 +80,8 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS
 2024-10-23T14:30:07.175994Z  INFO cli: Deposited: 500000000000000000
 ```
 
+:::
+
 ## Debugging
 
 ### Orders Stuck in 'Lockin' or `submit_merkle` Confirmation Timeouts
@@ -86,21 +90,25 @@ If on the indexer you see your broker having a high number of orders locked-in b
 
 Additionally it is possible to re-drive orders that are "stuck" via the following:
 
-1. Manually connect to the sqlite DB for broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` Docker volume
+:::steps
 
-2. Finding the batch that contains the order:
+##### Manually connect to the sqlite DB for broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` Docker volume
 
-```sh [Terminal]
+##### Finding the batch that contains the order:
+
+```sql [Terminal]
 SELECT id FROM batches WHERE data->>'orders' LIKE '%"TARGET_ORDER_ID"%';
-# Example: SELECT id FROM batches WHERE data->>'orders' LIKE '%"0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000caa"%';
+-- Example: SELECT id FROM batches WHERE data->>'orders' LIKE '%"0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000caa"%';
 ```
 
-3. Trigger a rerun of the submitter task:
+##### Trigger a rerun of the submitter task:
 
-```sh [Terminal]
+```sql [Terminal]
 UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = YOUR_BATCH_ID_FROM_STEP_2;
-# Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
+-- Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
 ```
+
+:::
 
 [page-bento-perf]: /prover-manual/bento/performance-tuning
 [page-bento-run]: /prover-manual/bento/running
