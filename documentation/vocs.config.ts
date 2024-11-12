@@ -2,15 +2,21 @@ import { execSync } from "node:child_process";
 import { defineConfig } from "vocs";
 
 function getLatestTag(): string {
+	// Check if we're in a production environment (like Vercel)
+	if (process.env.VERCEL) {
+		// Use VERCEL_GIT_COMMIT_REF if available
+		return process.env.VERCEL_GIT_COMMIT_REF?.replace("v", "") || "latest";
+	}
+
 	try {
-		// Fetch the latest tag from git
+		// Local development: fetch the latest tag from git
 		return execSync("git describe --tags --abbrev=0")
 			.toString()
 			.trim()
 			.replace("v", ""); // Remove 'v' prefix if present
 	} catch (error) {
 		console.warn("Failed to fetch git tag, falling back to default version");
-		return "N/A"; // Fallback version
+		return "latest";
 	}
 }
 
