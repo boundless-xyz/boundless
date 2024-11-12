@@ -15,6 +15,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest tag
+        id: get_latest_tag
+        run: echo "LATEST_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
 
       - name: 🍞 Setup Bun
         uses: risc0/setup-bun@v1.2.1
@@ -35,6 +41,7 @@ jobs:
           echo "github.ref: ${{ github.ref }}"
           echo "github.ref_name: ${{ github.ref_name }}"
           echo "github.sha: ${{ github.sha }}"
+          echo "latest tag: ${{ env.LATEST_TAG }}"
 
       - name: Deploy to Vercel
         env:
@@ -43,7 +50,7 @@ jobs:
           VERCEL_PROJECT_ID: prj_52J4bKnmBJxkhM6DQIxXBPsI2L7N
         run: |
           if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
-            vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --build-env LATEST_TAG=${{ github.ref_name }}
+            vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --build-env LATEST_TAG=${{ env.LATEST_TAG }}
           else
-            vercel deploy --token=${{ secrets.VERCEL_TOKEN }} --build-env LATEST_TAG=${{ github.ref_name }}
+            vercel deploy --token=${{ secrets.VERCEL_TOKEN }} --build-env LATEST_TAG=${{ env.LATEST_TAG }}
           fi
