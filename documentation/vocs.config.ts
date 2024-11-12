@@ -1,39 +1,4 @@
-import { execSync } from "node:child_process";
 import { defineConfig } from "vocs";
-
-function getLatestTag(): string {
-	if (process.env.VERCEL) {
-		console.log("Running on Vercel");
-		const ref = process.env.VERCEL_GIT_COMMIT_REF || "";
-		console.log("VERCEL_GIT_COMMIT_REF:", ref);
-
-		if (ref.startsWith("refs/tags/")) {
-			const version = ref.replace("refs/tags/", "").replace("v", "");
-			console.log("Found tag reference, using version:", version);
-			return version;
-		}
-
-		const version = ref.replace("v", "") || "latest";
-		console.log("Using ref directly as version:", version);
-		return version;
-	}
-
-	try {
-		console.log("Running in local environment");
-		const version = execSync("git describe --tags --abbrev=0")
-			.toString()
-			.trim()
-			.replace("v", "");
-		console.log("Found local git tag:", version);
-		return version;
-	} catch (error) {
-		console.warn(
-			"Failed to fetch git tag, falling back to default version",
-			error,
-		);
-		return "latest";
-	}
-}
 
 export default defineConfig({
 	font: {
@@ -139,7 +104,7 @@ export default defineConfig({
 	topNav: [
 		{ text: "Indexer", link: "https://boundless-indexer-risczero.vercel.app/" },
 		{
-			text: getLatestTag(),
+			text: process.env.LATEST_TAG || "Latest",
 			items: [
 				{
 					text: "Releases",

@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - "documentation/**"
+    tags:
+      - '*'
 
 jobs:
   build-and-deploy:
@@ -30,6 +32,12 @@ jobs:
       - name: Install Vercel CLI
         run: bun install --global vercel@latest
 
+      - name: Debug ref info
+        run: |
+          echo "github.ref: ${{ github.ref }}"
+          echo "github.ref_name: ${{ github.ref_name }}"
+          echo "github.sha: ${{ github.sha }}"
+
       - name: Deploy to Vercel
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -37,7 +45,7 @@ jobs:
           VERCEL_PROJECT_ID: prj_52J4bKnmBJxkhM6DQIxXBPsI2L7N
         run: |
           if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
-            vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+            vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --build-env LATEST_TAG=${{ github.ref_name }}
           else
-            vercel deploy --token=${{ secrets.VERCEL_TOKEN }}
+            vercel deploy --token=${{ secrets.VERCEL_TOKEN }} --build-env LATEST_TAG=${{ github.ref_name }}
           fi
