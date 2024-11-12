@@ -2,20 +2,35 @@ import { execSync } from "node:child_process";
 import { defineConfig } from "vocs";
 
 function getLatestTag(): string {
-	// Check if we're in a production environment (like Vercel)
 	if (process.env.VERCEL) {
-		// Use VERCEL_GIT_COMMIT_REF if available
-		return process.env.VERCEL_GIT_COMMIT_REF?.replace("v", "") || "latest";
+		console.log("Running on Vercel");
+		const ref = process.env.VERCEL_GIT_COMMIT_REF || "";
+		console.log("VERCEL_GIT_COMMIT_REF:", ref);
+
+		if (ref.startsWith("refs/tags/")) {
+			const version = ref.replace("refs/tags/", "").replace("v", "");
+			console.log("Found tag reference, using version:", version);
+			return version;
+		}
+
+		const version = ref.replace("v", "") || "latest";
+		console.log("Using ref directly as version:", version);
+		return version;
 	}
 
 	try {
-		// Local development: fetch the latest tag from git
-		return execSync("git describe --tags --abbrev=0")
+		console.log("Running in local environment");
+		const version = execSync("git describe --tags --abbrev=0")
 			.toString()
 			.trim()
-			.replace("v", ""); // Remove 'v' prefix if present
+			.replace("v", "");
+		console.log("Found local git tag:", version);
+		return version;
 	} catch (error) {
-		console.warn("Failed to fetch git tag, falling back to default version");
+		console.warn(
+			"Failed to fetch git tag, falling back to default version",
+			error,
+		);
 		return "latest";
 	}
 }
