@@ -103,6 +103,13 @@ enum Command {
         /// The block number at which the request expires
         expires_at: Option<u64>,
     },
+    /// Execute a submitted proving request using the RISC Zero zkvm executor
+    Execute {
+        /// The proof request identifier
+        request_id: U256,
+        /// The tx hash of the request submission
+        tx_hash: Option<B256>,
+    },
 }
 
 #[derive(Args, Clone, Debug)]
@@ -310,6 +317,16 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
         Command::Status { request_id, expires_at } => {
             let status = proof_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
+        }
+        Command::Execute { request_id, tx_hash } => {
+            let (request, _) = proof_market.get_submitted_request(request_id, tx_hash).await?;
+            let session_info = execute(&request).await?;
+            let journal = session_info.journal.bytes;
+            if !request.requirements.predicate.eval(&journal) {
+                bail!("Predicate evaluation failed");
+            }
+            tracing::info!("Execution succeeded.");
+            tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
         }
     };
 

@@ -257,14 +257,14 @@ contract ProofMarketTest is Test {
         // Submit the request with no funds
         // Expect the event to be emitted
         vm.expectEmit(true, true, false, true);
-        emit IProofMarket.RequestSubmitted(request, clientSignature);
+        emit IProofMarket.RequestSubmitted(request.id, request, clientSignature);
         vm.prank(client.addr);
         proofMarket.submitRequest(request, clientSignature);
 
         // Submit the request with funds
         // Expect the event to be emitted
         vm.expectEmit(true, true, false, true);
-        emit IProofMarket.RequestSubmitted(request, clientSignature);
+        emit IProofMarket.RequestSubmitted(request.id, request, clientSignature);
 
         vm.deal(client.addr, request.offer.maxPrice);
         vm.prank(client.addr);
