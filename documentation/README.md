@@ -1,4 +1,4 @@
-# Project Documentation
+# Boundless Documentation
 
 Welcome to the Boundless documentation.
 
