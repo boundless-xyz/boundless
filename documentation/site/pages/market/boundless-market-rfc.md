@@ -13,7 +13,7 @@ Below is a diagram of the interaction flow assuming a user with a wallet is driv
 
 [Diagram source](https://excalidraw.com#json=Dez07vdrpA3Hm4cX96jsF,qk9CxkIWC1AXOCN14KbQ6Q)
 
-:::steps
+::::steps
 
 ### Step1
 
@@ -53,7 +53,7 @@ Requestor fetches the Merkle inclusion path, which acts as their receipt seal fr
 
 Requestor sends a transaction to complete their application flow, with authentication provided by the receipt.
 
-:::
+::::
 
 ## Market Contract and Guest
 
