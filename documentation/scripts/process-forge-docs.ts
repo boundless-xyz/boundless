@@ -11,14 +11,15 @@ function sanitizeFileName(name: string): string {
 }
 
 function fixInternalLinks(content: string): string {
-	// Fix links like [IRiscZeroSetVerifier](/contracts/src/IRiscZeroSetVerifier.sol/interface.IRiscZeroSetVerifier.md)
 	return content.replace(
 		/\[([^\]]+)\]\((\/[^)]+\/[^)]+\.sol\/[^)]+)\.md\)/g,
 		(_, linkText, path) => {
 			// Extract the final component of the path (e.g., "interface.IRiscZeroSetVerifier")
 			const fileName = path.split("/").pop();
+
 			// Sanitize it for our new structure
 			const sanitizedName = fileName.replace(/\./g, "-");
+
 			return `[${linkText}](/smart-contracts/${sanitizedName})`;
 		},
 	);
@@ -55,8 +56,10 @@ async function createIndex(files: string[]): Promise<string> {
 	for (const file of files) {
 		// Extract original name without the path or extension
 		const originalName = path.basename(file, ".md");
+
 		// Create sanitized filename for the link
 		const sanitizedName = sanitizeFileName(originalName);
+
 		// Create simplified link with sanitized name
 		const link = `/smart-contracts/${sanitizedName}`;
 
@@ -75,6 +78,7 @@ async function flattenFiles() {
 
 		for (const file of files) {
 			let content = await readFile(file, "utf-8");
+
 			// Fix internal links before saving
 			content = fixInternalLinks(content);
 
