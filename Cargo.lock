@@ -4638,6 +4638,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror",
  "tokio",
  "tower-http",

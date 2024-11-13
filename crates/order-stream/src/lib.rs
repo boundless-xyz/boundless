@@ -39,6 +39,8 @@ use tokio::{
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 use tracing::error;
 
+mod order_db;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ErrMsg {
     pub r#type: String,
