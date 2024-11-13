@@ -433,6 +433,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
 
+        // DO NOT MERGE: Use the error result from these inner functions.
         if (locked) {
             return _fulfillVerifiedLocked(id, client, idx, fulfilled, assessorProver);
         } else {
