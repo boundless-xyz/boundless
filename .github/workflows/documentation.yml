@@ -17,6 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Get latest tag
         id: get_latest_tag
@@ -30,7 +31,10 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Run CI checks
+      - name: Install foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run CI checks & build
         run: bun run ci
 
       - name: Install Vercel CLI
