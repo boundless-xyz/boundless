@@ -67,7 +67,7 @@ As demonstrated above, Bento breaks down tasks into these major actions:
 - Finalize - Uploads the final proof to minio.
 - SNARK - Convert a STARK proof into a SNARK proof using [rapidsnark](https://github.com/iden3/rapidsnark).
 
-:::tip
+:::tip[Note]
 For a more in depth information see [the recursive proving docs][r0-docs-recursion].
 :::
 

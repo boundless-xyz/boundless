@@ -8,21 +8,11 @@ description: To develop Boundless applications both as a requestor and prover, a
 To develop Boundless applications both as a requestor and prover, a running Market is required.
 The workflow is generally:
 
-:::steps
-
-##### One-time Install
-
-[See instructions](#install-boundless)
-
-##### [Spin up a devnet](#run-a-market-devnet)
-
-##### [Submit proof requests](#submit-proof-requests)
-
-##### Tweak you app & submit more requests
-
-##### [Tear down the devnet](#tear-down)
-
-:::
+- [One-time install](#install-boundless)
+- [Spin up a devnet](#run-a-market-devnet)
+- [Submit proof requests](#submit-proof-requests)
+- Tweak you app & submit more requests
+- [Tear down the devnet](#tear-down)
 
 To accelerate development, there are helpful utilities provided:
 
@@ -49,12 +39,26 @@ Ensure the following software is installed on your machine:
 - **[Rust](https://www.rust-lang.org/tools/install) version 1.79 or higher**
 - **[Foundry](https://book.getfoundry.sh/getting-started/installation) version 0.2 or higher**
 
-### 1. Clone Boundless (SSH or GitHub Login Required)
+### 1. Clone Boundless Repository (SSH or GitHub Login Required)
 
-```sh [Terminal]
+:::code-group
+
+```sh [SSH]
 git clone git@github.com:boundless-xyz/boundless.git
 cd boundless
 ```
+
+```sh [HTTPS]
+git clone https://github.com/boundless-xyz/boundless.git
+cd boundless
+```
+
+```sh [GitHub CLI]
+gh repo clone boundless-xyz/boundless
+cd boundless
+```
+
+:::
 
 ### 2. Initialize Recursive Submodules (Located in `lib`, Required by Foundry)
 
@@ -71,53 +75,48 @@ For both requestors and provers, you will need to:
 - Run a [Broker][page-broker] instance that will lock in and return proofs to all proof requests
 - Submit proof requests to be fulfilled by the Broker
 
-### Spin Up
-
 An instance of the Market needs to be running in the background for applications to interact with, using the included `make` utilities or manually.
 
-### `make`
+### Using `make`
 
 The included `makefile` in Boundless is the most effective way to do this, and can be modified to suit specific needs.
 
-##### 1. Start a Local Devnet Service (Running in the Background)
+#### Start a Local Devnet Service (Running in the Background)
 
 ```sh [Terminal]
 make devnet-up
 source .env
 ```
 
-🎉 Congratulations!
+:::success[🎉 Congratulations!]
 You now have a local devnet service running in the background and a prover that will respond to proving requests.
-
-When finished, to tear down a running devnet run:
-
-```sh [Terminal]
-make devnet-down
-```
+:::
 
 ### Manually
 
 If you require customizing a local devnet configuration, and need to operate it manually, you can run the following commands:
 
-#### 1. Build the Contracts
+::::steps
+
+#### Build the Contracts
 
 ```sh [Terminal]
 forge build
 ```
 
-#### 2. Build the Project
+#### Build the Project
 
 ```sh [Terminal]
 cargo build
 ```
 
-#### 3. Start `anvil`
+#### Start `anvil`
 
 ```sh [Terminal]
 anvil -b 2
 ```
 
-#### 4. Deploy Market Contracts
+#### Deploy Market Contracts
 
 This will deploy the market contracts.
 Configuration environment variables are read from the `.env` file.
@@ -137,7 +136,7 @@ Starting from a fresh `anvil` instance, the deployed contract addresses will mat
 If you need to deploy again, restart `anvil` first or change the `.env` file to match your newly deployed contract addresses.
 :::
 
-#### 5. Deposit Prover Funds and Start the [Broker][page-broker]
+#### Deposit Prover Funds and Start the [Broker][page-broker]
 
 Here we will use a mock prover by setting `RISC0_DEV_MODE`.
 The Broker can use either [Bonsai][bonsai-homepage] or [Bento][page-bento] as backend, remove `RISC0_DEV_MODE` and:
@@ -153,8 +152,11 @@ Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the m
 RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
 ```
 
-🎉 Congratulations!
+::::
+
+:::success[🎉 Congratulations!]
 You now have a local devnet running and a prover that will respond to proving requests.
+:::
 
 ### Submit Proof Requests
 
