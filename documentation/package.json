@@ -8,7 +8,7 @@
 
 		"check-links": "bun ./check-links.ts",
 		"check-markdown": "remark . --quiet",
-		"ci": "run-p check-markdown check-links && bun run build",
+		"ci": "bun run build && run-p check-markdown check-links",
 		"format-markdown": "remark . --output --use sort-definitions --use remark-lint-match-punctuation --use remark-lint-no-url-trailing-slash",
 		"generate-smart-contracts-docs": "cd .. && rm -rf documentation/site/pages/tmp && forge doc --build --out documentation/site/pages/tmp && cd documentation && bun ./scripts/process-forge-docs.ts && rm -rf site/pages/tmp",
 		"preview": "vocs preview"
