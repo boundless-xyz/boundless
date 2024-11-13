@@ -4,6 +4,7 @@
 
 pragma solidity ^0.8.24;
 
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
@@ -120,7 +121,14 @@ library TransientPriceLib {
     }
 }
 
+/// A simple fraction type, with numerator and denominator.
+struct Fraction {
+    uint256 numerator;
+    uint256 denominator;
+}
+
 contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
+    using Address for address;
     using AccountLib for Account;
     using ProofMarketLib for Offer;
     using ProofMarketLib for ProvingRequest;
@@ -149,6 +157,11 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     /// most the amount of gas specified by this constant. This requirement exists to ensure the
     /// client can then post the given proof in a new transaction as part of the application.
     uint256 public constant FULFILL_MAX_GAS_FOR_VERIFY = 50000;
+
+    /// @notice When a prover is slashed for failing to fulfill a request, a portion of the stake
+    /// is burned, and a portion is sent to the client. This fraction controls that ratio.
+    // NOTE: Currently set to burn the entire stake. Can be changed via contract upgrade.
+    Fraction public constant SLASHING_BURN_FRACTION = Fraction({numerator: 1, denominator: 1});
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, bytes32 assessorId) {
@@ -199,8 +212,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     // Withdraw Ether from the market.
     function withdraw(uint256 value) public {
         accounts[msg.sender].balance -= value.toUint96();
-        (bool sent,) = msg.sender.call{value: value}("");
-        require(sent, "failed to send Ether");
+        msg.sender.sendValue(value);
         emit Withdrawal(msg.sender, value);
     }
 
@@ -249,7 +261,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         // Check that the request is internally consistent and is not expired.
         request.offer.requireValid();
 
-        // We are ending the reverse Dutch auction at the current price.
+        // Check the deadline and compute the current price offered by the reverse Dutch auction.
         price = request.offer.priceAtBlock(uint64(block.number));
         deadline = request.offer.deadline();
         if (deadline < block.number) {
@@ -257,6 +269,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         }
 
         // Check that the request is not already locked or fulfilled.
+        // TODO(victor): Currently these checks are run here as part of the priceRequest path.
+        // this may be redundant, because we must also check them during fulfillment. Should
+        // these checks be moved from this method to _lockinAuthed?
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
         if (locked) {
             revert RequestIsLocked({requestId: request.id});
@@ -271,13 +286,8 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     function _lockinAuthed(ProvingRequest calldata request, address client, uint32 idx, address prover) internal {
         (uint96 price, uint64 deadline) = _validateRequestForLockin(request, client, idx);
 
-        // Lock the request such that only the given prover can fulfill it (or else face a penalty).
+        // Deduct funds from the client and prover accounts.
         Account storage clientAccount = accounts[client];
-        clientAccount.setRequestLocked(idx);
-        requestLocks[request.id] =
-            RequestLock({prover: prover, price: price, deadline: deadline, stake: request.offer.lockinStake});
-
-        // Deduct the funds from client and prover accounts.
         if (clientAccount.balance < price) {
             revert InsufficientBalance(client);
         }
@@ -285,13 +295,16 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         if (proverAccount.balance < request.offer.lockinStake) {
             revert InsufficientBalance(prover);
         }
-
-        // TODO: Double check this is properly covered by the above reverts
         unchecked {
             clientAccount.balance -= price;
             proverAccount.balance -= request.offer.lockinStake;
         }
 
+        // Record the lock for the request and emit an event.
+        requestLocks[request.id] =
+            RequestLock({prover: prover, price: price, deadline: deadline, stake: request.offer.lockinStake});
+
+        clientAccount.setRequestLocked(idx);
         emit RequestLockedin(request.id, prover);
     }
 
@@ -321,7 +334,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     /// satisfies the request.
     // TODO(#165) Return or check the request checksum here.
     function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
-        // Verify the application guest proof. We need to verify it here, even though the assesor
+        // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
@@ -414,82 +427,93 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillVerified(uint192 id, address assesorProver) internal {
+    function _fulfillVerified(uint192 id, address assessorProver) internal returns (bytes memory error) {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
 
-        // Check that the request is not fulfilled.
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
 
-        if (fulfilled) {
-            revert RequestIsFulfilled({requestId: id});
-        }
-
-        address prover;
-        uint96 price;
-        uint96 stake;
         if (locked) {
-            RequestLock memory lock = requestLocks[id];
-
-            if (lock.deadline < block.number) {
-                revert RequestIsExpired({requestId: id, deadline: lock.deadline});
-            }
-
-            prover = lock.prover;
-            price = lock.price;
-            stake = lock.stake;
+            return _fulfillVerifiedLocked(id, client, idx, fulfilled, assessorProver);
         } else {
-            uint256 packed;
-            assembly {
-                packed := tload(id)
-            }
-            TransientPrice memory tprice = TransientPriceLib.unpack(packed);
+            return _fulfillVerifiedUnlocked(id, client, idx, fulfilled, assessorProver);
+        }
+    }
 
-            // Check that a price has actually been set, rather than this being default.
-            // NOTE: Maybe "request is not locked or priced" would be more accurate, but seems
-            // like that would be a confusing message.
-            if (!tprice.valid) {
-                revert RequestIsNotLocked({requestId: id});
-            }
+    function _fulfillVerifiedLocked(uint192 id, address client, uint32 idx, bool fulfilled, address assessorProver)
+        internal
+        returns (bytes memory error)
+    {
+        RequestLock memory lock = requestLocks[id];
 
-            prover = assesorProver;
-            price = tprice.price;
-            stake = 0;
+        // Mark the request as fulfilled.
+        // NOTE: A request can become fulfilled even if the following checks fail, which control
+        // whether payment will be sent. A later transaction can come to transfer the payment.
+        if (!fulfilled) {
+            accounts[client].setRequestFulfilled(idx);
+            emit RequestFulfilled(id);
         }
 
-        if (locked) {
-            // Zero-out the lock to get a bit of a refund on gas.
-            requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0));
+        // Check pre-conditions for transferring payment.
+        if (lock.prover == address(0)) {
+            // NOTE: This check is not strictly needed, as the fact that the lock has already been
+            // zeroed out means zero value can be transferred. It is provided for clarity.
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, id);
+        }
+        if (lock.deadline < block.number) {
+            return abi.encodeWithSelector(RequestIsExpired.selector, id, lock.deadline);
+        }
+        if (lock.prover != assessorProver) {
+            return abi.encodeWithSelector(RequestIsLocked.selector, id);
         }
 
+        // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
+        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0));
+
+        accounts[lock.prover].balance += lock.price + lock.stake;
+    }
+
+    function _fulfillVerifiedUnlocked(uint192 id, address client, uint32 idx, bool fulfilled, address assessorProver)
+        internal
+        returns (bytes memory error)
+    {
+        // When not locked, the fulfilled flag _does_ indicate that payment has already been transferred.
+        if (fulfilled) {
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, id);
+        }
+
+        uint256 packed;
+        assembly {
+            packed := tload(id)
+        }
+        TransientPrice memory tprice = TransientPriceLib.unpack(packed);
+
+        // Check that a price has been set, which also requires checks like expiration to pass.
+        // NOTE: Maybe "request is not locked or priced" would be more accurate, but seems
+        // like that would be a confusing message.
+        if (!tprice.valid) {
+            // DO NOT MERGE: Revert here instead of returning an error?
+            return abi.encodeWithSelector(RequestIsNotLocked.selector, id);
+        }
+
+        // Mark the request as fulfilled.
+        // NOTE: If an unlocked request is fulfilled, but fails the requirements for payment, no
+        // payment can ever be rendered for this order.
+        // DO NOT MERGE: Provide a way to revert if payment fails. Useful in combination with a system like Flashbots Protect.
         Account storage clientAccount = accounts[client];
-        if (!locked) {
-            // Deduct the funds from client account.
-            if (clientAccount.balance < price) {
-                revert InsufficientBalance(client);
-            }
-            unchecked {
-                clientAccount.balance -= price;
-            }
-        }
-
-        // Mark the request as fulfilled and pay the prover.
         clientAccount.setRequestFulfilled(idx);
-        accounts[prover].balance += price + stake;
-
         emit RequestFulfilled(id);
-    }
 
-    function deliver(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
-        verifyDelivery(fill, assessorSeal, prover);
-        emit ProofDelivered(fill.id, fill.journal, fill.seal);
-    }
-
-    function deliverBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external {
-        verifyBatchDelivery(fills, assessorSeal, prover);
-        for (uint256 i = 0; i < fills.length; i++) {
-            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+        // Deduct the funds from client account.
+        if (clientAccount.balance < tprice.price) {
+            return abi.encodeWithSelector(InsufficientBalance.selector, client);
         }
+        unchecked {
+            clientAccount.balance -= tprice.price;
+        }
+
+        // Pay the prover.
+        accounts[assessorProver].balance += tprice.price;
     }
 
     function slash(uint192 requestId) external {
@@ -501,29 +525,30 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         if (!locked) {
             revert RequestIsNotLocked({requestId: requestId});
         }
-        if (fulfilled) {
-            revert RequestIsFulfilled({requestId: requestId});
-        }
 
         RequestLock memory lock = requestLocks[requestId];
 
-        if (lock.deadline >= block.number) {
-            revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
-        }
-
         if (lock.prover == address(0)) {
             revert RequestAlreadySlashed({requestId: requestId});
+        }
+        if (lock.deadline >= block.number) {
+            revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
         }
 
         // Zero out the lock to prevent the same request from being slashed twice.
         requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0));
 
-        emit LockinStakeBurned(requestId, lock.stake);
+        // Calculate the portion of stake that should be burned vs sent to the client.
+        // NOTE: If the burn fraction is not properly set, this can overflow.
+        // The maximum feasible stake multiplied by the numerator must be less than 2^256.
+        uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_FRACTION.numerator / SLASHING_BURN_FRACTION.denominator;
+        uint256 transferValue = uint256(lock.stake) - burnValue;
 
-        // Return the price to the client and burn the stake.
-        accounts[client].balance += lock.price;
-        (bool sent,) = payable(address(0)).call{value: uint256(lock.stake)}("");
-        require(sent, "Failed to burn Ether");
+        // Return the price to the client, plus the transfer value. Then burn the burn value.
+        accounts[client].balance += lock.price + transferValue;
+        payable(address(0)).sendValue(uint256(burnValue));
+
+        emit ProverSlashed(requestId, burnValue, transferValue);
     }
 
     function imageInfo() external view returns (bytes32, string memory) {

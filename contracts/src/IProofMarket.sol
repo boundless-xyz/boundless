@@ -106,8 +106,9 @@ interface IProofMarket {
     /// is usually logged as part of order fulfillment, however it can also be logged by a prover
     /// sending the proof without payment.
     event ProofDelivered(uint192 indexed requestId, bytes journal, bytes seal);
-    /// Event when prover stake is burned for failing to fulfill a request by the deadline.
-    event LockinStakeBurned(uint192 indexed requestId, uint96 stake);
+    /// Event when prover stake is slashed for failing to fulfill a request by the deadline.
+    /// Part of the stake is burned, and part is transferred to the client as compensation.
+    event ProverSlashed(uint192 indexed requestId, uint256 stakeBurned, uint256 stakeTransferred);
     /// Event when a deposit is made to the proof market.
     event Deposit(address indexed account, uint256 value);
     /// Event when a withdrawal is made from the proof market.
