@@ -51,20 +51,55 @@ async function getAllMdFiles(dir: string): Promise<string[]> {
 }
 
 async function createIndex(files: string[]): Promise<string> {
-	let indexContent = "# Smart Contracts Documentation\n\n";
+	let indexContent = `# Smart Contracts Documentation
+
+Welcome to the smart contracts documentation for Boundless. This section contains detailed documentation for all our smart contracts, including [interfaces](#interfaces), [libraries](#libraries), and [core contracts](#core-contracts).
+
+:::note
+
+Our smart contracts are built using Solidity and are organized into several key components:
+
+- **Interfaces**: Contract interfaces that define the external API
+- **Libraries**: Reusable code libraries
+- **Core Contracts**: Main contracts that implement the core business logic
+
+:::
+
+`;
+
+	// Group files by type (interface, library, contract)
+	const interfaces: string[] = [];
+	const libraries: string[] = [];
+	const contracts: string[] = [];
 
 	for (const file of files) {
-		// Extract original name without the path or extension
 		const originalName = path.basename(file, ".md");
-
-		// Create sanitized filename for the link
-		const sanitizedName = sanitizeFileName(originalName);
-
-		// Create simplified link with sanitized name
+		const sanitizedName = sanitizeFileName(originalName).replace(".md", "");
 		const link = `/smart-contracts/${sanitizedName}`;
+		const entry = `- [${originalName}](${link})`;
 
-		// Use original name for display, sanitized name for link
-		indexContent += `- [${originalName}](${link})\n`;
+		if (originalName.startsWith("interface.") || originalName.startsWith("I")) {
+			interfaces.push(entry);
+		} else if (originalName.startsWith("library.")) {
+			libraries.push(entry);
+		} else {
+			contracts.push(entry);
+		}
+	}
+
+	if (interfaces.length > 0) {
+		indexContent += "\n### Interfaces\n\n";
+		indexContent += interfaces.join("\n");
+	}
+
+	if (libraries.length > 0) {
+		indexContent += "\n\n### Libraries\n\n";
+		indexContent += libraries.join("\n");
+	}
+
+	if (contracts.length > 0) {
+		indexContent += "\n\n### Core Contracts\n\n";
+		indexContent += contracts.join("\n");
 	}
 
 	return indexContent;
