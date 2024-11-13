@@ -48,6 +48,7 @@ jobs:
 
       - name: Run gas report on PR branch
         run: |
+          set -o pipefail
           forge test --gas-report | grep "|" > pr-gas-report.txt
 
       - name: Upload PR Gas Report
@@ -64,6 +65,7 @@ jobs:
 
       - name: Run gas report on main branch
         run: |
+          set -o pipefail
           forge test --gas-report | grep "|" > main-gas-report.txt
 
       - name: Download PR Gas Report
