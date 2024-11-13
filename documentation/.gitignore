@@ -1,0 +1,8 @@
+.DS_Store
+
+node_modules
+
+dist
+vocs.config.ts.*
+.vercel
+tsconfig.tsbuildinfo

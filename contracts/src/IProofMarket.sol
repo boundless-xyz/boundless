@@ -96,7 +96,7 @@ struct AssessorJournal {
 
 interface IProofMarket {
     /// Event logged when a new proving request is submitted by a client.
-    event RequestSubmitted(ProvingRequest request, bytes clientSignature);
+    event RequestSubmitted(uint192 indexed requestId, ProvingRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
     /// Event logged when a request is fulfilled.

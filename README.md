@@ -2,12 +2,13 @@
 
 ## Documentation
 
-You can find the documentation in the [docs](./docs) folder.
+You can find the documentation in the [documentation](./documentation) folder.
+
 To build it and serve it locally, run the following commands
 
 ```sh
-cargo install mdbook
-mdbook serve docs --open -p 3031
+bun install
+bun run docs
 ```
 
-to serve locally the docs.
+Then open your browser and navigate to `http://localhost:5173`.

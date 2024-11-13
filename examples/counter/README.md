@@ -65,4 +65,4 @@ export IPFS_GATEWAY_URL="YOUR_IPFS_GATEWAY_URL"
 RUST_LOG=info cargo run --bin example-counter -- --counter-address ${COUNTER_ADDRESS:?}
 ```
 
-[page-local-development]: ../../docs/src/market/local-development.md
+[page-local-development]: ../../documentation/site/pages/market/local-development.md
