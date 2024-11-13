@@ -12,5 +12,3 @@ bun run docs
 ```
 
 Then open your browser and navigate to `http://localhost:5173`.
-
-
