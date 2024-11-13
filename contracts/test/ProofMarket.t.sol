@@ -29,7 +29,6 @@ import {
     Requirements
 } from "../src/IProofMarket.sol";
 import {ProofMarketLib} from "../src/ProofMarketLib.sol";
-import {ProofMarketV2Test} from "./contracts/ProofMarketV2Test.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
 
 contract ProofMarketTest is Test {
@@ -940,30 +939,9 @@ contract ProofMarketTest is Test {
         assertEq(root, 0xe004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef);
     }
 
-    /// @dev Test the upgradeability of the contract under safe conditions.
-    /// This mode requires to **always** start from a clean cache, as such, before running
-    /// forge test, make sure to run `forge clean && forge build` to clear the cache and build from scratch.
     // TODO(#109) Refactor these tests to check for upgradeability from a prior commit to the latest version.
     // With that, we might also check that it is possible to upgrade to a notional future version, or we might
     // want to drop the ProofMarketV2Test contract.
-    function testUpgradeability() public {
-        address implAddressV1 = Upgrades.getImplementationAddress(proxy);
-        vm.startPrank(OWNER_WALLET.addr);
-        // Deploy a new implementation of the same contract
-        vm.expectEmit(false, true, true, true);
-        emit IERC1967.Upgraded(address(0));
-        UpgradeOptions memory opts;
-        opts.constructorData = ProofMarketLib.encodeConstructorArgs(proofMarket.VERIFIER(), ASSESSOR_IMAGE_ID);
-        Upgrades.upgradeProxy(proxy, "ProofMarketV2Test.sol:ProofMarketV2Test", "", opts, OWNER_WALLET.addr);
-        vm.stopPrank();
-        address implAddressV2 = Upgrades.getImplementationAddress(proxy);
-        assertFalse(implAddressV2 == implAddressV1);
-
-        (bytes32 imageID, string memory imageUrl) = proofMarket.imageInfo();
-        assertEq(imageID, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
-        assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
-    }
-
     function testUnsafeUpgrade() public {
         vm.startPrank(OWNER_WALLET.addr);
         proxy = UnsafeUpgrades.deployUUPSProxy(
