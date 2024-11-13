@@ -133,3 +133,27 @@ body {
 .vocs_HomePage {
   @apply !pt-40;
 }
+
+.vocs_Sidebar_sectionTitle {
+  @apply font-bold;
+}
+
+:where(html:not(.dark)) .vocs_Sidebar_sectionTitle {
+  @apply font-bold;
+}
+
+:where(html:not(.dark)) .vocs_Sidebar_divider {
+  @apply bg-border;
+}
+
+:where(html:not(.dark)) .vocs_Sidebar_navigation > .vocs_Sidebar_group > .vocs_Sidebar_section + .vocs_Sidebar_section {
+  @apply border-t border-border;
+}
+
+:where(html:not(.dark)) .vocs_Sidebar_levelInset {
+  @apply border-l border-border;
+}
+
+.vocs_SearchDialog_overlay {
+  @apply backdrop-blur-[2px]
+}
