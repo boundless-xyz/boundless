@@ -101,10 +101,20 @@ Should output something similar to
 2024-09-17T15:01:02.480340Z  INFO cli: Proving request ID 3554585979324098154284013313896898623039163403618679259140, bidding start at block number 619
 ```
 
+#### Wait until fulfilled
+
 You can also add the `--wait` option to wait until the submitted request has been fulfilled:
 
 ```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
+```
+
+#### Dry-run
+
+You can also add the `--dry-run` option to simulate the proof request with a local executor to make sure your request is provable before actually submitting it:
+
+```sh [Terminal]
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --dry-run
 ```
 
 ### 2. Request the Status of a Given Proving Request
@@ -126,6 +136,34 @@ or when fulfilled:
 ```txt [Terminal]
 2024-09-17T15:10:15.807123Z DEBUG boundless_market::contracts::proof_market: Calling requestIsFulfilled(3554585979324098154284013313896898623039163403618679259143)
 2024-09-17T15:10:15.807584Z  INFO cli: Status: Fulfilled
+```
+
+#### Boundless indexer
+
+You can check your proof request status on the [Boundless indexer][indexer]
+
+#### Local execution
+
+With the `execute` subcommand, you can locally execute a given `request ID` to check if a submitted request is actually provable:
+
+```sh [Terminal]
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- execute 0x90f79bf6eb2c4f870365e785982e1f101e93b906eb47a9c3
+```
+
+Should output something like:
+
+```txt [Terminal]
+2024-11-08T11:40:08.050192Z  INFO risc0_zkvm::host::server::exec::executor: execution time: 1.438583ms
+2024-11-08T11:40:08.050234Z  INFO risc0_zkvm::host::server::session: number of segments: 1
+2024-11-08T11:40:08.050236Z  INFO risc0_zkvm::host::server::session: total cycles: 65536
+2024-11-08T11:40:08.050237Z  INFO risc0_zkvm::host::server::session: user cycles: 4611
+2024-11-08T11:40:08.051839Z  INFO cli: Execution succeeded.
+```
+
+Optionally the tx hash can be provided to refine the query:
+
+```sh [Terminal]
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- execute 0x90f79bf6eb2c4f870365e785982e1f101e93b906eb47a9c3 0x2b20092bbd2ee55dd5bc5f8556264a61f07ef5f1f68441ea0fc24f5bc3caeb56
 ```
 
 ### 3. Get the Proof of a Request
@@ -183,3 +221,4 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 35545859793240
 [boundless-repo]: https://github.com/boundless-xyz/boundless
 [id-deployments-sepolia-testnet]: /market/public-deployments#contracts
 [local-development]: /market/local-development
+[indexer]: https://boundless-indexer-risczero.vercel.app/orders
