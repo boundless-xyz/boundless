@@ -121,14 +121,8 @@ library TransientPriceLib {
     }
 }
 
-/// A simple fraction type, with numerator and denominator.
-struct Fraction {
-    uint256 numerator;
-    uint256 denominator;
-}
-
 contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
-    using Address for address;
+    using Address for address payable;
     using AccountLib for Account;
     using ProofMarketLib for Offer;
     using ProofMarketLib for ProvingRequest;
@@ -161,7 +155,8 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     /// @notice When a prover is slashed for failing to fulfill a request, a portion of the stake
     /// is burned, and a portion is sent to the client. This fraction controls that ratio.
     // NOTE: Currently set to burn the entire stake. Can be changed via contract upgrade.
-    Fraction public constant SLASHING_BURN_FRACTION = Fraction({numerator: 1, denominator: 1});
+    uint256 public constant SLASHING_BURN_FRACTION_NUMERATOR = 1;
+    uint256 public constant SLASHING_BURN_FRACTION_DENOMINATOR = 1;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, bytes32 assessorId) {
@@ -212,7 +207,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     // Withdraw Ether from the market.
     function withdraw(uint256 value) public {
         accounts[msg.sender].balance -= value.toUint96();
-        msg.sender.sendValue(value);
+        payable(msg.sender).sendValue(value);
         emit Withdrawal(msg.sender, value);
     }
 
@@ -520,7 +515,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     function slash(uint192 requestId) external {
         address client = ProofMarketLib.requestFrom(requestId);
         uint32 idx = ProofMarketLib.requestIndex(requestId);
-        (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
+        (bool locked,) = accounts[client].requestFlags(idx);
 
         // Ensure the request is locked, and fetch the lock.
         if (!locked) {
@@ -542,11 +537,11 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         // Calculate the portion of stake that should be burned vs sent to the client.
         // NOTE: If the burn fraction is not properly set, this can overflow.
         // The maximum feasible stake multiplied by the numerator must be less than 2^256.
-        uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_FRACTION.numerator / SLASHING_BURN_FRACTION.denominator;
+        uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_FRACTION_NUMERATOR / SLASHING_BURN_FRACTION_DENOMINATOR;
         uint256 transferValue = uint256(lock.stake) - burnValue;
 
         // Return the price to the client, plus the transfer value. Then burn the burn value.
-        accounts[client].balance += lock.price + transferValue;
+        accounts[client].balance += lock.price + transferValue.toUint96();
         payable(address(0)).sendValue(uint256(burnValue));
 
         emit ProverSlashed(requestId, burnValue, transferValue);

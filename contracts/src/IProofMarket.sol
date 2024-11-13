@@ -183,21 +183,6 @@ interface IProofMarket {
     /// @notice Fulfills a batch of locked requests. See IProofMarket.fulfill for more information.
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
-    /// @notice Delivers a proof satisfying a referenced request, without modifying contract state.
-    /// In particular, calling this method will not result in payment being sent to the prover, or
-    /// marking the request as fulfilled.
-    /// @dev This method is useful for when an interested third party wants to delivery a proof for
-    /// a request even if they will not be paid for doing so.
-    /// @param fill The fulfillment information, including the journal and seal.
-    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
-    /// request's requirements are met.
-    /// @param prover The address of the prover that produced the fulfillment.
-    /// Note that this can differ from the address of the prover that locked the
-    /// request.
-    function deliver(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
-    /// @notice Delivers a batch of proofs. See IProofMarket.deliver for more information.
-    function deliverBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
-
     /// @notice Checks the validity of the request and then writes the current auction price to
     /// transient storage.
     /// @dev When called within the same transaction, this method can be used to fulfill a request
