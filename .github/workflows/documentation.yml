@@ -57,6 +57,7 @@ jobs:
           echo "deployment_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
 
       - name: Find or Create Comment
+        if: github.event.pull_request
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           
@@ -64,25 +65,27 @@ jobs:
           COMMENTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments")
           
-          # Find existing comment ID
-          COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("🚀 Documentation Preview")) | .id')
+          # Find existing comment ID (fixed jq query)
+          COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | contains("🚀 Documentation Preview")) | .id' | head -n1)
           
-          # Prepare comment body
+          # Prepare comment body (using proper JSON escaping)
           COMMENT_BODY="🚀 Documentation Preview\n\nLatest deployment: ${{ steps.deploy.outputs.deployment_url }}\n\n_Updated at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')_"
-          PAYLOAD=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
+          
+          # Create JSON payload properly
+          PAYLOAD="{\"body\":\"$COMMENT_BODY\"}"
           
           if [ ! -z "$COMMENT_ID" ]; then
             # Update existing comment
             curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                 -H "Content-Type: application/json" \
-                 -X PATCH \
-                 -d "$PAYLOAD" \
-                 "https://api.github.com/repos/${{ github.repository }}/issues/comments/${COMMENT_ID}"
+                  -H "Content-Type: application/json" \
+                  -X PATCH \
+                  -d "$PAYLOAD" \
+                  "https://api.github.com/repos/${{ github.repository }}/issues/comments/${COMMENT_ID}"
           else
             # Create new comment
             curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                 -H "Content-Type: application/json" \
-                 -X POST \
-                 -d "$PAYLOAD" \
-                 "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments"
+                  -H "Content-Type: application/json" \
+                  -X POST \
+                  -d "$PAYLOAD" \
+                  "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments"
           fi
