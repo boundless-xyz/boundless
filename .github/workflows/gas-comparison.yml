@@ -20,8 +20,8 @@ jobs:
   contracts-changed:
     runs-on: ubuntu-latest
     outputs:
-      src: ${{ steps.filter.outputs.src }}
-      foundry: ${{ steps.filter.outputs.foundry }}
+      src: ${{ steps.changes.outputs.src }}
+      foundry: ${{ steps.changes.outputs.foundry }}
     steps:
       - name: checkout code
         uses: actions/checkout@v4
