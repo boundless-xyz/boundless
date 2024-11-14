@@ -43,13 +43,46 @@ jobs:
         run: bun install --global vercel@latest
 
       - name: Deploy to Vercel
+        id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_7ekBjCLrY6obIej6ulZx7iCg
           VERCEL_PROJECT_ID: prj_52J4bKnmBJxkhM6DQIxXBPsI2L7N
         run: |
           if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
-            vercel deploy site/dist --prod --token=${{ secrets.VERCEL_TOKEN }}
+            DEPLOYMENT_URL=$(vercel deploy site/dist --prod --token=${{ secrets.VERCEL_TOKEN }} --confirm)
           else
-            vercel deploy site/dist --token=${{ secrets.VERCEL_TOKEN }}
+            DEPLOYMENT_URL=$(vercel deploy site/dist --token=${{ secrets.VERCEL_TOKEN }} --confirm)
+          fi
+          echo "deployment_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+
+      - name: Find or Create Comment
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          
+          # Get all comments
+          COMMENTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments")
+          
+          # Find existing comment ID
+          COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("🚀 Documentation Preview")) | .id')
+          
+          # Prepare comment body
+          COMMENT_BODY="🚀 Documentation Preview\n\nLatest deployment: ${{ steps.deploy.outputs.deployment_url }}\n\n_Updated at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')_"
+          PAYLOAD=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
+          
+          if [ ! -z "$COMMENT_ID" ]; then
+            # Update existing comment
+            curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                 -H "Content-Type: application/json" \
+                 -X PATCH \
+                 -d "$PAYLOAD" \
+                 "https://api.github.com/repos/${{ github.repository }}/issues/comments/${COMMENT_ID}"
+          else
+            # Create new comment
+            curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                 -H "Content-Type: application/json" \
+                 -X POST \
+                 -d "$PAYLOAD" \
+                 "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments"
           fi
