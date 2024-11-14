@@ -5,7 +5,7 @@
 use std::{env, str::FromStr};
 
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, TxSigner},
     primitives::{aliases::U192, Address, Bytes, U256},
     providers::{
         fillers::{
@@ -18,9 +18,11 @@ use alloy::{
     signers::{
         k256::ecdsa::SigningKey,
         local::{LocalSigner, PrivateKeySigner},
+        Signer,
     },
     transports::{http::Http, Transport},
 };
+use alloy_primitives::Signature;
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client as HttpClient;
 use url::Url;
@@ -65,27 +67,28 @@ pub enum ClientError {
 
 #[derive(Clone)]
 /// Client for interacting with the boundless market
-pub struct Client<T, P, S> {
+pub struct Client<T, P, S, TS> {
     pub proof_market: ProofMarketService<T, P>,
     pub set_verifier: SetVerifierService<T, P>,
-    pub signer: LocalSigner<SigningKey>,
+    pub signer: TS,
     pub storage_provider: S,
-    pub offchain_client: OrderStreamClient,
+    pub offchain_client: OrderStreamClient<TS>,
 }
 
-impl<T, P, S> Client<T, P, S>
+impl<T, P, S, TS> Client<T, P, S, TS>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
+    TS: Signer,
 {
     /// Create a new client
     pub fn new(
         proof_market: ProofMarketService<T, P>,
         set_verifier: SetVerifierService<T, P>,
-        signer: LocalSigner<SigningKey>,
+        signer: TS,
         storage_provider: S,
-        offchain_client: OrderStreamClient,
+        offchain_client: OrderStreamClient<TS>,
         tx_timeout: Option<std::time::Duration>,
     ) -> Self {
         let mut proof_market = proof_market.clone();
@@ -159,7 +162,7 @@ where
 
         request.validate()?;
 
-        Ok(self.proof_market.submit_request(&request, &self.signer.clone()).await?)
+        Ok(self.proof_market.submit_request(&request, &self.signer).await?)
     }
 
     /// Submit a proving request offchain via the order stream service.
@@ -217,7 +220,7 @@ where
     }
 }
 
-impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
+impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider, LocalSigner<SigningKey>> {
     /// Create a new client from environment variables
     ///
     /// The following environment variables are required:
@@ -279,9 +282,33 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         order_stream_url: Url,
         storage_provider: BuiltinStorageProvider,
     ) -> Result<Self, ClientError> {
-        let caller = private_key.address();
-        let signer = private_key.clone();
-        let wallet = EthereumWallet::from(private_key.clone());
+        Self::from_custom_signer(
+            private_key,
+            rpc_url,
+            proof_market_address,
+            set_verifier_address,
+            order_stream_url,
+            storage_provider,
+        )
+        .await
+    }
+}
+
+impl<S> Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider, S>
+where
+    S: TxSigner<Signature> + Signer + Clone + Send + Sync + 'static,
+{
+    // TODO doc or merge with old `from_parts`
+    pub async fn from_custom_signer(
+        signer: S,
+        rpc_url: Url,
+        proof_market_address: Address,
+        set_verifier_address: Address,
+        order_stream_url: Url,
+        storage_provider: BuiltinStorageProvider,
+    ) -> Result<Self, ClientError> {
+        let caller = Signer::address(&signer);
+        let wallet = EthereumWallet::from(signer.clone());
         let provider =
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 

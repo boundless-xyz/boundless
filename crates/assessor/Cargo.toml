@@ -22,3 +22,4 @@ guest-assessor = { workspace = true }
 guest-util = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["client"] }
 test-log = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }

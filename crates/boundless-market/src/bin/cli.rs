@@ -12,7 +12,7 @@ use alloy::{
         Address, Bytes, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
+    signers::{local::PrivateKeySigner, Signer},
     transports::Transport,
 };
 use anyhow::{bail, Context, Result};
@@ -333,14 +333,15 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     Ok(request_id)
 }
 
-async fn submit_offer<T, P, S>(
-    client: Client<T, P, S>,
+async fn submit_offer<T, P, S, TS>(
+    client: Client<T, P, S, TS>,
     args: &SubmitOfferArgs,
 ) -> Result<Option<U256>>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
+    TS: Signer,
 {
     // Read the YAML offer file
     let file = File::open(&args.yaml_offer)?;
@@ -455,10 +456,10 @@ where
     Ok(Some(request_id))
 }
 
-async fn submit_request<T, P, S>(
+async fn submit_request<T, P, S, TS>(
     id: u32,
     request_path: String,
-    client: Client<T, P, S>,
+    client: Client<T, P, S, TS>,
     wait: bool,
     offchain: bool,
     dry_run: bool,
@@ -467,6 +468,7 @@ where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
+    TS: Signer,
 {
     // Read the YAML request file
     let file = File::open(request_path).context("failed to open request file")?;

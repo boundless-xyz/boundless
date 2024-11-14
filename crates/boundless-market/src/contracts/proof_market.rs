@@ -8,7 +8,7 @@ use alloy::{
     network::Ethereum,
     primitives::{aliases::U192, Address, Bytes, B256, U256},
     providers::Provider,
-    signers::{Signer, SignerSync},
+    signers::Signer,
     transports::Transport,
 };
 use alloy_sol_types::SolEvent;
@@ -181,13 +181,14 @@ where
     pub async fn submit_request(
         &self,
         request: &ProvingRequest,
-        signer: &(impl Signer + SignerSync),
+        signer: &impl Signer,
     ) -> Result<U256, MarketError> {
         tracing::debug!("Calling submitRequest({:?})", request);
         let provider = self.instance.provider();
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)
+            .await
             .context("Failed to sign proving request")?;
         let call = self
             .instance

@@ -123,12 +123,11 @@ mod tests {
         <[u8; 32]>::from(digest).into()
     }
 
-    #[test]
-    #[test_log::test]
-    fn test_claim() {
+    #[test_log::test(tokio::test)]
+    async fn test_claim() {
         let signer = PrivateKeySigner::random();
         let proving_request = proving_request(1, signer.address(), B256::ZERO, vec![1]);
-        let signature = proving_request.sign_request(&signer, Address::ZERO, 1).unwrap();
+        let signature = proving_request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
 
         let claim = Fulfillment {
             request: proving_request,
@@ -140,16 +139,15 @@ mod tests {
         claim.evaluate_requirements().unwrap();
     }
 
-    #[test]
-    #[test_log::test]
-    fn test_domain_serde() {
+    #[test_log::test(tokio::test)]
+    async fn test_domain_serde() {
         let domain = eip712_domain(Address::ZERO, 1);
         let bytes = postcard::to_allocvec(&domain).unwrap();
         let domain2: EIP721DomainSaltless = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(domain, domain2);
     }
 
-    fn setup_proving_request_and_signature(signer: &PrivateKeySigner) -> (ProvingRequest, Vec<u8>) {
+    async fn setup_proving_request_and_signature(signer: &PrivateKeySigner) -> (ProvingRequest, Vec<u8>) {
         let request = proving_request(
             1,
             signer.address(),
@@ -157,7 +155,7 @@ mod tests {
             "test".as_bytes().to_vec(),
         );
         let signature =
-            request.sign_request(&signer, Address::ZERO, 1).unwrap().as_bytes().to_vec();
+            request.sign_request(signer, Address::ZERO, 1).await.unwrap().as_bytes().to_vec();
         (request, signature)
     }
 
@@ -251,12 +249,11 @@ mod tests {
         assert_eq!(session.exit_code, ExitCode::Halted(0));
     }
 
-    #[test]
-    #[test_log::test]
-    fn test_assessor_e2e_singleton() {
+    #[test_log::test(tokio::test)]
+    async fn test_assessor_e2e_singleton() {
         let signer = PrivateKeySigner::random();
         // 1. Mock and sign a proving request
-        let (request, signature) = setup_proving_request_and_signature(&signer);
+        let (request, signature) = setup_proving_request_and_signature(&signer).await;
 
         // 2. Prove the request via the application guest
         let application_receipt = echo("test");
@@ -270,12 +267,11 @@ mod tests {
         assessor(claims, singleton_receipt);
     }
 
-    #[test]
-    #[test_log::test]
-    fn test_assessor_e2e_two_leaves() {
+    #[test_log::test(tokio::test)]
+    async fn test_assessor_e2e_two_leaves() {
         let signer = PrivateKeySigner::random();
         // 1. Mock and sign a proving request
-        let (request, signature) = setup_proving_request_and_signature(&signer);
+        let (request, signature) = setup_proving_request_and_signature(&signer).await;
 
         // 2. Prove the request via the application guest
         let application_receipt = echo("test");

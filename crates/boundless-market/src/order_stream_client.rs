@@ -6,10 +6,7 @@ use std::{error::Error, pin::Pin};
 
 use alloy::{
     primitives::{Address, Signature, SignatureError, B256},
-    signers::{
-        k256::ecdsa::SigningKey, local::LocalSigner, local::PrivateKeySigner, Error as SignerErr,
-        Signer,
-    },
+    signers::{Error as SignerErr, Signer},
 };
 use anyhow::{Context, Error as AnyhowErr, Result};
 use async_stream::stream;
@@ -45,7 +42,7 @@ impl AuthMsg {
     }
 
     /// Create a new AuthMsg from a PrivateKeySigner. The hash is randomly generated.
-    pub async fn new_from_signer(signer: &PrivateKeySigner) -> Result<Self, SignerErr> {
+    pub async fn new_from_signer(signer: &impl Signer) -> Result<Self, SignerErr> {
         let rand_bytes: [u8; 32] = rand::random();
         let hash = B256::from(rand_bytes);
         let signature = signer.sign_hash(&hash).await?;
@@ -120,27 +117,25 @@ impl Order {
 
 /// Client for interacting with the order stream server
 #[derive(Clone, Debug)]
-pub struct Client {
+pub struct Client<S> {
     /// HTTP client
     pub client: reqwest::Client,
     /// Base URL of the order stream server
     pub base_url: Url,
     /// Signer for signing requests
-    pub signer: LocalSigner<SigningKey>,
+    pub signer: S,
     /// Address of the proof market contract
     pub proof_market_address: Address,
     /// Chain ID of the network
     pub chain_id: u64,
 }
 
-impl Client {
+impl<S> Client<S>
+where
+    S: Signer,
+{
     /// Create a new client
-    pub fn new(
-        base_url: Url,
-        signer: LocalSigner<SigningKey>,
-        proof_market_address: Address,
-        chain_id: u64,
-    ) -> Self {
+    pub fn new(base_url: Url, signer: S, proof_market_address: Address, chain_id: u64) -> Self {
         Self { client: reqwest::Client::new(), base_url, signer, proof_market_address, chain_id }
     }
 
@@ -148,7 +143,7 @@ impl Client {
     pub async fn submit_request(&self, request: &ProvingRequest) -> Result<Order> {
         let url = Url::parse(&format!("{}{ORDER_SUBMISSION_PATH}", self.base_url))?;
         let signature =
-            request.sign_request(&self.signer, self.proof_market_address, self.chain_id)?;
+            request.sign_request(&self.signer, self.proof_market_address, self.chain_id).await?;
         let order = Order { request: request.clone(), signature };
         order.validate(self.proof_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;

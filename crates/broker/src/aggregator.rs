@@ -684,6 +684,7 @@ mod tests {
 
         let client_sig = order_request
             .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
             .unwrap()
             .as_bytes();
 
@@ -741,6 +742,7 @@ mod tests {
 
         let client_sig = order_request
             .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
             .unwrap()
             .as_bytes()
             .into();
@@ -848,6 +850,7 @@ mod tests {
 
         let client_sig = order_request
             .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
             .unwrap()
             .as_bytes();
 
@@ -954,6 +957,7 @@ mod tests {
 
         let client_sig = order_request
             .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
             .unwrap()
             .as_bytes();
 
