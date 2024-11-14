@@ -18,7 +18,7 @@ url = { workspace = true }
 # Host dependencies
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
 aggregation-set = { workspace = true }
-alloy = { workspace = true, features = ["network", "node-bindings", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy = { workspace = true, features = ["network", "node-bindings", "providers", "rpc-types", "transports", "sol-types", "contract", "signers", "signer-local"] }
 async-stream = "0.3"
 async-trait = "0.1"
 aws-sdk-s3 = "1.34"
@@ -44,6 +44,10 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [[bin]]
 name = "cli"
+required-features = ["cli"]
+
+[[bin]]
+name = "order-generator"
 required-features = ["cli"]
 
 [dev-dependencies]
