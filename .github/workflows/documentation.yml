@@ -52,13 +52,15 @@ jobs:
           VERCEL_PROJECT_ID: prj_52J4bKnmBJxkhM6DQIxXBPsI2L7N
         run: |
           if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
-            DEPLOYMENT_URL=$(vercel deploy site/dist --prod --token=${{ secrets.VERCEL_TOKEN }} --confirm)
+            DEPLOYMENT_URL=$(vercel deploy site/dist --prod --token=${{ secrets.VERCEL_TOKEN }} --yes)
           else
-            DEPLOYMENT_URL=$(vercel deploy site/dist --token=${{ secrets.VERCEL_TOKEN }} --confirm)
+            DEPLOYMENT_URL=$(vercel deploy site/dist --token=${{ secrets.VERCEL_TOKEN }} --yes)
           fi
           echo "deployment_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
 
       - name: Find or Create Comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Try to find PR number from the commit
           PR_NUMBER=$(gh pr list --search "${{ github.sha }}" --json number --jq '.[0].number')
