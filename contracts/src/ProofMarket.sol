@@ -532,8 +532,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
         RequestLock memory lock = requestLocks[requestId];
 
+        // If the lock was cleared, the request is already finalized, either by fullfillment or slashing.
         if (lock.prover == address(0)) {
-            revert RequestAlreadySlashed({requestId: requestId});
+            revert RequestIsNotLocked({requestId: requestId});
         }
         if (lock.deadline >= block.number) {
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});

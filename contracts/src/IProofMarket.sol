@@ -151,8 +151,6 @@ interface IProofMarket {
     error RequestIsNotExpired(uint192 requestId, uint64 deadline);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
-    /// Request has been slashed already.
-    error RequestAlreadySlashed(uint192 requestId);
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.

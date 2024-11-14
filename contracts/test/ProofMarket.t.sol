@@ -8,7 +8,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
-import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {ReceiptClaim, ReceiptClaimLib, VerificationFailed} from "risc0/IRiscZeroVerifier.sol";
 import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
@@ -179,7 +179,7 @@ contract ProofMarketTest is Test {
         return (fills[0], seal);
     }
 
-    function createFills(ProvingRequest[] memory requests, bytes[] memory journals, address prover)
+    function createFills(ProvingRequest[] memory requests, bytes[] memory journals, address prover, bool requirePayment)
         internal
         view
         returns (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root)
@@ -193,7 +193,7 @@ contract ProofMarketTest is Test {
                 imageId: requests[i].requirements.imageId,
                 journal: journals[i],
                 seal: bytes(""),
-                requirePayment: true
+                requirePayment: requirePayment
             });
             fills[i] = fill;
         }
@@ -219,7 +219,7 @@ contract ProofMarketTest is Test {
         returns (Fulfillment[] memory fills, bytes memory assessorSeal)
     {
         bytes32 root;
-        (fills, assessorSeal, root) = createFills(requests, journals, prover);
+        (fills, assessorSeal, root) = createFills(requests, journals, prover, true);
         // submit the root to the set verifier
         publishRoot(root);
         return (fills, assessorSeal);
@@ -228,7 +228,7 @@ contract ProofMarketTest is Test {
     function testDeposit() public {
         vm.deal(PROVER_WALLET.addr, 1 ether);
         // Deposit funds into the market
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit IProofMarket.Deposit(PROVER_WALLET.addr, 1 ether);
         vm.prank(PROVER_WALLET.addr);
         proofMarket.deposit{value: 1 ether}();
@@ -241,7 +241,7 @@ contract ProofMarketTest is Test {
         proofMarket.deposit{value: 1 ether}();
 
         // Withdraw funds from the market
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit IProofMarket.Withdrawal(PROVER_WALLET.addr, 1 ether);
         vm.prank(PROVER_WALLET.addr);
         proofMarket.withdraw(1 ether);
@@ -256,18 +256,16 @@ contract ProofMarketTest is Test {
 
         // Submit the request with no funds
         // Expect the event to be emitted
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit IProofMarket.RequestSubmitted(request.id, request, clientSignature);
-        vm.prank(client.addr);
         proofMarket.submitRequest(request, clientSignature);
 
         // Submit the request with funds
         // Expect the event to be emitted
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit IProofMarket.RequestSubmitted(request.id, request, clientSignature);
 
         vm.deal(client.addr, request.offer.maxPrice);
-        vm.prank(client.addr);
         proofMarket.submitRequest{value: request.offer.maxPrice}(request, clientSignature);
     }
 
@@ -283,7 +281,7 @@ contract ProofMarketTest is Test {
         console2.log("Prover balance before:", proverBalanceBefore);
 
         // Expect the event to be emitted
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit IProofMarket.RequestLockedin(request.id, PROVER_WALLET.addr);
         vm.prank(PROVER_WALLET.addr);
         proofMarket.lockin(request, clientSignature);
@@ -572,9 +570,7 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
-    // Test that when the prover that produces the assessor receipt and the one that locked the
-    // request are different, the one that locked the request gets paid.
-    function testFulfillDistinctProvers() public {
+    function testFulfillDistinctProversRequirePayment() public {
         Vm.Wallet memory client = createClient(1);
 
         ProvingRequest memory request = defaultRequest(client.addr, 3);
@@ -590,14 +586,50 @@ contract ProofMarketTest is Test {
         // address(3) is just a standin for some other address.
         address mockOtherProverAddr = address(uint160(3));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, mockOtherProverAddr);
+
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsLocked.selector, request.id));
         proofMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
 
-        // Check that the proof was submitted
-        assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+        assertFalse(proofMarket.requestIsFulfilled(fill.id), "Request should not have fulfilled status");
 
+        // Prover should have their original balance less the stake amount.
         uint256 balanceAfter = proofMarket.balanceOf(PROVER_WALLET.addr);
         console2.log("Prover balance after:", balanceAfter);
-        assertEq(balanceBefore + 1 ether, balanceAfter);
+        assertEq(balanceBefore - request.offer.lockinStake, balanceAfter);
+
+        checkProofMarketBalance();
+    }
+
+    function testFulfillDistinctProversNoPayment() public {
+        Vm.Wallet memory client = createClient(1);
+
+        ProvingRequest memory request = defaultRequest(client.addr, 3);
+
+        bytes memory clientSignature = signRequest(client, request);
+        bytes memory proverSignature = signRequest(PROVER_WALLET, request);
+
+        uint256 balanceBefore = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance before:", balanceBefore);
+
+        // Note that this does not come from any particular address.
+        proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        // address(3) is just a standin for some other address.
+        address mockOtherProverAddr = address(uint160(3));
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, mockOtherProverAddr);
+        fill.requirePayment = false;
+
+        vm.expectEmit(true, true, true, true);
+        emit IProofMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IProofMarket.RequestIsLocked.selector, request.id)
+        );
+        proofMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
+
+        assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+
+        // Prover should have their original balance less the stake amount.
+        uint256 balanceAfter = proofMarket.balanceOf(PROVER_WALLET.addr);
+        console2.log("Prover balance after:", balanceAfter);
+        assertEq(balanceBefore - request.offer.lockinStake, balanceAfter);
 
         checkProofMarketBalance();
     }
@@ -619,7 +651,7 @@ contract ProofMarketTest is Test {
         address mockOtherProverAddr = address(uint160(3));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, PROVER_WALLET.addr);
 
-        vm.expectRevert();
+        vm.expectRevert(VerificationFailed.selector);
         proofMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
     }
 
@@ -776,9 +808,7 @@ contract ProofMarketTest is Test {
         ProvingRequest memory request = defaultRequest(client.addr, 1);
         testFulfill();
 
-        // Attempt to slash a fulfilled request
-        // should revert with "RequestIsFulfilled({requestId: request.id})"
-        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsFulfilled.selector, request.id));
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.slash(request.id);
 
         checkProofMarketBalance();
@@ -798,9 +828,7 @@ contract ProofMarketTest is Test {
 
         testSlash();
 
-        // Attempt to slash a request twice
-        // should revert with "RequestAlreadySlashed({requestId: request.id})"
-        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestAlreadySlashed.selector, request.id));
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.slash(request.id);
 
         checkBurnedBalance(request.offer.lockinStake);
@@ -880,7 +908,7 @@ contract ProofMarketTest is Test {
     function testsubmitRootAndFulfillBatch() public {
         (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(2);
         (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) =
-            createFills(requests, journals, PROVER_WALLET.addr);
+            createFills(requests, journals, PROVER_WALLET.addr, true);
 
         bytes memory seal =
             verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
