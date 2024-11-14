@@ -12,7 +12,6 @@ use crate::contracts::set_verifier::IRiscZeroVerifier::IRiscZeroVerifierInstance
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, B256},
-    providers::Provider,
     transports::Transport,
 };
 use alloy_provider;

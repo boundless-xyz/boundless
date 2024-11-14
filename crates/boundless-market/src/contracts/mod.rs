@@ -9,7 +9,7 @@ use std::str::FromStr;
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
     contract::Error as ContractErr,
-    primitives::SignatureError,
+    primitives::{PrimitiveSignature, SignatureError},
     signers::{Error as SignerErr, Signature, SignerSync},
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
@@ -17,7 +17,6 @@ use alloy::{
 use alloy_primitives::{
     aliases::{U160, U192, U96},
     Address, Bytes, B256, U256,
-    PrimitiveSignature,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
