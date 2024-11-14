@@ -19,7 +19,6 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use guest_util::ECHO_ELF;
 use hex::FromHex;
-use risc0_ethereum_contracts::IRiscZeroVerifier;
 use risc0_zkvm::{
     default_executor,
     sha::{Digest, Digestible},
@@ -30,8 +29,8 @@ use url::Url;
 use boundless_market::{
     client::Client,
     contracts::{
-        proof_market::ProofMarketService, Input, InputType, Offer, Predicate, PredicateType,
-        ProvingRequest, Requirements,
+        proof_market::ProofMarketService, set_verifier::SetVerifierService, Input, InputType,
+        Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     },
     storage::{
         storage_provider_from_env, BuiltinStorageProvider, StorageProvider, TempFileStorageProvider,
@@ -306,10 +305,10 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
         Command::VerifyProof { request_id, image_id } => {
             let (journal, seal) = proof_market.get_request_fulfillment(request_id).await?;
             let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
-            let set_verifier = IRiscZeroVerifier::new(args.set_verifier_address, provider.clone());
+            let set_verifier =
+                SetVerifierService::new(args.set_verifier_address, provider.clone(), caller);
             set_verifier
                 .verify(seal, image_id, journal_digest)
-                .call()
                 .await
                 .map_err(|_| anyhow::anyhow!("Verification failed"))?;
             tracing::info!("Proof for request id 0x{request_id:x} verified successfully.");
