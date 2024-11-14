@@ -309,6 +309,7 @@ where
     ) -> Result<Self, ClientError> {
         let caller = Signer::address(&signer);
         let wallet = EthereumWallet::from(signer.clone());
+        // TODO likely this provider should be able to be configured? What if user doesn't like the default fillers?
         let provider =
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
