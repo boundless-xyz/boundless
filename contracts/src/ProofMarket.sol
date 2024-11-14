@@ -387,7 +387,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
         verifyDelivery(fill, assessorSeal, prover);
-        _fulfillVerified(fill.id, prover);
+        _fulfillVerified(fill.id, prover, fill.requirePayment);
 
         // TODO(victor): Potentially this should be (re)combined with RequestFulfilled. It would make
         // the logic to watch for a proof a bit more complex, but the gas usage a little less (by
@@ -399,10 +399,10 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         verifyBatchDelivery(fills, assessorSeal, prover);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
-        // batch update to storage. However, updating the the same storage slot twice only costs 100 gas, so
+        // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(fills[i].id, prover);
+            _fulfillVerified(fills[i].id, prover, fills[i].requirePayment);
 
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
@@ -422,23 +422,31 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillVerified(uint192 id, address assessorProver) internal returns (bytes memory error) {
+    function _fulfillVerified(uint192 id, address assessorProver, bool requirePayment) internal {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
 
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
 
-        // DO NOT MERGE: Use the error result from these inner functions.
+        bytes memory paymentError;
         if (locked) {
-            return _fulfillVerifiedLocked(id, client, idx, fulfilled, assessorProver);
+            paymentError = _fulfillVerifiedLocked(id, client, idx, fulfilled, assessorProver);
         } else {
-            return _fulfillVerifiedUnlocked(id, client, idx, fulfilled, assessorProver);
+            paymentError = _fulfillVerifiedUnlocked(id, client, idx, fulfilled, assessorProver);
+        }
+
+        if (paymentError.length > 0) {
+            if (requirePayment) {
+                revertWith(paymentError);
+            } else {
+                emit PaymentRequirementsFailed(paymentError);
+            }
         }
     }
 
     function _fulfillVerifiedLocked(uint192 id, address client, uint32 idx, bool fulfilled, address assessorProver)
         internal
-        returns (bytes memory error)
+        returns (bytes memory paymentError)
     {
         RequestLock memory lock = requestLocks[id];
 
@@ -471,7 +479,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
     function _fulfillVerifiedUnlocked(uint192 id, address client, uint32 idx, bool fulfilled, address assessorProver)
         internal
-        returns (bytes memory error)
+        returns (bytes memory paymentError)
     {
         // When not locked, the fulfilled flag _does_ indicate that payment has already been transferred.
         if (fulfilled) {
@@ -562,6 +570,13 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
         setVerifier.submitMerkleRoot(root, seal);
         fulfillBatch(fills, assessorSeal, prover);
+    }
+
+    /// Internal utility function to revert with a pre-encoded error.
+    function revertWith(bytes memory error) internal {
+        assembly {
+            revert(add(error, 0x20), mload(error))
+        }
     }
 }
 
