@@ -496,14 +496,12 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         // NOTE: Maybe "request is not locked or priced" would be more accurate, but seems
         // like that would be a confusing message.
         if (!tprice.valid) {
-            // DO NOT MERGE: Revert here instead of returning an error?
             return abi.encodeWithSelector(RequestIsNotLocked.selector, id);
         }
 
         // Mark the request as fulfilled.
         // NOTE: If an unlocked request is fulfilled, but fails the requirements for payment, no
         // payment can ever be rendered for this order.
-        // DO NOT MERGE: Provide a way to revert if payment fails. Useful in combination with a system like Flashbots Protect.
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
         emit RequestFulfilled(id);
