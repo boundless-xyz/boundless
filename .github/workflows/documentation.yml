@@ -57,35 +57,50 @@ jobs:
           echo "deployment_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
 
       - name: Find or Create Comment
-        if: github.event.pull_request
         run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
+          if [[ ${{ github.event_name }} == 'pull_request' ]]; then
+            # For PRs, comment on the PR
+            ISSUE_NUMBER=${{ github.event.pull_request.number }}
+            COMMENTS_URL="https://api.github.com/repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments"
+          else
+            # For direct commits, comment on the commit
+            COMMIT_SHA=${{ github.sha }}
+            COMMENTS_URL="https://api.github.com/repos/${{ github.repository }}/commits/${COMMIT_SHA}/comments"
+          fi
           
           # Get all comments
-          COMMENTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments")
+          COMMENTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$COMMENTS_URL")
           
-          # Find existing comment ID (fixed jq query)
+          # Find existing comment ID
           COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | contains("🚀 Documentation Preview")) | .id' | head -n1)
           
-          # Prepare comment body (using proper JSON escaping)
+          # Prepare comment body
           COMMENT_BODY="🚀 Documentation Preview\n\nLatest deployment: ${{ steps.deploy.outputs.deployment_url }}\n\n_Updated at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')_"
           
-          # Create JSON payload properly
+          # Create JSON payload
           PAYLOAD="{\"body\":\"$COMMENT_BODY\"}"
           
-          if [ ! -z "$COMMENT_ID" ]; then
-            # Update existing comment
-            curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                  -H "Content-Type: application/json" \
-                  -X PATCH \
-                  -d "$PAYLOAD" \
-                  "https://api.github.com/repos/${{ github.repository }}/issues/comments/${COMMENT_ID}"
+          if [[ ${{ github.event_name }} == 'pull_request' ]]; then
+            if [ ! -z "$COMMENT_ID" ]; then
+              # Update existing PR comment
+              curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                    -H "Content-Type: application/json" \
+                    -X PATCH \
+                    -d "$PAYLOAD" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/comments/${COMMENT_ID}"
+            else
+              # Create new PR comment
+              curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                    -H "Content-Type: application/json" \
+                    -X POST \
+                    -d "$PAYLOAD" \
+                    "$COMMENTS_URL"
+            fi
           else
-            # Create new comment
+            # For commits, always create a new comment (GitHub doesn't support updating commit comments)
             curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                   -H "Content-Type: application/json" \
                   -X POST \
                   -d "$PAYLOAD" \
-                  "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments"
+                  "$COMMENTS_URL"
           fi

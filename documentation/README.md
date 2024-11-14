@@ -36,5 +36,5 @@ bun run dev
 ## Contributing
 
 1. Create your feature branch
-2. Submit a pull request with your changes kick
+2. Submit a pull request with your changes kick2
 
