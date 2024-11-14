@@ -17,6 +17,7 @@ use alloy::{
 use alloy_primitives::{
     aliases::{U160, U192, U96},
     Address, Bytes, B256, U256,
+    PrimitiveSignature,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
@@ -175,7 +176,7 @@ impl ProvingRequest {
         signer: &impl SignerSync,
         contract_addr: Address,
         chain_id: u64,
-    ) -> Result<Signature, SignerErr> {
+    ) -> Result<PrimitiveSignature, SignerErr> {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         signer.sign_hash_sync(&hash)
@@ -386,7 +387,7 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
     match err {
         ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
             let Some(data) = ts_err.data else {
-                return Err(TxnErr::MissingData(ts_err.code, ts_err.message));
+                return Err(TxnErr::MissingData(ts_err.code, ts_err.message.to_string()));
             };
 
             let data = data.get().trim_matches('"');

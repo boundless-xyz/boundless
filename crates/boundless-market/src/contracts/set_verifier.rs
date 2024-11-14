@@ -15,6 +15,7 @@ use alloy::{
     providers::Provider,
     transports::Transport,
 };
+use alloy_provider;
 use anyhow::{Context, Result};
 
 //TODO: drop this once risc0-ethereum is updated
@@ -34,7 +35,7 @@ pub struct SetVerifierService<T, P> {
 impl<T, P> SetVerifierService<T, P>
 where
     T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: alloy_provider::Provider<T, Ethereum> + 'static + Clone,
 {
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
         let instance = IRiscZeroSetVerifier::new(address, provider.clone());

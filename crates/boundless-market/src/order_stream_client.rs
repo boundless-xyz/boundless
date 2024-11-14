@@ -5,7 +5,7 @@
 use std::{error::Error, pin::Pin};
 
 use alloy::{
-    primitives::{Address, Signature, SignatureError, B256},
+    primitives::{Address, PrimitiveSignature, SignatureError, B256},
     signers::{
         k256::ecdsa::SigningKey, local::LocalSigner, local::PrivateKeySigner, Error as SignerErr,
         Signer,
@@ -35,12 +35,12 @@ pub const ORDER_WS_PATH: &str = "ws/orders";
 pub struct AuthMsg {
     pub hash: B256,
     pub address: Address,
-    pub signature: Signature,
+    pub signature: PrimitiveSignature,
 }
 
 impl AuthMsg {
     /// Create a new AuthMsg
-    pub fn new(hash: B256, address: Address, signature: Signature) -> Self {
+    pub fn new(hash: B256, address: Address, signature: PrimitiveSignature) -> Self {
         Self { hash, address, signature }
     }
 
@@ -99,12 +99,12 @@ impl From<AnyhowErr> for OrderError {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Order {
     pub request: ProvingRequest,
-    pub signature: Signature,
+    pub signature: PrimitiveSignature,
 }
 
 impl Order {
     /// Create a new Order
-    pub fn new(request: ProvingRequest, signature: Signature) -> Self {
+    pub fn new(request: ProvingRequest, signature: PrimitiveSignature) -> Self {
         Self { request, signature }
     }
 
