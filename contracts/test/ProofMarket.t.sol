@@ -192,7 +192,8 @@ contract ProofMarketTest is Test {
                 id: requests[i].id,
                 imageId: requests[i].requirements.imageId,
                 journal: journals[i],
-                seal: bytes("")
+                seal: bytes(""),
+                requirePayment: true
             });
             fills[i] = fill;
         }
