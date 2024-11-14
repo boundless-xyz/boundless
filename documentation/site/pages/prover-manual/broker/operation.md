@@ -86,7 +86,7 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS
 
 ### Orders Stuck in 'Lockin' or `submit_merkle` Confirmation Timeouts
 
-If on the [indexer](https://boundless-indexer-risczero.vercel.app) you see your broker having a high number of orders locked-in but not being fulfilled it might be due to TXN confirmation timeouts. Initially increasing the `txn_timeout` in the `broker.toml` file is a good start to try and ensure the fulfillment completes.
+If on the [indexer](https://indexer.beboundless.xyz) you see your broker having a high number of orders locked-in but not being fulfilled it might be due to TXN confirmation timeouts. Initially increasing the `txn_timeout` in the `broker.toml` file is a good start to try and ensure the fulfillment completes.
 
 Additionally it is possible to re-drive orders that are "stuck" via the following:
 
