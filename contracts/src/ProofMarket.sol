@@ -574,7 +574,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     }
 
     /// Internal utility function to revert with a pre-encoded error.
-    function revertWith(bytes memory error) internal {
+    function revertWith(bytes memory error) internal pure {
         assembly {
             revert(add(error, 0x20), mload(error))
         }
