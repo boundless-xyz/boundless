@@ -93,6 +93,10 @@ export default defineConfig({
 			],
 		},
 		{
+			text: "Smart Contracts Documentation",
+			link: "/smart-contracts",
+		},
+		{
 			text: "Reference",
 			link: "/reference",
 		},
@@ -102,7 +106,7 @@ export default defineConfig({
 		},
 	],
 	topNav: [
-		{ text: "Indexer", link: "https://boundless-indexer-risczero.vercel.app/" },
+		{ text: "Indexer", link: "https://boundless-indexer-risczero.vercel.app" },
 		{
 			text: process.env.LATEST_TAG || "Latest",
 			items: [
