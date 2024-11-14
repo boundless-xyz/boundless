@@ -913,7 +913,6 @@ mod tests {
 
         let assessor_journal = AssessorJournal {
             requestIds: vec![U192::from(request_id)],
-            root: to_b256(app_claim_digest),
             eip712DomainSeparator: eip712_domain.separator(),
             prover,
         };
