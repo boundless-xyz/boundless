@@ -6,6 +6,7 @@ edition = "2021"
 [workspace]
 
 [dependencies]
+aggregation-set = { path = "../../../aggregation-set", default-features = false, features = ["verify"] }
 alloy-primitives = { version = "0.8" }
 alloy-sol-types = { version = "0.8", features = ["eip712-serde"] }
 assessor = { path = "../../../assessor" }

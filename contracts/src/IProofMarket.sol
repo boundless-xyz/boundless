@@ -80,10 +80,14 @@ struct Fulfillment {
 }
 
 // Structured journal of the Assessor guest which verifies the signature(s)
-// from client(s) and that the requirements are met by claim digest(s).
-// Assessor can verify a batch of requests, including batches of size one.
+// from client(s) and that the requirements are met by claim digest(s) in the
+// Merkle tree committed to by the given root. Assessor can verify a batch of
+// requests, including batches of size one.
 struct AssessorJournal {
     uint192[] requestIds;
+    // Root of the Merkle tree committing to the set of proven claims.
+    // In the case of a batch of size one, this may simply be a claim digest.
+    bytes32 root;
     // EIP712 domain separator.
     bytes32 eip712DomainSeparator;
     // The address of the prover that produced the assessor receipt.

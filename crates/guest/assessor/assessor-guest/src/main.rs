@@ -7,6 +7,7 @@
 
 extern crate alloc;
 
+use aggregation_set::merkle_root;
 use alloc::{vec, vec::Vec};
 use alloy_primitives::aliases::U192;
 use alloy_sol_types::SolValue;
@@ -46,9 +47,12 @@ fn main() {
         leaves.push(fill.receipt_claim().digest());
     }
 
+    // recompute the merkle root of the aggregation set
+    let root = merkle_root(&leaves).expect("failed to compute merkle root");
 
     let journal = AssessorJournal {
         requestIds: ids,
+        root: <[u8; 32]>::from(root).into(),
         eip712DomainSeparator: eip_domain_separator.hash_struct(),
         prover: input.prover_address,
     };

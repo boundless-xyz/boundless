@@ -880,6 +880,7 @@ dependencies = [
 name = "assessor-guest"
 version = "0.1.0"
 dependencies = [
+ "aggregation-set",
  "alloy-primitives",
  "alloy-sol-types",
  "assessor",
