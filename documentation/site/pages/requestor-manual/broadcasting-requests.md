@@ -221,4 +221,4 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 35545859793240
 [boundless-repo]: https://github.com/boundless-xyz/boundless
 [id-deployments-sepolia-testnet]: /market/public-deployments#contracts
 [local-development]: /market/local-development
-[indexer]: https://boundless-indexer-risczero.vercel.app/orders
+[indexer]: https://indexer.beboundless.xyz
