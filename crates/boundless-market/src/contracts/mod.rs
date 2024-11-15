@@ -386,7 +386,7 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
     match err {
         ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
             let Some(data) = ts_err.data else {
-                return Err(TxnErr::MissingData(ts_err.code, ts_err.message));
+                return Err(TxnErr::MissingData(ts_err.code, ts_err.message.to_string()));
             };
 
             let data = data.get().trim_matches('"');

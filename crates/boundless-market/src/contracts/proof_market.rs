@@ -319,7 +319,10 @@ where
 
     /// When a prover fails to fulfill a request by the deadline, this function can be used to burn
     /// the associated prover stake.
-    pub async fn slash(&self, request_id: U256) -> Result<U256, MarketError> {
+    pub async fn slash(
+        &self,
+        request_id: U256,
+    ) -> Result<IProofMarket::ProverSlashed, MarketError> {
         tracing::debug!("Calling slash({:?})", request_id);
         let call = self.instance.slash(U192::from(request_id)).from(self.caller);
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
@@ -333,11 +336,11 @@ where
         let [log] = receipt.inner.logs() else {
             return Err(MarketError::Error(anyhow!("call must emit exactly one event")));
         };
-        let log = log.log_decode::<IProofMarket::LockinStakeBurned>().with_context(|| {
-            format!("call did not emit {}", IProofMarket::LockinStakeBurned::SIGNATURE)
+        let log = log.log_decode::<IProofMarket::ProverSlashed>().with_context(|| {
+            format!("call did not emit {}", IProofMarket::ProverSlashed::SIGNATURE)
         })?;
 
-        Ok(U256::from(log.inner.data.stake))
+        Ok(log.inner.data)
     }
 
     /// Fulfill a locked request by delivering the proof for the application.
