@@ -44,6 +44,10 @@ jobs:
           risczero-version: '1.1'
           toolchain-version: 'r0.1.79.0-2'
 
+      - name: forge build
+        run: forge build
+        working-directory: contracts
+
       - name: cargo build
         run: cargo build
         env:
