@@ -74,3 +74,9 @@ else
         --private-key ${DEPLOYER_PRIVATE_KEY:?} \
         --rpc-url ${RPC_URL:?}
 fi
+
+# Update ProofMarketLastDeployment.sol if UpgradeProofMarket and --broadcast were specified and successful
+if [[ "${SCRIPT_FUNCTION}" == "UpgradeProofMarket" ]] && [[ " ${FORGE_SCRIPT_FLAGS[@]} " =~ " --broadcast " ]]; then
+    echo "UpgradeProofMarket completed successfully with --broadcast. Copying files..."
+    cp contracts/src/ProofMarket.sol contracts/src/ProofMarketLastDeployment.sol
+fi

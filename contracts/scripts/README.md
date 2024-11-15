@@ -305,6 +305,10 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 3. Send the upgrade transactions for the proof market by running the command again with `--broadcast`.
 
    > [!NOTE]
+   > When using `--broadcast` the script should automatically copy the `ProofMarket.sol` file into the `ProofMarketLastDeployment.sol` file.
+   > Make sure to create a PR on GitHub to commit that change.
+
+   > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
 
 4. Load the upgraded ProofMarket (proxy) address into the environment:

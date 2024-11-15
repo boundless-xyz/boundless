@@ -29,7 +29,6 @@ import {
     Requirements
 } from "../src/IProofMarket.sol";
 import {ProofMarketLib} from "../src/ProofMarketLib.sol";
-import {ProofMarketV2Test} from "./contracts/ProofMarketV2Test.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
 
 contract ProofMarketTest is Test {
@@ -947,19 +946,28 @@ contract ProofMarketTest is Test {
     // With that, we might also check that it is possible to upgrade to a notional future version, or we might
     // want to drop the ProofMarketV2Test contract.
     function testUpgradeability() public {
-        address implAddressV1 = Upgrades.getImplementationAddress(proxy);
+        // Deploy the UUPS proxy with the last deployed implementation
+        UpgradeOptions memory opts;
+        opts.constructorData = ProofMarketLib.encodeConstructorArgs(setVerifier, ASSESSOR_IMAGE_ID);
         vm.startPrank(OWNER_WALLET.addr);
-        // Deploy a new implementation of the same contract
+        address market = Upgrades.deployUUPSProxy(
+            "ProofMarketLastDeployment.sol:ProofMarket",
+            abi.encodeCall(ProofMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null")),
+            opts
+        );
+        address implAddressV1 = Upgrades.getImplementationAddress(market);
+
+        // Deploy a new implementation of the contract
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
-        UpgradeOptions memory opts;
-        opts.constructorData = ProofMarketLib.encodeConstructorArgs(proofMarket.VERIFIER(), ASSESSOR_IMAGE_ID);
-        Upgrades.upgradeProxy(proxy, "ProofMarketV2Test.sol:ProofMarketV2Test", "", opts, OWNER_WALLET.addr);
+        opts.referenceContract = "ProofMarketLastDeployment.sol:ProofMarket";
+        Upgrades.upgradeProxy(market, "ProofMarket.sol:ProofMarket", "", opts, OWNER_WALLET.addr);
         vm.stopPrank();
-        address implAddressV2 = Upgrades.getImplementationAddress(proxy);
+        address implAddressV2 = Upgrades.getImplementationAddress(market);
         assertFalse(implAddressV2 == implAddressV1);
 
-        (bytes32 imageID, string memory imageUrl) = proofMarket.imageInfo();
+        ProofMarket marketProxy = ProofMarket(market);
+        (bytes32 imageID, string memory imageUrl) = marketProxy.imageInfo();
         assertEq(imageID, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
         assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
     }
