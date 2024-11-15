@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
-    providers::{ProviderBuilder, RootProvider},
+    providers::{Provider, ProviderBuilder, RootProvider},
     transports::http::Http,
 };
 use anyhow::{anyhow, Context, Error as AnyhowErr, Result};
@@ -36,7 +36,7 @@ use tokio::{
     sync::{broadcast, mpsc, Mutex},
     task::JoinHandle,
 };
-use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 use tracing::error;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -103,17 +103,14 @@ impl IntoResponse for AppError {
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// Bind address for REST api
-    #[clap(long, env, default_value = "0.0.0.0:8080")]
+    #[clap(long, env, default_value = "0.0.0.0:8585")]
     bind_addr: String,
     /// RPC URL for the Ethereum node
-    #[clap(long, env)]
+    #[clap(long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
     /// Address of the ProofMarket contract
     #[clap(long, env)]
     proof_market_address: Address,
-    /// Chain ID of the Ethereum network
-    #[clap(long, env)]
-    chain_id: u64,
     /// Minimum balance required to connect to the WebSocket
     #[clap(long, value_parser = parse_ether)]
     min_balance: U256,
@@ -132,8 +129,6 @@ pub struct Config {
     pub rpc_url: Url,
     /// Address of the ProofMarket contract
     pub market_address: Address,
-    /// Chain ID of the Ethereum network
-    pub chain_id: u64,
     /// Minimum balance required to connect to the WebSocket
     pub min_balance: U256,
     /// Maximum number of WebSocket connections
@@ -147,7 +142,6 @@ impl From<&Args> for Config {
         Self {
             rpc_url: args.rpc_url.clone(),
             market_address: args.proof_market_address,
-            chain_id: args.chain_id,
             min_balance: args.min_balance,
             max_connections: args.max_connections,
             queue_size: args.queue_size,
@@ -171,17 +165,23 @@ pub struct AppState {
     rpc_provider: RootProvider<Http<Client>>,
     // Configuration
     config: Config,
+    // chain_id
+    chain_id: u64,
 }
 
 impl AppState {
     /// Create a new AppState
-    pub fn new(config: &Config, order_tx: broadcast::Sender<Order>) -> Arc<Self> {
-        Arc::new(Self {
+    pub async fn new(config: &Config, order_tx: broadcast::Sender<Order>) -> Result<Arc<Self>> {
+        let provider = ProviderBuilder::new().on_http(config.rpc_url.clone());
+        let chain_id =
+            provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
+        Ok(Arc::new(Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             order_tx,
             rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
             config: config.clone(),
-        })
+            chain_id,
+        }))
     }
 }
 
@@ -205,7 +205,7 @@ async fn submit_order(
     Json(order): Json<Order>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Validate the order
-    order.validate(state.config.market_address, state.config.chain_id)?;
+    order.validate(state.config.market_address, state.chain_id)?;
     let id = order.request.id.clone();
 
     // Send the order to the channel for broadcasting
@@ -246,14 +246,19 @@ async fn websocket_handler(
     }
 
     // Check if the address is already connected
-    let cloned_state = state.clone();
-    let connections = cloned_state.connections.lock().await;
-    if connections.contains_key(&auth_msg.address) {
-        return (StatusCode::CONFLICT, format!("Client {} already connected", auth_msg.address))
-            .into_response();
-    }
-    if connections.len() >= state.config.max_connections {
-        return (StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response();
+    {
+        let connections = state.connections.lock().await;
+        if connections.contains_key(&auth_msg.address) {
+            return (
+                StatusCode::CONFLICT,
+                // TODO: send serialized Error types for the client to de-serialize vs strings.
+                format!("Client {} already connected", auth_msg.address),
+            )
+                .into_response();
+        }
+        if connections.len() >= state.config.max_connections {
+            return (StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response();
+        }
     }
 
     // Check the balance
@@ -323,7 +328,7 @@ async fn broadcast_order(order: &Order, state: Arc<AppState>) {
 }
 
 async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<AppState>) {
-    let (mut sender_ws, _) = socket.split();
+    let (mut sender_ws, mut recver_ws) = socket.split();
 
     let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
 
@@ -334,21 +339,45 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
     }
 
     let mut errors_counter = 0usize;
-    while let Some(message) = receiver_channel.recv().await {
-        match sender_ws.send(Message::Text(message)).await {
-            Ok(_) => {
-                // Reset the error counter on successful send
-                errors_counter = 0;
+
+    loop {
+        tokio::select! {
+            msg = receiver_channel.recv() => {
+                match msg {
+                    Some(msg) => {
+                        match sender_ws.send(Message::Text(msg)).await {
+                            Ok(_) => {
+                                // Reset the error counter on successful send
+                                errors_counter = 0;
+                            }
+                            Err(err) => {
+                                tracing::warn!("Failed to send message to client {}: {}", address, err);
+                                errors_counter += 1;
+                                if errors_counter > 10 {
+                                    tracing::warn!(
+                                        "Too many consecutive send errors to client {}; disconnecting",
+                                        address
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    None => break,
+                }
             }
-            Err(err) => {
-                tracing::warn!("Failed to send message to client {}: {}", address, err);
-                errors_counter += 1;
-                if errors_counter > 10 {
-                    tracing::warn!(
-                        "Too many consecutive send errors to client {}; disconnecting",
-                        address
-                    );
-                    break;
+            ws_msg = recver_ws.next() => {
+                // This polls on the recv side of the websocket connection, once a connection closes
+                // either via Err or graceful Message::Close, the nex() will return None and we can close the
+                // connection.
+                match ws_msg {
+                    Some(_) => {
+                        // TODO: cleaner management of Some(Ok(Message::Close))
+                    }
+                    None => {
+                        tracing::debug!("Empty recv, closing connections");
+                        break;
+                    }
                 }
             }
         }
@@ -368,13 +397,14 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(&format!("/{ORDER_SUBMISSION_PATH}"), post(submit_order).layer(body_size_limit))
         .route(&format!("/{ORDER_WS_PATH}"), get(websocket_handler))
         .with_state(state)
+        .layer(TraceLayer::new_for_http())
 }
 
 /// Run the REST API service
 pub async fn run(args: &Args) -> Result<()> {
     let config: Config = args.into();
     let (order_tx, _) = broadcast::channel(config.max_connections);
-    let app_state = AppState::new(&config, order_tx);
+    let app_state = AppState::new(&config, order_tx).await?;
     let listener = tokio::net::TcpListener::bind(&args.bind_addr)
         .await
         .context("Failed to bind a TCP listener")?;
@@ -462,7 +492,6 @@ mod tests {
     #[tokio::test]
     async fn integration_test() {
         let anvil = Anvil::new().spawn();
-        let chain_id = anvil.chain_id();
         let rpc_url = anvil.endpoint_url();
 
         let ctx = TestCtx::new(&anvil).await.unwrap();
@@ -472,14 +501,13 @@ mod tests {
         let config = Config {
             rpc_url,
             market_address: *ctx.prover_market.instance().address(),
-            chain_id,
             min_balance: parse_ether("2").unwrap(),
             max_connections: 1,
             queue_size: 10,
         };
         let (order_tx, order_rx) = broadcast::channel(config.max_connections);
-        let app_state = AppState::new(&config, order_tx);
-        start_broadcast_task(Arc::clone(&app_state), order_rx);
+        let app_state = AppState::new(&config, order_tx).await.unwrap();
+        start_broadcast_task(app_state.clone(), order_rx);
 
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
             .await
@@ -491,7 +519,7 @@ mod tests {
             Url::parse(&format!("http://{addr}", addr = addr)).unwrap(),
             ctx.prover_signer.clone(),
             config.market_address,
-            config.chain_id,
+            app_state.chain_id,
         );
 
         // 1. Broker connects to the WebSocket

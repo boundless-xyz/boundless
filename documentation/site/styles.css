@@ -1,0 +1,165 @@
+@import "@risc0/ui/styles/globals.css";
+
+@font-face {
+  font-family: "Self Modern";
+  src: url("/fonts/self-modern/SelfModernRegular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Self Modern - Semi Bold */
+@font-face {
+  font-family: "Self Modern";
+  src: url("/fonts/self-modern/SelfModernSemiBold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Self Modern - Bold */
+@font-face {
+  font-family: "Self Modern";
+  src: url("/fonts/self-modern/SelfModernBold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Self Modern - Italic */
+@font-face {
+  font-family: "Self Modern";
+  src: url("/fonts/self-modern/SelfModernItalic.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Replica - Regular */
+@font-face {
+  font-family: "Replica";
+  src: url("/fonts/replica/ReplicaRegular.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Replica - Regular Italic */
+@font-face {
+  font-family: "Replica";
+  src: url("/fonts/replica/ReplicaItalic.otf") format("opentype");
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Replica - Bold */
+@font-face {
+  font-family: "Replica";
+  src: url("/fonts/replica/ReplicaBold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Replica - Bold Italic */
+@font-face {
+  font-family: "Replica";
+  src: url("/fonts/replica/ReplicaBoldItalic.otf") format("opentype");
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Replica - Light */
+@font-face {
+  font-family: "Replica";
+  src: url("/fonts/replica/ReplicaLight.otf") format("opentype");
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Replica - Light Italic */
+@font-face {
+  font-family: "Replica";
+  src: url("/fonts/replica/ReplicaLightItalic.otf") format("opentype");
+  font-weight: 200;
+  font-style: italic;
+  font-display: swap;
+}
+
+
+:root {
+  --font-self-modern: "Self Modern";
+  --font-replica: "Replica";
+  --font-ubuntu-mono: "Ubuntu Mono";
+  --removed-body-scroll-bar-size: 0px;
+
+  /* tailwind/shadcn overrides */
+  --radius: 0.5rem;
+}
+
+html {
+  @apply scroll-smooth;
+}
+
+html,
+body,
+.vocs_DocsLayout {
+  @apply font-sans;
+}
+
+body {
+  @apply bg-inherit;
+}
+
+.vocs_Logo {
+  @apply object-contain;
+}
+
+.vocs_H1 {
+  @apply font-serif;
+}
+
+#vocs-content {
+  @apply flex flex-col;
+}
+
+.vocs_Content {
+  @apply flex-1;
+}
+
+.vocs_HomePage {
+  @apply !pt-40;
+}
+
+.vocs_Sidebar_sectionTitle {
+  @apply font-bold;
+}
+
+:where(html:not(.dark)) .vocs_Sidebar_sectionTitle {
+  @apply font-bold;
+}
+
+:where(html:not(.dark)) .vocs_Sidebar_divider {
+  @apply bg-border;
+}
+
+:where(html:not(.dark)) .vocs_Sidebar_navigation > .vocs_Sidebar_group > .vocs_Sidebar_section + .vocs_Sidebar_section {
+  @apply border-t border-border;
+}
+
+:where(html:not(.dark)) .vocs_Sidebar_levelInset {
+  @apply border-l border-border;
+}
+
+.vocs_SearchDialog_overlay {
+  @apply backdrop-blur-[2px]
+}
+
+@media (max-width: 1080px) {
+  .vocs_DocsLayout_content {
+    @apply min-h-[calc(100dvh-48px)];
+  }
+}

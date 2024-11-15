@@ -22,8 +22,11 @@ impl OffchainMarketMonitor {
         Self { db, client }
     }
 
-    async fn monitor_orders(client: OrderStreamClient, db: DbObj) -> Result<()> {
-        let socket = client.connect_async().await?;
+    async fn monitor_orders(client: OrderStreamClient, db: DbObj) -> Result<(), SupervisorErr> {
+        // TODO: retry until it can reestablish a connection.
+        tracing::debug!("Connecting to off-chain market: {}", client.base_url);
+        let socket = client.connect_async().await.map_err(SupervisorErr::Fault)?;
+
         let stream = order_stream(socket);
         tracing::info!("Subscribed to offchain Order stream");
         stream
@@ -48,7 +51,9 @@ impl OffchainMarketMonitor {
             })
             .await;
 
-        anyhow::bail!("offchain Order stream polling exited, polling failed");
+        Err(SupervisorErr::Recover(anyhow::anyhow!(
+            "offchain Order stream polling exited, polling failed"
+        )))
     }
 }
 
@@ -59,13 +64,7 @@ impl RetryTask for OffchainMarketMonitor {
 
         Box::pin(async move {
             tracing::info!("Starting up offchain market monitor");
-
-            Self::monitor_orders(client, db).await.map_err(|err| {
-                tracing::error!("Monitor for offchain orders failed, restarting: {err:?}");
-
-                SupervisorErr::Recover(err)
-            })?;
-
+            Self::monitor_orders(client, db).await?;
             Ok(())
         })
     }
