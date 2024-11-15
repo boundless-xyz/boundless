@@ -42,7 +42,7 @@ Gas costs for market operation in future market versions should be significantly
 
 The following process will guide you through setting up a new wallet and funding it with testnet ETH:
 
-:::steps
+::::steps
 
 ##### Set the environment variables `PRIVATE_KEY`, `SET_VERIFIER_ADDR`,`PROOF_MARKET_ADDR` in `.env-compose`
 
@@ -80,17 +80,17 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS
 2024-10-23T14:30:07.175994Z  INFO cli: Deposited: 500000000000000000
 ```
 
-:::
+::::
 
 ## Debugging
 
 ### Orders Stuck in 'Lockin' or `submit_merkle` Confirmation Timeouts
 
-If on the indexer you see your broker having a high number of orders locked-in but not being fulfilled it might be due to TXN confirmation timeouts. Initially increasing the `txn_timeout` in the `broker.toml` file is a good start to try and ensure the fulfillment completes.
+If on the [indexer](https://indexer.beboundless.xyz) you see your broker having a high number of orders locked-in but not being fulfilled it might be due to TXN confirmation timeouts. Initially increasing the `txn_timeout` in the `broker.toml` file is a good start to try and ensure the fulfillment completes.
 
 Additionally it is possible to re-drive orders that are "stuck" via the following:
 
-:::steps
+::::steps
 
 ##### Manually connect to the sqlite DB for broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` Docker volume
 
@@ -108,7 +108,7 @@ UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = YOUR
 -- Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
 ```
 
-:::
+::::
 
 [page-bento-perf]: /prover-manual/bento/performance-tuning
 [page-bento-run]: /prover-manual/bento/running

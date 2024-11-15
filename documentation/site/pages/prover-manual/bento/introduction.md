@@ -16,7 +16,7 @@ Some core features of Bento include:
 
 ## Minimum Specs
 
-Bento can run on a single machine with a single GPU with as low as 4GB of VRAM, but this would only be recommended for testing purposes. Below is a minium configuration for reasonable proving performance:
+Bento can run on a single machine with a single GPU with as low as 4GB of VRAM, but this would only be recommended for testing purposes. Below is a minimum configuration for reasonable proving performance:
 
 - CPU - 16 threads, reasonable single core boost performance (>3Ghz)
 - Memory - 32 GB
@@ -67,7 +67,7 @@ As demonstrated above, Bento breaks down tasks into these major actions:
 - Finalize - Uploads the final proof to minio.
 - SNARK - Convert a STARK proof into a SNARK proof using [rapidsnark](https://github.com/iden3/rapidsnark).
 
-:::tip
+:::tip[Note]
 For a more in depth information see [the recursive proving docs][r0-docs-recursion].
 :::
 

@@ -201,7 +201,7 @@ If a job fails to complete due to OOM, it may be resumed after Bento has been re
 
 ## Benchmark Single GPU's `SEGMENT_SIZE`
 
-:::steps
+::::steps
 
 ### Configure a Single GPU Instance
 
@@ -254,7 +254,7 @@ Effective Hz:
 
 Here we see that our single `gpu-agent` at max `SEGMENT_SIZE` is able to achieve an effective 264kHz.
 
-:::
+::::
 
 ## Multiple Agents and GPUs
 

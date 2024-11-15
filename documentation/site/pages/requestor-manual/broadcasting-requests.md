@@ -79,7 +79,7 @@ See the [CLI usage](#cli-usage) section for further instructions.
 
 The `cli` allows to:
 
-### 1. Submit a Proving Request via a YAML File
+### Submit a Proving Request via a YAML File
 
 An example can be found in `request.yaml`.
 
@@ -101,13 +101,23 @@ Should output something similar to
 2024-09-17T15:01:02.480340Z  INFO cli: Proving request ID 3554585979324098154284013313896898623039163403618679259140, bidding start at block number 619
 ```
 
+#### Wait Until Fulfilled
+
 You can also add the `--wait` option to wait until the submitted request has been fulfilled:
 
 ```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
 ```
 
-### 2. Request the Status of a Given Proving Request
+#### Dry-Run
+
+You can also add the `--dry-run` option to simulate the proof request with a local executor to make sure your request is provable before actually submitting it:
+
+```sh [Terminal]
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --dry-run
+```
+
+### Request the Status of a Given Proving Request
 
 ```sh [Terminal]
 RUST_LOG=info,boundless_market=debug cargo run --bin cli -- status 3554585979324098154284013313896898623039163403618679259143
@@ -128,7 +138,35 @@ or when fulfilled:
 2024-09-17T15:10:15.807584Z  INFO cli: Status: Fulfilled
 ```
 
-### 3. Get the Proof of a Request
+#### Boundless Indexer
+
+You can check your proof request status on the [Boundless indexer][indexer]
+
+#### Local Execution
+
+With the `execute` subcommand, you can locally execute a given `request ID` to check if a submitted request is actually provable:
+
+```sh [Terminal]
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- execute 0x90f79bf6eb2c4f870365e785982e1f101e93b906eb47a9c3
+```
+
+Should output something like:
+
+```txt [Terminal]
+2024-11-08T11:40:08.050192Z  INFO risc0_zkvm::host::server::exec::executor: execution time: 1.438583ms
+2024-11-08T11:40:08.050234Z  INFO risc0_zkvm::host::server::session: number of segments: 1
+2024-11-08T11:40:08.050236Z  INFO risc0_zkvm::host::server::session: total cycles: 65536
+2024-11-08T11:40:08.050237Z  INFO risc0_zkvm::host::server::session: user cycles: 4611
+2024-11-08T11:40:08.051839Z  INFO cli: Execution succeeded.
+```
+
+Optionally the tx hash can be provided to refine the query:
+
+```sh [Terminal]
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- execute 0x90f79bf6eb2c4f870365e785982e1f101e93b906eb47a9c3 0x2b20092bbd2ee55dd5bc5f8556264a61f07ef5f1f68441ea0fc24f5bc3caeb56
+```
+
+### Get the Proof of a Request
 
 With the `get-proof` command you can get the Journal and Seal of a fulfilled request:
 
@@ -143,7 +181,7 @@ Should output something like:
 2024-09-17T15:14:01.314302Z  INFO cli: Journal: "0x576564204a756c2020332031343a33373a31322050445420323032340a" - Seal: "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000164578a3cc24cf38d1173509a99db4f70d57ff3a6c43cb2e8552a2a5d252968ba"
 ```
 
-### 4. Verify a Proof of a Request
+### Verify a Proof of a Request
 
 With the `verify-proof` subcommand, you can verify a proof for a given request id and image id.
 
@@ -157,7 +195,7 @@ Should output something like:
 2024-10-07T14:50:54.442260Z  INFO cli: Proof for request id 0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000052 verified successfully.
 ```
 
-### 5. Send an Offer with the Requirements Specified as Command Line Arguments
+### Send an Offer with the Requirements Specified as Command Line Arguments
 
 With the `submit-offer` subcommand, you can specify the requirements and input as command-line options.
 It will upload the image and input, and place public URLs in the request.
@@ -171,7 +209,7 @@ and the Pinata one will be ignored.
 PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
 ```
 
-### 6. Slash a Request and Get Back Funds
+### Slash a Request and Get Back Funds
 
 With the `slash` subcommand, you can slash a given `request ID` and get a refund of your offer:
 
@@ -183,3 +221,4 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli -- slash 35545859793240
 [boundless-repo]: https://github.com/boundless-xyz/boundless
 [id-deployments-sepolia-testnet]: /market/public-deployments#contracts
 [local-development]: /market/local-development
+[indexer]: https://indexer.beboundless.xyz
