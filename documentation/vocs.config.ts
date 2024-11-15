@@ -106,7 +106,7 @@ export default defineConfig({
 		},
 	],
 	topNav: [
-		{ text: "Indexer", link: "https://boundless-indexer-risczero.vercel.app" },
+		{ text: "Indexer", link: "https://indexer.beboundless.xyz" },
 		{
 			text: process.env.LATEST_TAG || "Latest",
 			items: [

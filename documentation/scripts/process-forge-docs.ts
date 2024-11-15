@@ -88,17 +88,17 @@ Our smart contracts are built using Solidity and are organized into several key 
 	}
 
 	if (interfaces.length > 0) {
-		indexContent += "\n### Interfaces\n\n";
+		indexContent += "\n## Interfaces\n\n";
 		indexContent += interfaces.sort().join("\n");
 	}
 
 	if (libraries.length > 0) {
-		indexContent += "\n\n### Libraries\n\n";
+		indexContent += "\n\n## Libraries\n\n";
 		indexContent += libraries.sort().join("\n");
 	}
 
 	if (contracts.length > 0) {
-		indexContent += "\n\n### Core Contracts\n\n";
+		indexContent += "\n\n## Core Contracts\n\n";
 		indexContent += contracts.sort().join("\n");
 	}
 
