@@ -82,8 +82,8 @@ struct MainArgs {
 #[group(required = false, multiple = false)]
 struct OrderInput {
     /// Input for the guest, given as a string.
-    #[clap(long)]
-    input: Option<String>,
+    #[clap(long, value_parser = |s: &str| hex::decode(s))]
+    input: Option<Vec<u8>>,
     /// Input for the guest, given as a path to a file.
     #[clap(long)]
     input_file: Option<PathBuf>,
@@ -146,10 +146,10 @@ async fn run(args: &MainArgs) -> Result<()> {
         }
 
         let input: Vec<u8> = match (args.input.input.clone(), args.input.input_file.clone()) {
-            (Some(input), None) => input.as_bytes().to_vec(),
+            (Some(input), None) => input,
             (None, Some(input_file)) => std::fs::read(input_file)?,
             (None, None) => format! {"{:?}", SystemTime::now()}.as_bytes().to_vec(),
-            _ => bail!("exactly one of input or input-file args must be provided"),
+            _ => bail!("at most one of input or input-file args must be provided"),
         };
         let encoded_input = if args.encode_input
             || (args.input.input.is_none() && args.input.input_file.is_none())
