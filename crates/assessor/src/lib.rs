@@ -17,6 +17,7 @@ pub struct Fulfillment {
     pub request: ProvingRequest,
     pub signature: Vec<u8>,
     pub journal: Vec<u8>,
+    pub require_payment: bool,
 }
 
 impl Fulfillment {
@@ -134,7 +135,7 @@ mod tests {
             request: proving_request,
             signature: signature.as_bytes().to_vec(),
             journal: vec![1, 2, 3],
-            requirePayment: true,
+            require_payment: true,
         };
 
         claim.verify_signature(&eip712_domain(Address::ZERO, 1).alloy_struct()).unwrap();
@@ -267,7 +268,7 @@ mod tests {
         let singleton_receipt = singleton(application_receipt);
 
         // 4. Prove the Assessor
-        let claims = vec![Fulfillment { request, signature, journal, requirePayment: true }];
+        let claims = vec![Fulfillment { request, signature, journal, require_payment: true }];
         assessor(claims, singleton_receipt);
     }
 
@@ -281,7 +282,7 @@ mod tests {
         // 2. Prove the request via the application guest
         let application_receipt = echo("test");
         let journal = application_receipt.journal.bytes.clone();
-        let claim = Fulfillment { request, signature, journal, requirePayment: true };
+        let claim = Fulfillment { request, signature, journal, require_payment: true };
 
         // 3. Prove a singleton via the aggregator set
         let singleton_receipt = singleton(application_receipt);

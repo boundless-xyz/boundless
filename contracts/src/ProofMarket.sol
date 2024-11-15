@@ -4,7 +4,6 @@
 
 pragma solidity ^0.8.24;
 
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
@@ -122,7 +121,6 @@ library TransientPriceLib {
 }
 
 contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2StepUpgradeable, UUPSUpgradeable {
-    using Address for address payable;
     using AccountLib for Account;
     using ProofMarketLib for Offer;
     using ProofMarketLib for ProvingRequest;
@@ -207,7 +205,8 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     // Withdraw Ether from the market.
     function withdraw(uint256 value) public {
         accounts[msg.sender].balance -= value.toUint96();
-        payable(msg.sender).sendValue(value);
+        (bool sent,) = msg.sender.call{value: value}("");
+        require(sent, "failed to send Ether");
         emit Withdrawal(msg.sender, value);
     }
 
@@ -549,7 +548,8 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
         // Return the price to the client, plus the transfer value. Then burn the burn value.
         accounts[client].balance += lock.price + transferValue.toUint96();
-        payable(address(0)).sendValue(uint256(burnValue));
+        (bool sent,) = payable(address(0)).call{value: uint256(burnValue)}("");
+        require(sent, "Failed to burn Ether");
 
         emit ProverSlashed(requestId, burnValue, transferValue);
     }
@@ -572,9 +572,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     }
 
     /// Internal utility function to revert with a pre-encoded error.
-    function revertWith(bytes memory error) internal pure {
+    function revertWith(bytes memory err) internal pure {
         assembly {
-            revert(add(error, 0x20), mload(error))
+            revert(add(err, 0x20), mload(err))
         }
     }
 }

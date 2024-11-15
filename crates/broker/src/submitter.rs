@@ -490,7 +490,7 @@ mod tests {
                         request: order_request.clone(),
                         signature: client_sig.into(),
                         journal: echo_receipt.journal.bytes,
-                        requirePayment: true,
+                        require_payment: true,
                     }],
                     prover_address: prover_addr,
                 }
