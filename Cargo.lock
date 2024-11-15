@@ -1076,7 +1076,6 @@ dependencies = [
 name = "assessor"
 version = "0.3.0"
 dependencies = [
- "aggregation-set",
  "alloy",
  "alloy-primitives",
  "alloy-sol-types",

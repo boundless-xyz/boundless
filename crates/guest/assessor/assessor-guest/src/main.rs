@@ -7,8 +7,7 @@
 
 extern crate alloc;
 
-use aggregation_set::SET_BUILDER_GUEST_ID;
-use aggregation_set::{merkle_root, GuestOutput};
+use aggregation_set::merkle_root;
 use alloc::{vec, vec::Vec};
 use alloy_primitives::aliases::U192;
 use alloy_sol_types::SolValue;
@@ -35,24 +34,21 @@ fn main() {
     let mut leaves: Vec<Digest> = Vec::with_capacity(input.fills.len());
 
     let eip_domain_separator = input.domain.alloy_struct();
-    // For each claim we
+    // For each fill we
     // - verify the proving request's signature
     // - evaluate the request's requirements
+    // - verify the integrity of its claim
     // We additionally collect the request ids and the digests from the claims
     for fill in input.fills.iter() {
         fill.verify_signature(&eip_domain_separator).expect("signature does not verify");
         fill.evaluate_requirements().expect("requirements not met");
+        env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
         ids.push(fill.request.id);
         leaves.push(fill.receipt_claim().digest());
     }
 
     // recompute the merkle root of the aggregation set
     let root = merkle_root(&leaves).expect("failed to compute merkle root");
-    let set_builder_id = Digest::from(SET_BUILDER_GUEST_ID);
-    let journal = GuestOutput::new(set_builder_id, root).abi_encode();
-
-    // verify the integrity of the committed root
-    env::verify(set_builder_id, &journal).expect("aggregation set root does not verify");
 
     let journal = AssessorJournal {
         requestIds: ids,

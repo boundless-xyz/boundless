@@ -73,11 +73,9 @@ impl AssessorInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aggregation_set::{GuestInput, GuestOutput, SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use alloy::{
         primitives::{aliases::U96, Address, B256},
         signers::local::PrivateKeySigner,
-        sol_types::SolValue,
     };
     use boundless_market::contracts::{
         eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
@@ -178,77 +176,18 @@ mod tests {
         )
     }
 
-    fn singleton(assumption: Receipt) -> Receipt {
-        let claim = assumption.claim().unwrap().value().unwrap();
-        let guest_input = GuestInput::Singleton {
-            self_image_id: Digest::from(SET_BUILDER_GUEST_ID),
-            claim: claim.clone(),
-        };
-        let env = ExecutorEnv::builder()
-            .write(&guest_input)
-            .unwrap()
-            .add_assumption(assumption)
-            .build()
-            .unwrap();
-        let session = default_executor().execute(env, SET_BUILDER_GUEST_ELF).unwrap();
-        assert_eq!(session.exit_code, ExitCode::Halted(0));
-        let journal = &session.journal.bytes;
-        let guest_output = GuestOutput::abi_decode(journal, true).unwrap();
-        assert_eq!(guest_output.image_id(), Digest::from(SET_BUILDER_GUEST_ID));
-        assert_eq!(guest_output.root(), claim.digest());
-        Receipt::new(
-            InnerReceipt::Fake(FakeReceipt::new(ReceiptClaim::ok(
-                SET_BUILDER_GUEST_ID,
-                MaybePruned::Pruned(journal.digest()),
-            ))),
-            journal.clone(),
-        )
-    }
-
-    fn join(left: Receipt, right: Receipt) -> Receipt {
-        let journal_left = left.clone().journal.bytes;
-        let guest_output_left = GuestOutput::abi_decode(&journal_left, true).unwrap();
-        let journal_right = right.clone().journal.bytes;
-        let guest_output_right = GuestOutput::abi_decode(&journal_right, true).unwrap();
-
-        let guest_input = GuestInput::Join {
-            self_image_id: Digest::from(SET_BUILDER_GUEST_ID),
-            left_set_root: guest_output_left.root(),
-            right_set_root: guest_output_right.root(),
-        };
-        let env = ExecutorEnv::builder()
-            .write(&guest_input)
-            .unwrap()
-            .add_assumption(left)
-            .add_assumption(right)
-            .build()
-            .unwrap();
-        let session = default_executor().execute(env, SET_BUILDER_GUEST_ELF).unwrap();
-        assert_eq!(session.exit_code, ExitCode::Halted(0));
-        let journal = &session.journal.bytes;
-
-        let guest_output = GuestOutput::abi_decode(journal, true).unwrap();
-        assert_eq!(guest_output.image_id(), Digest::from(SET_BUILDER_GUEST_ID));
-        Receipt::new(
-            InnerReceipt::Fake(FakeReceipt::new(ReceiptClaim::ok(
-                SET_BUILDER_GUEST_ID,
-                MaybePruned::Pruned(journal.digest()),
-            ))),
-            journal.clone(),
-        )
-    }
-
-    fn assessor(claims: Vec<Fulfillment>, assumption_receipt: Receipt) {
+    fn assessor(claims: Vec<Fulfillment>, receipts: Vec<Receipt>) {
         let assessor_input = AssessorInput {
             domain: eip712_domain(Address::ZERO, 1),
             fills: claims,
             prover_address: Address::ZERO,
         };
-        let env = ExecutorEnv::builder()
-            .write_slice(&assessor_input.to_vec())
-            .add_assumption(assumption_receipt)
-            .build()
-            .unwrap();
+        let mut env_builder = ExecutorEnv::builder();
+        env_builder.write_slice(&assessor_input.to_vec());
+        for receipt in receipts {
+            env_builder.add_assumption(receipt);
+        }
+        let env = env_builder.build().unwrap();
         let session = default_executor().execute(env, ASSESSOR_GUEST_ELF).unwrap();
         assert_eq!(session.exit_code, ExitCode::Halted(0));
     }
@@ -264,12 +203,9 @@ mod tests {
         let application_receipt = echo("test");
         let journal = application_receipt.journal.bytes.clone();
 
-        // 3. Prove a singleton via the aggregator set
-        let singleton_receipt = singleton(application_receipt);
-
-        // 4. Prove the Assessor
+        // 3. Prove the Assessor
         let claims = vec![Fulfillment { request, signature, journal, require_payment: true }];
-        assessor(claims, singleton_receipt);
+        assessor(claims, vec![application_receipt]);
     }
 
     #[test]
@@ -284,14 +220,8 @@ mod tests {
         let journal = application_receipt.journal.bytes.clone();
         let claim = Fulfillment { request, signature, journal, require_payment: true };
 
-        // 3. Prove a singleton via the aggregator set
-        let singleton_receipt = singleton(application_receipt);
-
-        // 4. Prove the join of two leaves via the aggregator set, reusing the same singleton twice
-        let join_receipt = join(singleton_receipt.clone(), singleton_receipt);
-
-        // 4. Prove the Assessor reusing the same leaf twice
+        // 3. Prove the Assessor reusing the same leaf twice
         let claims = vec![claim.clone(), claim];
-        assessor(claims, join_receipt);
+        assessor(claims, vec![application_receipt.clone(), application_receipt]);
     }
 }

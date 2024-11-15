@@ -1,0 +1,26 @@
+{
+  "extends": ["./documentation/node_modules/@risc0/ui/config/biome.base.jsonc"],
+  "files": {
+    "ignore": [
+      "crates",
+      "target",
+      "contracts/out",
+      "generated",
+      "lib",
+      ".turbo",
+      ".sqlx",
+      "documentation/*.ts.timestamp-*.mjs"
+    ]
+  },
+  "linter": {
+    "rules": {
+      "style": {
+        "noNonNullAssertion": "off"
+      },
+      "correctness": {
+        "noUnusedVariables": "off",
+        "noUnusedImports": "off"
+      }
+    }
+  }
+}
