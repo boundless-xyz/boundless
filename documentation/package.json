@@ -5,7 +5,6 @@
 	"scripts": {
 		"build": "bun run generate-smart-contracts-docs && vocs build",
 		"dev": "bun run generate-smart-contracts-docs && vocs dev",
-
 		"check-links": "bun ./scripts/check-links.ts",
 		"check-markdown": "remark . --quiet",
 		"ci": "bun run build && run-p check-markdown check-links",
@@ -37,6 +36,7 @@
 		"remark-toc": "9.0.0",
 		"remark-wiki-link": "2.0.1",
 		"typescript": "5.6.3",
+		"vite-plugin-sitemap": "0.7.1",
 		"vocs": "1.0.0-alpha.62"
 	},
 	"packageManager": "bun@1.1.34"

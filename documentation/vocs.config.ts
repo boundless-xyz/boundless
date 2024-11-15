@@ -1,4 +1,130 @@
+import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
+
+const SIDEBAR_CONFIG = [
+	{
+		text: "Market",
+		items: [
+			{
+				text: "Introduction",
+				link: "/market/introduction",
+			},
+			{
+				text: "Boundless Market RFC",
+				link: "/market/boundless-market-rfc",
+			},
+			{
+				text: "Market Matching Design",
+				link: "/market/market-matching-design",
+			},
+			{
+				text: "Local Development",
+				link: "/market/local-development",
+			},
+			{
+				text: "Public Deployments",
+				link: "/market/public-deployments",
+			},
+		],
+	},
+	{
+		text: "Requestor Manual",
+		items: [
+			{
+				text: "Introduction",
+				link: "/requestor-manual/introduction",
+			},
+			{
+				text: "Broadcasting Requests",
+				link: "/requestor-manual/broadcasting-requests",
+			},
+		],
+	},
+	{
+		text: "Prover Manual",
+		items: [
+			{
+				text: "Introduction",
+				link: "/prover-manual/introduction",
+			},
+			{
+				text: "Bento",
+				items: [
+					{
+						text: "Introduction",
+						link: "/prover-manual/bento/introduction",
+					},
+					{
+						text: "Running",
+						link: "/prover-manual/bento/running",
+					},
+					{
+						text: "Performance Tuning",
+						link: "/prover-manual/bento/performance-tuning",
+					},
+				],
+			},
+			{
+				text: "Broker",
+				items: [
+					{
+						text: "Introduction",
+						link: "/prover-manual/broker/introduction",
+					},
+					{
+						text: "Configuration",
+						link: "/prover-manual/broker/configuration",
+					},
+					{
+						text: "Operation",
+						link: "/prover-manual/broker/operation",
+					},
+				],
+			},
+			{
+				text: "Monitoring",
+				link: "/prover-manual/monitoring",
+			},
+		],
+	},
+	{
+		text: "Smart Contracts Documentation",
+		link: "/smart-contracts",
+	},
+	{
+		text: "Reference",
+		link: "/reference",
+	},
+	{
+		text: "Glossary",
+		link: "/glossary",
+	},
+];
+
+export function generateSitemap() {
+	function extractRoutes(items): string[] {
+		return items.flatMap((item) => {
+			const routes: string[] = [];
+
+			if (item.link) {
+				routes.push(item.link);
+			}
+
+			if (item.items) {
+				routes.push(...extractRoutes(item.items));
+			}
+
+			return routes;
+		});
+	}
+
+	return VitePluginSitemap({
+		hostname: "https://docs.beboundless.xyz",
+		dynamicRoutes: extractRoutes(SIDEBAR_CONFIG),
+		changefreq: "weekly",
+		outDir: "site/dist",
+	});
+}
 
 export default defineConfig({
 	font: {
@@ -6,105 +132,10 @@ export default defineConfig({
 			google: "Ubuntu Mono",
 		},
 	},
-	sidebar: [
-		{
-			text: "Market",
-			items: [
-				{
-					text: "Introduction",
-					link: "/market/introduction",
-				},
-				{
-					text: "Boundless Market RFC",
-					link: "/market/boundless-market-rfc",
-				},
-				{
-					text: "Market Matching Design",
-					link: "/market/market-matching-design",
-				},
-				{
-					text: "Local Development",
-					link: "/market/local-development",
-				},
-				{
-					text: "Public Deployments",
-					link: "/market/public-deployments",
-				},
-			],
-		},
-		{
-			text: "Requestor Manual",
-			items: [
-				{
-					text: "Introduction",
-					link: "/requestor-manual/introduction",
-				},
-				{
-					text: "Broadcasting Requests",
-					link: "/requestor-manual/broadcasting-requests",
-				},
-			],
-		},
-		{
-			text: "Prover Manual",
-			items: [
-				{
-					text: "Introduction",
-					link: "/prover-manual/introduction",
-				},
-				{
-					text: "Bento",
-					items: [
-						{
-							text: "Introduction",
-							link: "/prover-manual/bento/introduction",
-						},
-						{
-							text: "Running",
-							link: "/prover-manual/bento/running",
-						},
-						{
-							text: "Performance Tuning",
-							link: "/prover-manual/bento/performance-tuning",
-						},
-					],
-				},
-				{
-					text: "Broker",
-					items: [
-						{
-							text: "Introduction",
-							link: "/prover-manual/broker/introduction",
-						},
-						{
-							text: "Configuration",
-							link: "/prover-manual/broker/configuration",
-						},
-						{
-							text: "Operation",
-							link: "/prover-manual/broker/operation",
-						},
-					],
-				},
-				{
-					text: "Monitoring",
-					link: "/prover-manual/monitoring",
-				},
-			],
-		},
-		{
-			text: "Smart Contracts Documentation",
-			link: "/smart-contracts",
-		},
-		{
-			text: "Reference",
-			link: "/reference",
-		},
-		{
-			text: "Glossary",
-			link: "/glossary",
-		},
-	],
+	vite: {
+		plugins: [generateSitemap()],
+	},
+	sidebar: SIDEBAR_CONFIG,
 	topNav: [
 		{ text: "Indexer", link: "https://indexer.beboundless.xyz" },
 		{
