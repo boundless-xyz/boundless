@@ -947,6 +947,7 @@ mod tests {
             imageId: to_b256(Digest::from(ECHO_ID)),
             journal: app_journal.bytes.into(),
             seal: set_inclusion_seal.into(),
+            requirePayment: true,
         };
 
         let assessor_seal = SetInclusionReceipt::from_path(
