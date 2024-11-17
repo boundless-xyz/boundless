@@ -204,7 +204,12 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
     // Withdraw Ether from the market.
     function withdraw(uint256 value) public {
-        accounts[msg.sender].balance -= value.toUint96();
+        if (accounts[msg.sender].balance < value.toUint96()) {
+            revert InsufficientBalance(msg.sender);
+        }
+        unchecked {
+            accounts[msg.sender].balance -= value.toUint96();
+        }
         (bool sent,) = msg.sender.call{value: value}("");
         require(sent, "failed to send Ether");
         emit Withdrawal(msg.sender, value);
