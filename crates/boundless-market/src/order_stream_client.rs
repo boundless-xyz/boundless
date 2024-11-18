@@ -102,6 +102,12 @@ pub struct Order {
     pub signature: Signature,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OrderData {
+    pub id: i64,
+    pub order: Order,
+}
+
 impl Order {
     /// Create a new Order
     pub fn new(request: ProvingRequest, signature: Signature) -> Self {
@@ -228,7 +234,7 @@ impl Client {
 /// This function takes a WebSocket stream and returns a stream of `Order` messages.
 /// Example usage:
 /// ```no_run
-/// use boundless_market::order_stream_client::{Client, order_stream, Order};
+/// use boundless_market::order_stream_client::{Client, order_stream, OrderData};
 /// use futures_util::StreamExt;
 /// async fn example_stream(client: Client) {
 ///     let socket = client.connect_async().await.unwrap();
@@ -243,12 +249,12 @@ impl Client {
 /// ```
 pub fn order_stream(
     mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-) -> Pin<Box<dyn Stream<Item = Result<Order, Box<dyn Error + Send + Sync>>> + Send>> {
+) -> Pin<Box<dyn Stream<Item = Result<OrderData, Box<dyn Error + Send + Sync>>> + Send>> {
     Box::pin(stream! {
         while let Some(msg_result) = socket.next().await {
             match msg_result {
                 Ok(tungstenite::Message::Text(msg)) => {
-                    match serde_json::from_str::<Order>(&msg) {
+                    match serde_json::from_str::<OrderData>(&msg) {
                         Ok(order) => yield Ok(order),
                         Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
                     }

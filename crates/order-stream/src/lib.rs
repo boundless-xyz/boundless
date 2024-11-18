@@ -280,7 +280,7 @@ async fn websocket_handler(
 
 // Function to broadcast an order to all WebSocket clients in random order
 async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
-    let order_json = match serde_json::to_string(&db_order.order) {
+    let order_json = match serde_json::to_string(&db_order) {
         Ok(order_json) => order_json,
         Err(err) => {
             error!("Failed to serialize order 0x{:x}: {}", db_order.order.request.id, err);
