@@ -11,37 +11,31 @@ use alloy::{
 };
 use anyhow::{Context, Error as AnyhowErr, Result};
 use axum::{
-    extract::{
-        ws::{Message, WebSocket},
-        Json, State, WebSocketUpgrade,
-    },
-    http::{HeaderMap, HeaderValue, StatusCode},
+    extract::Json,
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
-use boundless_market::{
-    contracts::IProofMarket,
-    order_stream_client::{AuthMsg, Order, OrderError, ORDER_SUBMISSION_PATH, ORDER_WS_PATH},
+use boundless_market::order_stream_client::{
+    Order, OrderError, ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
 };
 use clap::Parser;
-use futures_util::{SinkExt, StreamExt};
-use order_db::{OrderDb, OrderDbErr};
-use rand::{seq::SliceRandom, thread_rng};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::{
-    sync::{mpsc, Mutex},
-    task::JoinHandle,
-};
+use tokio::sync::Mutex;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 use tracing::error;
 
+mod api;
 mod order_db;
-use order_db::{DbOrder, OrderStream};
+mod ws;
+
+use api::submit_order;
+use order_db::OrderDb;
+use ws::{start_broadcast_task, websocket_handler, ConnectionsMap};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ErrMsg {
@@ -153,12 +147,6 @@ impl From<&Args> for Config {
     }
 }
 
-struct ClientConnection {
-    sender: mpsc::Sender<String>, // Channel to send messages to this client
-}
-
-type ConnectionsMap = HashMap<Address, ClientConnection>;
-
 /// Application state struct
 pub struct AppState {
     // Database backend
@@ -192,208 +180,6 @@ impl AppState {
 
 const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
 
-// Submit order handler
-async fn submit_order(
-    State(state): State<Arc<AppState>>,
-    Json(order): Json<Order>,
-) -> Result<Json<serde_json::Value>, AppError> {
-    // Validate the order
-    order.validate(state.config.market_address, state.chain_id)?;
-    let order_req_id = order.request.id;
-    let order_id = state.db.add_order(order).await.context("failed to add order to db")?;
-
-    tracing::debug!("Order 0x{order_req_id:x} - [{order_id}] submitted",);
-    Ok(Json(json!({ "status": "success", "request_id": order_req_id })))
-}
-
-fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg> {
-    let json_str = value.to_str().context("Invalid header encoding")?;
-    serde_json::from_str(json_str).context("Failed to parse JSON")
-}
-
-// WebSocket upgrade handler
-async fn websocket_handler(
-    ws: WebSocketUpgrade,
-    headers: HeaderMap,
-    State(state): State<Arc<AppState>>,
-) -> Result<Response, AppError> {
-    let auth_header = match headers.get("X-Auth-Data") {
-        Some(value) => value,
-        None => return Ok((StatusCode::BAD_REQUEST, "Missing auth header").into_response()),
-    };
-
-    // Decode and parse the JSON header into `AuthMsg`
-    let auth_msg: AuthMsg = match parse_auth_msg(auth_header) {
-        Ok(auth_msg) => auth_msg,
-        Err(_) => {
-            return Ok((StatusCode::BAD_REQUEST, "Invalid auth message format").into_response())
-        }
-    };
-
-    // Check the signature
-    if let Err(err) = auth_msg.verify_signature() {
-        return Ok((StatusCode::UNAUTHORIZED, err.to_string()).into_response());
-    }
-
-    // Check if the address is already connected
-    {
-        if state
-            .db
-            .active_broker(auth_msg.address)
-            .await
-            .context("Failed to check user address exists")?
-        {
-            return Ok((
-                StatusCode::CONFLICT,
-                // TODO: send serialized Error types for the client to de-serialize vs strings.
-                format!("Client {} already connected", auth_msg.address),
-            )
-                .into_response());
-        }
-        let connections = state.connections.lock().await;
-        if connections.len() >= state.config.max_connections {
-            return Ok((StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response());
-        }
-    }
-
-    // Check the balance
-    // TODO: This check has several issues:
-    // - The balance could change between the check and the connection lifetime
-    // - It opens up to an unbounded number of RPC requests to the Ethereum node
-    // As such, a more robust solution would be to use a separate task that keeps track of the balances
-    // by subscribing to events from the ProofMarket contract. Then, the WebSocket connection would be allowed
-    // if the balance is above the threshold and the connection would be dropped if the balance falls below the threshold.
-    let proof_market = IProofMarket::new(state.config.market_address, state.rpc_provider.clone());
-    let balance = proof_market.balanceOf(auth_msg.address).call().await.unwrap()._0;
-    if balance < state.config.min_balance {
-        return Ok((
-            StatusCode::UNAUTHORIZED,
-            format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
-        )
-            .into_response());
-    }
-
-    // Proceed with WebSocket upgrade
-    tracing::debug!("New webSocket connection from {}", auth_msg.address);
-    Ok(ws.on_upgrade(move |socket| websocket_connection(socket, auth_msg.address, state)))
-}
-
-// Function to broadcast an order to all WebSocket clients in random order
-async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
-    let order_json = match serde_json::to_string(&db_order) {
-        Ok(order_json) => order_json,
-        Err(err) => {
-            error!("Failed to serialize order 0x{:x}: {}", db_order.order.request.id, err);
-            return;
-        }
-    };
-
-    // Shuffle the connections
-    let connections_list = {
-        let connections = state.connections.lock().await;
-        let mut connections_list: Vec<_> =
-            connections.iter().map(|(addr, conn)| (addr.clone(), conn.sender.clone())).collect();
-        connections_list.shuffle(&mut thread_rng());
-        connections_list
-    };
-
-    let mut clients_to_remove = Vec::new();
-    for (address, sender) in connections_list {
-        match sender.try_send(order_json.clone()) {
-            Ok(_) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                tracing::warn!("Client {}'s message queue is full, message dropped", address);
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                tracing::warn!("Client {}'s message queue is closed, removing client", address);
-                // Add the client to the list of clients to remove
-                clients_to_remove.push(address.clone());
-            }
-        }
-    }
-    // Remove the clients that have closed their connections
-    if !clients_to_remove.is_empty() {
-        {
-            let mut connections = state.connections.lock().await;
-            for address in clients_to_remove {
-                connections.remove(&address);
-                if let Err(err) = state.db.deactivate_broker(address).await {
-                    tracing::error!(
-                        "Failed to remove broker connection from DB: {address} - {err:?}"
-                    );
-                }
-            }
-        }
-    }
-
-    tracing::debug!("Order 0x{:x} broadcasted", db_order.order.request.id);
-}
-
-async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<AppState>) {
-    let (mut sender_ws, mut recver_ws) = socket.split();
-
-    let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
-
-    // Add sender to the list of connections
-    {
-        let mut connections = state.connections.lock().await;
-        connections.insert(address, ClientConnection { sender: sender_channel.clone() });
-    }
-
-    let mut errors_counter = 0usize;
-
-    loop {
-        tokio::select! {
-            msg = receiver_channel.recv() => {
-                match msg {
-                    Some(msg) => {
-                        match sender_ws.send(Message::Text(msg)).await {
-                            Ok(_) => {
-                                // Reset the error counter on successful send
-                                errors_counter = 0;
-                            }
-                            Err(err) => {
-                                tracing::warn!("Failed to send message to client {}: {}", address, err);
-                                errors_counter += 1;
-                                if errors_counter > 10 {
-                                    tracing::warn!(
-                                        "Too many consecutive send errors to client {}; disconnecting",
-                                        address
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    None => break,
-                }
-            }
-            ws_msg = recver_ws.next() => {
-                // This polls on the recv side of the websocket connection, once a connection closes
-                // either via Err or graceful Message::Close, the nex() will return None and we can close the
-                // connection.
-                match ws_msg {
-                    Some(_) => {
-                        // TODO: cleaner management of Some(Ok(Message::Close))
-                    }
-                    None => {
-                        tracing::debug!("Empty recv, closing connections");
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Remove the connection when the send loop exits
-    let mut connections = state.connections.lock().await;
-    connections.remove(&address);
-    if let Err(err) = state.db.deactivate_broker(address).await {
-        tracing::error!("Failed to remove broker connection from DB: {address} - {err:?}");
-    }
-    tracing::debug!("WebSocket connection closed: {}", address);
-}
-
 /// Create the application router
 pub fn app(state: Arc<AppState>) -> Router {
     let body_size_limit = RequestBodyLimitLayer::new(MAX_ORDER_SIZE);
@@ -403,19 +189,6 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(&format!("/{ORDER_WS_PATH}"), get(websocket_handler))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-}
-
-fn start_broadcast_task(
-    app_state: Arc<AppState>,
-    mut order_stream: OrderStream,
-) -> JoinHandle<Result<(), OrderDbErr>> {
-    tokio::spawn(async move {
-        while let Some(order) = order_stream.next().await {
-            let order = order?;
-            broadcast_order(&order, app_state.clone()).await;
-        }
-        Ok(())
-    })
 }
 
 /// Run the REST API service
@@ -476,6 +249,7 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::order_db::{DbOrder, OrderDbErr};
     use alloy::{
         node_bindings::Anvil,
         primitives::{aliases::U96, B256},
@@ -484,12 +258,14 @@ mod tests {
         contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProvingRequest, Requirements},
         order_stream_client::Client,
     };
+    use futures_util::StreamExt;
     use reqwest::Url;
     use sqlx::PgPool;
     use std::{
         future::IntoFuture,
         net::{Ipv4Addr, SocketAddr},
     };
+    use tokio::task::JoinHandle;
 
     fn new_request(idx: u32, addr: &Address) -> ProvingRequest {
         ProvingRequest::new(

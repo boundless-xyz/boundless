@@ -25,7 +25,7 @@ use tokio_tungstenite::{
 
 use crate::contracts::ProvingRequest;
 
-pub const ORDER_SUBMISSION_PATH: &str = "orders";
+pub const ORDER_SUBMISSION_PATH: &str = "api/orders";
 pub const ORDER_WS_PATH: &str = "ws/orders";
 
 /// AuthMsg struct, containing a hash, an address, and a signature.
