@@ -153,7 +153,8 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
 
         UpgradeOptions memory opts;
         opts.constructorData = ProofMarketLib.encodeConstructorArgs(verifier, assessorImageId);
-        opts.referenceContract = "ProofMarketLastDeployment.sol:ProofMarket";
+        opts.referenceContract = "build-info-reference:ProofMarket";
+        opts.referenceBuildInfoDir = "contracts/reference-contract/build-info-reference";
 
         vm.startBroadcast(deployerAddress());
         // Upgrade the proxy contract and update assessor image info if needed

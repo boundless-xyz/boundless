@@ -22,3 +22,12 @@ gas_reports = ["ProofMarket"]
 line_length = 120
 tab_width = 4
 quote_style = "double"
+
+[profile.reference-contract]
+src = "contracts/src"
+out = "contracts/reference-contract/out"
+test = "contracts/reference-contract/test"
+libs = ["lib"]
+ffi = true
+build_info = true
+extra_output = ["storageLayout"]

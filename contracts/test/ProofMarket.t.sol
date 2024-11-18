@@ -13,7 +13,7 @@ import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
-import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
 
 import {ProofMarket, MerkleProofish, AssessorJournal, TransientPrice, TransientPriceLib} from "../src/ProofMarket.sol";
@@ -937,64 +937,6 @@ contract ProofMarketTest is Test {
 
         bytes32 root = MerkleProofish.processTree(leaves);
         assertEq(root, 0xe004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef);
-    }
-
-    /// @dev Test the upgradeability of the contract under safe conditions.
-    /// This mode requires to **always** start from a clean cache, as such, before running
-    /// forge test, make sure to run `forge clean && forge build` to clear the cache and build from scratch.
-    // TODO(#109) Refactor these tests to check for upgradeability from a prior commit to the latest version.
-    // With that, we might also check that it is possible to upgrade to a notional future version, or we might
-    // want to drop the ProofMarketV2Test contract.
-    function testUpgradeability() public {
-        // Deploy the UUPS proxy with the last deployed implementation
-        UpgradeOptions memory opts;
-        opts.constructorData = ProofMarketLib.encodeConstructorArgs(setVerifier, ASSESSOR_IMAGE_ID);
-        vm.startPrank(OWNER_WALLET.addr);
-        address market = Upgrades.deployUUPSProxy(
-            "ProofMarketLastDeployment.sol:ProofMarket",
-            abi.encodeCall(ProofMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null")),
-            opts
-        );
-        address implAddressV1 = Upgrades.getImplementationAddress(market);
-
-        // Deploy a new implementation of the contract
-        vm.expectEmit(false, true, true, true);
-        emit IERC1967.Upgraded(address(0));
-        opts.referenceContract = "ProofMarketLastDeployment.sol:ProofMarket";
-        Upgrades.upgradeProxy(market, "ProofMarket.sol:ProofMarket", "", opts, OWNER_WALLET.addr);
-        vm.stopPrank();
-        address implAddressV2 = Upgrades.getImplementationAddress(market);
-        assertFalse(implAddressV2 == implAddressV1);
-
-        ProofMarket marketProxy = ProofMarket(market);
-        (bytes32 imageID, string memory imageUrl) = marketProxy.imageInfo();
-        assertEq(imageID, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
-        assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
-    }
-
-    function testUnsafeUpgrade() public {
-        vm.startPrank(OWNER_WALLET.addr);
-        proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(new ProofMarket(setVerifier, ASSESSOR_IMAGE_ID)),
-            abi.encodeCall(ProofMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
-        );
-        proofMarket = ProofMarket(proxy);
-        address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
-
-        // Should emit an `Upgraded` event
-        vm.expectEmit(false, true, true, true);
-        emit IERC1967.Upgraded(address(0));
-        UnsafeUpgrades.upgradeProxy(
-            proxy, address(new ProofMarket(setVerifier, ASSESSOR_IMAGE_ID)), "", OWNER_WALLET.addr
-        );
-        vm.stopPrank();
-        address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);
-
-        assertFalse(implAddressV2 == implAddressV1);
-
-        (bytes32 imageID, string memory imageUrl) = proofMarket.imageInfo();
-        assertEq(imageID, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
-        assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
     }
 
     function testTransferOwnership() public {

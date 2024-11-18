@@ -1,4 +1,4 @@
-name: Gas comparison
+name: Contracts
 
 on:
   pull_request:
@@ -96,3 +96,42 @@ jobs:
                -X POST \
                -d "$COMMENT_PAYLOAD" \
                "https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/comments"
+
+  upgradability:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    needs: contracts-changed
+    if: needs.contracts-changed.outputs.src == true
+    steps:
+      - name: install foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: checkout main code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: recursive
+
+      - name: Forge build on main branch
+        run: forge build
+
+      - name: Upload build-info artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-info
+          path: contracts/out/build-info/
+
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download build-info artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build-info
+          path: contracts/reference-contract/build-info-reference
+
+      - name: Run forge test on reference-contract profile
+        run: forge test
+        env:
+          FOUNDRY_PROFILE: reference-contract
