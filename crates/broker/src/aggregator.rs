@@ -173,8 +173,9 @@ where
         Ok(Node::join(new_id, left.height() + 1, left, right, output.root()))
     }
 
-    async fn prove_assessor(&self, order_ids: &[U256], root_proof_id: &str) -> Result<String> {
+    async fn prove_assessor(&self, order_ids: &[U256]) -> Result<String> {
         let mut fills = vec![];
+        let mut assumptions = vec![];
 
         for order_id in order_ids {
             let order = self
@@ -187,6 +188,8 @@ where
             let proof_id = order
                 .proof_id
                 .with_context(|| format!("Missing proof_id for order: {order_id:x}"))?;
+
+            assumptions.push(proof_id.clone());
 
             let journal = self
                 .prover
@@ -217,11 +220,7 @@ where
 
         let proof_res = self
             .prover
-            .prove_and_monitor_stark(
-                &self.assessor_guest_id.to_string(),
-                &input_id,
-                vec![root_proof_id.to_string()],
-            )
+            .prove_and_monitor_stark(&self.assessor_guest_id.to_string(), &input_id, assumptions)
             .await
             .with_context(|| format!("Failed to prove assesor stark"))?;
 
@@ -295,10 +294,8 @@ where
         // prove the assessor for the batch
         tracing::info!("Starting batch assessor proof, root: {}", root.root());
         let batch_order_ids = root.order_ids();
-        let assessor_proof_id = self
-            .prove_assessor(&batch_order_ids, root.proof_id())
-            .await
-            .context("Failed to prove assessor")?;
+        let assessor_proof_id =
+            self.prove_assessor(&batch_order_ids).await.context("Failed to prove assessor")?;
 
         // now prove a singleton proof of the assessor
         let assessor_singleton = self
