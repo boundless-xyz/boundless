@@ -157,3 +157,9 @@ body {
 .vocs_SearchDialog_overlay {
   @apply backdrop-blur-[2px]
 }
+
+@media (max-width: 1080px) {
+  .vocs_DocsLayout_content {
+    @apply min-h-[calc(100dvh-48px)];
+  }
+}

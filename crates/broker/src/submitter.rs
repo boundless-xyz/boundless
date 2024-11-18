@@ -498,11 +498,7 @@ mod tests {
             .unwrap();
 
         let assessor_proof = prover
-            .prove_and_monitor_stark(
-                &assessor_id_str,
-                &assessor_input,
-                vec![echo_singleton.id.clone()],
-            )
+            .prove_and_monitor_stark(&assessor_id_str, &assessor_input, vec![echo_proof.id.clone()])
             .await
             .unwrap();
         let assessor_receipt = prover.get_receipt(&assessor_proof.id).await.unwrap().unwrap();

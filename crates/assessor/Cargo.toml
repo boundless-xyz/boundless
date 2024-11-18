@@ -16,7 +16,6 @@ risc0-zkvm = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-aggregation-set = { workspace = true }
 alloy = { workspace = true }
 guest-assessor = { workspace = true }
 guest-util = { workspace = true }
