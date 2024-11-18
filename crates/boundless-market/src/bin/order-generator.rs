@@ -8,14 +8,14 @@ use std::{
 };
 
 use alloy::{
-    primitives::{aliases::U96, utils::parse_ether, Address},
+    primitives::{aliases::U96, utils::parse_ether, Address, U256},
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
 use boundless_market::{
-    client::Client,
+    client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
-    storage::{storage_provider_from_env, BuiltinStorageProvider, TempFileStorageProvider},
+    storage::StorageProviderConfig,
 };
 use clap::{Args, Parser};
 use guest_util::{ECHO_ELF, ECHO_ID};
@@ -34,6 +34,9 @@ struct MainArgs {
     /// If set, the order-generator will submit requests off-chain.
     #[clap(short, long)]
     order_stream_url: Option<Url>,
+    // Storage provider to use.
+    #[clap(flatten)]
+    storage_config: StorageProviderConfig,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -52,16 +55,24 @@ struct MainArgs {
     #[clap(short, long)]
     count: Option<u64>,
     /// Minimum price per mcycle in ether.
-    #[clap(long = "min", default_value = "0.001")]
-    min_price_per_mcycle: String,
+    #[clap(long = "min", value_parser = parse_ether, default_value = "0.001")]
+    min_price_per_mcycle: U256,
     /// Maximum price per mcycle in ether.
-    #[clap(long = "max", default_value = "0.002")]
-    max_price_per_mcycle: String,
+    #[clap(long = "max", value_parser = parse_ether, default_value = "0.002")]
+    max_price_per_mcycle: U256,
     /// Lockin stake amount in ether.
-    #[clap(short, long, default_value = "0.0")]
-    lockin_stake: String,
+    #[clap(short, long, value_parser = parse_ether, default_value = "0.0")]
+    lockin_stake: U256,
+    /// Number of blocks, from the current block, before the bid starts.
+    #[clap(long, default_value = "5")]
+    bidding_start_offset: u64,
+    /// Ramp-up period in blocks.
+    ///
+    /// The bid price will increase linearly from `min_price` to `max_price` over this period.
+    #[clap(long, default_value = "0")]
+    ramp_up: u32,
     /// Number of blocks before the request expires.
-    #[clap(long, default_value = "1000")]
+    #[clap(long, default_value = "300")]
     timeout: u32,
     /// Elf file to use as the guest image, given as a path.
     ///
@@ -81,7 +92,7 @@ struct MainArgs {
 #[derive(Args, Clone, Debug)]
 #[group(required = false, multiple = false)]
 struct OrderInput {
-    /// Input for the guest, given as a string.
+    /// Input for the guest, given as a hex-encoded string.
     #[clap(long, value_parser = |s: &str| hex::decode(s))]
     input: Option<Vec<u8>>,
     /// Input for the guest, given as a path to a file.
@@ -110,22 +121,16 @@ async fn main() -> Result<()> {
 }
 
 async fn run(args: &MainArgs) -> Result<()> {
-    let storage_provider = if cfg!(test) {
-        BuiltinStorageProvider::File(TempFileStorageProvider::new().await?)
-    } else {
-        storage_provider_from_env().await?
-    };
-    let order_stream_url =
-        args.order_stream_url.clone().unwrap_or(url::Url::parse("http://localhost:8585")?);
-    let boundless_client = Client::from_parts(
-        args.private_key.clone(),
-        args.rpc_url.clone(),
-        args.proof_market_address,
-        args.set_verifier_address,
-        order_stream_url,
-        storage_provider,
-    )
-    .await?;
+    let boundless_client = ClientBuilder::default()
+        .with_rpc_url(args.rpc_url.clone())
+        .with_proof_market_address(args.proof_market_address)
+        .with_set_verifier_address(args.set_verifier_address)
+        .with_order_stream_url(args.order_stream_url.clone())
+        .with_storage_provider_config(&args.storage_config)
+        .with_private_key(args.private_key.clone())
+        .with_bidding_start_offset(args.bidding_start_offset)
+        .build()
+        .await?;
 
     let (elf, image_id) = if let Some(elf) = args.elf.clone() {
         let elf = std::fs::read(elf)?;
@@ -151,9 +156,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             (None, None) => format! {"{:?}", SystemTime::now()}.as_bytes().to_vec(),
             _ => bail!("at most one of input or input-file args must be provided"),
         };
-        let encoded_input = if args.encode_input
-            || (args.input.input.is_none() && args.input.input_file.is_none())
-        {
+        let encoded_input = if args.encode_input {
             bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?)
         } else {
             input
@@ -179,16 +182,15 @@ async fn run(args: &MainArgs) -> Result<()> {
             .with_offer(
                 Offer::default()
                     .with_min_price_per_mcycle(
-                        U96::from::<u128>(parse_ether(&args.min_price_per_mcycle)?.try_into()?),
+                        U96::from::<U256>(args.min_price_per_mcycle),
                         mcycles_count,
                     )
                     .with_max_price_per_mcycle(
-                        U96::from::<u128>(parse_ether(&args.max_price_per_mcycle)?.try_into()?),
+                        U96::from::<U256>(args.max_price_per_mcycle),
                         mcycles_count,
                     )
-                    .with_lockin_stake(U96::from::<u128>(
-                        parse_ether(&args.lockin_stake)?.try_into()?,
-                    ))
+                    .with_lockin_stake(U96::from::<U256>(args.lockin_stake))
+                    .with_ramp_up_period(args.ramp_up)
                     .with_timeout(args.timeout),
             );
 
@@ -226,14 +228,17 @@ mod tests {
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             order_stream_url: None,
+            storage_config: StorageProviderConfig::default(),
             private_key: ctx.customer_signer,
             set_verifier_address: ctx.set_verifier_addr,
             proof_market_address: ctx.proof_market_addr,
             interval: 1,
             count: Some(2),
-            min_price_per_mcycle: "0.001".into(),
-            max_price_per_mcycle: "0.002".into(),
-            lockin_stake: "0.0".into(),
+            min_price_per_mcycle: parse_ether("0.001").unwrap(),
+            max_price_per_mcycle: parse_ether("0.002").unwrap(),
+            lockin_stake: parse_ether("0.0").unwrap(),
+            bidding_start_offset: 5,
+            ramp_up: 0,
             timeout: 1000,
             elf: None,
             input: OrderInput { input: None, input_file: None },

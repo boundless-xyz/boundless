@@ -2,7 +2,9 @@
 //
 // All rights reserved.
 #[cfg(feature = "cli")]
-use std::{borrow::Cow, fs::File, io::BufReader, path::PathBuf, time::Duration};
+use std::{
+    borrow::Cow, fs::File, io::BufReader, num::ParseIntError, path::PathBuf, time::Duration,
+};
 
 use alloy::{
     network::Ethereum,
@@ -28,14 +30,12 @@ use risc0_zkvm::{
 use url::Url;
 
 use boundless_market::{
-    client::Client,
+    client::{Client, ClientBuilder},
     contracts::{
         proof_market::ProofMarketService, Input, InputType, Offer, Predicate, PredicateType,
         ProvingRequest, Requirements,
     },
-    storage::{
-        storage_provider_from_env, BuiltinStorageProvider, StorageProvider, TempFileStorageProvider,
-    },
+    storage::{StorageProvider, StorageProviderConfig},
 };
 
 // TODO(victor): Update corresponding docs
@@ -63,6 +63,9 @@ enum Command {
     SubmitOffer(SubmitOfferArgs),
     /// Submit a fully specified proving request
     SubmitRequest {
+        /// Storage provider to use
+        #[clap(flatten)]
+        storage_config: StorageProviderConfig,
         /// Path to a YAML file containing the request
         yaml_request: String,
         /// Optional identifier for the request
@@ -70,9 +73,9 @@ enum Command {
         /// Wait until the request is fulfilled
         #[clap(short, long, default_value = "false")]
         wait: bool,
-        /// Submit the request offchain via the order stream service
-        #[clap(short, long, default_value = "false")]
-        offchain: bool,
+        /// Submit the request offchain via the provided order stream service url
+        #[clap(short, long)]
+        offchain: Option<Url>,
         /// Use the RISC Zero zkvm executor to run the program
         /// without submitting the request
         #[clap(long, default_value = "false")]
@@ -114,6 +117,9 @@ enum Command {
 
 #[derive(Args, Clone, Debug)]
 struct SubmitOfferArgs {
+    /// Storage provider to use
+    #[clap(flatten)]
+    storage_config: StorageProviderConfig,
     /// Path to a YAML file containing the offer
     yaml_offer: String,
     /// Optional identifier for the request
@@ -121,9 +127,9 @@ struct SubmitOfferArgs {
     /// Wait until the request is fulfilled
     #[clap(short, long, default_value = "false")]
     wait: bool,
-    /// Submit the request offchain via the order stream service
-    #[clap(short, long, default_value = "false")]
-    offchain: bool,
+    /// Submit the request offchain via the provided order stream service url
+    #[clap(short, long)]
+    offchain: Option<Url>,
     /// Use the RISC Zero zkvm executor to run the program
     /// without submitting the request
     #[clap(long, default_value = "false")]
@@ -175,9 +181,6 @@ struct MainArgs {
     /// URL of the Ethereum RPC endpoint
     #[clap(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
-    /// URL of the order stream service
-    #[clap(long, env, default_value = "http://localhost:8585")]
-    order_stream_url: Url,
     /// Private key of the wallet
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -188,8 +191,8 @@ struct MainArgs {
     #[clap(short, long, env)]
     set_verifier_address: Address,
     /// Tx timeout in seconds
-    #[clap(long, env)]
-    tx_timeout: Option<u64>,
+    #[clap(long, env, value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
+    tx_timeout: Option<Duration>,
     /// Subcommand to run
     #[command(subcommand)]
     command: Command,
@@ -215,7 +218,6 @@ async fn main() -> Result<()> {
 
 pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     let caller = args.private_key.address();
-    let signer = args.private_key.clone();
     let wallet = EthereumWallet::from(args.private_key.clone());
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()
@@ -224,7 +226,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     let mut proof_market =
         ProofMarketService::new(args.proof_market_address, provider.clone(), caller);
     if let Some(tx_timeout) = args.tx_timeout {
-        proof_market = proof_market.with_timeout(Duration::from_secs(tx_timeout));
+        proof_market = proof_market.with_timeout(tx_timeout);
     }
 
     let command = args.command.clone();
@@ -245,49 +247,34 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Balance of {addr}: {}", format_ether(balance));
         }
         Command::SubmitOffer(offer_args) => {
-            let storage_provider = if cfg!(test) {
-                BuiltinStorageProvider::File(TempFileStorageProvider::new().await?)
-            } else {
-                storage_provider_from_env().await?
-            };
-            let mut client = Client::from_parts(
-                signer.clone(),
-                args.rpc_url.clone(),
-                args.proof_market_address,
-                args.set_verifier_address,
-                args.order_stream_url.clone(),
-                storage_provider,
-            )
-            .await?;
-            if let Some(tx_timeout) = args.tx_timeout {
-                client = client.with_timeout(Duration::from_secs(tx_timeout));
-            }
+            let client = ClientBuilder::default()
+                .with_private_key(args.private_key.clone())
+                .with_rpc_url(args.rpc_url.clone())
+                .with_proof_market_address(args.proof_market_address)
+                .with_set_verifier_address(args.set_verifier_address)
+                .with_order_stream_url(offer_args.offchain.clone())
+                .with_storage_provider_config(&offer_args.storage_config)
+                .with_timeout(args.tx_timeout)
+                .build()
+                .await?;
 
             request_id = submit_offer(client, &offer_args).await?;
         }
-        Command::SubmitRequest { yaml_request, id, wait, offchain, dry_run } => {
+        Command::SubmitRequest { storage_config, yaml_request, id, wait, offchain, dry_run } => {
             let id = match id {
                 Some(id) => id,
                 None => proof_market.index_from_rand().await?,
             };
-
-            let storage_provider = if cfg!(test) {
-                BuiltinStorageProvider::File(TempFileStorageProvider::new().await?)
-            } else {
-                storage_provider_from_env().await?
-            };
-            let mut client = Client::from_parts(
-                signer.clone(),
-                args.rpc_url.clone(),
-                args.proof_market_address,
-                args.set_verifier_address,
-                args.order_stream_url.clone(),
-                storage_provider,
-            )
-            .await?;
-            if let Some(tx_timeout) = args.tx_timeout {
-                client = client.with_timeout(Duration::from_secs(tx_timeout));
-            }
+            let client = ClientBuilder::default()
+                .with_private_key(args.private_key.clone())
+                .with_rpc_url(args.rpc_url.clone())
+                .with_proof_market_address(args.proof_market_address)
+                .with_set_verifier_address(args.set_verifier_address)
+                .with_order_stream_url(offchain.clone())
+                .with_storage_provider_config(&storage_config)
+                .with_timeout(args.tx_timeout)
+                .build()
+                .await?;
 
             request_id = submit_request(id, yaml_request, client, wait, offchain, dry_run).await?;
         }
@@ -431,7 +418,7 @@ where
         return Ok(None);
     }
 
-    let request_id = if args.offchain {
+    let request_id = if args.offchain.is_some() {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -460,7 +447,7 @@ async fn submit_request<T, P, S>(
     request_path: String,
     client: Client<T, P, S>,
     wait: bool,
-    offchain: bool,
+    offchain: Option<Url>,
     dry_run: bool,
 ) -> Result<Option<U256>>
 where
@@ -510,7 +497,7 @@ where
         return Ok(None);
     }
 
-    let request_id = if offchain {
+    let request_id = if offchain.is_some() {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -593,7 +580,6 @@ mod tests {
             private_key: ctx.prover_signer.clone(),
             proof_market_address: ctx.proof_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
-            order_stream_url: Url::parse("http://localhost:8585").unwrap(),
             tx_timeout: None,
             command: Command::Deposit { amount: U256::from(100) },
         };
@@ -624,13 +610,13 @@ mod tests {
             private_key: ctx.customer_signer.clone(),
             proof_market_address: ctx.proof_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
-            order_stream_url: Url::parse("http://localhost:8585").unwrap(),
             tx_timeout: None,
             command: Command::SubmitRequest {
+                storage_config: StorageProviderConfig::default(),
                 yaml_request: "../../request.yaml".to_string(),
                 id: None,
                 wait: false,
-                offchain: false,
+                offchain: None,
                 dry_run: false,
             },
         };
