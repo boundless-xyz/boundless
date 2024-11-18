@@ -36,10 +36,15 @@ jobs:
               - 'foundry.toml'
 
   gas-comparison:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     needs: contracts-changed
     if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
     steps:
+      - name: install npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
