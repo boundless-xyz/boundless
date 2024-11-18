@@ -216,36 +216,43 @@ async fn websocket_handler(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
-) -> Response {
+) -> Result<Response, AppError> {
     let auth_header = match headers.get("X-Auth-Data") {
         Some(value) => value,
-        None => return (StatusCode::BAD_REQUEST, "Missing auth header").into_response(),
+        None => return Ok((StatusCode::BAD_REQUEST, "Missing auth header").into_response()),
     };
 
     // Decode and parse the JSON header into `AuthMsg`
     let auth_msg: AuthMsg = match parse_auth_msg(auth_header) {
         Ok(auth_msg) => auth_msg,
-        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid auth message format").into_response(),
+        Err(_) => {
+            return Ok((StatusCode::BAD_REQUEST, "Invalid auth message format").into_response())
+        }
     };
 
     // Check the signature
     if let Err(err) = auth_msg.verify_signature() {
-        return (StatusCode::UNAUTHORIZED, err.to_string()).into_response();
+        return Ok((StatusCode::UNAUTHORIZED, err.to_string()).into_response());
     }
 
     // Check if the address is already connected
     {
-        let connections = state.connections.lock().await;
-        if connections.contains_key(&auth_msg.address) {
-            return (
+        if state
+            .db
+            .active_broker(auth_msg.address)
+            .await
+            .context("Failed to check user address exists")?
+        {
+            return Ok((
                 StatusCode::CONFLICT,
                 // TODO: send serialized Error types for the client to de-serialize vs strings.
                 format!("Client {} already connected", auth_msg.address),
             )
-                .into_response();
+                .into_response());
         }
+        let connections = state.connections.lock().await;
         if connections.len() >= state.config.max_connections {
-            return (StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response();
+            return Ok((StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response());
         }
     }
 
@@ -259,16 +266,16 @@ async fn websocket_handler(
     let proof_market = IProofMarket::new(state.config.market_address, state.rpc_provider.clone());
     let balance = proof_market.balanceOf(auth_msg.address).call().await.unwrap()._0;
     if balance < state.config.min_balance {
-        return (
+        return Ok((
             StatusCode::UNAUTHORIZED,
             format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
         )
-            .into_response();
+            .into_response());
     }
 
     // Proceed with WebSocket upgrade
     tracing::debug!("New webSocket connection from {}", auth_msg.address);
-    ws.on_upgrade(move |socket| websocket_connection(socket, auth_msg.address, state))
+    Ok(ws.on_upgrade(move |socket| websocket_connection(socket, auth_msg.address, state)))
 }
 
 // Function to broadcast an order to all WebSocket clients in random order
@@ -306,9 +313,16 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
     }
     // Remove the clients that have closed their connections
     if !clients_to_remove.is_empty() {
-        let mut connections = state.connections.lock().await;
-        for address in clients_to_remove {
-            connections.remove(&address);
+        {
+            let mut connections = state.connections.lock().await;
+            for address in clients_to_remove {
+                connections.remove(&address);
+                if let Err(err) = state.db.deactivate_broker(address).await {
+                    tracing::error!(
+                        "Failed to remove broker connection from DB: {address} - {err:?}"
+                    );
+                }
+            }
         }
     }
 
@@ -374,6 +388,9 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
     // Remove the connection when the send loop exits
     let mut connections = state.connections.lock().await;
     connections.remove(&address);
+    if let Err(err) = state.db.deactivate_broker(address).await {
+        tracing::error!("Failed to remove broker connection from DB: {address} - {err:?}");
+    }
     tracing::debug!("WebSocket connection closed: {}", address);
 }
 
