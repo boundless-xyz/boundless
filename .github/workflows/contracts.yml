@@ -101,7 +101,7 @@ jobs:
   upgradability:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     needs: contracts-changed
-    if: ${{ needs.contracts-changed.outputs.src == 'true' }}
+    if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
     steps:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
