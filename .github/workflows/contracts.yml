@@ -104,10 +104,10 @@ jobs:
     if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
     steps:
       - name: install npm
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '16'
-          
+          node-version: 18
+
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
 
