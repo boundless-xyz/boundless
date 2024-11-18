@@ -9,7 +9,7 @@ use alloy::{
     providers::{Provider, ProviderBuilder, RootProvider},
     transports::http::Http,
 };
-use anyhow::{anyhow, Context, Error as AnyhowErr, Result};
+use anyhow::{Context, Error as AnyhowErr, Result};
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -26,6 +26,7 @@ use boundless_market::{
 };
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
+use order_db::{OrderDb, OrderDbErr};
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
@@ -33,13 +34,14 @@ use serde_json::json;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::{
-    sync::{broadcast, mpsc, Mutex},
+    sync::{mpsc, Mutex},
     task::JoinHandle,
 };
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 use tracing::error;
 
 mod order_db;
+use order_db::{DbOrder, OrderStream};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ErrMsg {
@@ -159,10 +161,10 @@ type ConnectionsMap = HashMap<Address, ClientConnection>;
 
 /// Application state struct
 pub struct AppState {
+    // Database backend
+    db: OrderDb,
     // Map of WebSocket connections by address
     connections: Arc<Mutex<ConnectionsMap>>,
-    // Channel sender for orders
-    order_tx: broadcast::Sender<Order>,
     // Ethereum RPC provider
     rpc_provider: RootProvider<Http<Client>>,
     // Configuration
@@ -173,30 +175,19 @@ pub struct AppState {
 
 impl AppState {
     /// Create a new AppState
-    pub async fn new(config: &Config, order_tx: broadcast::Sender<Order>) -> Result<Arc<Self>> {
+    pub async fn new(config: &Config) -> Result<Arc<Self>> {
         let provider = ProviderBuilder::new().on_http(config.rpc_url.clone());
+        let db = OrderDb::from_env().await.context("Failed to connect to DB")?;
         let chain_id =
             provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
         Ok(Arc::new(Self {
+            db,
             connections: Arc::new(Mutex::new(HashMap::new())),
-            order_tx,
             rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
             config: config.clone(),
             chain_id,
         }))
     }
-}
-
-// Start the broadcast task
-fn start_broadcast_task(
-    state: Arc<AppState>,
-    mut order_rx: broadcast::Receiver<Order>,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        while let Ok(order) = order_rx.recv().await {
-            broadcast_order(&order, Arc::clone(&state)).await;
-        }
-    })
 }
 
 const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
@@ -208,16 +199,11 @@ async fn submit_order(
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Validate the order
     order.validate(state.config.market_address, state.chain_id)?;
-    let id = order.request.id.clone();
+    let order_req_id = order.request.id;
+    let order_id = state.db.add_order(order).await.context("failed to add order to db")?;
 
-    // Send the order to the channel for broadcasting
-    if let Err(err) = state.order_tx.send(order.clone()) {
-        error!("Failed to send order to broadcast task: {}", err);
-        return Err(AppError::InternalErr(anyhow!("Internal server error")));
-    }
-
-    tracing::debug!("Order 0x{id:x} submitted");
-    Ok(Json(json!({ "status": "success", "request_id": id })))
+    tracing::debug!("Order 0x{order_req_id:x} - [{order_id}] submitted",);
+    Ok(Json(json!({ "status": "success", "request_id": order_req_id })))
 }
 
 fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg> {
@@ -286,11 +272,11 @@ async fn websocket_handler(
 }
 
 // Function to broadcast an order to all WebSocket clients in random order
-async fn broadcast_order(order: &Order, state: Arc<AppState>) {
-    let order_json = match serde_json::to_string(&order) {
+async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
+    let order_json = match serde_json::to_string(&db_order.order) {
         Ok(order_json) => order_json,
         Err(err) => {
-            error!("Failed to serialize order 0x{:x}: {}", order.request.id, err);
+            error!("Failed to serialize order 0x{:x}: {}", db_order.order.request.id, err);
             return;
         }
     };
@@ -326,7 +312,7 @@ async fn broadcast_order(order: &Order, state: Arc<AppState>) {
         }
     }
 
-    tracing::debug!("Order 0x{:x} broadcasted", order.request.id);
+    tracing::debug!("Order 0x{:x} broadcasted", db_order.order.request.id);
 }
 
 async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<AppState>) {
@@ -402,20 +388,34 @@ pub fn app(state: Arc<AppState>) -> Router {
         .layer(TraceLayer::new_for_http())
 }
 
+fn start_broadcast_task(
+    app_state: Arc<AppState>,
+    mut order_stream: OrderStream,
+) -> JoinHandle<Result<(), OrderDbErr>> {
+    tokio::spawn(async move {
+        while let Some(order) = order_stream.next().await {
+            let order = order?;
+            broadcast_order(&order, app_state.clone()).await;
+        }
+        Ok(())
+    })
+}
+
 /// Run the REST API service
 pub async fn run(args: &Args) -> Result<()> {
     let config: Config = args.into();
-    let (order_tx, _) = broadcast::channel(config.max_connections);
-    let app_state = AppState::new(&config, order_tx).await?;
+    let _db = order_db::OrderDb::from_env().await.unwrap();
+
+    let app_state = AppState::new(&config).await?;
     let listener = tokio::net::TcpListener::bind(&args.bind_addr)
         .await
         .context("Failed to bind a TCP listener")?;
 
-    let app_state_clone = Arc::clone(&app_state);
+    let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
-            let order_rx = app_state_clone.order_tx.subscribe();
-            let broadcast_task = start_broadcast_task(Arc::clone(&app_state_clone), order_rx);
+            let order_stream = app_state_clone.db.order_stream().await.unwrap();
+            let broadcast_task = start_broadcast_task(app_state_clone.clone(), order_stream);
 
             match broadcast_task.await {
                 Ok(_) => {
@@ -465,9 +465,10 @@ mod tests {
     };
     use boundless_market::{
         contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProvingRequest, Requirements},
-        order_stream_client::{order_stream, Client},
+        order_stream_client::Client,
     };
     use reqwest::Url;
+    use sqlx::PgPool;
     use std::{
         future::IntoFuture,
         net::{Ipv4Addr, SocketAddr},
@@ -491,8 +492,8 @@ mod tests {
         )
     }
 
-    #[tokio::test]
-    async fn integration_test() {
+    #[sqlx::test]
+    async fn integration_test(_pool: PgPool) {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
@@ -507,9 +508,14 @@ mod tests {
             max_connections: 1,
             queue_size: 10,
         };
-        let (order_tx, order_rx) = broadcast::channel(config.max_connections);
-        let app_state = AppState::new(&config, order_tx).await.unwrap();
-        start_broadcast_task(app_state.clone(), order_rx);
+        let app_state = AppState::new(&config).await.unwrap();
+        let app_state_clone = app_state.clone();
+
+        let task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
+            let mut new_orders = app_state_clone.db.order_stream().await.unwrap();
+            let order = new_orders.next().await.unwrap().unwrap();
+            Ok(order)
+        });
 
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
             .await
@@ -524,16 +530,13 @@ mod tests {
             app_state.chain_id,
         );
 
-        // 1. Broker connects to the WebSocket
-        let socket = client.connect_async().await.unwrap();
-
         // 2. Requestor submits a request
         let order =
             client.submit_request(&new_request(1, &ctx.prover_signer.address())).await.unwrap();
 
         // 3. Broker receives the request
-        let received_order = order_stream(socket).next().await.unwrap().unwrap();
+        let db_order = task.await.unwrap().unwrap();
 
-        assert_eq!(order, received_order);
+        assert_eq!(order, db_order.order);
     }
 }

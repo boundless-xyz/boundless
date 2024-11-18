@@ -25,6 +25,7 @@ repository = "https://github.com/boundless-xyz/boundless/"
 [workspace.dependencies]
 aggregation-set = { path = "crates/aggregation-set" }
 assessor = { path = "crates/assessor" }
+async-stream = "0.3"
 bento-client = { path = "crates/bento-client" }
 boundless-market = { path = "crates/boundless-market" }
 guest-set-builder = { path = "crates/guest/set-builder" }

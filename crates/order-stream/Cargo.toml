@@ -9,6 +9,7 @@ repository = { workspace = true }
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
+async-stream = { workspace = true }
 axum = { workspace = true, features = ["ws"] }
 boundless-market = { workspace = true, features = ["test-utils"] }
 clap = { workspace = true, features = ["env", "derive"] }

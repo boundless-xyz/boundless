@@ -1,8 +1,8 @@
-CREATE TABLE active_orders (
-    id SERIAL PRIMARY KEY,
-    data JSONB
+CREATE TABLE orders (
+    id BIGSERIAL NOT NULL PRIMARY KEY,
+    order_data JSONB NOT NULL
 );
 
 CREATE TABLE brokers (
-    addr BYTEA PRIMARY KEY
+    addr BYTEA NOT NULL PRIMARY KEY
 )
