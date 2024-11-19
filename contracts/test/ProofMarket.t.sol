@@ -388,16 +388,14 @@ contract ProofMarketTest is Test {
         ProvingRequest memory request2 = clientA.request(2);
 
         // case: request signed by a different client
-        // should revert with "Invalid client signature"
         bytes memory badClientSignature = clientB.sign(request1);
-        vm.expectRevert("Invalid client signature");
+        vm.expectRevert(IProofMarket.InvalidSignature.selector);
         vm.prank(address(testProver));
         proofMarket.lockin(request1, badClientSignature);
 
         // case: client signed a different request
-        // should revert with "Invalid client signature"
         badClientSignature = clientA.sign(request2);
-        vm.expectRevert("Invalid client signature");
+        vm.expectRevert(IProofMarket.InvalidSignature.selector);
         vm.prank(address(testProver));
         proofMarket.lockin(request1, badClientSignature);
 

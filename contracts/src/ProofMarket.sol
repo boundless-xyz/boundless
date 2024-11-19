@@ -196,6 +196,17 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         return _domainSeparatorV4();
     }
 
+    /// Internal method for vcerifying signatures over requests. Reverts on failure.
+    function verifyRequestSignature(address addr, ProvingRequest calldata request, bytes calldata signature)
+        internal
+        view
+    {
+        bytes32 structHash = _hashTypedDataV4(request.eip712Digest());
+        if (ECDSA.recover(structHash, signature) != addr) {
+            revert InvalidSignature();
+        }
+    }
+
     // Deposit Ether into the market.
     function deposit() public payable {
         accounts[msg.sender].balance += msg.value.toUint96();
@@ -232,10 +243,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
     function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
-
-        // Recover the prover address and require the client address to equal the address part of the ID.
-        bytes32 structHash = _hashTypedDataV4(request.eip712Digest());
-        require(ECDSA.recover(structHash, clientSignature) == client, "Invalid client signature");
+        verifyRequestSignature(client, request, clientSignature);
 
         _lockinAuthed(request, client, idx, msg.sender);
     }
@@ -250,7 +258,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         // Recover the prover address and require the client address to equal the address part of the ID.
         bytes32 structHash = _hashTypedDataV4(request.eip712Digest());
         address prover = ECDSA.recover(structHash, proverSignature);
-        require(ECDSA.recover(structHash, clientSignature) == client, "Invalid client signature");
+        if (ECDSA.recover(structHash, clientSignature) != client) {
+            revert InvalidSignature();
+        }
 
         _lockinAuthed(request, client, idx, prover);
     }
@@ -316,10 +326,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     /// fulfilled within the same transaction without taking a lock on it.
     function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) public {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
-
-        // Recover the prover address and require the client address to equal the address part of the ID.
-        bytes32 structHash = _hashTypedDataV4(request.eip712Digest());
-        require(ECDSA.recover(structHash, clientSignature) == client, "Invalid client signature");
+        verifyRequestSignature(client, request, clientSignature);
 
         (uint96 price,) = _validateRequestForLockin(request, client, idx);
         uint192 requestId = request.id;
