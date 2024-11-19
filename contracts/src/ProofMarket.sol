@@ -220,6 +220,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         return uint256(accounts[addr].balance);
     }
 
+    // NOTE: We could verify the client signature here, but this adds about 18k gas (with a naive
+    // implementation), doubling the cost of calling this method. It is not required for protocol
+    // safety as the signature is checked during lockin, and during fulfillment (by the assessor).
     function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable {
         if (msg.value > 0) {
             deposit();
