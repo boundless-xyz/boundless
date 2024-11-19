@@ -109,7 +109,9 @@ struct AssessorJournal {
 }
 
 interface IProofMarket {
-    /// Event logged when a new proving request is submitted by a client.
+    /// @notice Event logged when a new proving request is submitted by a client.
+    /// @dev Note that the signature is not verified by the contract and should instead be verified
+    ///      by the receiver of the event.
     event RequestSubmitted(uint192 indexed requestId, ProvingRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
@@ -172,6 +174,7 @@ interface IProofMarket {
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
     /// @dev Submitting the transaction only broadcasting it, and is not a required step.
+    ///      This method does not validate the signature or store any state related to the request.
     function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to

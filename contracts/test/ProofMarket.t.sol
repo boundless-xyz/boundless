@@ -171,6 +171,7 @@ contract ProofMarketTest is Test {
         vm.deal(address(testProver), DEFAULT_BALANCE);
         vm.prank(address(testProver));
         proofMarket.deposit{value: DEFAULT_BALANCE}();
+        testProver.snapshotBalance();
 
         for (uint256 i = 0; i < 5; i++) {
             createClient(i);
@@ -210,6 +211,9 @@ contract ProofMarketTest is Test {
         vm.startPrank(address(client));
         proofMarket.deposit{value: DEFAULT_BALANCE}();
         vm.stopPrank();
+
+        // Snapshot their initial balance.
+        client.snapshotBalance();
 
         clients[index] = client;
         return client;
@@ -295,6 +299,7 @@ contract ProofMarketTest is Test {
         emit IProofMarket.Deposit(address(testProver), 1 ether);
         vm.prank(address(testProver));
         proofMarket.deposit{value: 1 ether}();
+        testProver.expectBalanceChange(1 ether);
     }
 
     function testWithdraw() public {
@@ -332,9 +337,11 @@ contract ProofMarketTest is Test {
         // Submit the request with funds
         // Expect the event to be emitted
         vm.expectEmit(true, true, true, true);
+        emit IProofMarket.Deposit(address(client), uint256(request.offer.maxPrice));
+        vm.expectEmit(true, true, true, true);
         emit IProofMarket.RequestSubmitted(request.id, request, clientSignature);
-
         vm.deal(address(client), request.offer.maxPrice);
+        vm.prank(address(client));
         proofMarket.submitRequest{value: request.offer.maxPrice}(request, clientSignature);
     }
 
@@ -343,9 +350,6 @@ contract ProofMarketTest is Test {
         Client client = createClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
-
-        client.snapshotBalance();
-        testProver.snapshotBalance();
 
         // Expect the event to be emitted
         vm.expectEmit(true, true, true, true);

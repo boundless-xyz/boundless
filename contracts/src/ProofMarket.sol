@@ -221,7 +221,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     }
 
     function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable {
-        accounts[msg.sender].balance += msg.value.toUint96();
+        if (msg.value > 0) {
+            deposit();
+        }
         emit RequestSubmitted(request.id, request, clientSignature);
     }
 
