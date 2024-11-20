@@ -207,9 +207,8 @@ contract ProofMarketTest is Test {
 
         // Deal the client from Ether and deposit it in the market.
         vm.deal(address(client), DEFAULT_BALANCE);
-        vm.startPrank(address(client));
+        vm.prank(address(client));
         proofMarket.deposit{value: DEFAULT_BALANCE}();
-        vm.stopPrank();
 
         // Snapshot their initial balance.
         client.snapshotBalance();
@@ -400,7 +399,7 @@ contract ProofMarketTest is Test {
         return _testLockinAlreadyLocked(true);
     }
 
-    function testLockinAlreadyLockedWithSig() public {
+    function testLockinWithSigAlreadyLocked() public {
         return _testLockinAlreadyLocked(false);
     }
 
@@ -441,8 +440,31 @@ contract ProofMarketTest is Test {
         return _testLockinBadClientSignature(true);
     }
 
-    function testLockinBadClientSignatureWithSig() public {
+    function testLockinWithSigBadClientSignature() public {
         return _testLockinBadClientSignature(false);
+    }
+
+    function testLockinWithSigBadProverSignature() public {
+        Client client = getClient(1);
+        ProvingRequest memory request = client.request(1);
+        bytes memory clientSignature = client.sign(request);
+        // Bad signature is over the wrong request.
+        bytes memory badProverSignature = testProver.sign(client.request(2));
+
+        // NOTE: Error is "InsufficientBalance" because we will recover _some_ address.
+        // It should be completed random and never correspond to a real account.
+        // TODO: This address will need to change anytime we change the ProvingRequest struct or
+        // the way it is hashed for signatures. Find a good way to avoid this.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IProofMarket.InsufficientBalance.selector, address(0x5c541fA34e0b605E586fB688EFa1550169d80ECb)
+            )
+        );
+        proofMarket.lockinWithSig(request, clientSignature, badProverSignature);
+
+        client.expectBalanceChange(0 ether);
+        testProver.expectBalanceChange(0 ether);
+        checkProofMarketBalance();
     }
 
     function _testLockinNotEnoughFunds(bool withSig) private {
@@ -485,7 +507,7 @@ contract ProofMarketTest is Test {
         return _testLockinNotEnoughFunds(true);
     }
 
-    function testLockinNotEnoughFundsWithSig() public {
+    function testLockinWithSigNotEnoughFunds() public {
         return _testLockinNotEnoughFunds(false);
     }
 
@@ -516,7 +538,7 @@ contract ProofMarketTest is Test {
         return _testLockinExpired(true);
     }
 
-    function testLockinExpiredWithSig() public {
+    function testLockinWithSigExpired() public {
         return _testLockinExpired(false);
     }
 
@@ -552,7 +574,7 @@ contract ProofMarketTest is Test {
         return _testLockinInvalidRequest1(true);
     }
 
-    function testLockinInvalidRequest1WithSig() public {
+    function testLockinWithSigInvalidRequest1() public {
         return _testLockinInvalidRequest1(false);
     }
 
@@ -588,7 +610,7 @@ contract ProofMarketTest is Test {
         return _testLockinInvalidRequest2(true);
     }
 
-    function testLockinInvalidRequest2WithSig() public {
+    function testLockinWithSigInvalidRequest2() public {
         return _testLockinInvalidRequest2(false);
     }
 
