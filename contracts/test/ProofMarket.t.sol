@@ -51,7 +51,7 @@ contract Client {
     Vm.Wallet public wallet;
     IProofMarket public proofMarket;
 
-    // A snapshot of the client balance for later comparison.
+    /// A snapshot of the client balance for later comparison.
     int256 internal balanceSnapshot;
 
     receive() external payable {}
@@ -108,7 +108,6 @@ contract Client {
     }
 
     function snapshotBalance() public {
-        require(balanceSnapshot == type(int256).max, "balance snapshot is set; must be cleared before using again");
         balanceSnapshot = proofMarket.balanceOf(wallet.addr).toInt256();
         console2.log("%s balance at block %d: %d", identifier, block.number, balanceSnapshot.toUint256());
     }
@@ -174,7 +173,7 @@ contract ProofMarketTest is Test {
         testProver.snapshotBalance();
 
         for (uint256 i = 0; i < 5; i++) {
-            createClient(i);
+            getClient(i);
         }
 
         initialBalance = address(proofMarket).balance;
@@ -199,7 +198,7 @@ contract ProofMarketTest is Test {
     }
 
     // Creates a client account with the given index, gives it some Ether, and deposits from Ether in the market.
-    function createClient(uint256 index) internal returns (Client) {
+    function getClient(uint256 index) internal returns (Client) {
         if (address(clients[index]) != address(0)) {
             return clients[index];
         }
@@ -323,8 +322,7 @@ contract ProofMarketTest is Test {
     }
 
     function testSubmitRequest() public {
-        // Submit request
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
 
@@ -345,9 +343,9 @@ contract ProofMarketTest is Test {
         proofMarket.submitRequest{value: request.offer.maxPrice}(request, clientSignature);
     }
 
+    // TODO(victor): Repeat these lockin tests with the lockInWithSig path.
     function testLockin() public {
-        // Submit request
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
 
@@ -368,11 +366,13 @@ contract ProofMarketTest is Test {
     }
 
     function testLockinAlreadyLocked() public {
-        // Submit request
-        Client client = createClient(1);
+        testLockin();
+
+        // Recreate the same request as testLockin.
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
-        testLockin();
+
         // Attempt to lock in the request again
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsLocked.selector, request.id));
         proofMarket.lockin(request, clientSignature);
@@ -381,9 +381,8 @@ contract ProofMarketTest is Test {
     }
 
     function testLockinBadClientSignature() public {
-        // Submit request
-        Client clientA = createClient(1);
-        Client clientB = createClient(2);
+        Client clientA = getClient(1);
+        Client clientB = getClient(2);
         ProvingRequest memory request1 = clientA.request(1);
         ProvingRequest memory request2 = clientA.request(2);
 
@@ -399,14 +398,17 @@ contract ProofMarketTest is Test {
         vm.prank(address(testProver));
         proofMarket.lockin(request1, badClientSignature);
 
+        clientA.expectBalanceChange(0 ether);
+        clientB.expectBalanceChange(0 ether);
+        testProver.expectBalanceChange(0 ether);
         checkProofMarketBalance();
     }
 
     function testLockinNotEnoughFunds() public {
-        // Submit request
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
+
         vm.prank(address(client));
         proofMarket.withdraw(DEFAULT_BALANCE);
 
@@ -419,31 +421,31 @@ contract ProofMarketTest is Test {
         vm.prank(address(client));
         proofMarket.deposit{value: DEFAULT_BALANCE}();
 
-        vm.startPrank(address(testProver));
+        vm.prank(address(testProver));
         proofMarket.withdraw(DEFAULT_BALANCE);
+
         // case: prover does not have enough funds to cover for the lockin stake
         // should revert with "InsufficientBalance(address requester)"
+        vm.prank(address(testProver));
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.InsufficientBalance.selector, address(testProver)));
         proofMarket.lockin(request, clientSignature);
-        vm.stopPrank();
     }
 
     function testLockinExpired() public {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 1 ether,
-            biddingStart: uint64(0),
+            biddingStart: uint64(block.number),
             rampUpPeriod: uint32(0),
             timeout: uint32(1),
             lockinStake: 10 ether
         });
 
-        // Submit request
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1, offer);
         bytes memory clientSignature = client.sign(request);
 
-        vm.roll(2);
+        vm.roll(block.number + 2);
 
         // Attempt to lock in the request after it has expired
         // should revert with "RequestIsExpired({requestId: request.id, deadline: deadline})"
@@ -460,14 +462,13 @@ contract ProofMarketTest is Test {
         Offer memory offer = Offer({
             minPrice: 2 ether,
             maxPrice: 1 ether,
-            biddingStart: uint64(0),
+            biddingStart: uint64(block.number),
             rampUpPeriod: uint32(0),
             timeout: uint32(1),
             lockinStake: 10 ether
         });
 
-        // Submit request
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1, offer);
         bytes memory clientSignature = client.sign(request);
 
@@ -490,8 +491,7 @@ contract ProofMarketTest is Test {
             lockinStake: 10 ether
         });
 
-        // Submit request
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1, offer);
         bytes memory clientSignature = client.sign(request);
 
@@ -505,16 +505,16 @@ contract ProofMarketTest is Test {
     }
 
     function _testFulfill(uint32 requestIdx) private {
-        // Submit request
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(requestIdx);
         bytes memory clientSignature = client.sign(request);
 
-        uint256 balanceBefore = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance before:", balanceBefore);
+        client.snapshotBalance();
+        testProver.snapshotBalance();
 
-        vm.startPrank(address(testProver));
+        vm.prank(address(testProver));
         proofMarket.lockin(request, clientSignature);
+
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
         vm.expectEmit(true, true, true, true);
@@ -522,19 +522,16 @@ contract ProofMarketTest is Test {
         vm.expectEmit(true, true, true, false);
         emit IProofMarket.ProofDelivered(request.id, hex"", hex"");
         proofMarket.fulfill(fill, assessorSeal, address(testProver));
-        // console2.log("fulfill - Gas used:", vm.gasUsed());
-        vm.stopPrank();
 
         // Check that the proof was submitted
         assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
 
-        uint256 balanceAfter = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance after:", balanceAfter);
-        assertEq(balanceBefore + 1 ether, balanceAfter);
-
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
         checkProofMarketBalance();
     }
 
+    // TODO(victor): Add tests that follow the same logic, but without lockin.
     function testFulfill() public {
         _testFulfill(1);
     }
@@ -552,29 +549,19 @@ contract ProofMarketTest is Test {
         _testFulfill(0xffffffff);
     }
 
-    function testFulfillWithSig() public {
-        Client client = createClient(1);
-
+    function testFulfillViaLockinWithSig() public {
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(3);
 
-        bytes memory clientSignature = client.sign(request);
-        bytes memory proverSignature = testProver.sign(request);
-
-        uint256 balanceBefore = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance before:", balanceBefore);
-
-        // Note that this does not come from any particular address.
-        proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
         proofMarket.fulfill(fill, assessorSeal, address(testProver));
 
         // Check that the proof was submitted
         assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
 
-        uint256 balanceAfter = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance after:", balanceAfter);
-        assertEq(balanceBefore + 1 ether, balanceAfter);
-
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
         checkProofMarketBalance();
     }
 
@@ -586,28 +573,22 @@ contract ProofMarketTest is Test {
             batchSize += batch[i];
         }
 
-        uint256 balanceBefore = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance before:", balanceBefore);
-
         ProvingRequest[] memory requests = new ProvingRequest[](batchSize);
         bytes[] memory journals = new bytes[](batchSize);
         uint96 expectedRevenue = 0;
         uint256 idx = 0;
         for (uint256 i = 0; i < batch.length; i++) {
-            Client client = createClient(i);
+            Client client = getClient(i);
 
             for (uint256 j = 0; j < batch[i]; j++) {
                 ProvingRequest memory request = client.request(uint32(j));
-
-                bytes memory clientSignature = client.sign(request);
-                bytes memory proverSignature = testProver.sign(request);
 
                 // TODO: This is a fragile part of this test. It should be improved.
                 uint96 desiredPrice = uint96(1.5 ether);
                 vm.roll(request.offer.blockAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
-                proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+                proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
 
                 requests[idx] = request;
                 journals[idx] = APP_JOURNAL;
@@ -631,26 +612,15 @@ contract ProofMarketTest is Test {
             assertTrue(proofMarket.requestIsFulfilled(fills[i].id), "Request should have fulfilled status");
         }
 
-        uint256 balanceAfter = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance after:", balanceAfter);
-        assertEq(balanceBefore + expectedRevenue, balanceAfter);
-
+        testProver.expectBalanceChange(int256(uint256(expectedRevenue)));
         checkProofMarketBalance();
     }
 
     function testFulfillDistinctProversRequirePayment() public {
-        Client client = createClient(1);
-
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(3);
 
-        bytes memory clientSignature = client.sign(request);
-        bytes memory proverSignature = testProver.sign(request);
-
-        uint256 balanceBefore = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance before:", balanceBefore);
-
-        // Note that this does not come from any particular address.
-        proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         // address(3) is just a standin for some other address.
         address mockOtherProverAddr = address(uint160(3));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, mockOtherProverAddr);
@@ -661,26 +631,16 @@ contract ProofMarketTest is Test {
         assertFalse(proofMarket.requestIsFulfilled(fill.id), "Request should not have fulfilled status");
 
         // Prover should have their original balance less the stake amount.
-        uint256 balanceAfter = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance after:", balanceAfter);
-        assertEq(balanceBefore - request.offer.lockinStake, balanceAfter);
-
+        testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
         checkProofMarketBalance();
     }
 
     function testFulfillDistinctProversNoPayment() public {
-        Client client = createClient(1);
+        Client client = getClient(1);
 
         ProvingRequest memory request = client.request(3);
 
-        bytes memory clientSignature = client.sign(request);
-        bytes memory proverSignature = testProver.sign(request);
-
-        uint256 balanceBefore = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance before:", balanceBefore);
-
-        // Note that this does not come from any particular address.
-        proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         // address(3) is just a standin for some other address.
         address mockOtherProverAddr = address(uint160(3));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, mockOtherProverAddr);
@@ -695,43 +655,31 @@ contract ProofMarketTest is Test {
         assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
 
         // Prover should have their original balance less the stake amount.
-        uint256 balanceAfter = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance after:", balanceAfter);
-        assertEq(balanceBefore - request.offer.lockinStake, balanceAfter);
-
+        testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
         checkProofMarketBalance();
     }
 
     function testFulfillFulfillProverAddrDoesNotMatchAssessorReceipt() public {
-        Client client = createClient(1);
+        Client client = getClient(1);
 
         ProvingRequest memory request = client.request(3);
 
-        bytes memory clientSignature = client.sign(request);
-        bytes memory proverSignature = testProver.sign(request);
-
-        uint256 balanceBefore = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance before:", balanceBefore);
-
-        // Note that this does not come from any particular address.
-        proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         // address(3) is just a standin for some other address.
         address mockOtherProverAddr = address(uint160(3));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
         vm.expectRevert(VerificationFailed.selector);
         proofMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
+
+        // Prover should have their original balance less the stake amount.
+        testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        checkProofMarketBalance();
     }
 
     function testPriceAndFulfill() external {
-        Client client = createClient(1);
-
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(3);
-
-        bytes memory clientSignature = client.sign(request);
-
-        uint256 balanceBefore = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance before:", balanceBefore);
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
@@ -740,7 +688,7 @@ contract ProofMarketTest is Test {
         ProvingRequest[] memory requests = new ProvingRequest[](1);
         requests[0] = request;
         bytes[] memory clientSignatures = new bytes[](1);
-        clientSignatures[0] = clientSignature;
+        clientSignatures[0] = client.sign(request);
 
         vm.expectEmit(true, true, true, true);
         emit IProofMarket.RequestFulfilled(request.id);
@@ -748,19 +696,15 @@ contract ProofMarketTest is Test {
         emit IProofMarket.ProofDelivered(request.id, hex"", hex"");
         proofMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorSeal, address(testProver));
 
-        // Check that the proof was submitted
         assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
 
-        uint256 balanceAfter = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance after:", balanceAfter);
-        assertEq(balanceBefore + 1 ether, balanceAfter);
-
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
         checkProofMarketBalance();
     }
 
     function testFulfillAlreadyFulfilled() public {
-        // Submit request and fulfill it
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         testFulfill();
 
@@ -774,12 +718,11 @@ contract ProofMarketTest is Test {
     }
 
     function testFulfillRequestNotLocked() public {
-        // Attempt to prove a non-existent request
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
-        // Attempt to fulfill a request not lockeed
+        // Attempt to fulfill a request without locking or pricing it.
         // should revert with "RequestIsNotLocked({requestId: request.id})"
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.fulfill(fill, assessorSeal, address(testProver));
@@ -787,24 +730,22 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
-    function testFulfillExpired() public {
+    function testFulfillExpired() public returns (ProvingRequest memory) {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(0),
+            biddingStart: uint64(block.number),
             rampUpPeriod: uint32(0),
             timeout: uint32(1),
             lockinStake: 10 ether
         });
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1, offer);
-        bytes memory clientSignature = client.sign(request);
 
-        vm.startPrank(address(testProver));
-        proofMarket.lockin(request, clientSignature);
+        proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
-        vm.roll(2);
+        vm.roll(block.number + 2);
 
         // Attempt to fulfill an expired request
         // should revert with "RequestIsExpired({requestId: request.id, deadline: deadline})"
@@ -812,9 +753,12 @@ contract ProofMarketTest is Test {
             abi.encodeWithSelector(IProofMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
         proofMarket.fulfill(fill, assessorSeal, address(testProver));
-        vm.stopPrank();
 
+        // Prover should have their original balance less the stake amount.
+        testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
         checkProofMarketBalance();
+
+        return request;
     }
 
     function testSlash() public {
@@ -826,7 +770,7 @@ contract ProofMarketTest is Test {
             timeout: uint32(1),
             lockinStake: 10 ether
         });
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1, offer);
 
         testFulfillExpired();
@@ -836,14 +780,9 @@ contract ProofMarketTest is Test {
         emit IProofMarket.ProverSlashed(request.id, request.offer.lockinStake, 0);
         proofMarket.slash(request.id);
 
-        uint256 clientBalance = proofMarket.balanceOf(address(client));
-        console2.log("Client balance after slash:", clientBalance);
-        assertEq(clientBalance, DEFAULT_BALANCE);
-
-        uint256 proverBalance = proofMarket.balanceOf(address(testProver));
-        console2.log("Prover balance after slash:", proverBalance);
-        assertEq(proverBalance, DEFAULT_BALANCE - offer.lockinStake);
-
+        // NOTE: This should be updated is not all the stake  burned.
+        client.expectBalanceChange(0 ether);
+        testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
         checkBurnedBalance(request.offer.lockinStake);
     }
 
@@ -857,8 +796,9 @@ contract ProofMarketTest is Test {
     }
 
     function testSlashNotExpired() public {
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
+
         testLockin();
 
         // Attempt to slash a request not expired
@@ -872,7 +812,7 @@ contract ProofMarketTest is Test {
     }
 
     function testSlashFulfilled() public {
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         testFulfill();
 
@@ -883,15 +823,16 @@ contract ProofMarketTest is Test {
     }
 
     function testSlashSlash() public {
+        // fragile
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(0),
+            biddingStart: uint64(block.number),
             rampUpPeriod: uint32(0),
             timeout: uint32(1),
             lockinStake: 10 ether
         });
-        Client client = createClient(1);
+        Client client = getClient(1);
         ProvingRequest memory request = client.request(1, offer);
 
         testSlash();
@@ -906,7 +847,7 @@ contract ProofMarketTest is Test {
         requests = new ProvingRequest[](batchSize);
         journals = new bytes[](batchSize);
         for (uint256 j = 0; j < 5; j++) {
-            createClient(j);
+            getClient(j);
         }
         for (uint256 i = 0; i < batchSize; i++) {
             Client client = clients[i % 5];
