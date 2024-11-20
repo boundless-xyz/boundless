@@ -344,7 +344,7 @@ contract ProofMarketTest is Test {
     }
 
     // TODO(victor): Repeat these lockin tests with the lockInWithSig path.
-    function testLockin() public {
+    function testLockin() public returns (Client, ProvingRequest memory) {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
@@ -363,14 +363,12 @@ contract ProofMarketTest is Test {
         assertTrue(proofMarket.requestIsLocked(request.id), "Request should be locked-in");
 
         checkProofMarketBalance();
+
+        return (client, request);
     }
 
     function testLockinAlreadyLocked() public {
-        testLockin();
-
-        // Recreate the same request as testLockin.
-        Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        (Client client, ProvingRequest memory request) = testLockin();
         bytes memory clientSignature = client.sign(request);
 
         // Attempt to lock in the request again
@@ -504,7 +502,7 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
-    function _testFulfill(uint32 requestIdx) private {
+    function _testFulfill(uint32 requestIdx) private returns (Client, ProvingRequest memory) {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(requestIdx);
         bytes memory clientSignature = client.sign(request);
@@ -529,11 +527,13 @@ contract ProofMarketTest is Test {
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
         checkProofMarketBalance();
+
+        return (client, request);
     }
 
     // TODO(victor): Add tests that follow the same logic, but without lockin.
-    function testFulfill() public {
-        _testFulfill(1);
+    function testFulfill() public returns (Client, ProvingRequest memory) {
+        return _testFulfill(1);
     }
 
     function testFulfillLotsOfRequests() public {
@@ -704,9 +704,7 @@ contract ProofMarketTest is Test {
     }
 
     function testFulfillAlreadyFulfilled() public {
-        Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
-        testFulfill();
+        (, ProvingRequest memory request) = testFulfill();
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
         // Attempt to fulfill a request already fulfilled
@@ -730,7 +728,7 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
-    function testFulfillExpired() public returns (ProvingRequest memory) {
+    function testFulfillExpired() public returns (Client, ProvingRequest memory) {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
@@ -758,22 +756,11 @@ contract ProofMarketTest is Test {
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
         checkProofMarketBalance();
 
-        return request;
+        return (client, request);
     }
 
-    function testSlash() public {
-        Offer memory offer = Offer({
-            minPrice: 1 ether,
-            maxPrice: 2 ether,
-            biddingStart: uint64(0),
-            rampUpPeriod: uint32(0),
-            timeout: uint32(1),
-            lockinStake: 10 ether
-        });
-        Client client = getClient(1);
-        ProvingRequest memory request = client.request(1, offer);
-
-        testFulfillExpired();
+    function testSlash() public returns (Client, ProvingRequest memory) {
+        (Client client, ProvingRequest memory request) = testFulfillExpired();
 
         // Slash the request
         vm.expectEmit(true, true, true, true);
@@ -784,6 +771,8 @@ contract ProofMarketTest is Test {
         client.expectBalanceChange(0 ether);
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
         checkBurnedBalance(request.offer.lockinStake);
+
+        return (client, request);
     }
 
     function testSlashInvalidRequestID() public {
@@ -796,10 +785,7 @@ contract ProofMarketTest is Test {
     }
 
     function testSlashNotExpired() public {
-        Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
-
-        testLockin();
+        (, ProvingRequest memory request) = testLockin();
 
         // Attempt to slash a request not expired
         // should revert with "RequestIsNotExpired({requestId: request.id,  deadline: deadline})"
@@ -812,9 +798,7 @@ contract ProofMarketTest is Test {
     }
 
     function testSlashFulfilled() public {
-        Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
-        testFulfill();
+        (, ProvingRequest memory request) = testFulfill();
 
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.slash(request.id);
@@ -823,19 +807,7 @@ contract ProofMarketTest is Test {
     }
 
     function testSlashSlash() public {
-        // fragile
-        Offer memory offer = Offer({
-            minPrice: 1 ether,
-            maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
-            rampUpPeriod: uint32(0),
-            timeout: uint32(1),
-            lockinStake: 10 ether
-        });
-        Client client = getClient(1);
-        ProvingRequest memory request = client.request(1, offer);
-
-        testSlash();
+        (, ProvingRequest memory request) = testSlash();
 
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.slash(request.id);
