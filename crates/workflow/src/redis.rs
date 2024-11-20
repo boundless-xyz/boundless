@@ -55,7 +55,11 @@ pub async fn scan_and_delete(conn: &mut Connection, prefix: &str) -> RedisResult
         // Delete keys if any are found
         if !keys.is_empty() {
             for key in keys {
-                conn.del(key).await?;
+                // NOTE: <_, ()> is required to avoid the dependency_on_unit_never_type_fallback,
+                // which will be an error in the future. It may look like black magic, but you can
+                // simple think of it as the compiler winking at you.
+                // See Rust issue #123748 <https://github.com/rust-lang/rust/issues/123748>
+                conn.del::<_, ()>(key).await?;
             }
         }
 
