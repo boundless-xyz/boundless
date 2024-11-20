@@ -1033,31 +1033,31 @@ contract ProofMarketBench is ProofMarketTest {
     // use the following command to run the benchmark:
     // forge test -vv --match-test "testBenchFulfillBatch"
 
-    function testBenchFulfillBatch01() public {
+    function testBenchFulfillBatch001() public {
         benchFulfillBatch(1);
     }
 
-    function testBenchFulfillBatch02() public {
+    function testBenchFulfillBatch002() public {
         benchFulfillBatch(2);
     }
 
-    function testBenchFulfillBatch04() public {
+    function testBenchFulfillBatch004() public {
         benchFulfillBatch(4);
     }
 
-    function testBenchFulfillBatch08() public {
+    function testBenchFulfillBatch008() public {
         benchFulfillBatch(8);
     }
 
-    function testBenchFulfillBatch16() public {
+    function testBenchFulfillBatch016() public {
         benchFulfillBatch(16);
     }
 
-    function testBenchFulfillBatch32() public {
+    function testBenchFulfillBatch032() public {
         benchFulfillBatch(32);
     }
 
-    function testBenchFulfillBatch64() public {
+    function testBenchFulfillBatch064() public {
         benchFulfillBatch(64);
     }
 
