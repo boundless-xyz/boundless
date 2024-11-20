@@ -177,39 +177,61 @@ where
     }
 
     /// Submit a proving request such that it is publicly available for provers to evaluate and bid
-    /// on.
-    pub async fn submit_request(
+    /// on. Includes the specified value, which will be deposited to the account of msg.sender.
+    pub async fn submit_request_with_value(
         &self,
         request: &ProvingRequest,
         signer: &(impl Signer + SignerSync),
+        value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
-        tracing::debug!("Calling submitRequest({:?})", request);
+        tracing::debug!("calling submitRequest({:?})", request);
         let provider = self.instance.provider();
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)
-            .context("Failed to sign proving request")?;
+            .context("failed to sign proving request")?;
         let call = self
             .instance
             .submitRequest(request.clone(), client_sig.as_bytes().into())
             .from(self.caller)
-            .value(U256::from(request.offer.maxPrice));
+            .value(value.into());
         let pending_tx = call.send().await.map_err(IProofMarketErrors::decode_error)?;
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = pending_tx
             .with_timeout(Some(self.timeout))
             .get_receipt()
             .await
             .context("failed to confirm tx")?;
-        let [log] = receipt.inner.logs() else {
-            return Err(MarketError::Error(anyhow!("call must emit exactly one event")));
-        };
-        let log = log.log_decode::<IProofMarket::RequestSubmitted>().with_context(|| {
-            format!("call did not emit {}", IProofMarket::RequestSubmitted::SIGNATURE)
-        })?;
+
+        // Look for the logs for submitting the transaction.
+        let log = receipt.inner.logs().into_iter().find_map(|log| {
+            if log.topic0().map(|topic| IProofMarket::RequestSubmitted::SIGNATURE_HASH == *topic).unwrap_or(false) {
+                Some(log.log_decode::<IProofMarket::RequestSubmitted>().context("failed to decode RequestSubmitted event"))
+            } else { 
+                tracing::debug!("skipping log on submitRequest receipt; does not match RequestSubmitted: {log:?}");
+                None
+            }
+        }).transpose()?.ok_or(anyhow!("submitRequest transaction did not emit RequestSubmitted event"))?;
 
         Ok(U256::from(log.inner.data.request.id))
+    }
+
+    /// Submit a proving request such that it is publicly available for provers to evaluate and bid
+    /// on. Deposits funds to the client account if there are not enough to cover the max price on
+    /// the offer.
+    pub async fn submit_request(
+        &self,
+        request: &ProvingRequest,
+        signer: &(impl Signer + SignerSync),
+    ) -> Result<U256, MarketError> {
+        let balance = self
+            .balance_of(signer.address())
+            .await
+            .context("failed to get whether the client balance can cover the offer max price")?;
+        let max_price = U256::from(request.offer.maxPrice);
+        let value = if balance > max_price { U256::ZERO } else { U256::from(max_price) - balance };
+        self.submit_request_with_value(request, signer, value).await
     }
 
     /// Lock the proving request to the prover, giving them exclusive rights to be paid to
