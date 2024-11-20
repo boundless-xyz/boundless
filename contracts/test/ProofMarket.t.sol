@@ -182,19 +182,19 @@ contract ProofMarketTest is Test {
         assertEq(proofMarket.owner(), OWNER_WALLET.addr, "OWNER address is not the contract owner after deployment");
     }
 
-    // Utility function to check initial and final balance difference
-    function checkProofMarketBalance() internal view {
+    function expectMarketBalanceUnchanged() internal view {
         uint256 finalBalance = address(proofMarket).balance;
-        console2.log("Initial balance:", initialBalance);
-        console2.log("Final balance:", finalBalance);
+        //console2.log("Initial balance:", initialBalance);
+        //console2.log("Final balance:", finalBalance);
         require(finalBalance == initialBalance, "Contract balance changed during the test");
     }
 
-    function checkBurnedBalance(uint256 burnedBalance) internal view {
+    function expectMarketBalanceBurned(uint256 burnedBalance) internal view {
         uint256 finalBalance = address(proofMarket).balance;
-        console2.log("Initial balance:", initialBalance);
-        console2.log("Final balance:", finalBalance);
+        //console2.log("Initial balance:", initialBalance);
+        //console2.log("Final balance:", finalBalance);
         require(finalBalance == initialBalance - burnedBalance, "Contract balance changed during the test");
+        require(address(0).balance == burnedBalance, "Burned balance did not go to the null address");
     }
 
     // Creates a client account with the given index, gives it some Ether, and deposits from Ether in the market.
@@ -311,13 +311,13 @@ contract ProofMarketTest is Test {
         emit IProofMarket.Withdrawal(address(testProver), 1 ether);
         vm.prank(address(testProver));
         proofMarket.withdraw(1 ether);
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
 
         // Attempt to withdraw extra funds from the market.
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.InsufficientBalance.selector, address(testProver)));
         vm.prank(address(testProver));
         proofMarket.withdraw(DEFAULT_BALANCE + 1);
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testSubmitRequest() public {
@@ -365,7 +365,7 @@ contract ProofMarketTest is Test {
         // Verify the lockin
         assertTrue(proofMarket.requestIsLocked(request.id), "Request should be locked-in");
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
 
         return (client, request);
     }
@@ -392,7 +392,7 @@ contract ProofMarketTest is Test {
             proofMarket.lockin(request, clientSignature);
         }
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testLockinAlreadyLocked() public {
@@ -433,7 +433,7 @@ contract ProofMarketTest is Test {
         clientA.expectBalanceChange(0 ether);
         clientB.expectBalanceChange(0 ether);
         testProver.expectBalanceChange(0 ether);
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testLockinBadClientSignature() public {
@@ -464,7 +464,7 @@ contract ProofMarketTest is Test {
 
         client.expectBalanceChange(0 ether);
         testProver.expectBalanceChange(0 ether);
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function _testLockinNotEnoughFunds(bool withSig) private {
@@ -531,7 +531,7 @@ contract ProofMarketTest is Test {
             proofMarket.lockin(request, clientSignature);
         }
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testLockinExpired() public {
@@ -567,7 +567,7 @@ contract ProofMarketTest is Test {
             proofMarket.lockin(request, clientSignature);
         }
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testLockinInvalidRequest1() public {
@@ -603,7 +603,7 @@ contract ProofMarketTest is Test {
             proofMarket.lockin(request, clientSignature);
         }
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testLockinInvalidRequest2() public {
@@ -638,7 +638,7 @@ contract ProofMarketTest is Test {
 
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
 
         return (client, request);
     }
@@ -674,7 +674,7 @@ contract ProofMarketTest is Test {
 
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testFulfillBatchWithSig() public {
@@ -725,7 +725,7 @@ contract ProofMarketTest is Test {
         }
 
         testProver.expectBalanceChange(int256(uint256(expectedRevenue)));
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testFulfillDistinctProversRequirePayment() public {
@@ -744,7 +744,7 @@ contract ProofMarketTest is Test {
 
         // Prover should have their original balance less the stake amount.
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testFulfillDistinctProversNoPayment() public returns (Client, ProvingRequest memory) {
@@ -767,7 +767,7 @@ contract ProofMarketTest is Test {
 
         // Prover should have their original balance less the stake amount.
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
 
         return (client, request);
     }
@@ -786,7 +786,7 @@ contract ProofMarketTest is Test {
 
         // Prover should now have received back their stake plus payment for the request.
         testProver.expectBalanceChange(2 ether);
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testFulfillFulfillProverAddrDoesNotMatchAssessorReceipt() public {
@@ -804,7 +804,7 @@ contract ProofMarketTest is Test {
 
         // Prover should have their original balance less the stake amount.
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testPriceAndFulfill() external {
@@ -830,7 +830,7 @@ contract ProofMarketTest is Test {
 
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testFulfillAlreadyFulfilled() public {
@@ -842,7 +842,7 @@ contract ProofMarketTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsFulfilled.selector, request.id));
         proofMarket.fulfill(fill, assessorSeal, address(testProver));
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testFulfillRequestNotLocked() public {
@@ -855,7 +855,7 @@ contract ProofMarketTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.fulfill(fill, assessorSeal, address(testProver));
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testFulfillExpired() public returns (Client, ProvingRequest memory) {
@@ -876,7 +876,7 @@ contract ProofMarketTest is Test {
 
         // Prover should have their original balance less the stake amount.
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
 
         return (client, request);
     }
@@ -892,7 +892,7 @@ contract ProofMarketTest is Test {
         // NOTE: This should be updated is not all the stake  burned.
         client.expectBalanceChange(0 ether);
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
-        checkBurnedBalance(request.offer.lockinStake);
+        expectMarketBalanceBurned(request.offer.lockinStake);
 
         return (client, request);
     }
@@ -903,7 +903,7 @@ contract ProofMarketTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, 0xa));
         proofMarket.slash(0xa);
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testSlashNotExpired() public {
@@ -916,7 +916,7 @@ contract ProofMarketTest is Test {
         );
         proofMarket.slash(request.id);
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testSlashFulfilled() public {
@@ -925,7 +925,7 @@ contract ProofMarketTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.slash(request.id);
 
-        checkProofMarketBalance();
+        expectMarketBalanceUnchanged();
     }
 
     function testSlashSlash() public {
@@ -934,7 +934,7 @@ contract ProofMarketTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.slash(request.id);
 
-        checkBurnedBalance(request.offer.lockinStake);
+        expectMarketBalanceBurned(request.offer.lockinStake);
     }
 
     function newBatch(uint256 batchSize) internal returns (ProvingRequest[] memory requests, bytes[] memory journals) {
