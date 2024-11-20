@@ -109,7 +109,7 @@ contract Client {
 
     function snapshotBalance() public {
         balanceSnapshot = proofMarket.balanceOf(wallet.addr).toInt256();
-        console2.log("%s balance at block %d: %d", identifier, block.number, balanceSnapshot.toUint256());
+        //console2.log("%s balance at block %d: %d", identifier, block.number, balanceSnapshot.toUint256());
     }
 
     function expectBalanceChange(int256 change) public view {
@@ -964,7 +964,12 @@ contract ProofMarketTest is Test {
         uint256 gasAfter = gasleft();
         // Calculate the gas used
         uint256 gasUsed = gasBefore - gasAfter;
-        console2.log("fulfillBatch - Gas used:", gasUsed);
+        console2.log(
+            "fulfillBatch - gas used: total = %d, batch-size = %d, per-order = %d",
+            gasUsed,
+            batchSize,
+            gasUsed / batchSize
+        );
 
         for (uint256 j = 0; j < fills.length; j++) {
             assertTrue(proofMarket.requestIsFulfilled(fills[j].id), "Request should have fulfilled status");
@@ -975,19 +980,19 @@ contract ProofMarketTest is Test {
     // use the following command to run the benchmark:
     // forge test -vv --match-test "testBenchFulfillBatch"
 
-    function testBenchFulfillBatch1() public {
+    function testBenchFulfillBatch01() public {
         benchFulfillBatch(1);
     }
 
-    function testBenchFulfillBatch2() public {
+    function testBenchFulfillBatch02() public {
         benchFulfillBatch(2);
     }
 
-    function testBenchFulfillBatch4() public {
+    function testBenchFulfillBatch04() public {
         benchFulfillBatch(4);
     }
 
-    function testBenchFulfillBatch8() public {
+    function testBenchFulfillBatch08() public {
         benchFulfillBatch(8);
     }
 
