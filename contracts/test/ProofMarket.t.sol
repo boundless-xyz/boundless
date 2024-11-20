@@ -747,9 +747,8 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
-    function testFulfillDistinctProversNoPayment() public {
+    function testFulfillDistinctProversNoPayment() public returns (Client, ProvingRequest memory) {
         Client client = getClient(1);
-
         ProvingRequest memory request = client.request(3);
 
         proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
@@ -768,6 +767,25 @@ contract ProofMarketTest is Test {
 
         // Prover should have their original balance less the stake amount.
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        checkProofMarketBalance();
+
+        return (client, request);
+    }
+
+    // In some cases, a request can be fulfilled without payment being sent. This test starts with
+    // one of those cases and checks that the prover can submit fulfillment again to get payment.
+    function testCollectPaymentOnFulfilledRequest() public {
+        (, ProvingRequest memory request) = testFulfillDistinctProversNoPayment();
+
+        testProver.snapshotBalance();
+
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
+        proofMarket.fulfill(fill, assessorSeal, address(testProver));
+
+        assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+
+        // Prover should now have received back their stake plus payment for the request.
+        testProver.expectBalanceChange(2 ether);
         checkProofMarketBalance();
     }
 
