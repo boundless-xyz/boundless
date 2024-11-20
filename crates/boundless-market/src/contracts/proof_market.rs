@@ -2,12 +2,13 @@
 //
 // All rights reserved.
 
-use std::time::Duration;
+use std::{fmt::Debug, time::Duration};
 
 use alloy::{
     network::Ethereum,
     primitives::{aliases::U192, Address, Bytes, B256, U256},
     providers::Provider,
+    rpc::types::{Log, TransactionReceipt},
     signers::{Signer, SignerSync},
     transports::Transport,
 };
@@ -90,6 +91,40 @@ impl EventQueryConfig {
     /// Sets the number of blocks to query in each iteration when searching for a fulfilled event.
     pub fn with_block_range(self, block_range: u64) -> Self {
         Self { block_range, ..self }
+    }
+}
+
+fn extract_tx_log<E: SolEvent + Debug + Clone>(
+    receipt: &TransactionReceipt,
+) -> Result<Log<E>, anyhow::Error> {
+    let logs = receipt
+        .inner
+        .logs()
+        .into_iter()
+        .filter_map(|log| {
+            if log.topic0().map(|topic| E::SIGNATURE_HASH == *topic).unwrap_or(false) {
+                Some(
+                    log.log_decode::<E>()
+                        .with_context(|| format!("failed to decode event {}", E::SIGNATURE)),
+                )
+            } else {
+                tracing::debug!(
+                    "skipping log on receipt; does not match {}: {log:?}",
+                    E::SIGNATURE
+                );
+                None
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    match &logs[..] {
+        [log] => Ok(log.clone()),
+        [] => Err(anyhow!("transaction did not emit event {}", E::SIGNATURE)),
+        _ => Err(anyhow!(
+            "transaction emitted more than one event with signature {}, {:#?}",
+            E::SIGNATURE,
+            logs
+        )),
     }
 }
 
@@ -205,15 +240,7 @@ where
             .context("failed to confirm tx")?;
 
         // Look for the logs for submitting the transaction.
-        let log = receipt.inner.logs().into_iter().find_map(|log| {
-            if log.topic0().map(|topic| IProofMarket::RequestSubmitted::SIGNATURE_HASH == *topic).unwrap_or(false) {
-                Some(log.log_decode::<IProofMarket::RequestSubmitted>().context("failed to decode RequestSubmitted event"))
-            } else { 
-                tracing::debug!("skipping log on submitRequest receipt; does not match RequestSubmitted: {log:?}");
-                None
-            }
-        }).transpose()?.ok_or(anyhow!("submitRequest transaction did not emit RequestSubmitted event"))?;
-
+        let log = extract_tx_log::<IProofMarket::RequestSubmitted>(&receipt)?;
         Ok(U256::from(log.inner.data.request.id))
     }
 
@@ -355,13 +382,8 @@ where
             .get_receipt()
             .await
             .context("failed to confirm tx")?;
-        let [log] = receipt.inner.logs() else {
-            return Err(MarketError::Error(anyhow!("call must emit exactly one event")));
-        };
-        let log = log.log_decode::<IProofMarket::ProverSlashed>().with_context(|| {
-            format!("call did not emit {}", IProofMarket::ProverSlashed::SIGNATURE)
-        })?;
 
+        let log = extract_tx_log::<IProofMarket::ProverSlashed>(&receipt)?;
         Ok(log.inner.data)
     }
 
