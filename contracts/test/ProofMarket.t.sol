@@ -69,7 +69,7 @@ contract Client {
             maxPrice: 2 ether,
             biddingStart: uint64(block.number),
             rampUpPeriod: uint32(10),
-            timeout: type(uint32).max,
+            timeout: uint32(100),
             lockinStake: 1 ether
         });
     }
@@ -343,7 +343,6 @@ contract ProofMarketTest is Test {
         proofMarket.submitRequest{value: request.offer.maxPrice}(request, clientSignature);
     }
 
-    // TODO(victor): Repeat these lockin tests with the lockInWithSig path.
     function testLockin() public returns (Client, ProvingRequest memory) {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
@@ -430,20 +429,11 @@ contract ProofMarketTest is Test {
     }
 
     function testLockinExpired() public {
-        Offer memory offer = Offer({
-            minPrice: 1 ether,
-            maxPrice: 1 ether,
-            biddingStart: uint64(block.number),
-            rampUpPeriod: uint32(0),
-            timeout: uint32(1),
-            lockinStake: 10 ether
-        });
-
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1, offer);
+        ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
 
-        vm.roll(block.number + 2);
+        vm.roll(request.offer.deadline() + 1);
 
         // Attempt to lock in the request after it has expired
         // should revert with "RequestIsExpired({requestId: request.id, deadline: deadline})"
@@ -729,21 +719,13 @@ contract ProofMarketTest is Test {
     }
 
     function testFulfillExpired() public returns (Client, ProvingRequest memory) {
-        Offer memory offer = Offer({
-            minPrice: 1 ether,
-            maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
-            rampUpPeriod: uint32(0),
-            timeout: uint32(1),
-            lockinStake: 10 ether
-        });
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1, offer);
+        ProvingRequest memory request = client.request(1);
 
         proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
-        vm.roll(block.number + 2);
+        vm.roll(request.offer.deadline() + 1);
 
         // Attempt to fulfill an expired request
         // should revert with "RequestIsExpired({requestId: request.id, deadline: deadline})"
