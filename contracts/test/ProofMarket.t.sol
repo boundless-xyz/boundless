@@ -130,11 +130,11 @@ contract ProofMarketTest is Test {
     using ProofMarketLib for Offer;
     using TestUtils for RiscZeroSetVerifier;
 
-    RiscZeroMockVerifier private verifier;
-    ProofMarket private proofMarket;
-    address private proxy;
-    RiscZeroSetVerifier private setVerifier;
-    mapping(uint256 => Client) private clients;
+    RiscZeroMockVerifier internal verifier;
+    ProofMarket internal proofMarket;
+    address internal proxy;
+    RiscZeroSetVerifier internal setVerifier;
+    mapping(uint256 => Client) internal clients;
     Client internal testProver;
     uint256 initialBalance;
 
@@ -289,6 +289,27 @@ contract ProofMarketTest is Test {
 
         return (fills, assessorSeal, root);
     }
+
+    function newBatch(uint256 batchSize) internal returns (ProvingRequest[] memory requests, bytes[] memory journals) {
+        requests = new ProvingRequest[](batchSize);
+        journals = new bytes[](batchSize);
+        for (uint256 j = 0; j < 5; j++) {
+            getClient(j);
+        }
+        for (uint256 i = 0; i < batchSize; i++) {
+            Client client = clients[i % 5];
+            ProvingRequest memory request = client.request(uint32(i / 5));
+            bytes memory clientSignature = client.sign(request);
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+            requests[i] = request;
+            journals[i] = APP_JOURNAL;
+        }
+    }
+}
+
+contract ProofMarketBasicTest is ProofMarketTest {
+    using ProofMarketLib for Offer;
 
     function testDeposit() public {
         vm.deal(address(testProver), 1 ether);
@@ -614,7 +635,17 @@ contract ProofMarketTest is Test {
         return _testLockinInvalidRequest2(false);
     }
 
-    function _testFulfill(uint32 requestIdx) private returns (Client, ProvingRequest memory) {
+    enum LockinMethod {
+        Lockin,
+        LockinWithSig,
+        None
+    }
+
+    // Base for fulfillment tests with different methods for lockin, including none. All paths should yield the same result.
+    function _testFulfill(uint32 requestIdx, LockinMethod lockinMethod)
+        private
+        returns (Client, ProvingRequest memory)
+    {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(requestIdx);
         bytes memory clientSignature = client.sign(request);
@@ -622,16 +653,36 @@ contract ProofMarketTest is Test {
         client.snapshotBalance();
         testProver.snapshotBalance();
 
-        vm.prank(address(testProver));
-        proofMarket.lockin(request, clientSignature);
+        if (lockinMethod == LockinMethod.Lockin) {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        } else if (lockinMethod == LockinMethod.LockinWithSig) {
+            proofMarket.lockinWithSig(request, clientSignature, testProver.sign(request));
+        }
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
-        vm.expectEmit(true, true, true, true);
-        emit IProofMarket.RequestFulfilled(request.id);
-        vm.expectEmit(true, true, true, false);
-        emit IProofMarket.ProofDelivered(request.id, hex"", hex"");
-        proofMarket.fulfill(fill, assessorSeal, address(testProver));
+        if (lockinMethod == LockinMethod.None) {
+            // Annoying boilerplate for creating singleton lists.
+            Fulfillment[] memory fills = new Fulfillment[](1);
+            fills[0] = fill;
+            ProvingRequest[] memory requests = new ProvingRequest[](1);
+            requests[0] = request;
+            bytes[] memory clientSignatures = new bytes[](1);
+            clientSignatures[0] = client.sign(request);
+
+            vm.expectEmit(true, true, true, true);
+            emit IProofMarket.RequestFulfilled(request.id);
+            vm.expectEmit(true, true, true, false);
+            emit IProofMarket.ProofDelivered(request.id, hex"", hex"");
+            proofMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorSeal, address(testProver));
+        } else {
+            vm.expectEmit(true, true, true, true);
+            emit IProofMarket.RequestFulfilled(request.id);
+            vm.expectEmit(true, true, true, false);
+            emit IProofMarket.ProofDelivered(request.id, hex"", hex"");
+            proofMarket.fulfill(fill, assessorSeal, address(testProver));
+        }
 
         // Check that the proof was submitted
         assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
@@ -643,41 +694,30 @@ contract ProofMarketTest is Test {
         return (client, request);
     }
 
-    // TODO(victor): Add tests that follow the same logic, but without lockin.
-    function testFulfill() public returns (Client, ProvingRequest memory) {
-        return _testFulfill(1);
-    }
-
-    function testFulfillLotsOfRequests() public {
-        // Check that a single client can create many requests, with the full range of indices, and
-        // complete the flow each time.
-        for (uint32 idx = 0; idx < 512; idx++) {
-            console2.log(idx);
-            _testFulfill(idx);
-        }
-        console2.log(uint32(0xdeadbeef));
-        _testFulfill(0xdeadbeef);
-        console2.log(uint32(0xffffffff));
-        _testFulfill(0xffffffff);
+    function testFulfillViaLockin() public {
+        _testFulfill(1, LockinMethod.Lockin);
     }
 
     function testFulfillViaLockinWithSig() public {
-        Client client = getClient(1);
-        ProvingRequest memory request = client.request(3);
-
-        proofMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
-        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
-        proofMarket.fulfill(fill, assessorSeal, address(testProver));
-
-        // Check that the proof was submitted
-        assertTrue(proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
-
-        client.expectBalanceChange(-1 ether);
-        testProver.expectBalanceChange(1 ether);
-        expectMarketBalanceUnchanged();
+        _testFulfill(1, LockinMethod.LockinWithSig);
     }
 
-    function testFulfillBatchWithSig() public {
+    function testFulfillWithoutLockin() public {
+        _testFulfill(1, LockinMethod.None);
+    }
+
+    // Check that a single client can create many requests, with the full range of indices, and
+    // complete the flow each time.
+    function testFulfillRangeOfRequestIdx() public {
+        for (uint32 idx = 0; idx < 512; idx++) {
+            _testFulfill(idx, LockinMethod.Lockin);
+        }
+        _testFulfill(0xdeadbeef, LockinMethod.Lockin);
+        _testFulfill(0xffffffff, LockinMethod.Lockin);
+    }
+
+    // TODO Refactor and move this test
+    function testFulfillBatch() public {
         // Provide a batch definition as an array of clients and how many requests each submits.
         uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
         uint256 batchSize = 0;
@@ -833,8 +873,8 @@ contract ProofMarketTest is Test {
         expectMarketBalanceUnchanged();
     }
 
-    function testFulfillAlreadyFulfilled() public {
-        (, ProvingRequest memory request) = testFulfill();
+    function _testFulfillAlreadyFulfilled(uint32 idx, LockinMethod lockinMethod) private {
+        (, ProvingRequest memory request) = _testFulfill(idx, lockinMethod);
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
         // Attempt to fulfill a request already fulfilled
@@ -843,6 +883,12 @@ contract ProofMarketTest is Test {
         proofMarket.fulfill(fill, assessorSeal, address(testProver));
 
         expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillAlreadyFulfilled() public {
+        _testFulfillAlreadyFulfilled(1, LockinMethod.Lockin);
+        _testFulfillAlreadyFulfilled(2, LockinMethod.LockinWithSig);
+        _testFulfillAlreadyFulfilled(3, LockinMethod.None);
     }
 
     function testFulfillRequestNotLocked() public {
@@ -919,13 +965,19 @@ contract ProofMarketTest is Test {
         expectMarketBalanceUnchanged();
     }
 
-    function testSlashFulfilled() public {
-        (, ProvingRequest memory request) = testFulfill();
+    function _testSlashFulfilled(uint32 idx, LockinMethod lockinMethod) private {
+        (, ProvingRequest memory request) = _testFulfill(idx, lockinMethod);
 
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
         proofMarket.slash(request.id);
 
         expectMarketBalanceUnchanged();
+    }
+
+    function testSlashFulfilled() public {
+        _testFulfill(1, LockinMethod.Lockin);
+        _testFulfill(2, LockinMethod.LockinWithSig);
+        _testFulfill(3, LockinMethod.None);
     }
 
     function testSlashSlash() public {
@@ -937,22 +989,23 @@ contract ProofMarketTest is Test {
         expectMarketBalanceBurned(request.offer.lockinStake);
     }
 
-    function newBatch(uint256 batchSize) internal returns (ProvingRequest[] memory requests, bytes[] memory journals) {
-        requests = new ProvingRequest[](batchSize);
-        journals = new bytes[](batchSize);
-        for (uint256 j = 0; j < 5; j++) {
-            getClient(j);
-        }
-        for (uint256 i = 0; i < batchSize; i++) {
-            Client client = clients[i % 5];
-            ProvingRequest memory request = client.request(uint32(i / 5));
-            bytes memory clientSignature = client.sign(request);
-            vm.prank(address(testProver));
-            proofMarket.lockin(request, clientSignature);
-            requests[i] = request;
-            journals[i] = APP_JOURNAL;
+    function testsubmitRootAndFulfillBatch() public {
+        (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(2);
+        (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) =
+            createFills(requests, journals, address(testProver), true);
+
+        bytes memory seal =
+            verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
+        proofMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal, address(testProver));
+
+        for (uint256 j = 0; j < fills.length; j++) {
+            assertTrue(proofMarket.requestIsFulfilled(fills[j].id), "Request should have fulfilled status");
         }
     }
+}
+
+contract ProofMarketBench is ProofMarketTest {
+    using ProofMarketLib for Offer;
 
     function benchFulfillBatch(uint256 batchSize) public {
         (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
@@ -1011,39 +1064,10 @@ contract ProofMarketTest is Test {
     function testBenchFulfillBatch128() public {
         benchFulfillBatch(128);
     }
+}
 
-    function testsubmitRootAndFulfillBatch() public {
-        (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(2);
-        (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) =
-            createFills(requests, journals, address(testProver), true);
-
-        bytes memory seal =
-            verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
-        proofMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal, address(testProver));
-
-        for (uint256 j = 0; j < fills.length; j++) {
-            assertTrue(proofMarket.requestIsFulfilled(fills[j].id), "Request should have fulfilled status");
-        }
-    }
-
-    function testProcessTree2() public pure {
-        bytes32[] memory leaves = new bytes32[](2);
-        leaves[0] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
-        leaves[1] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
-
-        bytes32 root = MerkleProofish.processTree(leaves);
-        assertEq(root, 0x5032880539b5d039d4a4a8042745c9ad14934c96b76d7e61ea03550e29b234af);
-    }
-
-    function testProcessTree3() public pure {
-        bytes32[] memory leaves = new bytes32[](3);
-        leaves[0] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
-        leaves[1] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
-        leaves[2] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
-
-        bytes32 root = MerkleProofish.processTree(leaves);
-        assertEq(root, 0xe004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef);
-    }
+contract ProofMarketUpgradeTest is ProofMarketTest {
+    using ProofMarketLib for Offer;
 
     // TODO(#109) Refactor these tests to check for upgradeability from a prior commit to the latest version.
     // With that, we might also check that it is possible to upgrade to a notional future version, or we might
@@ -1082,6 +1106,27 @@ contract ProofMarketTest is Test {
         proofMarket.acceptOwnership();
 
         assertEq(proofMarket.owner(), newOwner, "Owner should be changed");
+    }
+}
+
+contract MerkleProofishTest is Test {
+    function testProcessTree2() public pure {
+        bytes32[] memory leaves = new bytes32[](2);
+        leaves[0] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
+        leaves[1] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
+
+        bytes32 root = MerkleProofish.processTree(leaves);
+        assertEq(root, 0x5032880539b5d039d4a4a8042745c9ad14934c96b76d7e61ea03550e29b234af);
+    }
+
+    function testProcessTree3() public pure {
+        bytes32[] memory leaves = new bytes32[](3);
+        leaves[0] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
+        leaves[1] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
+        leaves[2] = 0x6a428060b5d51f04583182f2ff1b565f9db661da12ee7bdc003e9ab6d5d91ba9;
+
+        bytes32 root = MerkleProofish.processTree(leaves);
+        assertEq(root, 0xe004c72e4cb697fa97669508df099edbc053309343772a25e56412fc7db8ebef);
     }
 }
 
