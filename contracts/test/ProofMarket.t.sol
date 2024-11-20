@@ -343,16 +343,21 @@ contract ProofMarketTest is Test {
         proofMarket.submitRequest{value: request.offer.maxPrice}(request, clientSignature);
     }
 
-    function testLockin() public returns (Client, ProvingRequest memory) {
+    function _testLockin(bool withSig) private returns (Client, ProvingRequest memory) {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
 
         // Expect the event to be emitted
         vm.expectEmit(true, true, true, true);
         emit IProofMarket.RequestLockedin(request.id, address(testProver));
-        vm.prank(address(testProver));
-        proofMarket.lockin(request, clientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
 
         // Ensure the balances are correct
         client.expectBalanceChange(-1 ether);
@@ -366,34 +371,65 @@ contract ProofMarketTest is Test {
         return (client, request);
     }
 
-    function testLockinAlreadyLocked() public {
-        (Client client, ProvingRequest memory request) = testLockin();
+    function testLockin() public returns (Client, ProvingRequest memory) {
+        return _testLockin(true);
+    }
+
+    function testLockinWithSig() public returns (Client, ProvingRequest memory) {
+        return _testLockin(false);
+    }
+
+    function _testLockinAlreadyLocked(bool withSig) private {
+        (Client client, ProvingRequest memory request) = _testLockin(withSig);
         bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
 
         // Attempt to lock in the request again
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsLocked.selector, request.id));
-        proofMarket.lockin(request, clientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
 
         checkProofMarketBalance();
     }
 
-    function testLockinBadClientSignature() public {
+    function testLockinAlreadyLocked() public {
+        return _testLockinAlreadyLocked(true);
+    }
+
+    function testLockinAlreadyLockedWithSig() public {
+        return _testLockinAlreadyLocked(false);
+    }
+
+    function _testLockinBadClientSignature(bool withSig) private {
         Client clientA = getClient(1);
         Client clientB = getClient(2);
         ProvingRequest memory request1 = clientA.request(1);
         ProvingRequest memory request2 = clientA.request(2);
+        bytes memory proverSignature = testProver.sign(request1);
 
         // case: request signed by a different client
         bytes memory badClientSignature = clientB.sign(request1);
         vm.expectRevert(IProofMarket.InvalidSignature.selector);
-        vm.prank(address(testProver));
-        proofMarket.lockin(request1, badClientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request1, badClientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request1, badClientSignature);
+        }
 
         // case: client signed a different request
         badClientSignature = clientA.sign(request2);
         vm.expectRevert(IProofMarket.InvalidSignature.selector);
-        vm.prank(address(testProver));
-        proofMarket.lockin(request1, badClientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request1, badClientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request1, badClientSignature);
+        }
 
         clientA.expectBalanceChange(0 ether);
         clientB.expectBalanceChange(0 ether);
@@ -401,10 +437,19 @@ contract ProofMarketTest is Test {
         checkProofMarketBalance();
     }
 
-    function testLockinNotEnoughFunds() public {
+    function testLockinBadClientSignature() public {
+        return _testLockinBadClientSignature(true);
+    }
+
+    function testLockinBadClientSignatureWithSig() public {
+        return _testLockinBadClientSignature(false);
+    }
+
+    function _testLockinNotEnoughFunds(bool withSig) private {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
 
         vm.prank(address(client));
         proofMarket.withdraw(DEFAULT_BALANCE);
@@ -412,8 +457,12 @@ contract ProofMarketTest is Test {
         // case: client does not have enough funds to cover for the lockin
         // should revert with "InsufficientBalance(address requester)"
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.InsufficientBalance.selector, address(client)));
-        vm.prank(address(testProver));
-        proofMarket.lockin(request, clientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
 
         vm.prank(address(client));
         proofMarket.deposit{value: DEFAULT_BALANCE}();
@@ -423,15 +472,28 @@ contract ProofMarketTest is Test {
 
         // case: prover does not have enough funds to cover for the lockin stake
         // should revert with "InsufficientBalance(address requester)"
-        vm.prank(address(testProver));
         vm.expectRevert(abi.encodeWithSelector(IProofMarket.InsufficientBalance.selector, address(testProver)));
-        proofMarket.lockin(request, clientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
     }
 
-    function testLockinExpired() public {
+    function testLockinNotEnoughFunds() public {
+        return _testLockinNotEnoughFunds(true);
+    }
+
+    function testLockinNotEnoughFundsWithSig() public {
+        return _testLockinNotEnoughFunds(false);
+    }
+
+    function _testLockinExpired(bool withSig) private {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
 
         vm.roll(request.offer.deadline() + 1);
 
@@ -440,13 +502,25 @@ contract ProofMarketTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IProofMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
-        vm.prank(address(testProver));
-        proofMarket.lockin(request, clientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
 
         checkProofMarketBalance();
     }
 
-    function testLockinInvalidRequest1() public {
+    function testLockinExpired() public {
+        return _testLockinExpired(true);
+    }
+
+    function testLockinExpiredWithSig() public {
+        return _testLockinExpired(false);
+    }
+
+    function _testLockinInvalidRequest1(bool withSig) private {
         Offer memory offer = Offer({
             minPrice: 2 ether,
             maxPrice: 1 ether,
@@ -459,17 +533,30 @@ contract ProofMarketTest is Test {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(1, offer);
         bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
 
         // Attempt to lockin a request with maxPrice smaller than minPrice
         // should revert with "maxPrice cannot be smaller than minPrice"
         vm.expectRevert("maxPrice cannot be smaller than minPrice");
-        vm.prank(address(testProver));
-        proofMarket.lockin(request, clientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
 
         checkProofMarketBalance();
     }
 
-    function testLockinInvalidRequest2() public {
+    function testLockinInvalidRequest1() public {
+        return _testLockinInvalidRequest1(true);
+    }
+
+    function testLockinInvalidRequest1WithSig() public {
+        return _testLockinInvalidRequest1(false);
+    }
+
+    function _testLockinInvalidRequest2(bool withSig) private {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 1 ether,
@@ -482,14 +569,27 @@ contract ProofMarketTest is Test {
         Client client = getClient(1);
         ProvingRequest memory request = client.request(1, offer);
         bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
 
         // Attempt to lockin a request with rampUpPeriod greater than timeout
         // should revert with "Request cannot expire before end of bidding period"
         vm.expectRevert("Request cannot expire before end of bidding period");
-        vm.prank(address(testProver));
-        proofMarket.lockin(request, clientSignature);
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
 
         checkProofMarketBalance();
+    }
+
+    function testLockinInvalidRequest2() public {
+        return _testLockinInvalidRequest2(true);
+    }
+
+    function testLockinInvalidRequest2WithSig() public {
+        return _testLockinInvalidRequest2(false);
     }
 
     function _testFulfill(uint32 requestIdx) private returns (Client, ProvingRequest memory) {
