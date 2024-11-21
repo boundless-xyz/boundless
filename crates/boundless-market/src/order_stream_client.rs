@@ -102,15 +102,10 @@ pub struct AuthMsg {
 }
 
 impl AuthMsg {
-    pub async fn new(
-        nonce: Nonce,
-        origin: &Url,
-        addr: Address,
-        signer: &impl Signer,
-    ) -> Result<Self> {
+    pub async fn new(nonce: Nonce, origin: &Url, signer: &impl Signer) -> Result<Self> {
         let message = format!(
-            "{} wants you to sign in with your Ethereum account:\n{addr}\n\nBoundless Order Stream\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
-            origin.authority(), origin, nonce.nonce, Utc::now().to_rfc3339(),
+            "{} wants you to sign in with your Ethereum account:\n{}\n\nBoundless Order Stream\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
+            origin.authority(), signer.address(), origin, nonce.nonce, Utc::now().to_rfc3339(),
         );
         let message: SiweMsg = message.parse()?;
 
@@ -218,8 +213,7 @@ impl Client {
     pub async fn connect_async(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
         let nonce = self.get_nonce().await.context("Failed to fetch nonce from order-stream")?;
 
-        let auth_msg =
-            AuthMsg::new(nonce, &self.base_url, self.signer.address(), &self.signer).await?;
+        let auth_msg = AuthMsg::new(nonce, &self.base_url, &self.signer).await?;
 
         // Serialize the `AuthMsg` to JSON
         let auth_json =
@@ -295,4 +289,38 @@ pub fn order_stream(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn auth_msg_verify() {
+        let signer = LocalSigner::random();
+        let nonce = Nonce { nonce: "TEST_NONCE".to_string() };
+        let origin = "http://localhost:8585".parse().unwrap();
+        let auth_msg = AuthMsg::new(nonce.clone(), &origin, &signer).await.unwrap();
+        auth_msg.verify("localhost:8585", &nonce.nonce).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Message domain does not match")]
+    async fn auth_msg_bad_origin() {
+        let signer = LocalSigner::random();
+        let nonce = Nonce { nonce: "TEST_NONCE".to_string() };
+        let origin = "http://localhost:8585".parse().unwrap();
+        let auth_msg = AuthMsg::new(nonce.clone(), &origin, &signer).await.unwrap();
+        auth_msg.verify("boundless.xyz", &nonce.nonce).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Message nonce does not match")]
+    async fn auth_msg_bad_nonce() {
+        let signer = LocalSigner::random();
+        let nonce = Nonce { nonce: "TEST_NONCE".to_string() };
+        let origin = "http://localhost:8585".parse().unwrap();
+        let auth_msg = AuthMsg::new(nonce.clone(), &origin, &signer).await.unwrap();
+        auth_msg.verify("localhost:8585", &"BAD_NONCE").await.unwrap();
+    }
 }
