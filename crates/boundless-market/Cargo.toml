@@ -46,7 +46,6 @@ chrono = { workspace = true }
 time = "0.3"
 utoipa = { workspace = true }
 
-
 [[bin]]
 name = "cli"
 required-features = ["cli"]
