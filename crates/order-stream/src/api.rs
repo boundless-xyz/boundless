@@ -1,3 +1,7 @@
+// Copyright (c) 2024 RISC Zero, Inc.
+//
+// All rights reserved.
+
 use alloy::primitives::Address;
 use anyhow::Context;
 use axum::extract::{Json, Path, Query, State};
