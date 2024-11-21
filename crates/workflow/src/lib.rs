@@ -26,7 +26,7 @@ mod redis;
 mod tasks;
 
 pub use workflow_common::{
-    s3::S3Client, AUX_WORK_TYPE, EXEC_WORK_TYPE, GPU_WORK_TYPE, SNARK_WORK_TYPE,
+    s3::S3Client, AUX_WORK_TYPE, EXEC_WORK_TYPE, PROVE_WORK_TYPE, JOIN_WORK_TYPE, SNARK_WORK_TYPE,
 };
 
 /// Workflow agent
@@ -179,7 +179,7 @@ impl Agent {
         .context("Failed to initialize s3 client / bucket")?;
 
         let verifier_ctx = VerifierContext::default();
-        let prover = if args.task_stream == GPU_WORK_TYPE {
+        let prover = if args.task_stream == PROVE_WORK_TYPE || args.task_stream == JOIN_WORK_TYPE {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts).context("Failed to initialize prover server")?;
             Some(prover)
