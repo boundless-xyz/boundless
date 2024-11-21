@@ -1,38 +1,64 @@
 use alloy::primitives::Address;
 use anyhow::Context;
 use axum::extract::{Json, Path, Query, State};
-use boundless_market::order_stream_client::Nonce;
+use boundless_market::order_stream_client::{
+    ErrMsg, Nonce, OrderData, SubmitOrderRes, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
+};
 use serde::Deserialize;
-use serde_json::json;
 use std::sync::Arc;
+use utoipa::IntoParams;
 
 use crate::{
     order_db::{DbOrder, OrderDbErr},
     AppError, AppState, Order,
 };
 
-// Submit order handler
+#[utoipa::path(
+    post,
+    path = ORDER_SUBMISSION_PATH,
+    request_body = Order,
+    responses(
+        (status = 200, description = "Order submission response", body = SubmitOrderRes),
+        (status = 500, description = "Internal error", body = ErrMsg)
+    )
+)]
+/// Submit a new order to the market order-stream
 pub(crate) async fn submit_order(
     State(state): State<Arc<AppState>>,
     Json(order): Json<Order>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<SubmitOrderRes>, AppError> {
     // Validate the order
     order.validate(state.config.market_address, state.chain_id)?;
     let order_req_id = order.request.id;
     let order_id = state.db.add_order(order).await.context("failed to add order to db")?;
 
     tracing::debug!("Order 0x{order_req_id:x} - [{order_id}] submitted",);
-    Ok(Json(json!({ "status": "success", "request_id": order_req_id })))
-}
-
-#[derive(Deserialize)]
-pub struct Pagination {
-    offset: u64,
-    limit: u64,
+    Ok(Json(SubmitOrderRes { status: "success".into(), request_id: order_req_id }))
 }
 
 const MAX_ORDERS: u64 = 1000;
 
+/// Paging query parameters
+#[derive(Deserialize, IntoParams)]
+pub struct Pagination {
+    /// Offset from the first index, order indexes start at 1
+    offset: u64,
+    /// Limit of orders returned, max 1000
+    limit: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = ORDER_LIST_PATH,
+    params(
+        Pagination,
+    ),
+    responses(
+        (status = 200, description = "list of orders", body = Vec<OrderData>),
+        (status = 500, description = "Internal error", body = ErrMsg)
+    )
+)]
+/// Submit a new order to the market order-stream
 pub(crate) async fn list_orders(
     State(state): State<Arc<AppState>>,
     paging: Query<Pagination>,
@@ -46,6 +72,21 @@ pub(crate) async fn list_orders(
     Ok(Json(results))
 }
 
+#[utoipa::path(
+    get,
+    path = "api/nonce/<addr>",
+    params(
+        Pagination,
+    ),
+    params(
+        ("id" = String, Path, description = "Ethereum address")
+    ),
+    responses(
+        (status = 200, description = "nonce", body = Nonce),
+        (status = 500, description = "Internal error", body = ErrMsg)
+    )
+)]
+/// Returns the brokers current nonce by address
 pub(crate) async fn get_nonce(
     State(state): State<Arc<AppState>>,
     Path(addr): Path<Address>,

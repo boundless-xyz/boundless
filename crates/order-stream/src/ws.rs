@@ -8,7 +8,10 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use boundless_market::{contracts::IProofMarket, order_stream_client::AuthMsg};
+use boundless_market::{
+    contracts::IProofMarket,
+    order_stream_client::{AuthMsg, ErrMsg, ORDER_WS_PATH},
+};
 use futures_util::{SinkExt, StreamExt};
 use rand::{seq::SliceRandom, thread_rng};
 use std::collections::HashMap;
@@ -29,7 +32,18 @@ fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg> {
     serde_json::from_str(json_str).context("Failed to parse JSON")
 }
 
-// WebSocket upgrade handler
+#[utoipa::path(
+    get,
+    path = ORDER_WS_PATH,
+    params(
+        ("X-Auth-Data" = String, description = "SIWE authentication message (AuthMsg) as a String object")
+    ),
+    responses(
+        (status = 200, description = "Websocket upgrade body", body = ()),
+        (status = 500, description = "Internal error", body = ErrMsg)
+    )
+)]
+/// Websocket connection point
 pub(crate) async fn websocket_handler(
     ws: WebSocketUpgrade,
     headers: HeaderMap,

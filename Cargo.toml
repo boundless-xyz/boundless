@@ -79,6 +79,7 @@ tracing-subscriber = "0.3"
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
 url = "2.5"
 uuid = { version = "1.7", features = ["v4"] }
+utoipa = "5.2"
 
 # Always optimize; building and running the guest takes much longer without optimization.
 [profile.dev]

@@ -18,41 +18,29 @@ use axum::{
     Router,
 };
 use boundless_market::order_stream_client::{
-    Order, OrderError, AUTH_GET_NONCE, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
+    ErrMsg, Nonce, Order, OrderError, AUTH_GET_NONCE, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
+    ORDER_WS_PATH,
 };
 use clap::Parser;
 use reqwest::{Client, Url};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
-use tracing::error;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 mod api;
 mod order_db;
 mod ws;
 
-use api::{get_nonce, list_orders, submit_order};
+use api::{
+    __path_get_nonce, __path_list_orders, __path_submit_order, get_nonce, list_orders, submit_order,
+};
 use order_db::OrderDb;
-use ws::{start_broadcast_task, websocket_handler, ConnectionsMap};
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ErrMsg {
-    pub r#type: String,
-    pub msg: String,
-}
-impl ErrMsg {
-    pub fn new(r#type: &str, msg: &str) -> Self {
-        Self { r#type: r#type.into(), msg: msg.into() }
-    }
-}
-impl std::fmt::Display for ErrMsg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "error_type: {} msg: {}", self.r#type, self.msg)
-    }
-}
+use ws::{start_broadcast_task, websocket_handler, ConnectionsMap, __path_websocket_handler};
 
 /// Error type for the application
 #[derive(Error, Debug)]
@@ -101,7 +89,7 @@ impl IntoResponse for AppError {
             Self::AddrNotFound(_) => StatusCode::NOT_FOUND,
             Self::InternalErr(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        error!("api error, code {code}: {self:?}");
+        tracing::error!("api error, code {code}: {self:?}");
 
         (code, Json(ErrMsg { r#type: self.type_str(), msg: self.to_string() })).into_response()
     }
@@ -214,6 +202,19 @@ impl AppState {
 
 const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
 
+#[derive(OpenApi, Debug, Deserialize)]
+#[openapi(
+    paths(submit_order, list_orders, get_nonce, websocket_handler),
+    info(
+        title = "Boundless Order Stream service",
+        description = r#"
+Service for offchain order submission and fetching
+            "#,
+        version = "0.0.1",
+    )
+)]
+struct ApiDoc;
+
 /// Create the application router
 pub fn app(state: Arc<AppState>) -> Router {
     let body_size_limit = RequestBodyLimitLayer::new(MAX_ORDER_SIZE);
@@ -223,6 +224,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(&format!("/{ORDER_LIST_PATH}"), get(list_orders))
         .route(&format!("/{AUTH_GET_NONCE}:addr"), get(get_nonce))
         .route(&format!("/{ORDER_WS_PATH}"), get(websocket_handler))
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }

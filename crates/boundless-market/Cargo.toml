@@ -44,6 +44,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 siwe = { version = "0.6", features = ["serde"] }
 chrono = { workspace = true }
 time = "0.3"
+utoipa = { workspace = true }
+
 
 [[bin]]
 name = "cli"

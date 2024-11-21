@@ -3,7 +3,7 @@
 // All rights reserved.
 
 use alloy::{
-    primitives::{Address, Signature},
+    primitives::{aliases::U192, Address, Signature},
     signers::{k256::ecdsa::SigningKey, local::LocalSigner, Error as SignerErr, Signer},
 };
 use anyhow::{Context, Error as AnyhowErr, Result};
@@ -21,6 +21,7 @@ use tokio_tungstenite::{
     connect_async, tungstenite, tungstenite::client::IntoClientRequest, MaybeTlsStream,
     WebSocketStream,
 };
+use utoipa::ToSchema;
 
 use crate::contracts::ProvingRequest;
 
@@ -29,9 +30,12 @@ pub const ORDER_LIST_PATH: &str = "api/orders";
 pub const AUTH_GET_NONCE: &str = "api/nonce/";
 pub const ORDER_WS_PATH: &str = "ws/orders";
 
-#[derive(Debug, Deserialize, Serialize)]
+/// Error body for API responses
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct ErrMsg {
+    /// Error type enum
     pub r#type: String,
+    /// Error message body
     pub msg: String,
 }
 impl ErrMsg {
@@ -61,22 +65,42 @@ impl From<AnyhowErr> for OrderError {
 }
 
 /// Order struct, containing a ProvingRequest and its Signature
+///
 /// The contents of this struct match the calldata of the `submitOrder` function in the `ProofMarket` contract.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Order {
+    /// Order request
+    #[schema(value_type = Object)]
     pub request: ProvingRequest,
+    /// Order signature
+    #[schema(value_type = Object)]
     pub signature: Signature,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Order data + order-stream id
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct OrderData {
+    /// Order stream id
     pub id: i64,
+    /// Order data
     pub order: Order,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Nonce object for authentication to order-stream websocket
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct Nonce {
+    /// Nonce hex encoded
     pub nonce: String,
+}
+
+/// Response for submitting a new order
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
+pub struct SubmitOrderRes {
+    /// Status of the order submission
+    pub status: String,
+    /// Request ID submitted
+    #[schema(value_type = Object)]
+    pub request_id: U192,
 }
 
 impl Order {

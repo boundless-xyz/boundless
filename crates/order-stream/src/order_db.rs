@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgListener, PgPool, PgPoolOptions};
 use std::pin::Pin;
 use thiserror::Error as ThisError;
+use utoipa::ToSchema;
 
 /// Order DB Errors
 #[derive(ThisError, Debug)]
