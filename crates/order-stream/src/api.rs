@@ -41,7 +41,7 @@ const MAX_ORDERS: u64 = 1000;
 /// Paging query parameters
 #[derive(Deserialize, IntoParams)]
 pub struct Pagination {
-    /// Offset from the first index, order indexes start at 1
+    /// order id offset to start at
     offset: u64,
     /// Limit of orders returned, max 1000
     limit: u64,
