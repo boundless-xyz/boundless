@@ -375,10 +375,40 @@ pub enum TxnErr {
     BytesDecode,
 
     #[error("contract error: {0}")]
-    ContractErr(#[from] ContractErr),
+    ContractErr(ContractErr),
 
     #[error("abi decoder error: {0} - {1}")]
     DecodeErr(DecoderErr, Bytes),
+}
+
+// TODO: Deduplicate the code from the following two conversion methods.
+#[cfg(not(target_os = "zkvm"))]
+impl From<ContractErr> for TxnErr {
+    fn from(err: ContractErr) -> Self {
+        match err {
+            ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
+                let Some(data) = ts_err.data else {
+                    return TxnErr::MissingData(ts_err.code, ts_err.message.to_string());
+                };
+
+                let data = data.get().trim_matches('"');
+
+                let Ok(data) = Bytes::from_str(data) else {
+                    return Self::BytesDecode;
+                };
+
+                // Trial deocde the error with each possible contract ABI. Right now, there are two.
+                if let Ok(decoded_error) = IProofMarketErrors::abi_decode(&data, true) {
+                    return Self::ProofMarketErr(decoded_error.into());
+                }
+                match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
+                    Ok(decoded_error) => Self::SetVerifierErr(decoded_error),
+                    Err(err) => Self::DecodeErr(err, data),
+                }
+            }
+            _ => Self::ContractErr(err),
+        }
+    }
 }
 
 #[cfg(not(target_os = "zkvm"))]
@@ -417,6 +447,7 @@ impl IRiscZeroSetVerifierErrors {
         }
     }
 }
+
 #[cfg(not(target_os = "zkvm"))]
 impl IProofMarketErrors {
     pub fn decode_error(err: ContractErr) -> TxnErr {
