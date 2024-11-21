@@ -18,7 +18,6 @@ bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-market = { workspace = true }
 bytemuck = { workspace = true }
-cfg-if = "1.0"
 chrono = { workspace = true }
 clap = { workspace = true }
 futures = "0.3"
@@ -28,7 +27,6 @@ guest-assessor = { workspace = true }
 http = "1.1"
 notify = "6.1"
 reqwest = { workspace = true }
-risc0-ethereum-contracts = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
