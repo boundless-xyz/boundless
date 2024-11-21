@@ -176,7 +176,7 @@ services:
   #             capabilities: [gpu]
 
 
-  gpu_lift_agent0: &gpu
+  gpu_join_agent0: &gpu
     image: agent
     runtime: nvidia
     pull_policy: never
@@ -199,7 +199,7 @@ services:
       RUST_LOG: ${RUST_LOG}
       RUST_BACKTRACE: 1
 
-    entrypoint: /app/agent -t gpu-lift
+    entrypoint: /app/agent -t gpu-join
 
     deploy:
       resources:
