@@ -130,7 +130,7 @@ services:
     # NOTE: if adding more aux workers, only one needs --monitor-requeue (for task reaping)
     entrypoint: /app/agent -t aux --monitor-requeue
 
-  gpu_prove_agent0: &gpu
+  gpu_prove_agent0: &gpu_prove
     image: agent
     runtime: nvidia
     pull_policy: never
@@ -164,8 +164,8 @@ services:
               device_ids: ['0']
               capabilities: [gpu]
 
-  # gpu_agent1:
-  #   <<: *gpu
+  # gpu_prove_agent1:
+  #   <<: *gpu_prove
 
   #   deploy:
   #     resources:
@@ -176,7 +176,7 @@ services:
   #             capabilities: [gpu]
 
 
-  gpu_join_agent0: &gpu
+  gpu_join_agent0: &gpu_join
     image: agent
     runtime: nvidia
     pull_policy: never
@@ -186,8 +186,8 @@ services:
       - redis
       - minio
 
-    mem_limit: 4G
-    cpu_count: 4
+    mem_limit: 2G
+    cpu_count: 2
 
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
