@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgListener, PgPool, PgPoolOptions};
 use std::pin::Pin;
 use thiserror::Error as ThisError;
-use utoipa::ToSchema;
 
 /// Order DB Errors
 #[derive(ThisError, Debug)]
@@ -223,11 +222,15 @@ impl OrderDb {
 
     /// List orders with pagination
     ///
-    /// Lists all orders the the database with a size bound and offset. The offset can be
+    /// Lists all orders the the database with a size bound and start id. The offset can be
     /// equal to the DB ID since they are sequential for listing all new orders after a specific ID
-    pub async fn list_orders(&self, limit: i64, offset: i64) -> Result<Vec<DbOrder>, OrderDbErr> {
-        let rows: Vec<DbOrder> = sqlx::query_as("SELECT * FROM orders LIMIT $1 OFFSET $2")
-            .bind(limit)
+    pub async fn list_orders(
+        &self,
+        index_id: i64,
+        offset: i64,
+    ) -> Result<Vec<DbOrder>, OrderDbErr> {
+        let rows: Vec<DbOrder> = sqlx::query_as("SELECT * FROM orders WHERE id >= $1 LIMIT $2")
+            .bind(index_id)
             .bind(offset)
             .fetch_all(&self.pool)
             .await?;
@@ -413,6 +416,19 @@ mod tests {
         let orders = db.list_orders(1, 1).await.unwrap();
         assert_eq!(orders.len(), 1);
         assert_eq!(orders[0].id, order_id);
+    }
+
+    #[sqlx::test]
+    async fn list_after_del(pool: PgPool) {
+        let db = OrderDb::from_pool(pool).await.unwrap();
+        let order = create_order();
+        let order_id_1 = db.add_order(order.clone()).await.unwrap();
+        let order_id_2 = db.add_order(order.clone()).await.unwrap();
+
+        db.delete_order(order_id_1).await.unwrap();
+        let orders = db.list_orders(order_id_2, 1).await.unwrap();
+        assert_eq!(orders.len(), 1);
+        assert_eq!(orders[0].id, order_id_2);
     }
 
     #[sqlx::test]
