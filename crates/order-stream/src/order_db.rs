@@ -35,7 +35,7 @@ pub enum OrderDbErr {
     JsonErr(#[from] serde_json::Error),
 }
 
-#[derive(Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug)]
 pub struct DbOrder {
     pub id: i64,
     #[sqlx(rename = "order_data", json)]
@@ -214,13 +214,12 @@ impl OrderDb {
     ///
     /// Lists all orders the the database with a size bound and offset. The offset can be
     /// equal to the DB ID since they are sequential for listing all new orders after a specific ID
-    pub async fn list_orders(&self, size: i64, offset: i64) -> Result<Vec<DbOrder>, OrderDbErr> {
-        let rows: Vec<DbOrder> =
-            sqlx::query_as("SELECT * FROM orders ORDER BY id LIMIT $1 OFFSET $2")
-                .bind(size)
-                .bind(offset)
-                .fetch_all(&self.pool)
-                .await?;
+    pub async fn list_orders(&self, limit: i64, offset: i64) -> Result<Vec<DbOrder>, OrderDbErr> {
+        let rows: Vec<DbOrder> = sqlx::query_as("SELECT * FROM orders LIMIT $1 OFFSET $2")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(rows)
     }

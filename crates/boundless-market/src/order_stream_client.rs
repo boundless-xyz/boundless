@@ -112,7 +112,6 @@ impl AuthMsg {
             "{} wants you to sign in with your Ethereum account:\n{addr}\n\nBoundless Order Stream\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
             origin.authority(), origin, nonce.nonce, Utc::now().to_rfc3339(),
         );
-        println!("{}", message);
         let message: SiweMsg = message.parse()?;
 
         let signature = signer

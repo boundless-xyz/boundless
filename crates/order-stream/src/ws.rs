@@ -83,14 +83,21 @@ pub(crate) async fn websocket_handler(
     // As such, a more robust solution would be to use a separate task that keeps track of the balances
     // by subscribing to events from the ProofMarket contract. Then, the WebSocket connection would be allowed
     // if the balance is above the threshold and the connection would be dropped if the balance falls below the threshold.
-    let proof_market = IProofMarket::new(state.config.market_address, state.rpc_provider.clone());
-    let balance = proof_market.balanceOf(client_addr).call().await.unwrap()._0;
-    if balance < state.config.min_balance {
-        return Ok((
-            StatusCode::UNAUTHORIZED,
-            format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
-        )
-            .into_response());
+
+    // Skip balance checks if the client_address is on a allow list
+    if !state.config.bypass_addrs.contains(&client_addr) {
+        let proof_market =
+            IProofMarket::new(state.config.market_address, state.rpc_provider.clone());
+        let balance = proof_market.balanceOf(client_addr).call().await.unwrap()._0;
+        if balance < state.config.min_balance {
+            return Ok((
+                StatusCode::UNAUTHORIZED,
+                format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
+            )
+                .into_response());
+        }
+    } else {
+        tracing::info!("address: {client_addr} in bypass list, skipping balance checks");
     }
 
     // Proceed with WebSocket upgrade

@@ -23,4 +23,5 @@ batch_max_time = 1000
 batch_size = 1
 block_deadline_buffer_secs = 120
 txn_timeout = 45
+single_txn_fulfill = true
 # batch_poll_time_ms = 500

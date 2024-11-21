@@ -27,7 +27,7 @@ pub(crate) async fn submit_order(
 
 #[derive(Deserialize)]
 pub struct Pagination {
-    index: u64,
+    offset: u64,
     limit: u64,
 }
 
@@ -40,9 +40,9 @@ pub(crate) async fn list_orders(
     let limit = if paging.limit > MAX_ORDERS { MAX_ORDERS } else { paging.limit };
     // i64::try_from converts to non-zero u64
     let limit = i64::try_from(limit).map_err(|_| AppError::QueryParamErr("limit"))?;
-    let index = i64::try_from(paging.index).map_err(|_| AppError::QueryParamErr("index"))?;
+    let offset = i64::try_from(paging.offset).map_err(|_| AppError::QueryParamErr("index"))?;
 
-    let results = state.db.list_orders(index, limit).await.context("Failed to query DB")?;
+    let results = state.db.list_orders(limit, offset).await.context("Failed to query DB")?;
     Ok(Json(results))
 }
 

@@ -114,24 +114,34 @@ pub struct Args {
     /// Bind address for REST api
     #[clap(long, env, default_value = "0.0.0.0:8585")]
     bind_addr: String,
+
     /// RPC URL for the Ethereum node
     #[clap(long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
+
     /// Address of the ProofMarket contract
     #[clap(long, env)]
     proof_market_address: Address,
+
     /// Minimum balance required to connect to the WebSocket
     #[clap(long, value_parser = parse_ether)]
     min_balance: U256,
+
     /// Maximum number of WebSocket connections
     #[clap(long, default_value = "100")]
     max_connections: usize,
+
     /// Maximum size of the queue for each WebSocket connection
     #[clap(long, default_value = "100")]
     queue_size: usize,
+
     /// Domain for SIWE checks
     #[clap(long, default_value = "localhost:8585")]
     domain: String,
+
+    /// List of addresses to skip balance checks when connecting them as brokers
+    #[clap(long, value_delimiter = ',')]
+    bypass_addrs: Vec<Address>,
 }
 
 /// Configuration struct
@@ -147,8 +157,10 @@ pub struct Config {
     pub max_connections: usize,
     /// Maximum size of the queue for each WebSocket connection
     pub queue_size: usize,
-    // Domain for SIWE auth checks
+    /// Domain for SIWE auth checks
     pub domain: String,
+    /// List of address to skip balance checks
+    pub bypass_addrs: Vec<Address>,
 }
 
 impl From<&Args> for Config {
@@ -160,6 +172,7 @@ impl From<&Args> for Config {
             max_connections: args.max_connections,
             queue_size: args.queue_size,
             domain: args.domain.clone(),
+            bypass_addrs: args.bypass_addrs.clone(),
         }
     }
 }
@@ -323,6 +336,7 @@ mod tests {
             max_connections: 1,
             queue_size: 10,
             domain: "0.0.0.0:8585".parse().unwrap(),
+            bypass_addrs: vec![],
         };
         let app_state = AppState::new(&config, Some(pool)).await.unwrap();
         let app_state_clone = app_state.clone();
