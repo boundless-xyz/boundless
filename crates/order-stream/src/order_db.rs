@@ -16,6 +16,12 @@ pub enum OrderDbErr {
     #[error("Invalid DB_POOL_SIZE")]
     InvalidPoolSize(#[from] std::num::ParseIntError),
 
+    #[error("Max concurrent connections")]
+    MaxConnections,
+
+    #[error("Address not found: {0}")]
+    AddrNotFound(Address),
+
     #[error("Migrations failed")]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
@@ -41,6 +47,7 @@ pub struct OrderDb {
 }
 
 const ORDER_CHANNEL: &str = "new_orders";
+const MAX_BROKER_CONNECTIONS: i32 = 1;
 
 pub type OrderStream = Pin<Box<dyn Stream<Item = Result<DbOrder, OrderDbErr>> + Send>>;
 
@@ -63,46 +70,102 @@ impl OrderDb {
         Self::from_pool(pool).await
     }
 
-    /// Check and optionally add a active broker
-    ///
-    /// If the broker address is currently active return true, if not
-    /// add the broker to the active set
-    pub async fn active_broker(&self, addr: Address) -> Result<bool, OrderDbErr> {
-        let broker_counts_res: Option<i64> =
-            sqlx::query_scalar("SELECT COUNT(*) FROM brokers WHERE addr = $1")
-                .bind(addr.as_slice())
-                .fetch_optional(&self.pool)
-                .await?;
-
-        let Some(broker_count) = broker_counts_res else {
-            return Err(OrderDbErr::NoRows("active_broker count"));
-        };
-        if broker_count == 0 {
-            let res = sqlx::query("INSERT INTO brokers (addr) VALUES ($1)")
-                .bind(addr.as_slice())
-                .execute(&self.pool)
-                .await?;
-
-            if res.rows_affected() != 1 {
-                return Err(OrderDbErr::NoRows("broker address"));
-            }
-
-            Ok(false)
-        } else {
-            Ok(true)
-        }
+    fn create_nonce() -> String {
+        let rand_bytes: [u8; 32] = rand::random();
+        hex::encode(rand_bytes.to_vec())
     }
 
-    /// Deactivate a broker
+    /// Add a new broker to the database
     ///
-    /// If the broker currently exists it will deactivate it. It should not fail if
-    /// the broker address does not exist.
-    pub async fn deactivate_broker(&self, addr: Address) -> Result<(), OrderDbErr> {
-        sqlx::query("DELETE FROM brokers WHERE addr = $1")
+    /// Returning its new nonce
+    pub async fn add_broker(&self, addr: Address) -> Result<String, OrderDbErr> {
+        let nonce = Self::create_nonce();
+        let res = sqlx::query("INSERT INTO brokers (addr, nonce) VALUES ($1, $2)")
+            .bind(addr.as_slice())
+            .bind(&nonce)
+            .execute(&self.pool)
+            .await?;
+
+        if res.rows_affected() != 1 {
+            return Err(OrderDbErr::NoRows("broker address"));
+        }
+
+        Ok(nonce)
+    }
+
+    /// Connects a broker
+    ///
+    /// Increments a brokers connection count, and faults if over connection MAX
+    pub async fn connect_broker(&self, addr: Address) -> Result<(), OrderDbErr> {
+        let mut txn = self.pool.begin().await?;
+
+        let connections: i32 =
+            sqlx::query_scalar("SELECT connections FROM brokers WHERE addr = $1")
+                .bind(addr.as_slice())
+                .fetch_one(&mut *txn)
+                .await?;
+
+        if connections > MAX_BROKER_CONNECTIONS {
+            return Err(OrderDbErr::MaxConnections);
+        }
+
+        let res = sqlx::query("UPDATE brokers SET connections = connections + 1 WHERE addr = $1 AND connections <= $2").bind(addr.as_slice()).bind(MAX_BROKER_CONNECTIONS).execute(&mut *txn).await?;
+
+        if res.rows_affected() == 0 {
+            return Err(OrderDbErr::NoRows("disconnect broker"));
+        }
+
+        txn.commit().await?;
+
+        Ok(())
+    }
+
+    /// Disconnects a broker, decreasing connection count
+    pub async fn disconnect_broker(&self, addr: Address) -> Result<(), OrderDbErr> {
+        let res = sqlx::query("UPDATE brokers SET connections = connections - 1 WHERE addr = $1")
             .bind(addr.as_slice())
             .execute(&self.pool)
             .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(OrderDbErr::NoRows("disconnect broker"));
+        }
+
         Ok(())
+    }
+
+    /// Fetches the current broker nonce
+    ///
+    /// Fetches a brokers nonce, returning a error if the broker is not found
+    pub async fn get_nonce(&self, addr: Address) -> Result<String, OrderDbErr> {
+        let nonce: Option<String> = sqlx::query_scalar("SELECT nonce FROM brokers WHERE addr = $1")
+            .bind(addr.as_slice())
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let Some(nonce) = nonce else {
+            return Err(OrderDbErr::AddrNotFound(addr));
+        };
+
+        Ok(nonce)
+    }
+
+    /// Updates the broker nonce
+    ///
+    /// Returning the updated nonce value, nonce hex encoded
+    pub async fn set_nonce(&self, addr: Address) -> Result<String, OrderDbErr> {
+        let nonce = Self::create_nonce();
+        let res = sqlx::query("UPDATE brokers SET nonce = $1 WHERE addr = $2")
+            .bind(&nonce)
+            .bind(addr.as_slice())
+            .execute(&self.pool)
+            .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(OrderDbErr::NoRows("Updating nonce failed to apply"));
+        }
+
+        Ok(nonce)
     }
 
     /// Add order to DB and notify listeners
@@ -225,22 +288,78 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn active_broker(pool: PgPool) {
-        let db = OrderDb::from_pool(pool).await.unwrap();
+    async fn add_broker(pool: PgPool) {
+        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
 
         let addr = Address::ZERO;
-        assert!(!db.active_broker(addr).await.unwrap());
-        assert!(db.active_broker(addr).await.unwrap());
+        db.add_broker(addr).await.unwrap();
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM brokers WHERE addr = $1")
+            .bind(addr.as_slice())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[sqlx::test]
-    async fn deactivate_broker(pool: PgPool) {
-        let db = OrderDb::from_pool(pool).await.unwrap();
+    async fn connect_broker(pool: PgPool) {
+        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
         let addr = Address::ZERO;
 
-        assert!(!db.active_broker(addr).await.unwrap());
-        db.deactivate_broker(addr).await.unwrap();
-        assert!(!db.active_broker(addr).await.unwrap());
+        db.add_broker(addr).await.unwrap();
+        db.connect_broker(addr).await.unwrap();
+        let conns: i32 = sqlx::query_scalar("SELECT connections FROM brokers WHERE addr = $1")
+            .bind(addr.as_slice())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(conns, 1);
+    }
+
+    #[sqlx::test]
+    async fn connect_max(pool: PgPool) {
+        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
+        let addr = Address::ZERO;
+
+        db.add_broker(addr).await.unwrap();
+        db.connect_broker(addr).await.unwrap();
+        db.connect_broker(addr).await.unwrap();
+    }
+
+    #[sqlx::test]
+    async fn disconnect_broker(pool: PgPool) {
+        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
+        let addr = Address::ZERO;
+
+        db.add_broker(addr).await.unwrap();
+        db.connect_broker(addr).await.unwrap();
+        db.disconnect_broker(addr).await.unwrap();
+    }
+
+    #[sqlx::test]
+    async fn get_nonce(pool: PgPool) {
+        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
+        let addr = Address::ZERO;
+
+        db.add_broker(addr).await.unwrap();
+
+        let nonce = db.get_nonce(addr).await.unwrap();
+        let db_nonce: String = sqlx::query_scalar("SELECT nonce FROM brokers WHERE addr = $1")
+            .bind(addr.as_slice())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(nonce, db_nonce);
+    }
+
+    #[sqlx::test]
+    #[should_panic(expected = "AddrNotFound(0x0000000000000000000000000000000000000000)")]
+    async fn missing_nonce(pool: PgPool) {
+        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
+        let addr = Address::ZERO;
+        let _nonce = db.get_nonce(addr).await.unwrap();
     }
 
     #[sqlx::test]

@@ -18,11 +18,12 @@ use axum::{
     Router,
 };
 use boundless_market::order_stream_client::{
-    Order, OrderError, ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
+    Order, OrderError, AUTH_GET_NONCE, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
 };
 use clap::Parser;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -33,7 +34,7 @@ mod api;
 mod order_db;
 mod ws;
 
-use api::submit_order;
+use api::{get_nonce, list_orders, submit_order};
 use order_db::OrderDb;
 use ws::{start_broadcast_task, websocket_handler, ConnectionsMap};
 
@@ -58,6 +59,13 @@ impl std::fmt::Display for ErrMsg {
 pub enum AppError {
     #[error("invalid order: {0}")]
     InvalidOrder(OrderError),
+
+    #[error("invalid query parameter")]
+    QueryParamErr(&'static str),
+
+    #[error("address not found")]
+    AddrNotFound(Address),
+
     #[error("internal error")]
     InternalErr(AnyhowErr),
 }
@@ -66,6 +74,8 @@ impl AppError {
     fn type_str(&self) -> String {
         match self {
             Self::InvalidOrder(_) => "InvalidOrder",
+            Self::QueryParamErr(_) => "QueryParamErr",
+            Self::AddrNotFound(_) => "AddrNotFound",
             Self::InternalErr(_) => "InternalErr",
         }
         .into()
@@ -87,7 +97,8 @@ impl From<OrderError> for AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let code = match self {
-            Self::InvalidOrder(_) => StatusCode::BAD_REQUEST,
+            Self::InvalidOrder(_) | Self::QueryParamErr(_) => StatusCode::BAD_REQUEST,
+            Self::AddrNotFound(_) => StatusCode::NOT_FOUND,
             Self::InternalErr(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         error!("api error, code {code}: {self:?}");
@@ -118,6 +129,9 @@ pub struct Args {
     /// Maximum size of the queue for each WebSocket connection
     #[clap(long, default_value = "100")]
     queue_size: usize,
+    /// Domain for SIWE checks
+    #[clap(long, default_value = "localhost:8585")]
+    domain: String,
 }
 
 /// Configuration struct
@@ -133,6 +147,8 @@ pub struct Config {
     pub max_connections: usize,
     /// Maximum size of the queue for each WebSocket connection
     pub queue_size: usize,
+    // Domain for SIWE auth checks
+    pub domain: String,
 }
 
 impl From<&Args> for Config {
@@ -143,6 +159,7 @@ impl From<&Args> for Config {
             min_balance: args.min_balance,
             max_connections: args.max_connections,
             queue_size: args.queue_size,
+            domain: args.domain.clone(),
         }
     }
 }
@@ -163,9 +180,13 @@ pub struct AppState {
 
 impl AppState {
     /// Create a new AppState
-    pub async fn new(config: &Config) -> Result<Arc<Self>> {
+    pub async fn new(config: &Config, db_pool_opt: Option<PgPool>) -> Result<Arc<Self>> {
         let provider = ProviderBuilder::new().on_http(config.rpc_url.clone());
-        let db = OrderDb::from_env().await.context("Failed to connect to DB")?;
+        let db = if let Some(db_pool) = db_pool_opt {
+            OrderDb::from_pool(db_pool).await?
+        } else {
+            OrderDb::from_env().await.context("Failed to connect to DB")?
+        };
         let chain_id =
             provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
         Ok(Arc::new(Self {
@@ -186,6 +207,8 @@ pub fn app(state: Arc<AppState>) -> Router {
 
     Router::new()
         .route(&format!("/{ORDER_SUBMISSION_PATH}"), post(submit_order).layer(body_size_limit))
+        .route(&format!("/{ORDER_LIST_PATH}"), get(list_orders))
+        .route(&format!("/{AUTH_GET_NONCE}:addr"), get(get_nonce))
         .route(&format!("/{ORDER_WS_PATH}"), get(websocket_handler))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
@@ -194,9 +217,8 @@ pub fn app(state: Arc<AppState>) -> Router {
 /// Run the REST API service
 pub async fn run(args: &Args) -> Result<()> {
     let config: Config = args.into();
-    let _db = order_db::OrderDb::from_env().await.unwrap();
 
-    let app_state = AppState::new(&config).await?;
+    let app_state = AppState::new(&config, None).await?;
     let listener = tokio::net::TcpListener::bind(&args.bind_addr)
         .await
         .context("Failed to bind a TCP listener")?;
@@ -286,7 +308,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn integration_test(_pool: PgPool) {
+    async fn integration_test(pool: PgPool) {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
@@ -300,8 +322,9 @@ mod tests {
             min_balance: parse_ether("2").unwrap(),
             max_connections: 1,
             queue_size: 10,
+            domain: "0.0.0.0:8585".parse().unwrap(),
         };
-        let app_state = AppState::new(&config).await.unwrap();
+        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
         let app_state_clone = app_state.clone();
 
         let task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {

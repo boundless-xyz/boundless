@@ -24,3 +24,4 @@ tower-http = { workspace = true, features = ["limit"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 sqlx = { workspace = true }
+hex = { workspace = true }

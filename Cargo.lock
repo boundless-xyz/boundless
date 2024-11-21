@@ -1917,6 +1917,7 @@ dependencies = [
  "aws-sdk-s3",
  "boundless-market",
  "bytemuck",
+ "chrono",
  "clap",
  "dotenvy",
  "futures-util",
@@ -1931,8 +1932,10 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "siwe",
  "tempfile",
  "thiserror",
+ "time",
  "tokio",
  "tokio-tungstenite 0.24.0",
  "tracing",
@@ -3913,6 +3916,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "187674a687eed5fe42285b40c6291f9a01517d415fad1c3cbc6a9f778af7fcd4"
 
 [[package]]
+name = "iri-string"
+version = "0.7.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0f0a572e8ffe56e2ff4f769f32ffe919282c3916799f8b68688b6030063bea"
+dependencies = [
+ "memchr",
+ "serde",
+]
+
+[[package]]
 name = "is-terminal"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4635,6 +4648,7 @@ dependencies = [
  "boundless-market",
  "clap",
  "futures-util",
+ "hex",
  "rand",
  "reqwest",
  "serde",
@@ -6294,6 +6308,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
 
 [[package]]
+name = "siwe"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95bdefc0eedf06440b27092fbfe33f2cb493ad6a3423aa12cfe7f2aac44bd618"
+dependencies = [
+ "hex",
+ "http 1.1.0",
+ "iri-string",
+ "k256",
+ "rand",
+ "serde",
+ "sha3",
+ "thiserror",
+ "time",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6853,6 +6884,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5dfd88e563464686c916c7e46e623e520ddc6d79fa6641390f2e3fa86e83e885"
 dependencies = [
  "deranged",
+ "itoa",
  "num-conv",
  "powerfmt",
  "serde",

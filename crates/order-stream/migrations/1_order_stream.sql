@@ -4,5 +4,7 @@ CREATE TABLE orders (
 );
 
 CREATE TABLE brokers (
-    addr BYTEA NOT NULL PRIMARY KEY
+    addr BYTEA NOT NULL PRIMARY KEY,
+    nonce TEXT NOT NULL,
+    connections INTEGER NOT NULL DEFAULT 0 CHECK (connections >= 0)
 )

@@ -48,25 +48,27 @@ pub(crate) async fn websocket_handler(
         }
     };
 
+    let client_addr = auth_msg.address();
+    let addr_nonce = state.db.get_nonce(client_addr).await.context("Failed to fetch addr nonce")?;
+
     // Check the signature
-    if let Err(err) = auth_msg.verify_signature() {
-        return Ok((StatusCode::UNAUTHORIZED, err.to_string()).into_response());
+    if let Err(err) = auth_msg.verify(&state.config.domain, &addr_nonce).await {
+        return Ok(
+            (StatusCode::UNAUTHORIZED, format!("Authentication error: {:?}", err)).into_response()
+        );
     }
+
+    // Rotate the customer nonce
+    state.db.set_nonce(client_addr).await.context("Failed to update customer nonce")?;
 
     // Check if the address is already connected
     {
-        if state
-            .db
-            .active_broker(auth_msg.address)
-            .await
-            .context("Failed to check user address exists")?
-        {
-            return Ok((
-                StatusCode::CONFLICT,
-                // TODO: send serialized Error types for the client to de-serialize vs strings.
-                format!("Client {} already connected", auth_msg.address),
-            )
-                .into_response());
+        match state.db.connect_broker(client_addr).await {
+            Err(OrderDbErr::MaxConnections) => {
+                return Ok((StatusCode::CONFLICT, format!("Max connections hit")).into_response())
+            }
+            Err(err) => return Err(AppError::InternalErr(anyhow::anyhow!(err))),
+            _ => {}
         }
         let connections = state.connections.lock().await;
         if connections.len() >= state.config.max_connections {
@@ -82,7 +84,7 @@ pub(crate) async fn websocket_handler(
     // by subscribing to events from the ProofMarket contract. Then, the WebSocket connection would be allowed
     // if the balance is above the threshold and the connection would be dropped if the balance falls below the threshold.
     let proof_market = IProofMarket::new(state.config.market_address, state.rpc_provider.clone());
-    let balance = proof_market.balanceOf(auth_msg.address).call().await.unwrap()._0;
+    let balance = proof_market.balanceOf(client_addr).call().await.unwrap()._0;
     if balance < state.config.min_balance {
         return Ok((
             StatusCode::UNAUTHORIZED,
@@ -92,8 +94,8 @@ pub(crate) async fn websocket_handler(
     }
 
     // Proceed with WebSocket upgrade
-    tracing::debug!("New webSocket connection from {}", auth_msg.address);
-    Ok(ws.on_upgrade(move |socket| websocket_connection(socket, auth_msg.address, state)))
+    tracing::debug!("New webSocket connection from {}", client_addr);
+    Ok(ws.on_upgrade(move |socket| websocket_connection(socket, client_addr, state)))
 }
 
 // Function to broadcast an order to all WebSocket clients in random order
@@ -135,7 +137,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
             let mut connections = state.connections.lock().await;
             for address in clients_to_remove {
                 connections.remove(&address);
-                if let Err(err) = state.db.deactivate_broker(address).await {
+                if let Err(err) = state.db.disconnect_broker(address).await {
                     tracing::error!(
                         "Failed to remove broker connection from DB: {address} - {err:?}"
                     );
@@ -206,7 +208,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
     // Remove the connection when the send loop exits
     let mut connections = state.connections.lock().await;
     connections.remove(&address);
-    if let Err(err) = state.db.deactivate_broker(address).await {
+    if let Err(err) = state.db.disconnect_broker(address).await {
         tracing::error!("Failed to remove broker connection from DB: {address} - {err:?}");
     }
     tracing::debug!("WebSocket connection closed: {}", address);

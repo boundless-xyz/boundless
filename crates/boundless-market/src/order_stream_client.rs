@@ -2,21 +2,20 @@
 //
 // All rights reserved.
 
-use std::{error::Error, pin::Pin};
-
 use alloy::{
-    primitives::{Address, Signature, SignatureError, B256},
-    signers::{
-        k256::ecdsa::SigningKey, local::LocalSigner, local::PrivateKeySigner, Error as SignerErr,
-        Signer,
-    },
+    primitives::{Address, Signature},
+    signers::{k256::ecdsa::SigningKey, local::LocalSigner, Error as SignerErr, Signer},
 };
 use anyhow::{Context, Error as AnyhowErr, Result};
 use async_stream::stream;
+use chrono::Utc;
 use futures_util::{Stream, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use siwe::Message as SiweMsg;
+use std::{error::Error, pin::Pin};
 use thiserror::Error;
+use time::OffsetDateTime;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     connect_async, tungstenite, tungstenite::client::IntoClientRequest, MaybeTlsStream,
@@ -25,43 +24,10 @@ use tokio_tungstenite::{
 
 use crate::contracts::ProvingRequest;
 
-pub const ORDER_SUBMISSION_PATH: &str = "api/orders";
+pub const ORDER_SUBMISSION_PATH: &str = "api/submit_order";
+pub const ORDER_LIST_PATH: &str = "api/orders";
+pub const AUTH_GET_NONCE: &str = "api/nonce/";
 pub const ORDER_WS_PATH: &str = "ws/orders";
-
-/// AuthMsg struct, containing a hash, an address, and a signature.
-/// It is used to authenticate WebSocket connections, where the authenticated
-/// address is used to check the balance in the ProofMarket contract.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct AuthMsg {
-    pub hash: B256,
-    pub address: Address,
-    pub signature: Signature,
-}
-
-impl AuthMsg {
-    /// Create a new AuthMsg
-    pub fn new(hash: B256, address: Address, signature: Signature) -> Self {
-        Self { hash, address, signature }
-    }
-
-    /// Create a new AuthMsg from a PrivateKeySigner. The hash is randomly generated.
-    pub async fn new_from_signer(signer: &PrivateKeySigner) -> Result<Self, SignerErr> {
-        let rand_bytes: [u8; 32] = rand::random();
-        let hash = B256::from(rand_bytes);
-        let signature = signer.sign_hash(&hash).await?;
-        Ok(Self::new(hash, signer.address(), signature))
-    }
-
-    /// Recover the address from the signature and compare it with the address field.
-    pub fn verify_signature(&self) -> Result<(), SignerErr> {
-        let addr = self.signature.recover_address_from_prehash(&self.hash)?;
-        if addr == self.address {
-            Ok(())
-        } else {
-            Err(SignerErr::SignatureError(SignatureError::FromBytes("Address mismatch")))
-        }
-    }
-}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ErrMsg {
@@ -108,6 +74,11 @@ pub struct OrderData {
     pub order: Order,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Nonce {
+    pub nonce: String,
+}
+
 impl Order {
     /// Create a new Order
     pub fn new(request: ProvingRequest, signature: Signature) -> Self {
@@ -121,6 +92,52 @@ impl Order {
             .verify_signature(&self.signature.as_bytes().into(), market_address, chain_id)
             .map_err(|e| OrderError::InvalidSignature(e))?;
         Ok(())
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct AuthMsg {
+    message: SiweMsg,
+    signature: Signature,
+}
+
+impl AuthMsg {
+    pub async fn new(
+        nonce: Nonce,
+        origin: &Url,
+        addr: Address,
+        signer: &impl Signer,
+    ) -> Result<Self> {
+        let message = format!(
+            "{} wants you to sign in with your Ethereum account:\n{addr}\n\nBoundless Order Stream\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
+            origin.authority(), origin, nonce.nonce, Utc::now().to_rfc3339(),
+        );
+        println!("{}", message);
+        let message: SiweMsg = message.parse()?;
+
+        let signature = signer
+            .sign_hash(&message.eip191_hash().context("Failed to generate eip191 hash")?.into())
+            .await?;
+
+        Ok(Self { message, signature })
+    }
+
+    pub async fn verify(&self, domain: &str, nonce: &str) -> Result<()> {
+        let opts = siwe::VerificationOpts {
+            domain: Some(domain.parse().context("Invalid domain")?),
+            nonce: Some(nonce.into()),
+            timestamp: Some(OffsetDateTime::now_utc()),
+            ..Default::default()
+        };
+
+        self.message
+            .verify(&self.signature.as_bytes(), &opts)
+            .await
+            .context("Failed to verify SIWE message")
+    }
+
+    pub fn address(&self) -> Address {
+        Address::from(self.message.address)
     }
 }
 
@@ -181,6 +198,18 @@ impl Client {
         Ok(order)
     }
 
+    pub async fn get_nonce(&self) -> Result<Nonce> {
+        let url =
+            Url::parse(&format!("{}{AUTH_GET_NONCE}{}", self.base_url, self.signer.address()))?;
+        let res = self.client.get(url).send().await?;
+        if !res.status().is_success() {
+            anyhow::bail!("Http error {} fetching nonce", res.status())
+        }
+        let nonce = res.json().await?;
+
+        Ok(nonce)
+    }
+
     /// Return a WebSocket stream connected to the order stream server
     ///
     /// An authentication message is sent to the server via the `X-Auth-Data` header.
@@ -188,10 +217,10 @@ impl Client {
     /// minimum balance on the boundless market in order to connect to the server.
     /// Only one connection per address is allowed.
     pub async fn connect_async(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-        // Create the authentication message
-        let auth_msg = AuthMsg::new_from_signer(&self.signer)
-            .await
-            .context("failed to create auth message")?;
+        let nonce = self.get_nonce().await.context("Failed to fetch nonce from order-stream")?;
+
+        let auth_msg =
+            AuthMsg::new(nonce, &self.base_url, self.signer.address(), &self.signer).await?;
 
         // Serialize the `AuthMsg` to JSON
         let auth_json =
