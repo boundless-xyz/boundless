@@ -206,6 +206,7 @@ impl OrderDb {
     }
 
     /// Deletes a order from the database
+    #[cfg(test)]
     pub async fn delete_order(&self, id: i64) -> Result<(), OrderDbErr> {
         if sqlx::query("DELETE FROM orders WHERE id = $1")
             .bind(id)
