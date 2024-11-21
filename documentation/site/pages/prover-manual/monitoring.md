@@ -21,7 +21,7 @@ The broker dashboard connects to the broker's sqlite database to see the status 
 
 ## Onchain
 
-Using the [Boundless market indexer](https://boundless-indexer-risczero.vercel.app/orders) is one of the best ways to monitor your broker's activity / health.
+Using the [Boundless market indexer](https://indexer.beboundless.xyz) is one of the best ways to monitor your broker's activity / health.
 
 ### Balances
 
