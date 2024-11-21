@@ -119,13 +119,19 @@ impl Order {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+/// Authentication message for connecting to order-stream websock
+#[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct AuthMsg {
+    /// SIWE message body
+    #[schema(value_type = Object)]
     message: SiweMsg,
+    /// SIWE Signature of `message` field
+    #[schema(value_type = Object)]
     signature: Signature,
 }
 
 impl AuthMsg {
+    /// Creates a new authentication message from a nonce, origin, signer
     pub async fn new(nonce: Nonce, origin: &Url, signer: &impl Signer) -> Result<Self> {
         let message = format!(
             "{} wants you to sign in with your Ethereum account:\n{}\n\nBoundless Order Stream\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
@@ -140,6 +146,7 @@ impl AuthMsg {
         Ok(Self { message, signature })
     }
 
+    /// Verify a [AuthMsg] message + signature
     pub async fn verify(&self, domain: &str, nonce: &str) -> Result<()> {
         let opts = siwe::VerificationOpts {
             domain: Some(domain.parse().context("Invalid domain")?),
@@ -154,6 +161,7 @@ impl AuthMsg {
             .context("Failed to verify SIWE message")
     }
 
+    /// [AuthMsg] address in alloy format
     pub fn address(&self) -> Address {
         Address::from(self.message.address)
     }
@@ -216,6 +224,7 @@ impl Client {
         Ok(order)
     }
 
+    /// Get the nonce from the order stream service for websocket auth
     pub async fn get_nonce(&self) -> Result<Nonce> {
         let url =
             Url::parse(&format!("{}{AUTH_GET_NONCE}{}", self.base_url, self.signer.address()))?;

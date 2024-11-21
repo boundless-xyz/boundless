@@ -36,7 +36,7 @@ fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg> {
     get,
     path = ORDER_WS_PATH,
     params(
-        ("X-Auth-Data" = String, description = "SIWE authentication message (AuthMsg) as a String object")
+        ("X-Auth-Data" = AuthMsg, description = "SIWE authentication message (AuthMsg) as a JSON object")
     ),
     responses(
         (status = 200, description = "Websocket upgrade body", body = ()),

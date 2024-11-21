@@ -18,7 +18,7 @@ use axum::{
     Router,
 };
 use boundless_market::order_stream_client::{
-    ErrMsg, Nonce, Order, OrderError, AUTH_GET_NONCE, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
+    AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
     ORDER_WS_PATH,
 };
 use clap::Parser;
@@ -205,6 +205,7 @@ const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
 #[derive(OpenApi, Debug, Deserialize)]
 #[openapi(
     paths(submit_order, list_orders, get_nonce, websocket_handler),
+    components(schemas(AuthMsg)),
     info(
         title = "Boundless Order Stream service",
         description = r#"
