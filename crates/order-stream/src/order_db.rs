@@ -52,11 +52,21 @@ const MAX_BROKER_CONNECTIONS: i32 = 1;
 pub type OrderStream = Pin<Box<dyn Stream<Item = Result<DbOrder, OrderDbErr>> + Send>>;
 
 impl OrderDb {
+    /// Constructs a [OrderDb] from an existing [PgPool]
+    ///
+    /// This method applies database migrations
     pub async fn from_pool(pool: PgPool) -> Result<Self, OrderDbErr> {
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(Self { pool })
     }
 
+    /// Construct a new [OrderDb] from environment variables
+    ///
+    /// Reads the following env vars:
+    /// * `DATABASE_URL` - postgresql connection string
+    /// * `DB_POOL_SIZE` - size of postgresql connection pool for this process
+    ///
+    /// This method applies database migrations
     pub async fn from_env() -> Result<Self, OrderDbErr> {
         let conn_url =
             std::env::var("DATABASE_URL").map_err(|_| OrderDbErr::MissingEnv("DATABASE_URL"))?;
@@ -77,7 +87,7 @@ impl OrderDb {
 
     /// Add a new broker to the database
     ///
-    /// Returning its new nonce
+    /// Returning its new nonce (hex encoded)
     pub async fn add_broker(&self, addr: Address) -> Result<String, OrderDbErr> {
         let nonce = Self::create_nonce();
         let res = sqlx::query("INSERT INTO brokers (addr, nonce) VALUES ($1, $2)")
@@ -105,7 +115,7 @@ impl OrderDb {
                 .fetch_one(&mut *txn)
                 .await?;
 
-        if connections > MAX_BROKER_CONNECTIONS {
+        if connections >= MAX_BROKER_CONNECTIONS {
             return Err(OrderDbErr::MaxConnections);
         }
 
@@ -136,7 +146,7 @@ impl OrderDb {
 
     /// Fetches the current broker nonce
     ///
-    /// Fetches a brokers nonce, returning a error if the broker is not found
+    /// Fetches a brokers nonce (hex encoded), returning a error if the broker is not found
     pub async fn get_nonce(&self, addr: Address) -> Result<String, OrderDbErr> {
         let nonce: Option<String> = sqlx::query_scalar("SELECT nonce FROM brokers WHERE addr = $1")
             .bind(addr.as_slice())
@@ -317,6 +327,7 @@ mod tests {
     }
 
     #[sqlx::test]
+    #[should_panic(expected = "MaxConnections")]
     async fn connect_max(pool: PgPool) {
         let db = OrderDb::from_pool(pool.clone()).await.unwrap();
         let addr = Address::ZERO;
