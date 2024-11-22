@@ -50,7 +50,8 @@ jobs:
 
       - name: Run gas report on PR branch
         run: |
-          forge test --gas-report | grep "|" > pr-gas-report.txt
+          set -o pipefail
+          forge test -vv --gas-report | grep -iE "\| |gas used" > pr-gas-report.txt
 
       - name: Upload PR Gas Report
         uses: actions/upload-artifact@v3
@@ -66,7 +67,8 @@ jobs:
 
       - name: Run gas report on main branch
         run: |
-          forge test --gas-report | grep "|" > main-gas-report.txt
+          set -o pipefail
+          forge test -vv --gas-report | grep -iE "\| |gas used" > main-gas-report.txt
 
       - name: Download PR Gas Report
         uses: actions/download-artifact@v3
