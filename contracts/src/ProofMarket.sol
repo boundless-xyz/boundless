@@ -506,6 +506,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         if (MARKET_FEE_NUMERATOR > 0) {
             uint256 fee = uint256(lock.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
             valueToProver -= fee.toUint96();
+            marketBalance += fee;
         }
         accounts[lock.prover].balance += valueToProver;
     }
@@ -552,6 +553,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         if (MARKET_FEE_NUMERATOR > 0) {
             uint256 fee = uint256(tprice.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
             valueToProver -= fee.toUint96();
+            marketBalance += fee;
         }
         accounts[assessorProver].balance += valueToProver;
     }
