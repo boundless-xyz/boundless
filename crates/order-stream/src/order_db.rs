@@ -123,7 +123,13 @@ impl OrderDb {
             return Err(OrderDbErr::MaxConnections);
         }
 
-        let res = sqlx::query("UPDATE brokers SET connections = connections + 1 WHERE addr = $1 AND connections < $2").bind(addr.as_slice()).bind(MAX_BROKER_CONNECTIONS).execute(&mut *txn).await?;
+        let res = sqlx::query(
+            "UPDATE brokers SET connections = connections + 1 WHERE addr = $1 AND connections < $2",
+        )
+        .bind(addr.as_slice())
+        .bind(MAX_BROKER_CONNECTIONS)
+        .execute(&mut *txn)
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(OrderDbErr::NoRows("connect broker"));
@@ -227,16 +233,12 @@ impl OrderDb {
 
     /// List orders with pagination
     ///
-    /// Lists all orders the the database with a size bound and start id. The offset can be
+    /// Lists all orders the the database with a size bound and start id. The index_id will be
     /// equal to the DB ID since they are sequential for listing all new orders after a specific ID
-    pub async fn list_orders(
-        &self,
-        index_id: i64,
-        offset: i64,
-    ) -> Result<Vec<DbOrder>, OrderDbErr> {
+    pub async fn list_orders(&self, index_id: i64, size: i64) -> Result<Vec<DbOrder>, OrderDbErr> {
         let rows: Vec<DbOrder> = sqlx::query_as("SELECT * FROM orders WHERE id >= $1 LIMIT $2")
             .bind(index_id)
-            .bind(offset)
+            .bind(size)
             .fetch_all(&self.pool)
             .await?;
 
@@ -406,7 +408,7 @@ mod tests {
         let order = create_order();
         let order_id = db.add_order(order.clone()).await.unwrap();
 
-        let orders = db.list_orders(1, 0).await.unwrap();
+        let orders = db.list_orders(1, 1).await.unwrap();
         assert_eq!(orders.len(), 1);
         assert_eq!(orders[0].id, order_id);
     }
@@ -418,7 +420,7 @@ mod tests {
         let _order_id = db.add_order(order.clone()).await.unwrap();
         let order_id = db.add_order(order.clone()).await.unwrap();
 
-        let orders = db.list_orders(1, 1).await.unwrap();
+        let orders = db.list_orders(2, 1).await.unwrap();
         assert_eq!(orders.len(), 1);
         assert_eq!(orders[0].id, order_id);
     }
