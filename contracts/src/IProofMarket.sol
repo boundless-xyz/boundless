@@ -138,7 +138,7 @@ interface IProofMarket {
     /// If there is an unexpired lock on the request, the order, the prover holding the lock may
     /// still be able to / transfer payment sending another transaction.
     ///
-    /// @dev The payload of the event is an encoded error, from the list below.
+    /// @dev The payload of the event is an ABI encoded error, from the errors on this contract.
     event PaymentRequirementsFailed(bytes error);
 
     /// Request is locked when it was not expected to be.

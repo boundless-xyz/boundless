@@ -196,7 +196,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         return _domainSeparatorV4();
     }
 
-    /// Internal method for vcerifying signatures over requests. Reverts on failure.
+    /// Internal method for verifying signatures over requests. Reverts on failure.
     function verifyRequestSignature(address addr, ProvingRequest calldata request, bytes calldata signature)
         internal
         view
