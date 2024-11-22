@@ -1,4 +1,4 @@
-FROM rust:1.79.0-bookworm AS init
+FROM rust:1.81.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -13,7 +13,7 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
     foundryup
 
 # Prevent sccache collision in compose-builds
-ENV SCCACHE_SERVER_PORT=4227
+ENV SCCACHE_SERVER_PORT=4228
 
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
@@ -42,18 +42,17 @@ ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
 
 # Prevent sccache collision in compose-builds
-ENV SCCACHE_SERVER_PORT=4227
+ENV SCCACHE_SERVER_PORT=4228
 
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
     source /sccache-config.sh && \
-    ls /root/.cache/sccache/ && \
     cargo build --release --bin broker && \
     cp /src/target/release/broker /src/broker && \
     sccache --show-stats
 
-FROM rust:1.79.0-bookworm AS runtime
+FROM rust:1.81.0-bookworm AS runtime
 
 RUN mkdir /app/
 
