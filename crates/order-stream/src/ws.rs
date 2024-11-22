@@ -223,7 +223,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
             }
             ws_msg = recver_ws.next() => {
                 // This polls on the recv side of the websocket connection, once a connection closes
-                // either via Err or graceful Message::Close, the nex() will return None and we can close the
+                // either via Err or graceful Message::Close, the next() will return None and we can close the
                 // connection.
                 match ws_msg {
                     Some(_) => {
