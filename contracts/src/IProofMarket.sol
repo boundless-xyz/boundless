@@ -4,13 +4,15 @@
 
 pragma solidity ^0.8.20;
 
-// TODO(victor) Think about compressing this struct. One way to reduce
+// TODO(#159) Think about compressing this struct. One way to reduce
 // associated gas costs would be to put all the fields not needed for lockin
 // into a sub-struct that is hashed.
 struct ProvingRequest {
-    /// Unique ID for this request, constructed from the client address and a 32-bit index.
+    /// @notice Unique ID for this request, constructed from the client address and a 32-bit index.
     /// Constructed as (address(client) << 32) | index.
-    uint192 id;
+    /// @dev Note that the high-order 64 bits of this ID are currently unused and must set to zero.
+    /// In the future it may be used to encode a version number and/or other flags.
+    uint256 id;
     /// Requirements of the delivered proof. Specifies the program that must be run, and constrains
     /// value of the journal, specifying the statement that is requesting to be proven.
     Requirements requirements;
@@ -50,9 +52,9 @@ enum InputType {
 
 struct Offer {
     /// Price at the start of the bidding period, it is minimum price a prover will receive for job.
-    uint96 minPrice;
+    uint256 minPrice;
     /// Price at the end of the bidding period, this is the maximum price the client will pay.
-    uint96 maxPrice;
+    uint256 maxPrice;
     /// Block number at which bidding starts.
     uint64 biddingStart;
     /// Length of the "ramp-up period," measured in blocks.
@@ -64,13 +66,13 @@ struct Offer {
     /// the prover can be "slashed," which refunds the price to the requester.
     uint32 timeout;
     /// Bidders must stake this amount as part of their bid.
-    uint96 lockinStake;
+    uint256 lockinStake;
 }
 
 /// Info posted by the prover to fulfill a request, and get paid.
 struct Fulfillment {
     /// ID of the request that is being fulfilled.
-    uint192 id;
+    uint256 id;
     /// Image ID of the guest that was verifiably executed to satisfy the request.
     /// Must match the value in the request's requirements.
     bytes32 imageId;
@@ -98,7 +100,7 @@ struct Fulfillment {
 /// Merkle tree committed to by the given root. Assessor can verify a batch of
 /// requests, including batches of size one.
 struct AssessorJournal {
-    uint192[] requestIds;
+    uint256[] requestIds;
     // Root of the Merkle tree committing to the set of proven claims.
     // In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;
@@ -112,19 +114,19 @@ interface IProofMarket {
     /// @notice Event logged when a new proving request is submitted by a client.
     /// @dev Note that the signature is not verified by the contract and should instead be verified
     ///      by the receiver of the event.
-    event RequestSubmitted(uint192 indexed requestId, ProvingRequest request, bytes clientSignature);
+    event RequestSubmitted(uint256 indexed requestId, ProvingRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
-    event RequestLockedin(uint192 indexed requestId, address prover);
+    event RequestLockedin(uint256 indexed requestId, address prover);
     /// Event logged when a request is fulfilled.
-    event RequestFulfilled(uint192 indexed requestId);
+    event RequestFulfilled(uint256 indexed requestId);
     /// @notice Event logged when a proof is delivered that satisfies the requests requirements.
     /// @dev It is possible for this event to be logged multiple times for a single request. This
     /// is usually logged as part of order fulfillment, however it can also be logged by a prover
     /// sending the proof without payment.
-    event ProofDelivered(uint192 indexed requestId, bytes journal, bytes seal);
+    event ProofDelivered(uint256 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is slashed for failing to fulfill a request by the deadline.
     /// Part of the stake is burned, and part is transferred to the client as compensation.
-    event ProverSlashed(uint192 indexed requestId, uint256 stakeBurned, uint256 stakeTransferred);
+    event ProverSlashed(uint256 indexed requestId, uint256 stakeBurned, uint256 stakeTransferred);
     /// Event when a deposit is made to the proof market.
     event Deposit(address indexed account, uint256 value);
     /// Event when a withdrawal is made from the proof market.
@@ -142,27 +144,31 @@ interface IProofMarket {
     event PaymentRequirementsFailed(bytes error);
 
     /// Request is locked when it was not expected to be.
-    error RequestIsLocked(uint192 requestId);
+    error RequestIsLocked(uint256 requestId);
     /// Request is not locked when it was expected to be.
-    error RequestIsNotLocked(uint192 requestId);
+    error RequestIsNotLocked(uint256 requestId);
     /// Request is fulfilled when it was not expected to be.
-    error RequestIsFulfilled(uint192 requestId);
+    error RequestIsFulfilled(uint256 requestId);
     /// Request is no longer valid, as the deadline has passed.
-    error RequestIsExpired(uint192 requestId, uint64 deadline);
+    error RequestIsExpired(uint256 requestId, uint64 deadline);
     /// Request is still valid, as the deadline has yet to pass.
-    error RequestIsNotExpired(uint192 requestId, uint64 deadline);
+    error RequestIsNotExpired(uint256 requestId, uint64 deadline);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
     /// A signature did not pass verification checks.
     error InvalidSignature();
+    /// Request is malformed or internally inconsistent.
+    error InvalidRequest();
+    /// Error when transfer of funds to an external address fails.
+    error TransferFailed();
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
-    function requestIsLocked(uint192 requestId) external view returns (bool);
+    function requestIsLocked(uint256 requestId) external view returns (bool);
     /// @notice Check if the given request has been fulfilled (i.e. a proof was delivered).
-    function requestIsFulfilled(uint192 requestId) external view returns (bool);
+    function requestIsFulfilled(uint256 requestId) external view returns (bool);
     /// @notice Return when the given request expires.
-    function requestDeadline(uint192 requestId) external view returns (uint64);
+    function requestDeadline(uint256 requestId) external view returns (uint64);
 
     /// @notice Deposit Ether into the proof market to pay for proof and/or lockin stake.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
@@ -244,7 +250,7 @@ interface IProofMarket {
 
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
-    function slash(uint192 requestId) external;
+    function slash(uint256 requestId) external;
 
     /// EIP 712 domain separator getter
     function eip712DomainSeparator() external view returns (bytes32);

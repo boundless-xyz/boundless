@@ -727,7 +727,7 @@ contract ProofMarketBasicTest is ProofMarketTest {
 
         ProvingRequest[] memory requests = new ProvingRequest[](batchSize);
         bytes[] memory journals = new bytes[](batchSize);
-        uint96 expectedRevenue = 0;
+        uint256 expectedRevenue = 0;
         uint256 idx = 0;
         for (uint256 i = 0; i < batch.length; i++) {
             Client client = getClient(i);
@@ -736,7 +736,7 @@ contract ProofMarketBasicTest is ProofMarketTest {
                 ProvingRequest memory request = client.request(uint32(j));
 
                 // TODO: This is a fragile part of this test. It should be improved.
-                uint96 desiredPrice = uint96(1.5 ether);
+                uint256 desiredPrice = uint256(1.5 ether);
                 vm.roll(request.offer.blockAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
