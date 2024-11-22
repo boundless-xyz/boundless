@@ -67,7 +67,15 @@ pub(crate) async fn websocket_handler(
     };
 
     let client_addr = auth_msg.address();
-    let addr_nonce = state.db.get_nonce(client_addr).await.context("Failed to fetch addr nonce")?;
+    let addr_nonce = match state.db.get_nonce(client_addr).await {
+        Ok(res) => res,
+        Err(OrderDbErr::AddrNotFound(_)) => {
+            return Ok((StatusCode::UNAUTHORIZED, "Unauthorized").into_response())
+        }
+        Err(err) => {
+            return Err(AppError::InternalErr(err.into()));
+        }
+    };
 
     // Check the signature
     if let Err(err) = auth_msg.verify(&state.config.domain, &addr_nonce).await {
