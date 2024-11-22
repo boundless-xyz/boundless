@@ -176,7 +176,7 @@ services:
   #             capabilities: [gpu]
 
 
-  gpu_join_agent0: &gpu
+  gpu_join_agent0:
     <<: *gpu
     mem_limit: 2G
     cpu_count: 2
