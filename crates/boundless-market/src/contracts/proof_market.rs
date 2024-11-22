@@ -1083,10 +1083,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_deposit_withdraw() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
@@ -1112,10 +1108,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_submit_request() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
@@ -1136,10 +1128,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_e2e() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
@@ -1201,10 +1189,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_e2e_merged_submit_fulfill() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
@@ -1269,10 +1253,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_e2e_price_and_fulfill_batch() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
@@ -1329,10 +1309,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_e2e_payment_failed() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
@@ -1426,7 +1402,7 @@ mod tests {
         assert!(log.is_none());
 
         // retrieve journal and seal from the fulfilled request
-        let (journal, seal) =
+        let (_journal, _seal) =
             ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
         // TODO: Instead of checking that this is the same seal, check if this is some valid seal.
