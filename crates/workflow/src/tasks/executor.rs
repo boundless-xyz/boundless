@@ -26,7 +26,7 @@ use workflow_common::{
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
     },
     CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, ProveReq, ResolveReq, SnarkReq,
-    AUX_WORK_TYPE, GPU_WORK_TYPE, SNARK_WORK_TYPE,
+    AUX_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_WORK_TYPE,
 };
 // use tempfile::NamedTempFile;
 use tokio::task::{JoinHandle, JoinSet};
@@ -41,7 +41,8 @@ const CONCURRENT_SEGMENTS: usize = 50; // This peaks around ~4GB
 async fn process_task(
     args: &Args,
     pool: &PgPool,
-    gpu_stream: &Uuid,
+    prove_stream: &Uuid,
+    join_stream: &Uuid,
     aux_stream: &Uuid,
     snark_stream: &Uuid,
     job_id: &Uuid,
@@ -75,7 +76,7 @@ async fn process_task(
                 pool,
                 job_id,
                 &task_name,
-                gpu_stream,
+                prove_stream,
                 &task_def,
                 &prereqs,
                 args.prove_retries,
@@ -101,7 +102,7 @@ async fn process_task(
                 pool,
                 job_id,
                 &task_name,
-                gpu_stream,
+                join_stream,
                 &task_def,
                 &prereqs,
                 args.join_retries,
@@ -131,7 +132,7 @@ async fn process_task(
                     pool,
                     job_id,
                     task_id,
-                    gpu_stream,
+                    prove_stream,
                     &task_def,
                     &prereqs,
                     args.resolve_retries,
@@ -316,9 +317,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         .context("Failed to get AUX stream")?
         .with_context(|| format!("Customer {} missing aux stream", request.user_id))?;
 
-    let gpu_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, GPU_WORK_TYPE)
+    let prove_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, PROVE_WORK_TYPE)
         .await
-        .context("Failed to get GPU stream")?
+        .context("Failed to get GPU Prove stream")?
+        .with_context(|| format!("Customer {} missing gpu stream", request.user_id))?;
+
+    let join_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+        .await
+        .context("Failed to get GPU Join stream")?
         .with_context(|| format!("Customer {} missing gpu stream", request.user_id))?;
 
     let snark_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, SNARK_WORK_TYPE)
@@ -347,7 +353,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 process_task(
                     &args_copy,
                     &pool_copy,
-                    &gpu_stream,
+                    &prove_stream,
+                    &join_stream,
                     &aux_stream,
                     &snark_stream,
                     &job_id_copy,
@@ -367,7 +374,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 process_task(
                     &args_copy,
                     &pool_copy,
-                    &gpu_stream,
+                    &prove_stream,
+                    &join_stream,
                     &aux_stream,
                     &snark_stream,
                     &job_id_copy,
