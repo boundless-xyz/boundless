@@ -26,7 +26,7 @@ use workflow_common::{
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
     },
     CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, ProveReq, ResolveReq, SnarkReq,
-    AUX_WORK_TYPE, PROVE_WORK_TYPE, JOIN_WORK_TYPE, SNARK_WORK_TYPE,
+    AUX_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_WORK_TYPE,
 };
 // use tempfile::NamedTempFile;
 use tokio::task::{JoinHandle, JoinSet};
