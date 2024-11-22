@@ -186,6 +186,7 @@ where
                 imageId: order_img_id,
                 journal: order_journal.into(),
                 seal: seal.into(),
+                requirePayment: true,
             });
         }
 
@@ -489,6 +490,7 @@ mod tests {
                         request: order_request.clone(),
                         signature: client_sig.into(),
                         journal: echo_receipt.journal.bytes,
+                        require_payment: true,
                     }],
                     prover_address: prover_addr,
                 }

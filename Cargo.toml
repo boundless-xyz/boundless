@@ -36,7 +36,7 @@ taskdb = { path = "crates/taskdb" }
 workflow = { path = "crates/workflow" }
 workflow-common = { path = "crates/workflow-common" }
 
-alloy = { version = "0.3" }
+alloy = { version = "0.4" }
 alloy-primitives = { version = "0.8" }
 alloy-sol-types = { version = "0.8", features = ["json"] }
 anyhow = { version = "1.0" }

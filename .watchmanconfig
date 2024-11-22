@@ -6,6 +6,8 @@
     "crates/guest/util/identity/target",
     "crates/guest/assessor/assessor-guest/target",
     "crates/guest/set-builder/set-builder-guest/target",
-    "examples/counter/target"
+    "examples/counter/target",
+    "lib",
+    "examples/counter/lib"
   ]
 }
