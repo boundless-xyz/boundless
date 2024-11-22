@@ -478,7 +478,7 @@ contract ProofMarketBasicTest is ProofMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IProofMarket.InsufficientBalance.selector, address(0x5c541fA34e0b605E586fB688EFa1550169d80ECb)
+                IProofMarket.InsufficientBalance.selector, address(0x706f5Dc8b0100f6b9c0fE57D6109537D5b089cDA)
             )
         );
         proofMarket.lockinWithSig(request, clientSignature, badProverSignature);
@@ -579,8 +579,7 @@ contract ProofMarketBasicTest is ProofMarketTest {
         bytes memory proverSignature = testProver.sign(request);
 
         // Attempt to lockin a request with maxPrice smaller than minPrice
-        // should revert with "maxPrice cannot be smaller than minPrice"
-        vm.expectRevert("maxPrice cannot be smaller than minPrice");
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.InvalidRequest.selector));
         if (withSig) {
             proofMarket.lockinWithSig(request, clientSignature, proverSignature);
         } else {
@@ -615,8 +614,7 @@ contract ProofMarketBasicTest is ProofMarketTest {
         bytes memory proverSignature = testProver.sign(request);
 
         // Attempt to lockin a request with rampUpPeriod greater than timeout
-        // should revert with "Request cannot expire before end of bidding period"
-        vm.expectRevert("Request cannot expire before end of bidding period");
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.InvalidRequest.selector));
         if (withSig) {
             proofMarket.lockinWithSig(request, clientSignature, proverSignature);
         } else {

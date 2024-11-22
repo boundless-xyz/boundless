@@ -204,7 +204,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
     /// Internal method for verifying signatures over requests. Reverts on failure.
     function verifyRequestSignature(address addr, ProvingRequest calldata request, bytes calldata signature)
-        internal
+        public
         view
     {
         bytes32 structHash = _hashTypedDataV4(request.eip712Digest());

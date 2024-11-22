@@ -37,7 +37,7 @@ contract ProofMarketLibTest is Test {
 
         assertEq(offer.blockAtPrice(2 ether), 200);
 
-        vm.expectRevert("Price cannot exceed maxPrice");
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.InvalidRequest.selector));
         offer.blockAtPrice(3 ether);
     }
 
