@@ -126,7 +126,7 @@ impl OrderDb {
         let res = sqlx::query("UPDATE brokers SET connections = connections + 1 WHERE addr = $1 AND connections < $2").bind(addr.as_slice()).bind(MAX_BROKER_CONNECTIONS).execute(&mut *txn).await?;
 
         if res.rows_affected() == 0 {
-            return Err(OrderDbErr::NoRows("disconnect broker"));
+            return Err(OrderDbErr::NoRows("connect broker"));
         }
 
         txn.commit().await?;
