@@ -221,10 +221,10 @@ pub fn app(state: Arc<AppState>) -> Router {
     let body_size_limit = RequestBodyLimitLayer::new(MAX_ORDER_SIZE);
 
     Router::new()
-        .route(&format!("/{ORDER_SUBMISSION_PATH}"), post(submit_order).layer(body_size_limit))
-        .route(&format!("/{ORDER_LIST_PATH}"), get(list_orders))
-        .route(&format!("/{AUTH_GET_NONCE}:addr"), get(get_nonce))
-        .route(&format!("/{ORDER_WS_PATH}"), get(websocket_handler))
+        .route(ORDER_SUBMISSION_PATH, post(submit_order).layer(body_size_limit))
+        .route(ORDER_LIST_PATH, get(list_orders))
+        .route(&format!("{AUTH_GET_NONCE}:addr"), get(get_nonce))
+        .route(ORDER_WS_PATH, get(websocket_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(state)
         .layer(TraceLayer::new_for_http())

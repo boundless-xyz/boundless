@@ -25,10 +25,10 @@ use utoipa::ToSchema;
 
 use crate::contracts::ProvingRequest;
 
-pub const ORDER_SUBMISSION_PATH: &str = "api/submit_order";
-pub const ORDER_LIST_PATH: &str = "api/orders";
-pub const AUTH_GET_NONCE: &str = "api/nonce/";
-pub const ORDER_WS_PATH: &str = "ws/orders";
+pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
+pub const ORDER_LIST_PATH: &str = "/api/orders";
+pub const AUTH_GET_NONCE: &str = "/api/nonce/";
+pub const ORDER_WS_PATH: &str = "/ws/orders";
 
 /// Error body for API responses
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -195,7 +195,7 @@ impl Client {
 
     /// Submit a proving request to the order stream server
     pub async fn submit_request(&self, request: &ProvingRequest) -> Result<Order> {
-        let url = Url::parse(&format!("{}{ORDER_SUBMISSION_PATH}", self.base_url))?;
+        let url = self.base_url.join(ORDER_SUBMISSION_PATH)?;
         let signature =
             request.sign_request(&self.signer, self.proof_market_address, self.chain_id)?;
         let order = Order { request: request.clone(), signature };
@@ -226,8 +226,7 @@ impl Client {
 
     /// Get the nonce from the order stream service for websocket auth
     pub async fn get_nonce(&self) -> Result<Nonce> {
-        let url =
-            Url::parse(&format!("{}{AUTH_GET_NONCE}{}", self.base_url, self.signer.address()))?;
+        let url = self.base_url.join(AUTH_GET_NONCE)?.join(&self.signer.address().to_string())?;
         let res = self.client.get(url).send().await?;
         if !res.status().is_success() {
             anyhow::bail!("Http error {} fetching nonce", res.status())
@@ -255,7 +254,7 @@ impl Client {
         // Construct the WebSocket URL
         let host = self.base_url.host().context("missing host")?.to_string();
         let ws_url = match self.base_url.port() {
-            Some(port) => format!("ws://{host}:{port}/{ORDER_WS_PATH}"),
+            Some(port) => format!("ws://{host}:{port}{ORDER_WS_PATH}"),
             None => format!("ws://{host}{ORDER_WS_PATH}"),
         };
 
