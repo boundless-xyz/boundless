@@ -933,12 +933,12 @@ mod tests {
 
     fn test_offer() -> Offer {
         Offer {
-            minPrice: U256::from(ether("1")),
-            maxPrice: U256::from(ether("2")),
+            minPrice: ether("1"),
+            maxPrice: "2"),
             biddingStart: 100,
             rampUpPeriod: 100,
             timeout: 500,
-            lockinStake: U256::from(ether("1")),
+            lockinStake: ether("1"),
         }
     }
 
@@ -1041,16 +1041,16 @@ mod tests {
         // Cannot calculate price before bidding start
         assert!(market.price_at_block(offer, 99).is_err());
 
-        assert_eq!(market.price_at_block(offer, 100).unwrap(), U256::from(ether("1")));
+        assert_eq!(market.price_at_block(offer, 100).unwrap(), ether("1"));
 
-        assert_eq!(market.price_at_block(offer, 101).unwrap(), U256::from(ether("1.01")));
-        assert_eq!(market.price_at_block(offer, 125).unwrap(), U256::from(ether("1.25")));
-        assert_eq!(market.price_at_block(offer, 150).unwrap(), U256::from(ether("1.5")));
-        assert_eq!(market.price_at_block(offer, 175).unwrap(), U256::from(ether("1.75")));
-        assert_eq!(market.price_at_block(offer, 199).unwrap(), U256::from(ether("1.99")));
+        assert_eq!(market.price_at_block(offer, 101).unwrap(), ether("1.01"));
+        assert_eq!(market.price_at_block(offer, 125).unwrap(), ether("1.25"));
+        assert_eq!(market.price_at_block(offer, 150).unwrap(), ether("1.5"));
+        assert_eq!(market.price_at_block(offer, 175).unwrap(), ether("1.75"));
+        assert_eq!(market.price_at_block(offer, 199).unwrap(), ether("1.99"));
 
-        assert_eq!(market.price_at_block(offer, 200).unwrap(), U256::from(ether("2")));
-        assert_eq!(market.price_at_block(offer, 500).unwrap(), U256::from(ether("2")));
+        assert_eq!(market.price_at_block(offer, 200).unwrap(), ether("2"));
+        assert_eq!(market.price_at_block(offer, 500).unwrap(), ether("2"));
     }
 
     #[test]
@@ -1062,19 +1062,19 @@ mod tests {
         );
         let offer = &test_offer();
 
-        assert_eq!(market.block_at_price(offer, U256::from(ether("1"))).unwrap(), 0);
+        assert_eq!(market.block_at_price(offer, ether("1")).unwrap(), 0);
 
-        assert_eq!(market.block_at_price(offer, U256::from(ether("1.01"))).unwrap(), 101);
-        assert_eq!(market.block_at_price(offer, U256::from(ether("1.001"))).unwrap(), 101);
+        assert_eq!(market.block_at_price(offer, ether("1.01")).unwrap(), 101);
+        assert_eq!(market.block_at_price(offer, ether("1.001")).unwrap(), 101);
 
-        assert_eq!(market.block_at_price(offer, U256::from(ether("1.25"))).unwrap(), 125);
-        assert_eq!(market.block_at_price(offer, U256::from(ether("1.5"))).unwrap(), 150);
-        assert_eq!(market.block_at_price(offer, U256::from(ether("1.75"))).unwrap(), 175);
-        assert_eq!(market.block_at_price(offer, U256::from(ether("1.99"))).unwrap(), 199);
-        assert_eq!(market.block_at_price(offer, U256::from(ether("2"))).unwrap(), 200);
+        assert_eq!(market.block_at_price(offer, ether("1.25")).unwrap(), 125);
+        assert_eq!(market.block_at_price(offer, ether("1.5")).unwrap(), 150);
+        assert_eq!(market.block_at_price(offer, ether("1.75")).unwrap(), 175);
+        assert_eq!(market.block_at_price(offer, ether("1.99")).unwrap(), 199);
+        assert_eq!(market.block_at_price(offer, ether("2")).unwrap(), 200);
 
         // Price cannot exceed maxPrice
-        assert!(market.block_at_price(offer, U256::from(ether("3"))).is_err());
+        assert!(market.block_at_price(offer, ether("3")).is_err());
     }
 
     #[tokio::test]
