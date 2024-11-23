@@ -156,6 +156,18 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     uint256 public constant SLASHING_BURN_FRACTION_NUMERATOR = 1;
     uint256 public constant SLASHING_BURN_FRACTION_DENOMINATOR = 1;
 
+    /// @notice When an order is fulfilled, the market takes a fee based on the price of the order.
+    /// This fraction is multiplied by the price to decide the fee.
+    /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
+    /// gas of an SLOAD. This means the fee can only be changed by an implementation upgrade.
+    /// Note that it is currently set to zero.
+    uint256 public constant MARKET_FEE_NUMERATOR = 0;
+    uint256 public constant MARKET_FEE_DENOMINATOR = 1;
+
+    /// @notice Balance owned by the market contract itself. This balance is collected from fees,
+    /// when the fee rate is set to a non-zero value.
+    uint256 internal marketBalance;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, bytes32 assessorId) {
         VERIFIER = verifier;
@@ -498,7 +510,13 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
         requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0));
 
-        accounts[lock.prover].balance += lock.price + lock.stake;
+        uint96 valueToProver = lock.price + lock.stake;
+        if (MARKET_FEE_NUMERATOR > 0) {
+            uint256 fee = uint256(lock.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
+            valueToProver -= fee.toUint96();
+            marketBalance += fee;
+        }
+        accounts[lock.prover].balance += valueToProver;
     }
 
     function _fulfillVerifiedUnlocked(uint256 id, address client, uint32 idx, bool fulfilled, address assessorProver)
@@ -539,7 +557,13 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         }
 
         // Pay the prover.
-        accounts[assessorProver].balance += tprice.price;
+        uint96 valueToProver = tprice.price;
+        if (MARKET_FEE_NUMERATOR > 0) {
+            uint256 fee = uint256(tprice.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
+            valueToProver -= fee.toUint96();
+            marketBalance += fee;
+        }
+        accounts[assessorProver].balance += valueToProver;
     }
 
     function slash(uint256 requestId) external {
