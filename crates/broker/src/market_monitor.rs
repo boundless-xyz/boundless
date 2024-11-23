@@ -277,7 +277,9 @@ mod tests {
             .on_http(anvil.endpoint().parse().unwrap());
 
         let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
+                .await
+                .unwrap();
         let proof_market = ProofMarketService::new(
             market_address,
             provider.clone(),

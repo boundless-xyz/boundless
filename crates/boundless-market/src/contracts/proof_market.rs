@@ -165,6 +165,41 @@ where
         self.caller
     }
 
+    /// Add a prover to the lock-in allowlist, for use during the appnet phase of testing.
+    pub async fn add_prover_to_appnet_allowlist(&self, prover: Address) -> Result<(), MarketError> {
+        tracing::debug!("Calling addProverToAppnetAllowlist({prover})");
+        let call = self.instance.addProverToAppnetAllowlist(prover);
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting addProverToAppnetAllowlist tx {}", pending_tx.tx_hash());
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+        tracing::debug!("Submitted addProverToAppnetAllowlist {}", tx_hash);
+
+        Ok(())
+    }
+
+    /// Remove a prover from the lock-in allowlist, for use during the appnet phase of testing.
+    pub async fn remove_prover_from_appnet_allowlist(
+        &self,
+        prover: Address,
+    ) -> Result<(), MarketError> {
+        tracing::debug!("Calling removeProverFromAppnetAllowlist({prover})");
+        let call = self.instance.removeProverFromAppnetAllowlist(prover);
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting removeProverFromAppnetAllowlist tx {}", pending_tx.tx_hash());
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+        tracing::debug!("Submitted removeProverFromAppnetAllowlist {}", tx_hash);
+
+        Ok(())
+    }
+
     /// Deposit Ether into the proof market to pay for proof and/or lockin stake.
     pub async fn deposit(&self, value: U256) -> Result<(), MarketError> {
         tracing::debug!("Calling deposit() value: {value}");
