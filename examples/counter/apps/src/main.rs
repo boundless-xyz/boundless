@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
-    primitives::{utils::parse_ether, Address, B256, U256},
+    primitives::{utils::parse_ether, Address, B256},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
