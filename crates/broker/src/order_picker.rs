@@ -14,10 +14,11 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::proof_market::ProofMarketService;
+use boundless_market::contracts::{proof_market::ProofMarketService, RequestError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum PriceOrderErr {
     #[error("Failed to fetch / push input: {0}")]
     FetchInputErr(anyhow::Error),
@@ -27,6 +28,9 @@ pub enum PriceOrderErr {
 
     #[error("Guest execution faulted: {0}")]
     GuestPanic(String),
+
+    #[error("Request: {0}")]
+    RequestError(#[from] RequestError),
 
     #[error("Other: {0}")]
     OtherErr(#[from] anyhow::Error),
@@ -84,7 +88,7 @@ where
 
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
-            let client_addr = order.request.client_address();
+            let client_addr = order.request.client_address()?;
             if !allow_addresses.contains(&client_addr) {
                 tracing::warn!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
                 self.db.skip_order(order_id).await.context("Order not in allowed addr list")?;
@@ -415,7 +419,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{aliases::U96, Address, Bytes, B256},
+        primitives::{Address, Bytes, B256, U256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -494,12 +498,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: U96::from(min_price),
-                    maxPrice: U96::from(max_price),
+                    minPrice: U256::from(min_price),
+                    maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U96::from(0),
+                    lockinStake: U256::from(0),
                 },
             ),
             target_block: None,
@@ -588,12 +592,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: U96::from(min_price),
-                    maxPrice: U96::from(max_price),
+                    minPrice: U256::from(min_price),
+                    maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U96::from(0),
+                    lockinStake: U256::from(0),
                 },
             ),
             image_id: None,
@@ -675,12 +679,12 @@ mod tests {
                 "",
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: U96::from(min_price),
-                    maxPrice: U96::from(max_price),
+                    minPrice: U256::from(min_price),
+                    maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U96::from(0),
+                    lockinStake: U256::from(0),
                 },
             ),
             image_id: None,
@@ -765,12 +769,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: U96::from(min_price),
-                    maxPrice: U96::from(max_price),
+                    minPrice: U256::from(min_price),
+                    maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U96::from(0),
+                    lockinStake: U256::from(0),
                 },
             ),
             target_block: None,

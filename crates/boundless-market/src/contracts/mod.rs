@@ -10,14 +10,11 @@ use std::str::FromStr;
 use alloy::{
     contract::Error as ContractErr,
     primitives::SignatureError,
-    signers::{Error as SignerErr, Signature, SignerSync},
+    signers::{Signature, SignerSync},
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
-use alloy_primitives::{
-    aliases::{U160, U192, U96},
-    Address, Bytes, B256, U256,
-};
+use alloy_primitives::{aliases::U160, Address, Bytes, B256, U256};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
@@ -74,9 +71,40 @@ impl EIP721DomainSaltless {
     }
 }
 
-pub(crate) fn request_id(addr: &Address, id: u32) -> U192 {
+pub(crate) fn request_id(addr: &Address, id: u32) -> U256 {
     let addr = U160::try_from(*addr).unwrap();
-    (U192::from(addr) << 32) | U192::from(id)
+    (U256::from(addr) << 32) | U256::from(id)
+}
+
+#[non_exhaustive]
+#[derive(thiserror::Error, Debug)]
+pub enum RequestError {
+    #[error("malformed request ID")]
+    MalformedRequestId,
+    #[cfg(not(target_os = "zkvm"))]
+    #[error("signature error: {0}")]
+    SignatureError(#[from] alloy::signers::Error),
+    #[error("image URL must not be empty")]
+    EmptyImageUrl,
+    #[error("malformed image URL: {0}")]
+    MalformedImageUrl(#[from] url::ParseError),
+    #[error("image ID must not be ZERO")]
+    ImageIdIsZero,
+    #[error("offer timeout must be greater than 0")]
+    OfferTimeoutIsZero,
+    #[error("offer maxPrice must be greater than 0")]
+    OfferMaxPriceIsZero,
+    #[error("offer maxPrice must be greater than or equal to minPrice")]
+    OfferMaxPriceIsLessThanMin,
+    #[error("offer biddingStart must be greater than 0")]
+    OfferBiddingStartIsZero,
+}
+
+#[cfg(not(target_os = "zkvm"))]
+impl From<SignatureError> for RequestError {
+    fn from(err: alloy::primitives::SignatureError) -> Self {
+        RequestError::SignatureError(err.into())
+    }
 }
 
 impl ProvingRequest {
@@ -92,7 +120,7 @@ impl ProvingRequest {
         offer: Offer,
     ) -> Self {
         Self {
-            id: U192::from(request_id(addr, idx)),
+            id: request_id(addr, idx),
             requirements,
             imageUrl: image_url.to_string(),
             input,
@@ -101,14 +129,18 @@ impl ProvingRequest {
     }
 
     /// Returns the client address from the proving request ID.
-    pub fn client_address(&self) -> Address {
-        let shifted_id: U256 = U256::from(self.id) >> 32;
+    pub fn client_address(&self) -> Result<Address, RequestError> {
+        let shifted_id: U256 = self.id >> 32;
+        if self.id >> 192 != U256::ZERO {
+            return Err(RequestError::MalformedRequestId);
+        }
         let shifted_bytes: [u8; 32] = shifted_id.to_be_bytes();
-        let addr_bytes: [u8; 20] =
-            shifted_bytes[12..32].try_into().expect("Failed to extract address bytes");
+        let addr_bytes: [u8; 20] = shifted_bytes[12..32]
+            .try_into()
+            .expect("error in converting slice of 20 bytes into array of 20 bytes");
         let lower_160_bits = U160::from_be_bytes(addr_bytes);
 
-        Address::from(lower_160_bits)
+        Ok(Address::from(lower_160_bits))
     }
 
     /// Sets the input data to be fetched from the given URL.
@@ -140,26 +172,26 @@ impl ProvingRequest {
     ///
     /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min
     /// price) this function will return an error.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), RequestError> {
         if self.imageUrl.is_empty() {
-            anyhow::bail!("Image URL must not be empty");
+            return Err(RequestError::EmptyImageUrl);
         };
         Url::parse(&self.imageUrl).map(|_| ())?;
 
         if self.requirements.imageId == B256::default() {
-            anyhow::bail!("Image ID must not be ZERO");
+            return Err(RequestError::ImageIdIsZero);
         };
         if self.offer.timeout == 0 {
-            anyhow::bail!("Offer timeout must be greater than 0");
+            return Err(RequestError::OfferTimeoutIsZero);
         };
-        if self.offer.maxPrice == U96::ZERO {
-            anyhow::bail!("Offer maxPrice must be greater than 0");
+        if self.offer.maxPrice == U256::ZERO {
+            return Err(RequestError::OfferMaxPriceIsZero);
         };
         if self.offer.maxPrice < self.offer.minPrice {
-            anyhow::bail!("Offer maxPrice must be greater than or equal to minPrice");
+            return Err(RequestError::OfferMaxPriceIsLessThanMin);
         }
         if self.offer.biddingStart == 0 {
-            anyhow::bail!("Offer biddingStart must be greater than 0");
+            return Err(RequestError::OfferBiddingStartIsZero);
         };
 
         Ok(())
@@ -175,10 +207,10 @@ impl ProvingRequest {
         signer: &impl SignerSync,
         contract_addr: Address,
         chain_id: u64,
-    ) -> Result<Signature, SignerErr> {
+    ) -> Result<Signature, RequestError> {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
-        signer.sign_hash_sync(&hash)
+        Ok(signer.sign_hash_sync(&hash)?)
     }
 
     /// Verifies the proving request signature with the given signer and EIP-712 domain derived from
@@ -188,15 +220,15 @@ impl ProvingRequest {
         signature: &Bytes,
         contract_addr: Address,
         chain_id: u64,
-    ) -> Result<(), SignerErr> {
+    ) -> Result<(), RequestError> {
         let sig = Signature::try_from(signature.as_ref())?;
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         let addr = sig.recover_address_from_prehash(&hash)?;
-        if addr == self.client_address() {
+        if addr == self.client_address()? {
             Ok(())
         } else {
-            Err(SignerErr::SignatureError(SignatureError::FromBytes("Address mismatch")))
+            Err(SignatureError::FromBytes("Address mismatch").into())
         }
     }
 }
@@ -249,17 +281,17 @@ impl Input {
 
 impl Offer {
     /// Sets the offer minimum price.
-    pub fn with_min_price(self, min_price: U96) -> Self {
+    pub fn with_min_price(self, min_price: U256) -> Self {
         Self { minPrice: min_price, ..self }
     }
 
     /// Sets the offer maximum price.
-    pub fn with_max_price(self, max_price: U96) -> Self {
+    pub fn with_max_price(self, max_price: U256) -> Self {
         Self { maxPrice: max_price, ..self }
     }
 
     /// Sets the offer lock-in stake.
-    pub fn with_lockin_stake(self, lockin_stake: U96) -> Self {
+    pub fn with_lockin_stake(self, lockin_stake: U256) -> Self {
         Self { lockinStake: lockin_stake, ..self }
     }
 
@@ -280,20 +312,20 @@ impl Offer {
     }
 
     /// Sets the offer minimum price based on the desired price per million cycles.
-    pub fn with_min_price_per_mcycle(self, mcycle_price: U96, mcycle: u64) -> Self {
-        let min_price = mcycle_price * U96::from(mcycle);
+    pub fn with_min_price_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
+        let min_price = mcycle_price * U256::from(mcycle);
         Self { minPrice: min_price, ..self }
     }
 
     /// Sets the offer maximum price based on the desired price per million cycles.
-    pub fn with_max_price_per_mcycle(self, mcycle_price: U96, mcycle: u64) -> Self {
-        let max_price = mcycle_price * U96::from(mcycle);
+    pub fn with_max_price_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
+        let max_price = mcycle_price * U256::from(mcycle);
         Self { maxPrice: max_price, ..self }
     }
 
     /// Sets the offer lock-in stake based on the desired price per million cycles.
-    pub fn with_lockin_stake_per_mcycle(self, mcycle_price: U96, mcycle: u64) -> Self {
-        let lockin_stake = mcycle_price * U96::from(mcycle);
+    pub fn with_lockin_stake_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
+        let lockin_stake = mcycle_price * U256::from(mcycle);
         Self { lockinStake: lockin_stake, ..self }
     }
 }
@@ -303,7 +335,7 @@ impl Offer {
 impl Default for ProvingRequest {
     fn default() -> Self {
         Self {
-            id: U192::ZERO,
+            id: U256::ZERO,
             requirements: Default::default(),
             imageUrl: Default::default(),
             input: Default::default(),
@@ -707,12 +739,12 @@ mod tests {
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },
             offer: Offer {
-                minPrice: U96::from(0),
-                maxPrice: U96::from(1),
+                minPrice: U256::from(0),
+                maxPrice: U256::from(1),
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
-                lockinStake: U96::from(0),
+                lockinStake: U256::from(0),
             },
         };
 

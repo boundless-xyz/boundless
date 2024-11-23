@@ -13,6 +13,7 @@ anyhow = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 sha2 = { workspace = true }
+thiserror = { workspace = true }
 url = { workspace = true }
 
 # Host dependencies
@@ -36,7 +37,6 @@ risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true, optional = true }
 tempfile = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tracing = { workspace = true }

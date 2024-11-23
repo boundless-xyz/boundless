@@ -6,7 +6,7 @@ use std::{fmt::Debug, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{aliases::U192, Address, Bytes, B256, U256},
+    primitives::{Address, Bytes, B256, U256},
     providers::Provider,
     rpc::types::{Log, TransactionReceipt},
     signers::{Signer, SignerSync},
@@ -367,7 +367,7 @@ where
         request_id: U256,
     ) -> Result<IProofMarket::ProverSlashed, MarketError> {
         tracing::debug!("Calling slash({:?})", request_id);
-        let call = self.instance.slash(U192::from(request_id)).from(self.caller);
+        let call = self.instance.slash(request_id).from(self.caller);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -574,7 +574,7 @@ where
     /// Checks if a request is locked in.
     pub async fn is_locked_in(&self, request_id: U256) -> Result<bool, MarketError> {
         tracing::debug!("Calling requestIsLocked({})", request_id);
-        let res = self.instance.requestIsLocked(U192::from(request_id)).call().await?;
+        let res = self.instance.requestIsLocked(request_id).call().await?;
 
         Ok(res._0)
     }
@@ -582,7 +582,7 @@ where
     /// Checks if a request is fulfilled.
     pub async fn is_fulfilled(&self, request_id: U256) -> Result<bool, MarketError> {
         tracing::debug!("Calling requestIsFulfilled({})", request_id);
-        let res = self.instance.requestIsFulfilled(U192::from(request_id)).call().await?;
+        let res = self.instance.requestIsFulfilled(request_id).call().await?;
 
         Ok(res._0)
     }
@@ -608,7 +608,7 @@ where
         }
 
         if self.is_locked_in(request_id).await.context("Failed to check locked status")? {
-            let deadline = self.instance.requestDeadline(U192::from(request_id)).call().await?._0;
+            let deadline = self.instance.requestDeadline(request_id).call().await?._0;
             if block_number > deadline && deadline > 0 {
                 return Ok(ProofStatus::Expired);
             };
@@ -855,7 +855,7 @@ where
             .context(format!("Failed to get EOA nonce for {:?}", self.caller))?;
         let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
         let request_id = request_id(&self.caller, id);
-        match self.get_status(U256::from(request_id), None).await? {
+        match self.get_status(request_id, None).await? {
             ProofStatus::Unknown => return Ok(id),
             _ => Err(MarketError::Error(anyhow!("index already in use"))),
         }
@@ -864,7 +864,7 @@ where
     /// Generates a new request ID based on the EOA nonce.
     ///
     /// It does not guarantee that the ID is not in use by the time the caller uses it.
-    pub async fn request_id_from_nonce(&self) -> Result<U192, MarketError> {
+    pub async fn request_id_from_nonce(&self) -> Result<U256, MarketError> {
         let index = self.index_from_nonce().await?;
         Ok(request_id(&self.caller, index))
     }
@@ -878,7 +878,7 @@ where
         for _ in 0..attempts {
             let id: u32 = rand::random();
             let request_id = request_id(&self.caller, id);
-            match self.get_status(U256::from(request_id), None).await? {
+            match self.get_status(request_id, None).await? {
                 ProofStatus::Unknown => return Ok(id),
                 _ => continue,
             }
@@ -891,7 +891,7 @@ where
     /// Randomly generates a new request ID.
     ///
     /// It does not guarantee that the ID is not in use by the time the caller uses it.
-    pub async fn request_id_from_rand(&self) -> Result<U192, MarketError> {
+    pub async fn request_id_from_rand(&self) -> Result<U256, MarketError> {
         let index = self.index_from_rand().await?;
         Ok(request_id(&self.caller, index))
     }
@@ -918,11 +918,7 @@ mod tests {
     use aggregation_set::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_GUEST_ID};
     use alloy::{
         node_bindings::Anvil,
-        primitives::{
-            aliases::{U160, U192, U96},
-            utils::parse_ether,
-            Address, Bytes, B256, U256,
-        },
+        primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256},
         providers::{Provider, ProviderBuilder},
         sol_types::{eip712_domain, Eip712Domain, SolValue},
     };
@@ -937,12 +933,12 @@ mod tests {
 
     fn test_offer() -> Offer {
         Offer {
-            minPrice: U96::from(ether("1")),
-            maxPrice: U96::from(ether("2")),
+            minPrice: U256::from(ether("1")),
+            maxPrice: U256::from(ether("2")),
             biddingStart: 100,
             rampUpPeriod: 100,
             timeout: 500,
-            lockinStake: U96::from(ether("1")),
+            lockinStake: U256::from(ether("1")),
         }
     }
 
@@ -964,12 +960,12 @@ mod tests {
             "http://image_uri.null",
             Input { inputType: InputType::Inline, data: Bytes::default() },
             Offer {
-                minPrice: U96::from(20000000000000u64),
-                maxPrice: U96::from(40000000000000u64),
+                minPrice: U256::from(20000000000000u64),
+                maxPrice: U256::from(40000000000000u64),
                 biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U96::from(10),
+                lockinStake: U256::from(10),
             },
         )
     }
@@ -988,7 +984,7 @@ mod tests {
         let app_claim_digest = app_receipt_claim.digest();
 
         let assessor_journal = AssessorJournal {
-            requestIds: vec![U192::from(request_id)],
+            requestIds: vec![request_id],
             root: to_b256(app_claim_digest),
             eip712DomainSeparator: eip712_domain.separator(),
             prover,
@@ -1016,7 +1012,7 @@ mod tests {
         .unwrap();
 
         let fulfillment = Fulfillment {
-            id: U192::from(request_id),
+            id: request_id,
             imageId: to_b256(Digest::from(ECHO_ID)),
             journal: app_journal.bytes.into(),
             seal: set_inclusion_seal.into(),
@@ -1123,7 +1119,7 @@ mod tests {
 
         let (_, log) = logs.first().unwrap();
         let log = log.log_decode::<IProofMarket::RequestSubmitted>().unwrap();
-        assert!(log.inner.data.request.id == U192::from(request_id));
+        assert!(log.inner.data.request.id == request_id);
     }
 
     #[tokio::test]

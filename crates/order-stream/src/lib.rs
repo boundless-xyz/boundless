@@ -290,7 +290,7 @@ mod tests {
     use crate::order_db::{DbOrder, OrderDbErr};
     use alloy::{
         node_bindings::Anvil,
-        primitives::{aliases::U96, B256},
+        primitives::{B256, U256},
     };
     use boundless_market::{
         contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProvingRequest, Requirements},
@@ -313,12 +313,12 @@ mod tests {
             "http://image_uri.null",
             Input::default(),
             Offer {
-                minPrice: U96::from(20000000000000u64),
-                maxPrice: U96::from(40000000000000u64),
+                minPrice: U256::from(20000000000000u64),
+                maxPrice: U256::from(40000000000000u64),
                 biddingStart: 1,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U96::from(10),
+                lockinStake: U256::from(10),
             },
         )
     }

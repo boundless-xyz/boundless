@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
-    primitives::{aliases::U96, utils::parse_ether, Address, B256},
+    primitives::{utils::parse_ether, Address, B256, U256},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
@@ -159,12 +159,12 @@ async fn run(
                 // by the number of cycles. Alternatively, you can use the `with_min_price` and
                 // `with_max_price` methods to set the price directly.
                 .with_min_price_per_mcycle(
-                    U96::from::<u128>(parse_ether("0.001")?.try_into()?),
+                    parse_ether("0.001")?,
                     mcycles_count,
                 )
                 // NOTE: If your offer is not being accepted, try increasing the max price.
                 .with_max_price_per_mcycle(
-                    U96::from::<u128>(parse_ether("0.002")?.try_into()?),
+                    parse_ether("0.002")?,
                     mcycles_count,
                 )
                 // The timeout is the maximum number of blocks the request can stay

@@ -265,10 +265,7 @@ impl OrderDb {
 #[cfg(test)]
 mod tests {
     use alloy::{
-        primitives::{
-            aliases::{U192, U96},
-            B256,
-        },
+        primitives::{B256, U256},
         signers::local::LocalSigner,
     };
     use boundless_market::contracts::{
@@ -283,7 +280,7 @@ mod tests {
     fn create_order() -> Order {
         let signer = LocalSigner::random();
         let req = ProvingRequest {
-            id: U192::from(0),
+            id: U256::ZERO,
             requirements: Requirements {
                 imageId: B256::ZERO,
                 predicate: Predicate {
@@ -294,12 +291,12 @@ mod tests {
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },
             offer: Offer {
-                minPrice: U96::from(0),
-                maxPrice: U96::from(1),
+                minPrice: U256::from(0),
+                maxPrice: U256::from(1),
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
-                lockinStake: U96::from(0),
+                lockinStake: U256::from(0),
             },
         };
         let signature = req.sign_request(&signer, Address::ZERO, 31337).unwrap();

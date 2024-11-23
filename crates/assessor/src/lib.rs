@@ -21,6 +21,7 @@ pub struct Fulfillment {
 }
 
 impl Fulfillment {
+    // TODO: Change this to use a thiserror error type.
     pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<()> {
         let hash = self.request.eip712_signing_hash(domain);
         let signature = Signature::try_from(self.signature.as_slice())?;
@@ -28,8 +29,8 @@ impl Fulfillment {
         // the address, and using it to verify the signature instead of recovering the
         // public key. It would save ~1M cycles.
         let recovered = signature.recover_address_from_prehash(&hash)?;
-        let client_addr = self.request.client_address();
-        if recovered != self.request.client_address() {
+        let client_addr = self.request.client_address()?;
+        if recovered != self.request.client_address()? {
             bail!("Invalid signature: mismatched addr {recovered} - {client_addr}");
         }
         Ok(())
@@ -74,7 +75,7 @@ impl AssessorInput {
 mod tests {
     use super::*;
     use alloy::{
-        primitives::{aliases::U96, Address, B256},
+        primitives::{Address, B256, U256},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -108,12 +109,12 @@ mod tests {
             &"test".to_string(),
             Input { inputType: InputType::Url, data: Default::default() },
             Offer {
-                minPrice: U96::from(1),
-                maxPrice: U96::from(10),
+                minPrice: U256::from(1),
+                maxPrice: U256::from(10),
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
-                lockinStake: U96::from(0),
+                lockinStake: U256::from(0),
             },
         )
     }

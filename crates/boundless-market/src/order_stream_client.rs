@@ -3,10 +3,10 @@
 // All rights reserved.
 
 use alloy::{
-    primitives::{aliases::U192, Address, Signature},
+    primitives::{Address, Signature, U256},
     signers::{k256::ecdsa::SigningKey, local::LocalSigner, Error as SignerErr, Signer},
 };
-use anyhow::{Context, Error as AnyhowErr, Result};
+use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::Utc;
 use futures_util::{Stream, StreamExt};
@@ -23,7 +23,7 @@ use tokio_tungstenite::{
 };
 use utoipa::ToSchema;
 
-use crate::contracts::ProvingRequest;
+use crate::contracts::{ProvingRequest, RequestError};
 
 pub const ORDER_SUBMISSION_PATH: &str = "api/submit_order";
 pub const ORDER_LIST_PATH: &str = "api/orders";
@@ -51,17 +51,12 @@ impl std::fmt::Display for ErrMsg {
 
 /// Error type for the Order
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum OrderError {
-    #[error("invalid request: {0}")]
-    InvalidRequest(AnyhowErr),
     #[error("invalid signature: {0}")]
     InvalidSignature(SignerErr),
-}
-
-impl From<AnyhowErr> for OrderError {
-    fn from(err: AnyhowErr) -> Self {
-        Self::InvalidRequest(err)
-    }
+    #[error("request error: {0}")]
+    RequestError(#[from] RequestError),
 }
 
 /// Order struct, containing a ProvingRequest and its Signature
@@ -100,7 +95,7 @@ pub struct SubmitOrderRes {
     pub status: String,
     /// Request ID submitted
     #[schema(value_type = Object)]
-    pub request_id: U192,
+    pub request_id: U256,
 }
 
 impl Order {
@@ -111,10 +106,12 @@ impl Order {
 
     /// Validate the Order
     pub fn validate(&self, market_address: Address, chain_id: u64) -> Result<(), OrderError> {
-        self.request.validate().map_err(|e| OrderError::InvalidRequest(e))?;
-        self.request
-            .verify_signature(&self.signature.as_bytes().into(), market_address, chain_id)
-            .map_err(|e| OrderError::InvalidSignature(e))?;
+        self.request.validate()?;
+        self.request.verify_signature(
+            &self.signature.as_bytes().into(),
+            market_address,
+            chain_id,
+        )?;
         Ok(())
     }
 }

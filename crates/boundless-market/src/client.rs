@@ -6,7 +6,7 @@ use std::{env, str::FromStr};
 
 use alloy::{
     network::Ethereum,
-    primitives::{aliases::U192, Address, Bytes, U256},
+    primitives::{Address, Bytes, U256},
     providers::{
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -29,7 +29,7 @@ use crate::{
     contracts::{
         proof_market::{MarketError, ProofMarketService},
         set_verifier::SetVerifierService,
-        ProvingRequest,
+        ProvingRequest, RequestError,
     },
     order_stream_client::Client as OrderStreamClient,
     storage::{
@@ -59,6 +59,8 @@ pub enum ClientError {
     StorageProviderError(#[from] BuiltinStorageProviderError),
     #[error("Market error {0}")]
     MarketError(#[from] MarketError),
+    #[error("RequestError {0}")]
+    RequestError(#[from] RequestError),
     #[error("Error {0}")]
     Error(#[from] anyhow::Error),
 }
@@ -146,7 +148,7 @@ where
     {
         let mut request = request.clone();
 
-        if request.id == U192::ZERO {
+        if request.id == U256::ZERO {
             request.id = self.proof_market.request_id_from_nonce().await?;
         };
         if request.offer.biddingStart == 0 {
@@ -175,7 +177,7 @@ where
     {
         let mut request = request.clone();
 
-        if request.id == U192::ZERO {
+        if request.id == U256::ZERO {
             request.id = self.proof_market.request_id_from_rand().await?;
         };
         if request.offer.biddingStart == 0 {
@@ -186,7 +188,7 @@ where
                 .context("Failed to get current block number")?
         };
         // Ensure address' balance is sufficient to cover the request
-        let balance = self.proof_market.balance_of(request.client_address()).await?;
+        let balance = self.proof_market.balance_of(request.client_address()?).await?;
         if balance < U256::from(request.offer.maxPrice) {
             return Err(ClientError::Error(anyhow!(
                 "Insufficient balance to cover request: {} < {}",
