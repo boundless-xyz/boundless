@@ -931,6 +931,10 @@ mod tests {
     };
     use url::Url;
 
+    fn ether(value: &str) -> U256 {
+        parse_ether(value).unwrap().try_into().unwrap()
+    }
+
     fn test_offer() -> Offer {
         Offer {
             minPrice: ether("1"),
@@ -940,10 +944,6 @@ mod tests {
             timeout: 500,
             lockinStake: ether("1"),
         }
-    }
-
-    fn ether(value: &str) -> u128 {
-        parse_ether(value).unwrap().try_into().unwrap()
     }
 
     async fn new_request(idx: u32, ctx: &TestCtx) -> ProvingRequest {
