@@ -11,23 +11,20 @@ import "../src/ProofMarket.sol";
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;
 
-    function mockAssessor(
-        Fulfillment[] memory fills,
-        bytes32 assessorImageId,
-        bytes32 eip712DomainSeparator,
-        address prover
-    ) internal pure returns (ReceiptClaim memory) {
+    function mockAssessor(Fulfillment[] memory fills, bytes32 assessorImageId, address prover)
+        internal
+        pure
+        returns (ReceiptClaim memory)
+    {
         bytes32[] memory claimDigests = new bytes32[](fills.length);
-        uint256[] memory ids = new uint256[](fills.length);
+        bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
             claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            ids[i] = fills[i].id;
+            requestDigests[i] = fills[i].requestDigest;
         }
         bytes32 root = MerkleProofish.processTree(claimDigests);
 
-        bytes memory journal = abi.encode(
-            AssessorJournal({requestIds: ids, root: root, eip712DomainSeparator: eip712DomainSeparator, prover: prover})
-        );
+        bytes memory journal = abi.encode(AssessorJournal({requestDigests: requestDigests, root: root, prover: prover}));
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 

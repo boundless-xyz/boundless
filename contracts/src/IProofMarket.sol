@@ -73,6 +73,8 @@ struct Offer {
 struct Fulfillment {
     /// ID of the request that is being fulfilled.
     uint256 id;
+    /// EIP-712 digest of request struct.
+    bytes32 requestDigest;
     /// Image ID of the guest that was verifiably executed to satisfy the request.
     /// Must match the value in the request's requirements.
     bytes32 imageId;
@@ -100,12 +102,14 @@ struct Fulfillment {
 /// Merkle tree committed to by the given root. Assessor can verify a batch of
 /// requests, including batches of size one.
 struct AssessorJournal {
-    uint256[] requestIds;
+    /// @notice Digest of each request validated by the assessor.
+    /// @dev When a client signs two requests with the same ID, only one can ever be fulfilled.
+    /// Using the digest here ensures that the request validated by the assessor matches the one
+    /// that was locked / priced.
+    bytes32[] requestDigests;
     // Root of the Merkle tree committing to the set of proven claims.
     // In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;
-    // EIP712 domain separator.
-    bytes32 eip712DomainSeparator;
     // The address of the prover that produced the assessor receipt.
     address prover;
 }
@@ -143,16 +147,24 @@ interface IProofMarket {
     /// @dev The payload of the event is an ABI encoded error, from the errors on this contract.
     event PaymentRequirementsFailed(bytes error);
 
-    /// Request is locked when it was not expected to be.
+    /// Request is locked when it was not required to be.
     error RequestIsLocked(uint256 requestId);
-    /// Request is not locked when it was expected to be.
+    /// Request is not priced when it was required to be. Either locking the request, or calling the
+    /// `IProofMarket.priceRequest` function in the same transaction will satisfy this requirement.
+    error RequestIsNotPriced(uint256 requestId);
+    /// Request is not locked when it was required to be.
     error RequestIsNotLocked(uint256 requestId);
-    /// Request is fulfilled when it was not expected to be.
+    /// Request is fulfilled when it was not required to be.
     error RequestIsFulfilled(uint256 requestId);
     /// Request is no longer valid, as the deadline has passed.
     error RequestIsExpired(uint256 requestId, uint64 deadline);
     /// Request is still valid, as the deadline has yet to pass.
     error RequestIsNotExpired(uint256 requestId, uint64 deadline);
+    /// @notice Request fingerprint (shortened digest) doesn't match the value that is locked.
+    /// @dev This can happen if a client signs multiple requests with the same ID (i.e. multiple
+    /// versions of the same request) and a prover locks one version but the tries to call fulfill
+    /// using a different version.
+    error RequestLockFingerprintDoesNotMatch(uint256 requestId, bytes8 provided, bytes8 locked);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
     /// A signature did not pass verification checks.

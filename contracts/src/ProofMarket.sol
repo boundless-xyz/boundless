@@ -18,22 +18,6 @@ import {IRiscZeroSetVerifier} from "./IRiscZeroSetVerifier.sol";
 import {IProofMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "./IProofMarket.sol";
 import {ProofMarketLib} from "./ProofMarketLib.sol";
 
-// TODO(#165): A potential issue with the current approach is: if the client
-// signs a request with a given ID, it expires with no bids, and they sign a
-// new request with the same ID and different requirements, which gets a
-// lockin, the prover is not actually bound to fulfill the one that was locked
-// in. A solution that avoids increasing state usage would be to add a deadline
-// check in the assessor. If two requests are valid in the same window with
-// the same ID, this is still an issue. However this is much more reasonably
-// considered a mistake, and client implementations should avoid it. Simplest
-// way for a client to avoid this issue would be always increment their index,
-// and let unfulfilled request IDs go unused... this of course requires client
-// state. Another, would be use scanning to determine the first unused ID. A
-// third approach would be to expand the request lock, but only store it's
-// digest in state. With this approach, we can include more info in it. This
-// would probably also expand the journal for the assessor. None of these
-// are perfect.
-
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
 
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
@@ -99,6 +83,19 @@ struct RequestLock {
     uint64 deadline;
     // Prover stake that may be taken if a proof is not delivered by the deadline.
     uint96 stake;
+    // NOTE: There is another option here, which would be to have the request lock mapping index
+    // based on request digest instead of index. As a friction, this would introduce a second
+    // user-facing concept of what identifies a request.
+    /// @notice Keccak256 hash of the request, shortened to 64-bits. During fulfillment, this value is used
+    /// to check that the request completed is the request that was locked, and not some other
+    /// request with the same ID.
+    /// @dev Note that this value is not collision resistant in that it is fairly easy to find two
+    /// requests with the same fingerprint. However, requests much be signed to be valid, and so
+    /// the existence of two valid requests with the same fingerprint requires either intention
+    /// construction by the private key holder, which would be pointless, or accidental collision.
+    /// With 64-bits, a client that constructed 65k signed requests with the same request ID would
+    /// have a roughly 2^-32 chance of accidental collision, which is negligible in this scenario.
+    bytes8 fingerprint;
 }
 
 /// Struct encoding the validated price for a request, intended for use with transient storage.
@@ -232,11 +229,13 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     function verifyRequestSignature(address addr, ProvingRequest calldata request, bytes calldata signature)
         public
         view
+        returns (bytes32 requestDigest)
     {
         bytes32 structHash = _hashTypedDataV4(request.eip712Digest());
         if (ECDSA.recover(structHash, signature) != addr) {
             revert InvalidSignature();
         }
+        return structHash;
     }
 
     // Deposit Ether into the market.
@@ -277,9 +276,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
     function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
-        verifyRequestSignature(client, request, clientSignature);
+        (bytes32 requestDigest) = verifyRequestSignature(client, request, clientSignature);
 
-        _lockinAuthed(request, client, idx, msg.sender);
+        _lockinAuthed(request, requestDigest, client, idx, msg.sender);
     }
 
     function lockinWithSig(
@@ -290,13 +289,13 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
 
         // Recover the prover address and require the client address to equal the address part of the ID.
-        bytes32 structHash = _hashTypedDataV4(request.eip712Digest());
-        address prover = ECDSA.recover(structHash, proverSignature);
-        if (ECDSA.recover(structHash, clientSignature) != client) {
+        bytes32 requestDigest = _hashTypedDataV4(request.eip712Digest());
+        address prover = ECDSA.recover(requestDigest, proverSignature);
+        if (ECDSA.recover(requestDigest, clientSignature) != client) {
             revert InvalidSignature();
         }
 
-        _lockinAuthed(request, client, idx, prover);
+        _lockinAuthed(request, requestDigest, client, idx, prover);
     }
 
     /// Check that the request is valid, and not already locked or fulfilled by another prover.
@@ -331,7 +330,13 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         return (price, deadline);
     }
 
-    function _lockinAuthed(ProvingRequest calldata request, address client, uint32 idx, address prover) internal {
+    function _lockinAuthed(
+        ProvingRequest calldata request,
+        bytes32 requestDigest,
+        address client,
+        uint32 idx,
+        address prover
+    ) internal {
         if (!appnetProverLockinAllowlist[prover]) {
             revert ProverNotInAppnetLockinAllowList({account: prover});
         }
@@ -353,8 +358,13 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         }
 
         // Record the lock for the request and emit an event.
-        requestLocks[request.id] =
-            RequestLock({prover: prover, price: price, deadline: deadline, stake: request.offer.lockinStake.toUint96()});
+        requestLocks[request.id] = RequestLock({
+            prover: prover,
+            price: price,
+            deadline: deadline,
+            stake: request.offer.lockinStake.toUint96(),
+            fingerprint: bytes8(requestDigest)
+        });
 
         clientAccount.setRequestLocked(idx);
         emit RequestLockedin(request.id, prover);
@@ -364,7 +374,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     /// fulfilled within the same transaction without taking a lock on it.
     function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) public {
         (address client, uint32 idx) = (ProofMarketLib.requestFrom(request.id), ProofMarketLib.requestIndex(request.id));
-        verifyRequestSignature(client, request, clientSignature);
+        (bytes32 requestDigest) = verifyRequestSignature(client, request, clientSignature);
 
         (uint96 price,) = _validateRequestForLockin(request, client, idx);
 
@@ -373,9 +383,8 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         // price will not become stale, and the request cannot expire, while this price is recorded.
         // TODO(#165): Also record a requirements checksum here when solving #165.
         uint256 packed = TransientPrice({valid: true, price: price}).pack();
-        uint256 requestId = request.id;
         assembly {
-            tstore(requestId, packed)
+            tstore(requestDigest, packed)
         }
     }
 
@@ -391,18 +400,10 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.
-        uint256[] memory ids = new uint256[](1);
-        ids[0] = fill.id;
-        bytes32 assessorJournalDigest = sha256(
-            abi.encode(
-                AssessorJournal({
-                    requestIds: ids,
-                    root: claimDigest,
-                    eip712DomainSeparator: _domainSeparatorV4(),
-                    prover: prover
-                })
-            )
-        );
+        bytes32[] memory requestDigests = new bytes32[](1);
+        requestDigests[0] = fill.requestDigest;
+        bytes32 assessorJournalDigest =
+            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: claimDigest, prover: prover})));
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
     }
@@ -415,9 +416,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     {
         // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
-        uint256[] memory ids = new uint256[](fills.length);
+        bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
-            ids[i] = fills[i].id;
+            requestDigests[i] = fills[i].requestDigest;
             claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
             VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fills[i].seal, claimDigests[i]));
         }
@@ -425,23 +426,15 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.
-        bytes32 assessorJournalDigest = sha256(
-            abi.encode(
-                AssessorJournal({
-                    requestIds: ids,
-                    root: batchRoot,
-                    eip712DomainSeparator: _domainSeparatorV4(),
-                    prover: prover
-                })
-            )
-        );
+        bytes32 assessorJournalDigest =
+            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: batchRoot, prover: prover})));
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
     }
 
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
         verifyDelivery(fill, assessorSeal, prover);
-        _fulfillVerified(fill.id, prover, fill.requirePayment);
+        _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
 
         // TODO(victor): Potentially this should be (re)combined with RequestFulfilled. It would make
         // the logic to watch for a proof a bit more complex, but the gas usage a little less (by
@@ -456,7 +449,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(fills[i].id, prover, fills[i].requirePayment);
+            _fulfillVerified(fills[i].id, fills[i].requestDigest, prover, fills[i].requirePayment);
 
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
@@ -476,7 +469,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillVerified(uint256 id, address assessorProver, bool requirePayment) internal {
+    function _fulfillVerified(uint256 id, bytes32 requestDigest, address assessorProver, bool requirePayment)
+        internal
+    {
         address client = ProofMarketLib.requestFrom(id);
         uint32 idx = ProofMarketLib.requestIndex(id);
 
@@ -484,9 +479,9 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
         bytes memory paymentError;
         if (locked) {
-            paymentError = _fulfillVerifiedLocked(id, client, idx, fulfilled, assessorProver);
+            paymentError = _fulfillVerifiedLocked(id, client, idx, requestDigest, fulfilled, assessorProver);
         } else {
-            paymentError = _fulfillVerifiedUnlocked(id, client, idx, fulfilled, assessorProver);
+            paymentError = _fulfillVerifiedUnlocked(id, client, idx, requestDigest, fulfilled, assessorProver);
         }
 
         if (paymentError.length > 0) {
@@ -498,11 +493,30 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         }
     }
 
-    function _fulfillVerifiedLocked(uint256 id, address client, uint32 idx, bool fulfilled, address assessorProver)
-        internal
-        returns (bytes memory paymentError)
-    {
+    function _fulfillVerifiedLocked(
+        uint256 id,
+        address client,
+        uint32 idx,
+        bytes32 requestDigest,
+        bool fulfilled,
+        address assessorProver
+    ) internal returns (bytes memory paymentError) {
         RequestLock memory lock = requestLocks[id];
+
+        // Check pre-conditions for transferring payment.
+        if (lock.prover == address(0)) {
+            // NOTE: This check is not strictly needed, as the fact that the lock has already been
+            // zeroed out means zero value can be transferred. It is provided for clarity.
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, id);
+        }
+        // DO NOT MERGE: Add a test for this
+        if (lock.fingerprint != bytes8(requestDigest)) {
+            revert RequestLockFingerprintDoesNotMatch({
+                requestId: id,
+                provided: bytes8(requestDigest),
+                locked: lock.fingerprint
+            });
+        }
 
         // Mark the request as fulfilled.
         // NOTE: A request can become fulfilled even if the following checks fail, which control
@@ -512,12 +526,6 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
             emit RequestFulfilled(id);
         }
 
-        // Check pre-conditions for transferring payment.
-        if (lock.prover == address(0)) {
-            // NOTE: This check is not strictly needed, as the fact that the lock has already been
-            // zeroed out means zero value can be transferred. It is provided for clarity.
-            return abi.encodeWithSelector(RequestIsFulfilled.selector, id);
-        }
         if (lock.deadline < block.number) {
             return abi.encodeWithSelector(RequestIsExpired.selector, id, lock.deadline);
         }
@@ -526,7 +534,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         }
 
         // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
-        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0));
+        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
 
         uint96 valueToProver = lock.price + lock.stake;
         if (MARKET_FEE_NUMERATOR > 0) {
@@ -537,10 +545,14 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         accounts[lock.prover].balance += valueToProver;
     }
 
-    function _fulfillVerifiedUnlocked(uint256 id, address client, uint32 idx, bool fulfilled, address assessorProver)
-        internal
-        returns (bytes memory paymentError)
-    {
+    function _fulfillVerifiedUnlocked(
+        uint256 id,
+        address client,
+        uint32 idx,
+        bytes32 requestDigest,
+        bool fulfilled,
+        address assessorProver
+    ) internal returns (bytes memory paymentError) {
         // When not locked, the fulfilled flag _does_ indicate that payment has already been transferred.
         if (fulfilled) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, id);
@@ -548,15 +560,12 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
 
         uint256 packed;
         assembly {
-            packed := tload(id)
+            packed := tload(requestDigest)
         }
         TransientPrice memory tprice = TransientPriceLib.unpack(packed);
 
-        // Check that a price has been set, which also requires checks like expiration to pass.
-        // NOTE: Maybe "request is not locked or priced" would be more accurate, but seems
-        // like that would be a confusing message.
         if (!tprice.valid) {
-            return abi.encodeWithSelector(RequestIsNotLocked.selector, id);
+            return abi.encodeWithSelector(RequestIsNotPriced.selector, id);
         }
 
         // Mark the request as fulfilled.
@@ -605,7 +614,7 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
         }
 
         // Zero out the lock to prevent the same request from being slashed twice.
-        requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0));
+        requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
 
         // Calculate the portion of stake that should be burned vs sent to the client.
         // NOTE: If the burn fraction is not properly set, this can overflow.

@@ -268,6 +268,9 @@ contract ProofMarketTest is Test {
         for (uint256 i = 0; i < requests.length; i++) {
             Fulfillment memory fill = Fulfillment({
                 id: requests[i].id,
+                requestDigest: MessageHashUtils.toTypedDataHash(
+                    proofMarket.eip712DomainSeparator(), requests[i].eip712Digest()
+                ),
                 imageId: requests[i].requirements.imageId,
                 journal: journals[i],
                 seal: bytes(""),
@@ -277,8 +280,7 @@ contract ProofMarketTest is Test {
         }
 
         // compute the assessor claim
-        ReceiptClaim memory assessorClaim =
-            TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, proofMarket.eip712DomainSeparator(), prover);
+        ReceiptClaim memory assessorClaim = TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, prover);
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 
@@ -962,8 +964,7 @@ contract ProofMarketBasicTest is ProofMarketTest {
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
         // Attempt to fulfill a request without locking or pricing it.
-        // should revert with "RequestIsNotLocked({requestId: request.id})"
-        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotLocked.selector, request.id));
+        vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotPriced.selector, request.id));
         proofMarket.fulfill(fill, assessorSeal, address(testProver));
 
         expectMarketBalanceUnchanged();
