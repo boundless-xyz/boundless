@@ -934,7 +934,7 @@ mod tests {
     fn test_offer() -> Offer {
         Offer {
             minPrice: ether("1"),
-            maxPrice: "2"),
+            maxPrice: ether("2"),
             biddingStart: 100,
             rampUpPeriod: 100,
             timeout: 500,
