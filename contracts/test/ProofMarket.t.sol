@@ -166,6 +166,8 @@ contract ProofMarketTest is Test {
         vm.stopPrank();
 
         testProver = createClientContract("PROVER");
+        vm.prank(OWNER_WALLET.addr);
+        proofMarket.addProverToAppnetAllowlist(address(testProver));
 
         vm.deal(address(testProver), DEFAULT_BALANCE);
         vm.prank(address(testProver));
@@ -472,13 +474,14 @@ contract ProofMarketBasicTest is ProofMarketTest {
         // Bad signature is over the wrong request.
         bytes memory badProverSignature = testProver.sign(client.request(2));
 
-        // NOTE: Error is "InsufficientBalance" because we will recover _some_ address.
+        // NOTE: Error is "ProverNotInAppnetLockinAllowList" because we will recover _some_ address.
         // It should be completed random and never correspond to a real account.
         // TODO: This address will need to change anytime we change the ProvingRequest struct or
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IProofMarket.InsufficientBalance.selector, address(0x706f5Dc8b0100f6b9c0fE57D6109537D5b089cDA)
+                IProofMarket.ProverNotInAppnetLockinAllowList.selector,
+                address(0x706f5Dc8b0100f6b9c0fE57D6109537D5b089cDA)
             )
         );
         proofMarket.lockinWithSig(request, clientSignature, badProverSignature);
@@ -633,6 +636,61 @@ contract ProofMarketBasicTest is ProofMarketTest {
         return _testLockinInvalidRequest2(false);
     }
 
+    function _testLockinAppnetAllowlist(bool withSig) private returns (Client, ProvingRequest memory) {
+        Client client = getClient(1);
+        ProvingRequest memory request = client.request(1);
+        bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
+
+        // Start by removing the prover from the allow-list.
+        vm.prank(OWNER_WALLET.addr);
+        proofMarket.removeProverFromAppnetAllowlist(address(testProver));
+
+        // Expect the event to be emitted
+        vm.expectRevert(
+            abi.encodeWithSelector(IProofMarket.ProverNotInAppnetLockinAllowList.selector, address(testProver))
+        );
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
+
+        // Add them back and run it again.
+        vm.prank(OWNER_WALLET.addr);
+        proofMarket.addProverToAppnetAllowlist(address(testProver));
+
+        // Expect the event to be emitted
+        vm.expectEmit(true, true, true, true);
+        emit IProofMarket.RequestLockedin(request.id, address(testProver));
+        if (withSig) {
+            proofMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            proofMarket.lockin(request, clientSignature);
+        }
+
+        // Ensure the balances are correct
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(-1 ether);
+
+        // Verify the lockin
+        assertTrue(proofMarket.requestIsLocked(request.id), "Request should be locked-in");
+
+        expectMarketBalanceUnchanged();
+
+        return (client, request);
+    }
+
+    function testLockinAppnetAllowlist() public returns (Client, ProvingRequest memory) {
+        return _testLockinAppnetAllowlist(true);
+    }
+
+    function testLockinWithSigAppnetAllowlist() public returns (Client, ProvingRequest memory) {
+        return _testLockinAppnetAllowlist(false);
+    }
+
     enum LockinMethod {
         Lockin,
         LockinWithSig,
@@ -701,6 +759,15 @@ contract ProofMarketBasicTest is ProofMarketTest {
     }
 
     function testFulfillWithoutLockin() public {
+        _testFulfill(1, LockinMethod.None);
+    }
+
+    /// Fulfill without lockin should still work even if the prover if not in the allow-list.
+    function testFulfillWithoutLockinNotInAppnetAllowlist() public {
+        // Start by removing the prover from the allow-list.
+        vm.prank(OWNER_WALLET.addr);
+        proofMarket.removeProverFromAppnetAllowlist(address(testProver));
+
         _testFulfill(1, LockinMethod.None);
     }
 

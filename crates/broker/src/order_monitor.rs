@@ -277,12 +277,18 @@ mod tests {
         );
 
         let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
+                .await
+                .unwrap();
         let proof_market = ProofMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
+        proof_market
+            .add_prover_to_appnet_allowlist(provider.default_signer_address())
+            .await
+            .unwrap();
         proof_market.deposit(utils::parse_ether("10").unwrap()).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
@@ -376,7 +382,9 @@ mod tests {
         );
 
         let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
+                .await
+                .unwrap();
         let proof_market = ProofMarketService::new(
             market_address,
             provider.clone(),

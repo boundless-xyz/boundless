@@ -402,8 +402,14 @@ mod tests {
         )
         .await
         .unwrap();
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), *set_verifier.address()).await.unwrap();
+        let market_address = deploy_proof_market(
+            &signer,
+            provider.clone(),
+            *set_verifier.address(),
+            Some(prover_addr),
+        )
+        .await
+        .unwrap();
 
         let market = ProofMarketService::new(market_address, provider.clone(), prover_addr);
         market.deposit(U256::from(10000000000u64)).await.unwrap();

@@ -451,7 +451,9 @@ mod tests {
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
 
         let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
+                .await
+                .unwrap();
         let proof_market = ProofMarketService::new(
             market_address,
             provider.clone(),
@@ -544,7 +546,9 @@ mod tests {
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
 
         let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
+                .await
+                .unwrap();
         let proof_market = ProofMarketService::new(
             market_address,
             provider.clone(),
@@ -638,7 +642,9 @@ mod tests {
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
 
         let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
+                .await
+                .unwrap();
         let proof_market = ProofMarketService::new(
             market_address,
             provider.clone(),
@@ -722,7 +728,9 @@ mod tests {
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
         let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
+            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
+                .await
+                .unwrap();
         let proof_market = ProofMarketService::new(
             market_address,
             provider.clone(),

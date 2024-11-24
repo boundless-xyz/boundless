@@ -156,6 +156,12 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     uint256 public constant SLASHING_BURN_FRACTION_NUMERATOR = 1;
     uint256 public constant SLASHING_BURN_FRACTION_DENOMINATOR = 1;
 
+    /// @notice Allow list for the lock-in action for use in the appnet phase of public testing.
+    /// In order to focus on application developers, public prover participation is limited. In
+    /// particular, only the provers in this allow-list are able to lock-in jobs. This restriction
+    /// will be lifted, and this mapping removed, during the public testnet.
+    mapping(address => bool) appnetProverLockinAllowlist;
+
     /// @notice When an order is fulfilled, the market takes a fee based on the price of the order.
     /// This fraction is multiplied by the price to decide the fee.
     /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
@@ -188,6 +194,14 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    function addProverToAppnetAllowlist(address prover) external onlyOwner {
+        appnetProverLockinAllowlist[prover] = true;
+    }
+
+    function removeProverFromAppnetAllowlist(address prover) external onlyOwner {
+        appnetProverLockinAllowlist[prover] = false;
+    }
 
     function requestIsFulfilled(uint256 id) external view returns (bool) {
         if (id & (uint256(type(uint64).max) << 192) != 0) {
@@ -318,6 +332,10 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
     }
 
     function _lockinAuthed(ProvingRequest calldata request, address client, uint32 idx, address prover) internal {
+        if (!appnetProverLockinAllowlist[prover]) {
+            revert ProverNotInAppnetLockinAllowList({account: prover});
+        }
+
         (uint96 price, uint64 deadline) = _validateRequestForLockin(request, client, idx);
 
         // Deduct funds from the client and prover accounts.

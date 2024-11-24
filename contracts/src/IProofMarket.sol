@@ -161,6 +161,17 @@ interface IProofMarket {
     error InvalidRequest();
     /// Error when transfer of funds to an external address fails.
     error TransferFailed();
+    /// @notice Error for when a prover not on the allowed lists tries to lock-in an order.
+    /// In order to focus on application developers, public prover participation is limited. In
+    /// particular, only the provers in the allow-list are able to lock-in jobs. This restriction
+    /// will be lifted, and this error removed, during the public testnet.
+    error ProverNotInAppnetLockinAllowList(address account);
+
+    /// Add a prover to the lock-in allowlist, for use during the appnet phase of testing.
+    function addProverToAppnetAllowlist(address prover) external;
+
+    /// Remove a prover from the lock-in allowlist, for use during the appnet phase of testing.
+    function removeProverFromAppnetAllowlist(address prover) external;
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.

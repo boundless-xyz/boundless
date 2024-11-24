@@ -599,6 +599,7 @@ pub mod test_utils {
         deployer_signer: &PrivateKeySigner,
         deployer_provider: P,
         set_verifier: Address,
+        allowed_prover: Option<Address>,
     ) -> Result<Address>
     where
         T: Transport + Clone,
@@ -622,6 +623,12 @@ pub mod test_utils {
             .deploy()
             .await?;
 
+        if let Some(prover) = allowed_prover {
+            ProofMarketService::new(proxy, deployer_provider.clone(), deployer_signer.address())
+                .add_prover_to_appnet_allowlist(prover)
+                .await?;
+        }
+
         Ok(proxy)
     }
 
@@ -641,9 +648,13 @@ pub mod test_utils {
             let verifier = deploy_verifier(Arc::clone(&deployer_provider)).await?;
             let set_verifier =
                 deploy_set_verifier(Arc::clone(&deployer_provider), verifier).await?;
-            let proof_market =
-                deploy_proof_market(&deployer_signer, Arc::clone(&deployer_provider), set_verifier)
-                    .await?;
+            let proof_market = deploy_proof_market(
+                &deployer_signer,
+                Arc::clone(&deployer_provider),
+                set_verifier,
+                None,
+            )
+            .await?;
 
             // Mine forward some blocks using the provider
             deployer_provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
@@ -693,9 +704,19 @@ pub mod test_utils {
 
             let set_verifier = SetVerifierService::new(
                 set_verifier_addr,
-                verifier_provider,
+                verifier_provider.clone(),
                 verifier_signer.address(),
             );
+
+            // Add the prover to the allowlist for lockin. Note that verifier_signer is the owner
+            // of the contracts. This code will be removed after the appnet phase is over.
+            ProofMarketService::new(
+                proof_market_addr,
+                verifier_provider.clone(),
+                verifier_signer.address(),
+            )
+            .add_prover_to_appnet_allowlist(prover_signer.address())
+            .await?;
 
             Ok(TestCtx {
                 verifier_addr,
