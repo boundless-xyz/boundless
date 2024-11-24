@@ -314,6 +314,7 @@ contract ProofMarketTest is Test {
 
 contract ProofMarketBasicTest is ProofMarketTest {
     using ProofMarketLib for Offer;
+    using ProofMarketLib for ProvingRequest;
 
     function testDeposit() public {
         vm.deal(address(testProver), 1 ether);
@@ -991,6 +992,86 @@ contract ProofMarketBasicTest is ProofMarketTest {
         expectMarketBalanceUnchanged();
 
         return (client, request);
+    }
+
+    function _testFulfillRepeatIndex(LockinMethod lockinMethod) private {
+        Client client = getClient(1);
+
+        // Create two distinct requests with the same ID. It should be the case that only one can be
+        // filled, and if one is locked, the other cannot be filled.
+        Offer memory offerA = client.defaultOffer();
+        Offer memory offerB = client.defaultOffer();
+        offerB.maxPrice = 3 ether;
+        ProvingRequest memory requestA = client.request(1, offerA);
+        ProvingRequest memory requestB = client.request(1, offerB);
+        bytes memory clientSignatureA = client.sign(requestA);
+
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        // Lock-in request A.
+        if (lockinMethod == LockinMethod.Lockin) {
+            vm.prank(address(testProver));
+            proofMarket.lockin(requestA, clientSignatureA);
+        } else if (lockinMethod == LockinMethod.LockinWithSig) {
+            proofMarket.lockinWithSig(requestA, clientSignatureA, testProver.sign(requestA));
+        }
+
+        // Attempt to fill request B.
+        (Fulfillment memory fill, bytes memory assessorSeal) =
+            fulfillRequest(requestB, APP_JOURNAL, address(testProver));
+
+        if (lockinMethod == LockinMethod.None) {
+            // Annoying boilerplate for creating singleton lists.
+            Fulfillment[] memory fills = new Fulfillment[](1);
+            fills[0] = fill;
+            // Here we price with request A and try to fill with request B.
+            ProvingRequest[] memory requests = new ProvingRequest[](1);
+            requests[0] = requestA;
+            bytes[] memory clientSignatures = new bytes[](1);
+            clientSignatures[0] = clientSignatureA;
+
+            vm.expectRevert(abi.encodeWithSelector(IProofMarket.RequestIsNotPriced.selector, requestA.id));
+            proofMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorSeal, address(testProver));
+        } else {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    IProofMarket.RequestLockFingerprintDoesNotMatch.selector,
+                    requestA.id,
+                    bytes8(
+                        MessageHashUtils.toTypedDataHash(proofMarket.eip712DomainSeparator(), requestB.eip712Digest())
+                    ),
+                    bytes8(
+                        MessageHashUtils.toTypedDataHash(proofMarket.eip712DomainSeparator(), requestA.eip712Digest())
+                    )
+                )
+            );
+            proofMarket.fulfill(fill, assessorSeal, address(testProver));
+        }
+
+        // Check that the request ID is not marked as fulfilled.
+        assertTrue(!proofMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+
+        if (lockinMethod == LockinMethod.None) {
+            client.expectBalanceChange(0 ether);
+            testProver.expectBalanceChange(0 ether);
+        } else {
+            client.expectBalanceChange(-1 ether);
+            testProver.expectBalanceChange(-1 ether);
+        }
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillViaLockinRepeatIndex() public {
+        _testFulfillRepeatIndex(LockinMethod.Lockin);
+    }
+
+    function testFulfillViaLockinWithSigRepeatIndex() public {
+        _testFulfillRepeatIndex(LockinMethod.LockinWithSig);
+    }
+
+    function testFulfillWithoutLockinRepeatIndex() public {
+        _testFulfillRepeatIndex(LockinMethod.None);
     }
 
     function testSlash() public returns (Client, ProvingRequest memory) {

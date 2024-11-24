@@ -86,6 +86,9 @@ struct RequestLock {
     // NOTE: There is another option here, which would be to have the request lock mapping index
     // based on request digest instead of index. As a friction, this would introduce a second
     // user-facing concept of what identifies a request.
+    // NOTE: This fingerprint binds the full request including e.g. the offer and input. Technically,
+    // all that is required is to bind the requirements. If there is some advantage to only binding
+    // the requirements here (e.g. less hashing costs) then that might be worth doing.
     /// @notice Keccak256 hash of the request, shortened to 64-bits. During fulfillment, this value is used
     /// to check that the request completed is the request that was locked, and not some other
     /// request with the same ID.
@@ -509,7 +512,6 @@ contract ProofMarket is IProofMarket, Initializable, EIP712Upgradeable, Ownable2
             // zeroed out means zero value can be transferred. It is provided for clarity.
             return abi.encodeWithSelector(RequestIsFulfilled.selector, id);
         }
-        // DO NOT MERGE: Add a test for this
         if (lock.fingerprint != bytes8(requestDigest)) {
             revert RequestLockFingerprintDoesNotMatch({
                 requestId: id,
