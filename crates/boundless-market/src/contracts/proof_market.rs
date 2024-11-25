@@ -22,7 +22,7 @@ use thiserror::Error;
 
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
-    IProofMarket::{self, IProofMarketInstance},
+    IBoundlessMarket::{self, IBoundlessMarketInstance},
     Offer, ProofStatus, ProvingRequest, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
@@ -58,8 +58,8 @@ impl From<alloy::contract::Error> for MarketError {
 }
 
 /// Proof market service.
-pub struct ProofMarketService<T, P> {
-    instance: IProofMarketInstance<T, P, Ethereum>,
+pub struct BoundlessMarketService<T, P> {
+    instance: IBoundlessMarketInstance<T, P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
     chain_id: AtomicU64,
     caller: Address,
@@ -67,9 +67,9 @@ pub struct ProofMarketService<T, P> {
     event_query_config: EventQueryConfig,
 }
 
-impl<T, P> Clone for ProofMarketService<T, P>
+impl<T, P> Clone for BoundlessMarketService<T, P>
 where
-    IProofMarketInstance<T, P, Ethereum>: Clone,
+    IBoundlessMarketInstance<T, P, Ethereum>: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -149,14 +149,14 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
     }
 }
 
-impl<T, P> ProofMarketService<T, P>
+impl<T, P> BoundlessMarketService<T, P>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
 {
     /// Creates a new proof market service.
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
-        let instance = IProofMarket::new(address, provider);
+        let instance = IBoundlessMarket::new(address, provider);
 
         Self {
             instance,
@@ -178,7 +178,7 @@ where
     }
 
     /// Returns the proof market instance.
-    pub fn instance(&self) -> &IProofMarketInstance<T, P, Ethereum> {
+    pub fn instance(&self) -> &IBoundlessMarketInstance<T, P, Ethereum> {
         &self.instance
     }
 
@@ -297,7 +297,7 @@ where
             .context("failed to confirm tx")?;
 
         // Look for the logs for submitting the transaction.
-        let log = extract_tx_log::<IProofMarket::RequestSubmitted>(&receipt)?;
+        let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
         Ok(U256::from(log.inner.data.request.id))
     }
 
@@ -428,7 +428,7 @@ where
     pub async fn slash(
         &self,
         request_id: U256,
-    ) -> Result<IProofMarket::ProverSlashed, MarketError> {
+    ) -> Result<IBoundlessMarket::ProverSlashed, MarketError> {
         tracing::debug!("Calling slash({:?})", request_id);
         let call = self.instance.slash(request_id).from(self.caller);
         let pending_tx = call.send().await?;
@@ -440,7 +440,7 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        let log = extract_tx_log::<IProofMarket::ProverSlashed>(&receipt)?;
+        let log = extract_tx_log::<IBoundlessMarket::ProverSlashed>(&receipt)?;
         Ok(log.inner.data)
     }
 
@@ -461,7 +461,7 @@ where
         fulfillment: &Fulfillment,
         assessor_seal: &Bytes,
         prover_address: Address,
-    ) -> Result<Option<Log<IProofMarket::PaymentRequirementsFailed>>, MarketError> {
+    ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         tracing::debug!("Calling fulfill({:?},{:?})", fulfillment, assessor_seal);
         let call = self
             .instance
@@ -484,7 +484,7 @@ where
 
         // Look for PaymentRequirementsFailed logs.
         let mut logs = receipt.inner.logs().iter().filter_map(|log| {
-            let log = log.log_decode::<IProofMarket::PaymentRequirementsFailed>();
+            let log = log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>();
             log.ok()
         });
         let maybe_log = logs.nth(0);
@@ -506,13 +506,13 @@ where
 
     /// Fulfill a batch of requests by delivering the proof for each application.
     ///
-    /// See [ProofMarketService::fulfill] for more details.
+    /// See [BoundlessMarketService::fulfill] for more details.
     pub async fn fulfill_batch(
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
         prover_address: Address,
-    ) -> Result<Vec<Log<IProofMarket::PaymentRequirementsFailed>>, MarketError> {
+    ) -> Result<Vec<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
         tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_seal:x})");
         let call = self
@@ -535,7 +535,7 @@ where
             .logs()
             .iter()
             .filter_map(|log| {
-                let log = log.log_decode::<IProofMarket::PaymentRequirementsFailed>();
+                let log = log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>();
                 log.ok()
             })
             .collect();
@@ -821,7 +821,7 @@ where
                 .context("Failed to get transaction receipt")?
                 .context("Transaction not found")?;
             let logs = receipt.inner.logs().iter().filter_map(|log| {
-                let log = log.log_decode::<IProofMarket::RequestSubmitted>();
+                let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>();
                 log.ok()
             });
             for log in logs {
@@ -986,10 +986,10 @@ where
 mod tests {
     use std::str::FromStr;
 
-    use super::ProofMarketService;
+    use super::BoundlessMarketService;
     use crate::contracts::{
-        test_utils::TestCtx, AssessorJournal, Fulfillment, IProofMarket, Input, InputType, Offer,
-        Predicate, PredicateType, ProofStatus, ProvingRequest, Requirements,
+        test_utils::TestCtx, AssessorJournal, Fulfillment, IBoundlessMarket, Input, InputType,
+        Offer, Predicate, PredicateType, ProofStatus, ProvingRequest, Requirements,
     };
     use aggregation_set::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_GUEST_ID};
     use alloy::{
@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn test_price_at_block() {
-        let market = ProofMarketService::new(
+        let market = BoundlessMarketService::new(
             Address::default(),
             ProviderBuilder::default().on_http(Url::from_str("http://rpc.null").unwrap()),
             Address::default(),
@@ -1131,7 +1131,7 @@ mod tests {
 
     #[test]
     fn test_block_at_price() {
-        let market = ProofMarketService::new(
+        let market = BoundlessMarketService::new(
             Address::default(),
             ProviderBuilder::default().on_http(Url::from_str("http://rpc.null").unwrap()),
             Address::default(),
@@ -1194,7 +1194,7 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IProofMarket::RequestSubmitted>().unwrap();
+        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
         assert!(log.inner.data.request.id == request_id);
     }
 
@@ -1206,7 +1206,7 @@ mod tests {
         let ctx = TestCtx::new(&anvil).await.unwrap();
 
         let eip712_domain = eip712_domain! {
-            name: "IProofMarket",
+            name: "IBoundlessMarket",
             version: "1",
             chain_id: anvil.chain_id(),
             verifying_contract: *ctx.customer_market.instance().address(),
@@ -1222,7 +1222,7 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IProofMarket::RequestSubmitted>().unwrap();
+        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
         let request = log.inner.data.request;
         let customer_sig = log.inner.data.clientSignature;
 
@@ -1267,7 +1267,7 @@ mod tests {
         let ctx = TestCtx::new(&anvil).await.unwrap();
 
         let eip712_domain = eip712_domain! {
-            name: "IProofMarket",
+            name: "IBoundlessMarket",
             version: "1",
             chain_id: anvil.chain_id(),
             verifying_contract: *ctx.customer_market.instance().address(),
@@ -1283,7 +1283,7 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IProofMarket::RequestSubmitted>().unwrap();
+        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
         let request = log.inner.data.request;
         let customer_sig = log.inner.data.clientSignature;
 
@@ -1331,7 +1331,7 @@ mod tests {
         let ctx = TestCtx::new(&anvil).await.unwrap();
 
         let eip712_domain = eip712_domain! {
-            name: "IProofMarket",
+            name: "IBoundlessMarket",
             version: "1",
             chain_id: anvil.chain_id(),
             verifying_contract: *ctx.customer_market.instance().address(),
@@ -1345,7 +1345,7 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IProofMarket::RequestSubmitted>().unwrap();
+        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
         let request = log.inner.data.request;
         let customer_sig = log.inner.data.clientSignature;
 
@@ -1387,7 +1387,7 @@ mod tests {
         let ctx = TestCtx::new(&anvil).await.unwrap();
 
         let eip712_domain = eip712_domain! {
-            name: "IProofMarket",
+            name: "IBoundlessMarket",
             version: "1",
             chain_id: anvil.chain_id(),
             verifying_contract: *ctx.customer_market.instance().address(),
@@ -1403,7 +1403,7 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IProofMarket::RequestSubmitted>().unwrap();
+        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
         let request = log.inner.data.request;
         let customer_sig = log.inner.data.clientSignature;
 

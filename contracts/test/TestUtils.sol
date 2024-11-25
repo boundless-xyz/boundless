@@ -6,7 +6,7 @@ pragma solidity ^0.8.20;
 
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
-import "../src/ProofMarket.sol";
+import "../src/BoundlessMarket.sol";
 
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;

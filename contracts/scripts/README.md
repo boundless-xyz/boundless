@@ -247,7 +247,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
    ```zsh
    PROOF_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
-   bash contracts/scripts/manage DeployProofMarket
+   bash contracts/scripts/manage DeployBoundlessMarket
    ```
 
    > [!IMPORTANT]
@@ -265,9 +265,9 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
 
-4. Add the ProofMarket (proxy) address of the newly deployed contract to the `deployment.toml` file.
+4. Add the BoundlessMarket (proxy) address of the newly deployed contract to the `deployment.toml` file.
 
-   Load the deployed ProofMarket (proxy) address into the environment:
+   Load the deployed BoundlessMarket (proxy) address into the environment:
 
    ```zsh
    export PROOF_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
@@ -292,7 +292,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
    ```zsh
    PROOF_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
-   bash contracts/scripts/manage UpgradeProofMarket
+   bash contracts/scripts/manage UpgradeBoundlessMarket
    ```
 
    > [!IMPORTANT]
@@ -307,7 +307,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
 
-4. Load the upgraded ProofMarket (proxy) address into the environment:
+4. Load the upgraded BoundlessMarket (proxy) address into the environment:
 
    ```zsh
    export PROOF_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)

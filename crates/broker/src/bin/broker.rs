@@ -5,7 +5,7 @@
 use alloy::providers::{network::EthereumWallet, ProviderBuilder, WalletProvider};
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
-use boundless_market::contracts::proof_market::ProofMarketService;
+use boundless_market::contracts::proof_market::BoundlessMarketService;
 use broker::{Args, Broker};
 use clap::Parser;
 
@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
-        let proof_market = ProofMarketService::new(
+        let proof_market = BoundlessMarketService::new(
             args.proof_market_addr,
             provider.clone(),
             provider.default_signer_address(),

@@ -13,7 +13,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use boundless_market::{
-    contracts::IProofMarket,
+    contracts::IBoundlessMarket,
     order_stream_client::{AuthMsg, ErrMsg, ORDER_WS_PATH},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -107,13 +107,13 @@ pub(crate) async fn websocket_handler(
     // - The balance could change between the check and the connection lifetime
     // - It opens up to an unbounded number of RPC requests to the Ethereum node
     // As such, a more robust solution would be to use a separate task that keeps track of the balances
-    // by subscribing to events from the ProofMarket contract. Then, the WebSocket connection would be allowed
+    // by subscribing to events from the BoundlessMarket contract. Then, the WebSocket connection would be allowed
     // if the balance is above the threshold and the connection would be dropped if the balance falls below the threshold.
 
     // Skip balance checks if the client_address is on a allow list
     if !state.config.bypass_addrs.contains(&client_addr) {
         let proof_market =
-            IProofMarket::new(state.config.market_address, state.rpc_provider.clone());
+            IBoundlessMarket::new(state.config.market_address, state.rpc_provider.clone());
         let balance = proof_market.balanceOf(client_addr).call().await.unwrap()._0;
         if balance < state.config.min_balance {
             return Ok((

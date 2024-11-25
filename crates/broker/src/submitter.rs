@@ -14,7 +14,8 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::{
-    encode_seal, proof_market::ProofMarketService, set_verifier::SetVerifierService, Fulfillment,
+    encode_seal, proof_market::BoundlessMarketService, set_verifier::SetVerifierService,
+    Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_zkvm::{
@@ -34,7 +35,7 @@ use crate::{
 pub struct Submitter<T, P> {
     db: DbObj,
     prover: ProverObj,
-    market: ProofMarketService<T, Arc<P>>,
+    market: BoundlessMarketService<T, Arc<P>>,
     set_verifier: SetVerifierService<T, Arc<P>>,
     set_builder_img_id: Digest,
     prover_address: Address,
@@ -61,7 +62,7 @@ where
             config.batcher.txn_timeout
         };
 
-        let mut market = ProofMarketService::new(
+        let mut market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -415,11 +416,11 @@ mod tests {
         .await
         .unwrap();
 
-        let market = ProofMarketService::new(market_address, provider.clone(), prover_addr);
+        let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
         market.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let market_customer =
-            ProofMarketService::new(market_address, customer_provider.clone(), customer_addr);
+            BoundlessMarketService::new(market_address, customer_provider.clone(), customer_addr);
         market_customer.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());

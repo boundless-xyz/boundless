@@ -54,7 +54,7 @@ struct Args {
     /// Address of the SetVerifier contract.
     #[clap(short, long, env)]
     set_verifier_address: Address,
-    /// Address of the ProofMarket contract.
+    /// Address of the BoundlessMarket contract.
     #[clap(short, long, env)]
     proof_market_address: Address,
 }

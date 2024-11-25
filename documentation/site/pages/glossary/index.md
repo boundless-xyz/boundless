@@ -62,7 +62,7 @@ An order - also called a request - placed on the [Boundless Market](#boundless-m
 - [Guest Program][r0-term-guest-program] inputs
 - An Offer specifying remuneration for successful order fulfillment
 
-See `contracts/src/IProofMarket.sol` for more details.
+See `contracts/src/IBoundlessMarket.sol` for more details.
 
 ## Requestor
 

@@ -61,7 +61,7 @@ pub enum OrderError {
 
 /// Order struct, containing a ProvingRequest and its Signature
 ///
-/// The contents of this struct match the calldata of the `submitOrder` function in the `ProofMarket` contract.
+/// The contents of this struct match the calldata of the `submitOrder` function in the `BoundlessMarket` contract.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Order {
     /// Order request

@@ -107,7 +107,7 @@ pub struct Args {
     #[clap(long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
 
-    /// Address of the ProofMarket contract
+    /// Address of the BoundlessMarket contract
     #[clap(long, env)]
     proof_market_address: Address,
 
@@ -137,7 +137,7 @@ pub struct Args {
 pub struct Config {
     /// RPC URL for the Ethereum node
     pub rpc_url: Url,
-    /// Address of the ProofMarket contract
+    /// Address of the BoundlessMarket contract
     pub market_address: Address,
     /// Minimum balance required to connect to the WebSocket
     pub min_balance: U256,

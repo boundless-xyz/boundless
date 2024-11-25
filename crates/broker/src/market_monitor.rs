@@ -13,7 +13,9 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::{proof_market::ProofMarketService, IProofMarket, ProofStatus};
+use boundless_market::contracts::{
+    proof_market::BoundlessMarketService, IBoundlessMarket, ProofStatus,
+};
 use futures_util::StreamExt;
 
 use crate::{
@@ -79,8 +81,8 @@ where
 
         tracing::info!("Searching for existing open orders: {start_block} - {current_block}");
 
-        let market = ProofMarketService::new(market_addr, provider.clone(), Address::ZERO);
-        // let event: Event<_, _, IProofMarket::RequestSubmitted, _> = Event::new(
+        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        // let event: Event<_, _, IBoundlessMarket::RequestSubmitted, _> = Event::new(
         //     provider.clone(),
         //     Filter::new().from_block(start_block).address(market_addr),
         // );
@@ -88,7 +90,7 @@ where
         // let logs = event.query().await.context("Failed to query RequestSubmitted events")?;
 
         let filter = Filter::new()
-            .event_signature(IProofMarket::RequestSubmitted::SIGNATURE_HASH)
+            .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(start_block)
             .address(market_addr);
 
@@ -97,7 +99,7 @@ where
         // interface would randomly fail for me?
         let logs = provider.get_logs(&filter).await?;
         let decoded_logs = logs.iter().filter_map(|log| {
-            match log.log_decode::<IProofMarket::RequestSubmitted>() {
+            match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {
                 Ok(res) => Some(res),
                 Err(err) => {
                     tracing::error!("Failed to decode RequestSubmitted log: {err:?}");
@@ -162,7 +164,7 @@ where
     async fn monitor_orders(market_addr: Address, provider: Arc<P>, db: DbObj) -> Result<()> {
         let chain_id = provider.get_chain_id().await?;
 
-        let market = ProofMarketService::new(market_addr, provider, Address::ZERO);
+        let market = BoundlessMarketService::new(market_addr, provider, Address::ZERO);
         // TODO: RPC providers can drop filters over time or flush them
         // we should try and move this to a subscription filter if we have issue with the RPC
         // dropping filters
@@ -263,8 +265,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        proof_market::ProofMarketService, test_utils::deploy_proof_market, Input, InputType, Offer,
-        Predicate, PredicateType, ProvingRequest, Requirements,
+        proof_market::BoundlessMarketService, test_utils::deploy_proof_market, Input, InputType,
+        Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
 
     #[tokio::test]
@@ -280,7 +282,7 @@ mod tests {
             deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
                 .await
                 .unwrap();
-        let proof_market = ProofMarketService::new(
+        let proof_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -311,7 +313,7 @@ mod tests {
 
         proof_market.submit_request(&proving_request, &signer).await.unwrap();
 
-        // let event: Event<_, _, IProofMarket::RequestSubmitted, _> = Event::new(&provider,
+        // let event: Event<_, _, IBoundlessMarket::RequestSubmitted, _> = Event::new(&provider,
         // Filter::new());
 
         // tx_receipt.inner.logs().into_iter().map(|log| Ok((decode_log(&log)?, log))).collect()

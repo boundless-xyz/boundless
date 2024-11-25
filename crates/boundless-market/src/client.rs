@@ -27,7 +27,7 @@ use url::Url;
 
 use crate::{
     contracts::{
-        proof_market::{MarketError, ProofMarketService},
+        proof_market::{BoundlessMarketService, MarketError},
         set_verifier::SetVerifierService,
         ProvingRequest, RequestError,
     },
@@ -68,7 +68,7 @@ pub enum ClientError {
 #[derive(Clone)]
 /// Client for interacting with the boundless market
 pub struct Client<T, P, S> {
-    pub proof_market: ProofMarketService<T, P>,
+    pub proof_market: BoundlessMarketService<T, P>,
     pub set_verifier: SetVerifierService<T, P>,
     pub signer: LocalSigner<SigningKey>,
     pub storage_provider: S,
@@ -83,7 +83,7 @@ where
 {
     /// Create a new client
     pub fn new(
-        proof_market: ProofMarketService<T, P>,
+        proof_market: BoundlessMarketService<T, P>,
         set_verifier: SetVerifierService<T, P>,
         signer: LocalSigner<SigningKey>,
         storage_provider: S,
@@ -249,7 +249,8 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let provider =
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
-        let proof_market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
+        let proof_market =
+            BoundlessMarketService::new(proof_market_address, provider.clone(), caller);
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
         let storage_provider = storage_provider_from_env().await?;
@@ -287,7 +288,8 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let provider =
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
-        let proof_market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
+        let proof_market =
+            BoundlessMarketService::new(proof_market_address, provider.clone(), caller);
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;

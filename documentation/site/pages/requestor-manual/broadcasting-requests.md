@@ -5,7 +5,7 @@ description: This guide covers the broadcasting of proof requests to the Boundle
 
 # Broadcast a Proof Request
 
-Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `ProofMarketService` struct.
+Programmatic interaction with the market is accomplished through `boundless-market` crate, using the `BoundlessMarketService` struct.
 An example is provided in the `examples/counter` directory of the [Boundless monorepo][boundless-repo], and the [Boundless Foundry template][boundless-foundry-template-repo] for building a stand-alone application to interact with the Market
 
 You can also interact with the market via a market client CLI.
@@ -29,7 +29,7 @@ Notably, Developer Mode will:
 - Use a storage provider that interacts with temporary files.
 - Use `anvil` default dev wallets to deploy and interact with contracts.
 
-See the [CLI usage](#cli-usage) section or `examples/counter`'s `ProofMarketService` for further instructions.
+See the [CLI usage](#cli-usage) section or `examples/counter`'s `BoundlessMarketService` for further instructions.
 
 ## Public Networks
 

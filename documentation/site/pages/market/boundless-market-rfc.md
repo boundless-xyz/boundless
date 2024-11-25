@@ -181,10 +181,10 @@ struct AssessorJournal {
 
 ### Market Contract Interface
 
-> See `contracts/src/IProofMarket.sol` for the present implementation.
+> See `contracts/src/IBoundlessMarket.sol` for the present implementation.
 
-```solidity [IProofMarket.sol]
-interface IProofMarket {
+```solidity [IBoundlessMarket.sol]
+interface IBoundlessMarket {
     /// Event logged when a new proving request is submitted by a client.
     event RequestSubmitted(ProvingRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
@@ -267,7 +267,7 @@ interface IProofMarket {
     /// Note that this can differ from the address of the prover that locked the
     /// request. When they differ, the locked-in prover is the one that received payment.
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
-    /// @notice Fulfills a batch of locked requests. See IProofMarket.fulfill for more information.
+    /// @notice Fulfills a batch of locked requests. See IBoundlessMarket.fulfill for more information.
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
     /// @notice Delivers a proof satisfying a referenced request, without modifying contract state.
@@ -282,7 +282,7 @@ interface IProofMarket {
     /// Note that this can differ from the address of the prover that locked the
     /// request.
     function deliver(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
-    /// @notice Delivers a batch of proofs. See IProofMarket.deliver for more information.
+    /// @notice Delivers a batch of proofs. See IBoundlessMarket.deliver for more information.
     function deliverBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
     /// @notice Checks the validity of the request and then writes the current auction price to
@@ -293,7 +293,7 @@ interface IProofMarket {
     /// avoiding the gas costs of the lock transaction.
     function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) external;
 
-    /// @notice A combined call to `IProofMarket.priceRequest` and `IProofMarket.fulfillBatch`.
+    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     function priceAndFulfillBatch(

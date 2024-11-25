@@ -31,7 +31,7 @@ pub use risc0_ethereum_contracts::encode_seal;
 #[cfg(not(target_os = "zkvm"))]
 const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 
-// proof_market.rs is a copy of IProofMarket.sol with alloy derive statements added.
+// proof_market.rs is a copy of IBoundlessMarket.sol with alloy derive statements added.
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/proof_market.rs"));
 
@@ -370,7 +370,7 @@ alloy::sol!(
 
 use sha2::{Digest as _, Sha256};
 #[cfg(not(target_os = "zkvm"))]
-use IProofMarket::IProofMarketErrors;
+use IBoundlessMarket::IBoundlessMarketErrors;
 #[cfg(not(target_os = "zkvm"))]
 use IRiscZeroSetVerifier::IRiscZeroSetVerifierErrors;
 
@@ -397,8 +397,8 @@ pub enum TxnErr {
     #[error("SetVerifier error: {0:?}")]
     SetVerifierErr(IRiscZeroSetVerifierErrors),
 
-    #[error("ProofMarket Err: {0:?}")]
-    ProofMarketErr(IProofMarket::IProofMarketErrors),
+    #[error("BoundlessMarket Err: {0:?}")]
+    BoundlessMarketErr(IBoundlessMarket::IBoundlessMarketErrors),
 
     #[error("decoding err, missing data, code: {0} msg: {1}")]
     MissingData(i64, String),
@@ -430,8 +430,8 @@ impl From<ContractErr> for TxnErr {
                 };
 
                 // Trial deocde the error with each possible contract ABI. Right now, there are two.
-                if let Ok(decoded_error) = IProofMarketErrors::abi_decode(&data, true) {
-                    return Self::ProofMarketErr(decoded_error.into());
+                if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data, true) {
+                    return Self::BoundlessMarketErr(decoded_error.into());
                 }
                 match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
                     Ok(decoded_error) => Self::SetVerifierErr(decoded_error),
@@ -481,10 +481,10 @@ impl IRiscZeroSetVerifierErrors {
 }
 
 #[cfg(not(target_os = "zkvm"))]
-impl IProofMarketErrors {
+impl IBoundlessMarketErrors {
     pub fn decode_error(err: ContractErr) -> TxnErr {
         match decode_contract_err(err) {
-            Ok(res) => TxnErr::ProofMarketErr(res),
+            Ok(res) => TxnErr::BoundlessMarketErr(res),
             Err(decode_err) => decode_err,
         }
     }
@@ -493,7 +493,7 @@ impl IProofMarketErrors {
 #[cfg(not(target_os = "zkvm"))]
 pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
     EIP721DomainSaltless {
-        name: "IProofMarket".into(),
+        name: "IBoundlessMarket".into(),
         version: "1".into(),
         chain_id,
         verifying_contract: addr,
@@ -523,7 +523,9 @@ pub mod test_utils {
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
 
-    use crate::contracts::{proof_market::ProofMarketService, set_verifier::SetVerifierService};
+    use crate::contracts::{
+        proof_market::BoundlessMarketService, set_verifier::SetVerifierService,
+    };
 
     alloy::sol!(
         #![sol(rpc)]
@@ -539,8 +541,8 @@ pub mod test_utils {
 
     alloy::sol!(
         #![sol(rpc)]
-        ProofMarket,
-        "../../contracts/out/ProofMarket.sol/ProofMarket.json"
+        BoundlessMarket,
+        "../../contracts/out/BoundlessMarket.sol/BoundlessMarket.json"
     );
 
     alloy::sol!(
@@ -570,9 +572,9 @@ pub mod test_utils {
         pub prover_signer: PrivateKeySigner,
         pub customer_signer: PrivateKeySigner,
         pub prover_provider: ProviderWallet,
-        pub prover_market: ProofMarketService<BoxTransport, ProviderWallet>,
+        pub prover_market: BoundlessMarketService<BoxTransport, ProviderWallet>,
         pub customer_provider: ProviderWallet,
-        pub customer_market: ProofMarketService<BoxTransport, ProviderWallet>,
+        pub customer_market: BoundlessMarketService<BoxTransport, ProviderWallet>,
         pub set_verifier: SetVerifierService<BoxTransport, ProviderWallet>,
     }
 
@@ -606,7 +608,7 @@ pub mod test_utils {
         P: Provider<T, Ethereum> + 'static + Clone,
     {
         let deployer_address = deployer_signer.address();
-        let proof_market = ProofMarket::deploy(
+        let proof_market = BoundlessMarket::deploy(
             &deployer_provider,
             set_verifier,
             <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
@@ -614,7 +616,7 @@ pub mod test_utils {
         .await?;
 
         // Combine the function selector with the encoded parameters
-        let data = ProofMarket::new(Address::default(), &deployer_provider)
+        let data = BoundlessMarket::new(Address::default(), &deployer_provider)
             .initialize(deployer_address, String::new())
             .calldata()
             .clone();
@@ -624,9 +626,13 @@ pub mod test_utils {
             .await?;
 
         if let Some(prover) = allowed_prover {
-            ProofMarketService::new(proxy, deployer_provider.clone(), deployer_signer.address())
-                .add_prover_to_appnet_allowlist(prover)
-                .await?;
+            BoundlessMarketService::new(
+                proxy,
+                deployer_provider.clone(),
+                deployer_signer.address(),
+            )
+            .add_prover_to_appnet_allowlist(prover)
+            .await?;
         }
 
         Ok(proxy)
@@ -690,13 +696,13 @@ pub mod test_utils {
                 .await
                 .unwrap();
 
-            let prover_market = ProofMarketService::new(
+            let prover_market = BoundlessMarketService::new(
                 proof_market_addr,
                 prover_provider.clone(),
                 prover_signer.address(),
             );
 
-            let customer_market = ProofMarketService::new(
+            let customer_market = BoundlessMarketService::new(
                 proof_market_addr,
                 customer_provider.clone(),
                 customer_signer.address(),
@@ -710,7 +716,7 @@ pub mod test_utils {
 
             // Add the prover to the allowlist for lockin. Note that verifier_signer is the owner
             // of the contracts. This code will be removed after the appnet phase is over.
-            ProofMarketService::new(
+            BoundlessMarketService::new(
                 proof_market_addr,
                 verifier_provider.clone(),
                 verifier_signer.address(),

@@ -14,7 +14,7 @@ use alloy::{
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
     contracts::{
-        proof_market::ProofMarketService, set_verifier::SetVerifierService, InputType,
+        proof_market::BoundlessMarketService, set_verifier::SetVerifierService, InputType,
         ProvingRequest,
     },
     order_stream_client::Client as OrderStreamClient,
@@ -334,7 +334,7 @@ where
 
             Ok((img_id, elf_buf))
         } else {
-            let proof_market = ProofMarketService::new(
+            let proof_market = BoundlessMarketService::new(
                 self.args.proof_market_addr,
                 self.provider.clone(),
                 Address::ZERO,

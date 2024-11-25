@@ -12,7 +12,7 @@ import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 
-import {ProofMarket} from "../src/ProofMarket.sol";
+import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
 
 contract Deploy is Script, RiscZeroCheats {
@@ -35,7 +35,7 @@ contract Deploy is Script, RiscZeroCheats {
         vm.rememberKey(deployerKey);
 
         address proofMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
-        console2.log("ProofMarket Owner:", proofMarketOwner);
+        console2.log("BoundlessMarket Owner:", proofMarketOwner);
 
         // Read and log the chainID
         uint256 chainId = block.chainid;
@@ -102,12 +102,12 @@ contract Deploy is Script, RiscZeroCheats {
         }
 
         // Deploy the proof market
-        address newImplementation = address(new ProofMarket(setVerifier, assessorImageId));
-        console2.log("Deployed new ProofMarket implementation at", newImplementation);
+        address newImplementation = address(new BoundlessMarket(setVerifier, assessorImageId));
+        console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         proofMarketAddress = UnsafeUpgrades.deployUUPSProxy(
-            newImplementation, abi.encodeCall(ProofMarket.initialize, (proofMarketOwner, assessorGuestUrl))
+            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (proofMarketOwner, assessorGuestUrl))
         );
-        console2.log("Deployed ProofMarket (proxy) to", proofMarketAddress);
+        console2.log("Deployed BoundlessMarket (proxy) to", proofMarketAddress);
 
         vm.stopBroadcast();
     }

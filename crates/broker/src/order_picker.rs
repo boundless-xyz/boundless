@@ -14,7 +14,7 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::{proof_market::ProofMarketService, RequestError};
+use boundless_market::contracts::{proof_market::BoundlessMarketService, RequestError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -51,7 +51,7 @@ pub struct OrderPicker<T, P> {
     prover: ProverObj,
     provider: Arc<P>,
     block_time: u64,
-    market: ProofMarketService<T, Arc<P>>,
+    market: BoundlessMarketService<T, Arc<P>>,
 }
 
 impl<T, P> OrderPicker<T, P>
@@ -67,7 +67,7 @@ where
         market_addr: Address,
         provider: Arc<P>,
     ) -> Self {
-        let market = ProofMarketService::new(
+        let market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -454,7 +454,7 @@ mod tests {
             deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
                 .await
                 .unwrap();
-        let proof_market = ProofMarketService::new(
+        let proof_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -549,7 +549,7 @@ mod tests {
             deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
                 .await
                 .unwrap();
-        let proof_market = ProofMarketService::new(
+        let proof_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -645,7 +645,7 @@ mod tests {
             deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
                 .await
                 .unwrap();
-        let proof_market = ProofMarketService::new(
+        let proof_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -731,7 +731,7 @@ mod tests {
             deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
                 .await
                 .unwrap();
-        let proof_market = ProofMarketService::new(
+        let proof_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),

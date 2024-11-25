@@ -29,7 +29,7 @@ use url::Url;
 use boundless_market::{
     client::Client,
     contracts::{
-        proof_market::ProofMarketService, Input, InputType, Offer, Predicate, PredicateType,
+        proof_market::BoundlessMarketService, Input, InputType, Offer, Predicate, PredicateType,
         ProvingRequest, Requirements,
     },
     storage::{
@@ -221,7 +221,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
         .wallet(wallet)
         .on_http(args.rpc_url.clone());
     let mut proof_market =
-        ProofMarketService::new(args.proof_market_address, provider.clone(), caller);
+        BoundlessMarketService::new(args.proof_market_address, provider.clone(), caller);
     if let Some(tx_timeout) = args.tx_timeout {
         proof_market = proof_market.with_timeout(Duration::from_secs(tx_timeout));
     }

@@ -16,7 +16,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
-    proof_market::{MarketError, ProofMarketService},
+    proof_market::{BoundlessMarketService, MarketError},
     ProofStatus,
 };
 use std::{sync::Arc, time::Duration};
@@ -43,7 +43,7 @@ pub struct OrderMonitor<T, P> {
     provider: Arc<P>,
     block_time: u64,
     config: ConfigLock,
-    market: ProofMarketService<T, Arc<P>>,
+    market: BoundlessMarketService<T, Arc<P>>,
 }
 
 impl<T, P> OrderMonitor<T, P>
@@ -63,7 +63,7 @@ where
             config.batcher.txn_timeout
         };
 
-        let mut market = ProofMarketService::new(
+        let mut market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -280,7 +280,7 @@ mod tests {
             deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
                 .await
                 .unwrap();
-        let proof_market = ProofMarketService::new(
+        let proof_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -385,7 +385,7 @@ mod tests {
             deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
                 .await
                 .unwrap();
-        let proof_market = ProofMarketService::new(
+        let proof_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),

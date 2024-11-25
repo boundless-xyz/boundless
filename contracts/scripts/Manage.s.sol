@@ -11,7 +11,7 @@ import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
 import {RiscZeroVerifierEmergencyStop} from "risc0/RiscZeroVerifierEmergencyStop.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
-import {ProofMarket} from "../src/ProofMarket.sol";
+import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -84,11 +84,11 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
 
 /// @notice Deployment script for the Proof Market deployment.
 /// @dev Use the following environment variable to control the deployment:
-///     * PROOF_MARKET_OWNER owner of the ProofMarket contract
+///     * PROOF_MARKET_OWNER owner of the BoundlessMarket contract
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract DeployProofMarket is RiscZeroManagementScript {
+contract DeployBoundlessMarket is RiscZeroManagementScript {
     function run() external {
         address proofMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
         console2.log("proofMarketOwner:", proofMarketOwner);
@@ -110,27 +110,27 @@ contract DeployProofMarket is RiscZeroManagementScript {
 
         vm.broadcast(deployerAddress());
         // Deploy the proof market implementation
-        address newImplementation = address(new ProofMarket(IRiscZeroVerifier(router), assessorImageId));
-        console2.log("Deployed new ProofMarket implementation at", newImplementation);
+        address newImplementation = address(new BoundlessMarket(IRiscZeroVerifier(router), assessorImageId));
+        console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
 
         vm.broadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         // TODO(#108): Switch to using the Upgrades library.
         address proofMarketAddress = UnsafeUpgrades.deployUUPSProxy(
-            newImplementation, abi.encodeCall(ProofMarket.initialize, (proofMarketOwner, assessorGuestUrl))
+            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (proofMarketOwner, assessorGuestUrl))
         );
 
-        console2.log("Deployed ProofMarket (proxy) contract at", proofMarketAddress);
+        console2.log("Deployed BoundlessMarket (proxy) contract at", proofMarketAddress);
     }
 }
 
 /// @notice Deployment script for the Proof Market upgrade.
 /// @dev Use the following environment variable to control the deployment:
-///     * PROOF_MARKET_OWNER owner of the ProofMarket contract
+///     * PROOF_MARKET_OWNER owner of the BoundlessMarket contract
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract UpgradeProofMarket is RiscZeroManagementScript {
+contract UpgradeBoundlessMarket is RiscZeroManagementScript {
     function run() external {
         address proofMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
         console2.log("proofMarketOwner:", proofMarketOwner);
@@ -139,11 +139,11 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
         address proofMarketAddress = deploymentConfig.proofMarket;
-        require(proofMarketAddress != address(0), "ProofMarket (proxy) address must be set in config");
-        console2.log("Using ProofMarket (proxy) at address", proofMarketAddress);
+        require(proofMarketAddress != address(0), "BoundlessMarket (proxy) address must be set in config");
+        console2.log("Using BoundlessMarket (proxy) at address", proofMarketAddress);
 
         // Get the current assessor image ID and guest URL
-        ProofMarket market = ProofMarket(proofMarketAddress);
+        BoundlessMarket market = BoundlessMarket(proofMarketAddress);
         (bytes32 imageID, string memory guestUrl) = market.imageInfo();
 
         // Use the same verifier as the existing implementation.
@@ -153,8 +153,8 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         vm.startBroadcast(deployerAddress());
 
         // Deploy the proof market implementation
-        address newImplementation = address(new ProofMarket(verifier, assessorImageId));
-        console2.log("Deployed new ProofMarket implementation at", newImplementation);
+        address newImplementation = address(new BoundlessMarket(verifier, assessorImageId));
+        console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
 
         // Upgrade the proxy contract and update assessor image info if needed
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl;
@@ -163,7 +163,7 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
             UnsafeUpgrades.upgradeProxy(
                 proofMarketAddress,
                 newImplementation,
-                abi.encodeCall(ProofMarket.setImageUrl, (assessorGuestUrl)),
+                abi.encodeCall(BoundlessMarket.setImageUrl, (assessorGuestUrl)),
                 proofMarketOwner
             );
         } else {
@@ -172,6 +172,6 @@ contract UpgradeProofMarket is RiscZeroManagementScript {
         }
         vm.stopBroadcast();
 
-        console2.log("Upgraded ProofMarket (proxy) contract at", proofMarketAddress);
+        console2.log("Upgraded BoundlessMarket (proxy) contract at", proofMarketAddress);
     }
 }

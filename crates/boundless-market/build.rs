@@ -27,7 +27,7 @@ fn main() {
         .unwrap()
         .join("contracts")
         .join("src")
-        .join("IProofMarket.sol");
+        .join("IBoundlessMarket.sol");
 
     println!("cargo::rerun-if-changed={}", sol_iface_path.to_string_lossy());
 
@@ -39,7 +39,7 @@ fn main() {
     // skip the sol(rpc) insert if building for the zkvm
     let mut alloy_import = "alloy_sol_types";
     if target_os != "zkvm" {
-        let iface_pos = sol_contents.find("interface IProofMarket").unwrap();
+        let iface_pos = sol_contents.find("interface IBoundlessMarket").unwrap();
         sol_contents.insert_str(iface_pos, "#[sol(rpc)]\n");
         alloy_import = "alloy";
     }
