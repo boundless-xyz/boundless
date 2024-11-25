@@ -196,7 +196,7 @@ impl Client {
         }
     }
 
-    /// Submit a proving request to the order stream server
+    /// Submit a proof request to the order stream server
     pub async fn submit_request(&self, request: &ProofRequest) -> Result<Order> {
         let url = Url::parse(&format!("{}{ORDER_SUBMISSION_PATH}", self.base_url))?;
         let signature =

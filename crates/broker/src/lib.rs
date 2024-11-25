@@ -129,7 +129,7 @@ enum OrderStatus {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Order {
-    /// Proving request object
+    /// Proof request object
     request: ProofRequest,
     /// status of the order
     status: OrderStatus,

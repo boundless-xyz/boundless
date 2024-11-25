@@ -120,9 +120,9 @@ async fn run(
     tracing::info!("Uploaded input to {}", input_url);
 
     // Dry run the ECHO ELF with the input to get the journal and cycle count.
-    // This can be useful to estimate the cost of the proving request.
+    // This can be useful to estimate the cost of the poof request.
     // It can also be useful to ensure the guest can be executed correctly and we do not send into
-    // the market unprovable proving requests. If you have a different mechanism to get the expected
+    // the market unprovable proof requests. If you have a different mechanism to get the expected
     // journal and set a price, you can skip this step.
     let env = ExecutorEnv::builder().write_slice(&input).build()?;
     let session_info = default_executor().execute(env, ECHO_ELF)?;
@@ -134,7 +134,7 @@ async fn run(
         .div_ceil(1_000_000);
     let journal = session_info.journal;
 
-    // Create a proving request with the image, input, requirements and offer.
+    // Create a proof request with the image, input, requirements and offer.
     // The ELF (i.e. image) is specified by the image URL.
     // The input can be specified by an URL, as in this example, or can be posted on chain by using
     // the `with_inline` method with the input bytes.

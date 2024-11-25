@@ -58,9 +58,9 @@ enum Command {
         /// if not provided, defaults to the wallet address
         address: Option<Address>,
     },
-    /// Submit a proving request, constructed with the given offer, input, and image.
+    /// Submit a proof request, constructed with the given offer, input, and image.
     SubmitOffer(SubmitOfferArgs),
-    /// Submit a fully specified proving request
+    /// Submit a fully specified proof request
     SubmitRequest {
         /// Path to a YAML file containing the request
         yaml_request: String,
@@ -102,7 +102,7 @@ enum Command {
         /// The block number at which the request expires
         expires_at: Option<u64>,
     },
-    /// Execute a submitted proving request using the RISC Zero zkvm executor
+    /// Execute a submitted proof request using the RISC Zero zkVM executor
     Execute {
         /// The proof request identifier
         request_id: U256,
@@ -515,7 +515,7 @@ where
         client.submit_request(&request).await?
     };
     tracing::info!(
-        "Proving request ID 0x{request_id:x}, bidding start at block number {}",
+        "Request ID 0x{request_id:x}, bidding start at block number {}",
         request.offer.biddingStart
     );
 

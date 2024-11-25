@@ -192,7 +192,7 @@ mod tests {
     #[test_log::test]
     fn test_assessor_e2e_singleton() {
         let signer = PrivateKeySigner::random();
-        // 1. Mock and sign a proving request
+        // 1. Mock and sign a request
         let (request, signature) = setup_proving_request_and_signature(&signer);
 
         // 2. Prove the request via the application guest
@@ -208,7 +208,7 @@ mod tests {
     #[test_log::test]
     fn test_assessor_e2e_two_leaves() {
         let signer = PrivateKeySigner::random();
-        // 1. Mock and sign a proving request
+        // 1. Mock and sign a request
         let (request, signature) = setup_proving_request_and_signature(&signer);
 
         // 2. Prove the request via the application guest

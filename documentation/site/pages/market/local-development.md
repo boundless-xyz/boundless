@@ -89,7 +89,7 @@ source .env
 ```
 
 :::success[🎉 Congratulations!]
-You now have a local devnet service running in the background and a prover that will respond to proving requests.
+You now have a local devnet service running in the background and a prover that will respond to proof requests.
 :::
 
 ### Manually
@@ -155,7 +155,7 @@ RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE
 ::::
 
 :::success[🎉 Congratulations!]
-You now have a local devnet running and a prover that will respond to proving requests.
+You now have a local devnet running and a prover that will respond to proof requests.
 :::
 
 ### Submit Proof Requests

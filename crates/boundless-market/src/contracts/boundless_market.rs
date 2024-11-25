@@ -269,7 +269,7 @@ where
         Ok(balance)
     }
 
-    /// Submit a proving request such that it is publicly available for provers to evaluate and bid
+    /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on. Includes the specified value, which will be deposited to the account of msg.sender.
     pub async fn submit_request_with_value(
         &self,
@@ -281,7 +281,7 @@ where
         let chain_id = self.get_chain_id().await.context("failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)
-            .context("failed to sign proving request")?;
+            .context("failed to sign request")?;
         let call = self
             .instance
             .submitRequest(request.clone(), client_sig.as_bytes().into())
@@ -301,7 +301,7 @@ where
         Ok(U256::from(log.inner.data.request.id))
     }
 
-    /// Submit a proving request such that it is publicly available for provers to evaluate and bid
+    /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on. Deposits funds to the client account if there are not enough to cover the max price on
     /// the offer.
     pub async fn submit_request(
@@ -318,7 +318,7 @@ where
         self.submit_request_with_value(request, signer, value).await
     }
 
-    /// Lock the proving request to the prover, giving them exclusive rights to be paid to
+    /// Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
@@ -374,7 +374,7 @@ where
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
 
-    /// Lock the proving request to the prover, giving them exclusive rights to be paid to
+    /// Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
@@ -650,7 +650,7 @@ where
         Ok(res._0)
     }
 
-    /// Returns the [ProofStatus] of a proving request.
+    /// Returns the [ProofStatus] of a request.
     ///
     /// The `expires_at` parameter is the block number at which the request expires.
     pub async fn get_status(

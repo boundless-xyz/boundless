@@ -138,7 +138,7 @@ where
             .map_err(|_| anyhow!("Failed to upload input"))?)
     }
 
-    /// Submit a proving request.
+    /// Submit a proof request.
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
@@ -164,7 +164,7 @@ where
         Ok(self.boundless_market.submit_request(&request, &self.signer.clone()).await?)
     }
 
-    /// Submit a proving request offchain via the order stream service.
+    /// Submit a proof request offchain via the order stream service.
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.

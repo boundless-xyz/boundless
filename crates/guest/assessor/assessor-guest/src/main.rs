@@ -35,7 +35,7 @@ fn main() {
 
     let eip_domain_separator = input.domain.alloy_struct();
     // For each fill we
-    // - verify the proving request's signature
+    // - verify the request's signature
     // - evaluate the request's requirements
     // - verify the integrity of its claim
     // We additionally collect the request and claim digests.

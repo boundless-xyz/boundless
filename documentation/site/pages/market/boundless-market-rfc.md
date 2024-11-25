@@ -185,7 +185,7 @@ struct AssessorJournal {
 
 ```solidity [IBoundlessMarket.sol]
 interface IBoundlessMarket {
-    /// Event logged when a new proving request is submitted by a client.
+    /// Event logged when a new request is submitted by a client.
     event RequestSubmitted(ProofRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
@@ -240,14 +240,14 @@ interface IBoundlessMarket {
     /// @dev Submitting the transaction only broadcasting it, and is not a required step.
     function submitRequest(ProofRequest calldata request, bytes calldata clientSignature) external payable;
 
-    /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
+    /// @notice Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method should be called from the address of the prover.
     function lockin(ProofRequest calldata request, bytes calldata clientSignature) external;
 
-    /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
+    /// @notice Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
