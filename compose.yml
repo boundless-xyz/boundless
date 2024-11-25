@@ -153,7 +153,7 @@ services:
       RUST_LOG: ${RUST_LOG}
       RUST_BACKTRACE: 1
 
-    entrypoint: /app/agent -t gpu-prove
+    entrypoint: /app/agent -t prove
 
     deploy:
       resources:
@@ -180,7 +180,7 @@ services:
     <<: *gpu
     mem_limit: 2G
     cpu_count: 2
-    entrypoint: /app/agent -t gpu-join
+    entrypoint: /app/agent -t join
 
   snark_agent:
     image: agent
