@@ -13,7 +13,7 @@ struct DeploymentConfig {
     address admin;
     address router;
     address setVerifier;
-    address boundlessMarket;
+    address market;
     bytes32 setBuilderImageId;
     string setBuilderGuestUrl;
     bytes32 assessorImageId;
@@ -70,7 +70,7 @@ library ConfigParser {
         deploymentConfig.admin = stdToml.readAddress(config, string.concat(chain, ".admin"));
         deploymentConfig.router = stdToml.readAddress(config, string.concat(chain, ".router"));
         deploymentConfig.setVerifier = stdToml.readAddress(config, string.concat(chain, ".set-verifier"));
-        deploymentConfig.boundlessMarket = stdToml.readAddress(config, string.concat(chain, ".market"));
+        deploymentConfig.market = stdToml.readAddress(config, string.concat(chain, ".market"));
         deploymentConfig.setBuilderImageId = stdToml.readBytes32(config, string.concat(chain, ".set-builder-image-id"));
         deploymentConfig.setBuilderGuestUrl = stdToml.readString(config, string.concat(chain, ".set-builder-guest-url"));
         deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));

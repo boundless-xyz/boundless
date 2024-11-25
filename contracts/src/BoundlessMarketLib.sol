@@ -43,15 +43,15 @@ library BoundlessMarketLib {
         "Offer(uint256 minPrice,uint256 maxPrice,uint64 biddingStart,uint32 rampUpPeriod,uint32 timeout,uint256 lockinStake)";
     bytes32 constant OFFER_TYPEHASH = keccak256(abi.encodePacked(OFFER_TYPE));
 
-    string constant PROVINGREQUEST_TYPE =
+    string constant PROOF_REQUEST_TYPE =
         "ProofRequest(uint256 id,Requirements requirements,string imageUrl,Input input,Offer offer)";
-    bytes32 constant PROVINGREQUEST_TYPEHASH =
-        keccak256(abi.encodePacked(PROVINGREQUEST_TYPE, INPUT_TYPE, OFFER_TYPE, PREDICATE_TYPE, REQUIREMENTS_TYPE));
+    bytes32 constant PROOF_REQUEST_TYPEHASH =
+        keccak256(abi.encodePacked(PROOF_REQUEST_TYPE, INPUT_TYPE, OFFER_TYPE, PREDICATE_TYPE, REQUIREMENTS_TYPE));
 
     function eip712Digest(ProofRequest memory request) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                BoundlessMarketLib.PROVINGREQUEST_TYPEHASH,
+                BoundlessMarketLib.PROOF_REQUEST_TYPEHASH,
                 request.id,
                 eip712Digest(request.requirements),
                 keccak256(bytes(request.imageUrl)),

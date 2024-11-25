@@ -90,8 +90,8 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
 contract DeployBoundlessMarket is RiscZeroManagementScript {
     function run() external {
-        address boundlessMarketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
-        console2.log("boundlessMarketOwner:", boundlessMarketOwner);
+        address marketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
+        console2.log("marketOwner:", marketOwner);
 
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -116,11 +116,11 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         vm.broadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         // TODO(#108): Switch to using the Upgrades library.
-        address boundlessMarketAddress = UnsafeUpgrades.deployUUPSProxy(
-            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
+        address marketAddress = UnsafeUpgrades.deployUUPSProxy(
+            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl))
         );
 
-        console2.log("Deployed BoundlessMarket (proxy) contract at", boundlessMarketAddress);
+        console2.log("Deployed BoundlessMarket (proxy) contract at", marketAddress);
     }
 }
 
@@ -132,18 +132,18 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
 contract UpgradeBoundlessMarket is RiscZeroManagementScript {
     function run() external {
-        address boundlessMarketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
-        console2.log("boundlessMarketOwner:", boundlessMarketOwner);
+        address marketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
+        console2.log("marketOwner:", marketOwner);
 
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
-        address boundlessMarketAddress = deploymentConfig.boundlessMarket;
-        require(boundlessMarketAddress != address(0), "BoundlessMarket (proxy) address must be set in config");
-        console2.log("Using BoundlessMarket (proxy) at address", boundlessMarketAddress);
+        address marketAddress = deploymentConfig.market;
+        require(marketAddress != address(0), "BoundlessMarket (proxy) address must be set in config");
+        console2.log("Using BoundlessMarket (proxy) at address", marketAddress);
 
         // Get the current assessor image ID and guest URL
-        BoundlessMarket market = BoundlessMarket(boundlessMarketAddress);
+        BoundlessMarket market = BoundlessMarket(marketAddress);
         (bytes32 imageID, string memory guestUrl) = market.imageInfo();
 
         // Use the same verifier as the existing implementation.
@@ -161,17 +161,17 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         if (assessorImageId != imageID || keccak256(bytes(assessorGuestUrl)) == keccak256(bytes(guestUrl))) {
             // TODO(#108): Switch to using the Upgrades library.
             UnsafeUpgrades.upgradeProxy(
-                boundlessMarketAddress,
+                marketAddress,
                 newImplementation,
                 abi.encodeCall(BoundlessMarket.setImageUrl, (assessorGuestUrl)),
-                boundlessMarketOwner
+                marketOwner
             );
         } else {
             // TODO(#108): Switch to using the Upgrades library.
-            UnsafeUpgrades.upgradeProxy(boundlessMarketAddress, newImplementation, "", boundlessMarketOwner);
+            UnsafeUpgrades.upgradeProxy(marketAddress, newImplementation, "", marketOwner);
         }
         vm.stopBroadcast();
 
-        console2.log("Upgraded BoundlessMarket (proxy) contract at", boundlessMarketAddress);
+        console2.log("Upgraded BoundlessMarket (proxy) contract at", marketAddress);
     }
 }
