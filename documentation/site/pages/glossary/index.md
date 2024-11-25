@@ -20,8 +20,6 @@ Further improving efficiency of inclusion proofs on-chain, this process builds a
 
 A coordination and clearing mechanism to that connects those requesting proofs generation, along with a commitment of payment, with and those able to fulfill with proof generation and receive payment.
 
-In the initial 0th version, the Market is facilitated on-chain where one is \[deployed]\[page-deployments], but it is expected to evolve into more efficient off-chain mechanisms in future versions.
-
 > See the [Market Section][page-boundless-market] for more details.
 
 ## Bento
@@ -48,13 +46,13 @@ This allows one to:
 
 ## Prover
 
-The market participant that fulfills [proof orders](#proof-order).
+The market participant that fulfills [proof request](#proof-request).
 
-## Proof Order
+## Proof Request
 
 <!-- TODO https://linear.app/risczero/issue/BM-201/replace-proof-request-with-order -->
 
-An order - also called a request - placed on the [Boundless Market](#boundless-market) to that includes:
+An request - also called a order - placed on the [Boundless Market](#boundless-market) to that includes:
 
 - A unique ID for the request on the Market
 - Requirements of the delivered proof for a this order to be fulfilled, including the [Image ID][r0-term-image-id]
