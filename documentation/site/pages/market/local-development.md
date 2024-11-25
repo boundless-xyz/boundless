@@ -127,7 +127,7 @@ source .env
 DEPLOYER_PRIVATE_KEY=$PRIVATE_KEY \
 CHAIN_KEY=anvil \
 RISC0_DEV_MODE=$RISC0_DEV_MODE \
-PROOF_MARKET_OWNER=$PUBLIC_KEY \
+BOUNDLESS_MARKET_OWNER=$PUBLIC_KEY \
 forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
 ```
 
@@ -149,7 +149,7 @@ The Broker needs to have funds deposited on the Boundless market contract to cov
 Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
 ```sh [Terminal]
-RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
+RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${BOUNDLESS_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
 ```
 
 ::::

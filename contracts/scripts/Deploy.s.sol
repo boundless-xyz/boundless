@@ -34,7 +34,7 @@ contract Deploy is Script, RiscZeroCheats {
         require(deployerKey != 0, "No deployer key provided. Please set the env var DEPLOYER_PRIVATE_KEY.");
         vm.rememberKey(deployerKey);
 
-        address boundlessMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
+        address boundlessMarketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
         console2.log("BoundlessMarket Owner:", boundlessMarketOwner);
 
         // Read and log the chainID

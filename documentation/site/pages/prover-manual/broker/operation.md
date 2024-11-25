@@ -44,14 +44,14 @@ The following process will guide you through setting up a new wallet and funding
 
 ::::steps
 
-##### Set the environment variables `PRIVATE_KEY`, `SET_VERIFIER_ADDR`,`PROOF_MARKET_ADDR` in `.env-compose`
+##### Set the environment variables `PRIVATE_KEY`, `SET_VERIFIER_ADDR`,`BOUNDLESS_MARKET_ADDR` in `.env-compose`
 
 ```sh [Terminal]
 # Prover node configs
 ....
 PRIVATE_KEY=0xYOUR_TEST_WALLET_PRIVATE_KEY_HERE
 ....
-PROOF_MARKET_ADDR=0x261D8c5e9742e6f7f1076Fa1F560894524e19cad # This is the address of the market contract on the target chain.
+BOUNDLESS_MARKET_ADDR=0x261D8c5e9742e6f7f1076Fa1F560894524e19cad # This is the address of the market contract on the target chain.
 ....
 RPC_URL="https://rpc.sepolia.org" # This is the RPC URL of the target chain.
 ....

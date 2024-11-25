@@ -84,13 +84,13 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
 
 /// @notice Deployment script for the market deployment.
 /// @dev Use the following environment variable to control the deployment:
-///     * PROOF_MARKET_OWNER owner of the BoundlessMarket contract
+///     * BOUNDLESS_MARKET_OWNER owner of the BoundlessMarket contract
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
 contract DeployBoundlessMarket is RiscZeroManagementScript {
     function run() external {
-        address boundlessMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
+        address boundlessMarketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
         console2.log("boundlessMarketOwner:", boundlessMarketOwner);
 
         // Load the config
@@ -126,13 +126,13 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
 
 /// @notice Deployment script for the market contract upgrade.
 /// @dev Use the following environment variable to control the deployment:
-///     * PROOF_MARKET_OWNER owner of the BoundlessMarket contract
+///     * BOUNDLESS_MARKET_OWNER owner of the BoundlessMarket contract
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
 contract UpgradeBoundlessMarket is RiscZeroManagementScript {
     function run() external {
-        address boundlessMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
+        address boundlessMarketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
         console2.log("boundlessMarketOwner:", boundlessMarketOwner);
 
         // Load the config

@@ -226,7 +226,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
     /// - PRIVATE_KEY: The private key of the wallet
     /// - RPC_URL: The URL of the RPC server
     /// - ORDER_STREAM_URL: The URL of the order stream server
-    /// - PROOF_MARKET_ADDRESS: The address of the market contract
+    /// - BOUNDLESS_MARKET_ADDRESS: The address of the market contract
     /// - SET_VERIFIER_ADDRESS: The address of the set verifier contract
     pub async fn from_env() -> Result<Self, ClientError> {
         let private_key_str = env::var("private_key").context("private_key not set")?;
@@ -235,9 +235,9 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let rpc_url_str = env::var("RPC_URL").context("RPC_URL not set")?;
         let rpc_url = Url::parse(&rpc_url_str).context("Invalid RPC_URL")?;
         let boundless_market_address_str =
-            env::var("PROOF_MARKET_ADDRESS").context("PROOF_MARKET_ADDRESS not set")?;
+            env::var("BOUNDLESS_MARKET_ADDRESS").context("BOUNDLESS_MARKET_ADDRESS not set")?;
         let boundless_market_address = Address::from_str(&boundless_market_address_str)
-            .context("Invalid PROOF_MARKET_ADDRESS")?;
+            .context("Invalid BOUNDLESS_MARKET_ADDRESS")?;
         let set_verifier_address_str =
             env::var("SET_VERIFIER_ADDRESS").context("SET_VERIFIER_ADDRESS not set")?;
         let set_verifier_address =

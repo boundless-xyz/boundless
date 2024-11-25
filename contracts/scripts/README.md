@@ -246,7 +246,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 2. Dry run deployment of the market implementation and proxy:
 
    ```zsh
-   PROOF_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
+   BOUNDLESS_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
    bash contracts/scripts/manage DeployBoundlessMarket
    ```
 
@@ -270,14 +270,14 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    Load the deployed BoundlessMarket (proxy) address into the environment:
 
    ```zsh
-   export PROOF_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
+   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
    ```
 
 5. Test the deployment.
 
    ```bash
    cast call --rpc-url ${RPC_URL:?} \
-       ${PROOF_MARKET:?} \
+       ${BOUNDLESS_MARKET:?} \
        'imageInfo()(bytes32,string)'
    ```
 
@@ -291,7 +291,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 2. Dry run the upgrade of the market implementation and proxy:
 
    ```zsh
-   PROOF_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
+   BOUNDLESS_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
    bash contracts/scripts/manage UpgradeBoundlessMarket
    ```
 
@@ -310,14 +310,14 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 4. Load the upgraded BoundlessMarket (proxy) address into the environment:
 
    ```zsh
-   export PROOF_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
+   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
    ```
 
 5. Test the deployment.
 
    ```bash
    cast call --rpc-url ${RPC_URL:?} \
-       ${PROOF_MARKET:?} \
+       ${BOUNDLESS_MARKET:?} \
        'imageInfo()(bytes32,string)'
    ```
 
