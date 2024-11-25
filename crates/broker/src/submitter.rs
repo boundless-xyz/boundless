@@ -9,6 +9,7 @@ use alloy::{
     network::Ethereum,
     primitives::{Address, B256, U256},
     providers::{Provider, WalletProvider},
+    sol_types::SolStruct,
     transports::Transport,
 };
 use anyhow::{bail, Context, Result};
@@ -116,7 +117,7 @@ where
         for order_id in batch.orders.iter() {
             tracing::info!("Submitting order {order_id:x}");
 
-            let (order_proof_id, order_img_id, order_path) = match self
+            let (order_request, order_proof_id, order_img_id, order_path) = match self
                 .db
                 .get_submission_order(*order_id)
                 .await
@@ -181,8 +182,11 @@ where
                 }
             };
 
+            let request_digest = order_request
+                .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
             fulfillments.push(Fulfillment {
                 id: *order_id,
+                requestDigest: request_digest,
                 imageId: order_img_id,
                 journal: order_journal.into(),
                 seal: seal.into(),

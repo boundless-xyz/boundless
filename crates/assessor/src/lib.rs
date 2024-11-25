@@ -22,7 +22,7 @@ pub struct Fulfillment {
 
 impl Fulfillment {
     // TODO: Change this to use a thiserror error type.
-    pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<()> {
+    pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32]> {
         let hash = self.request.eip712_signing_hash(domain);
         let signature = Signature::try_from(self.signature.as_slice())?;
         // NOTE: This could be optimized by accepting the public key as input, checking it against
@@ -33,7 +33,7 @@ impl Fulfillment {
         if recovered != self.request.client_address()? {
             bail!("Invalid signature: mismatched addr {recovered} - {client_addr}");
         }
-        Ok(())
+        Ok(hash.into())
     }
     pub fn evaluate_requirements(&self) -> Result<()> {
         if !self.request.requirements.predicate.eval(&self.journal) {

@@ -14,7 +14,7 @@ use sqlx::{
 };
 use thiserror::Error;
 
-use crate::{Batch, BatchStatus, Node, Order, OrderStatus};
+use crate::{Batch, BatchStatus, Node, Order, OrderStatus, ProvingRequest};
 
 #[derive(Error, Debug)]
 pub enum DbError {
@@ -68,7 +68,10 @@ pub trait BrokerDb {
     async fn add_order(&self, id: U256, order: Order) -> Result<Option<Order>, DbError>;
     async fn order_exists(&self, id: U256) -> Result<bool, DbError>;
     async fn get_order(&self, id: U256) -> Result<Option<Order>, DbError>;
-    async fn get_submission_order(&self, id: U256) -> Result<(String, B256, Vec<Digest>), DbError>;
+    async fn get_submission_order(
+        &self,
+        id: U256,
+    ) -> Result<(ProvingRequest, String, B256, Vec<Digest>), DbError>;
     async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
@@ -217,10 +220,14 @@ impl BrokerDb for SqliteDb {
         Ok(order.map(|x| x.data))
     }
 
-    async fn get_submission_order(&self, id: U256) -> Result<(String, B256, Vec<Digest>), DbError> {
+    async fn get_submission_order(
+        &self,
+        id: U256,
+    ) -> Result<(ProvingRequest, String, B256, Vec<Digest>), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             Ok((
+                order.request.clone(),
                 order.proof_id.ok_or(DbError::MissingElm("proof_id"))?,
                 order.request.requirements.imageId,
                 order.path.ok_or(DbError::MissingElm("path"))?,
@@ -1008,9 +1015,10 @@ mod tests {
         db.add_order(id, order.clone()).await.unwrap();
 
         let submit_order = db.get_submission_order(id).await.unwrap();
-        assert_eq!(submit_order.0, order.proof_id.unwrap());
-        assert_eq!(submit_order.1, order.request.requirements.imageId);
-        assert_eq!(submit_order.2, order.path.unwrap());
+        assert_eq!(submit_order.0, order.request);
+        assert_eq!(submit_order.1, order.proof_id.unwrap());
+        assert_eq!(submit_order.2, order.request.requirements.imageId);
+        assert_eq!(submit_order.3, order.path.unwrap());
     }
 
     #[sqlx::test]

@@ -2,7 +2,11 @@
 //
 // All rights reserved.
 
-use std::{fmt::Debug, time::Duration};
+use std::{
+    fmt::Debug,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
 use alloy::{
     network::Ethereum,
@@ -17,7 +21,7 @@ use anyhow::{anyhow, Context, Result};
 use thiserror::Error;
 
 use super::{
-    request_id, Fulfillment,
+    eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IProofMarket::{self, IProofMarketInstance},
     Offer, ProofStatus, ProvingRequest, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
@@ -54,13 +58,30 @@ impl From<alloy::contract::Error> for MarketError {
 }
 
 /// Proof market service.
-#[derive(Clone)]
 pub struct ProofMarketService<T, P> {
     instance: IProofMarketInstance<T, P, Ethereum>,
+    // Chain ID with caching to ensure we fetch it at most once.
+    chain_id: AtomicU64,
     caller: Address,
     timeout: Duration,
     event_query_config: EventQueryConfig,
 }
+
+impl<T, P> Clone for ProofMarketService<T, P>
+where
+    IProofMarketInstance<T, P, Ethereum>: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            instance: self.instance.clone(),
+            chain_id: self.chain_id.load(Ordering::Relaxed).into(),
+            caller: self.caller.clone(),
+            timeout: self.timeout.clone(),
+            event_query_config: self.event_query_config.clone(),
+        }
+    }
+}
+
 /// Event query configuration.
 #[derive(Clone)]
 #[non_exhaustive]
@@ -139,6 +160,7 @@ where
 
         Self {
             instance,
+            chain_id: AtomicU64::new(0),
             caller,
             timeout: TXN_CONFIRM_TIMEOUT,
             event_query_config: EventQueryConfig::default(),
@@ -163,6 +185,13 @@ where
     /// Returns the caller address.
     pub fn caller(&self) -> Address {
         self.caller
+    }
+
+    /// Get the EIP-712 domain associated with the market contract.
+    ///
+    /// If not cached, this function will fetch the chain ID with an RPC call.
+    pub async fn eip712_domain(&self) -> Result<EIP721DomainSaltless, MarketError> {
+        Ok(eip712_domain(*self.instance.address(), self.get_chain_id().await?))
     }
 
     /// Add a prover to the lock-in allowlist, for use during the appnet phase of testing.
@@ -249,8 +278,7 @@ where
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
         tracing::debug!("calling submitRequest({:?})", request);
-        let provider = self.instance.provider();
-        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let chain_id = self.get_chain_id().await.context("failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)
             .context("failed to sign proving request")?;
@@ -939,6 +967,19 @@ where
 
         Ok((image_id, image_url))
     }
+
+    /// Get the chain ID.
+    ///
+    /// This function implements caching to save the chain ID after the first successful fetch.
+    pub async fn get_chain_id(&self) -> Result<u64, MarketError> {
+        let mut id = self.chain_id.load(Ordering::Relaxed);
+        if id != 0 {
+            return Ok(id);
+        }
+        id = self.instance.provider().get_chain_id().await.context("failed to get chain ID")?;
+        self.chain_id.store(id, Ordering::Relaxed);
+        Ok(id)
+    }
 }
 
 #[cfg(test)]
@@ -955,7 +996,7 @@ mod tests {
         node_bindings::Anvil,
         primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256},
         providers::{Provider, ProviderBuilder},
-        sol_types::{eip712_domain, Eip712Domain, SolValue},
+        sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_util::ECHO_ID;
@@ -1010,7 +1051,7 @@ mod tests {
     }
 
     fn mock_singleton(
-        request_id: U256,
+        request: &ProvingRequest,
         eip712_domain: Eip712Domain,
         prover: Address,
     ) -> (B256, Bytes, Fulfillment, Bytes) {
@@ -1019,9 +1060,8 @@ mod tests {
         let app_claim_digest = app_receipt_claim.digest();
 
         let assessor_journal = AssessorJournal {
-            requestIds: vec![request_id],
+            requestDigests: vec![request.eip712_signing_hash(&eip712_domain)],
             root: to_b256(app_claim_digest),
-            eip712DomainSeparator: eip712_domain.separator(),
             prover,
         };
         let assesor_receipt_claim =
@@ -1047,7 +1087,8 @@ mod tests {
         .unwrap();
 
         let fulfillment = Fulfillment {
-            id: request_id,
+            id: request.id,
+            requestDigest: request.eip712_signing_hash(&eip712_domain),
             imageId: to_b256(Digest::from(ECHO_ID)),
             journal: app_journal.bytes.into(),
             seal: set_inclusion_seal.into(),
@@ -1198,7 +1239,7 @@ mod tests {
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
+            mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -1259,7 +1300,7 @@ mod tests {
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
+            mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
         // publish the committed root + fulfillments
@@ -1310,7 +1351,7 @@ mod tests {
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
+            mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
 
@@ -1382,7 +1423,7 @@ mod tests {
             // mock the fulfillment, using the wrong prover address. Address::from(3) arbitrary.
             let some_other_address = Address::from(U160::from(3));
             let (root, set_verifier_seal, fulfillment, assessor_seal) =
-                mock_singleton(request_id, eip712_domain.clone(), some_other_address);
+                mock_singleton(&request, eip712_domain.clone(), some_other_address);
 
             // publish the committed root
             ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -1418,7 +1459,7 @@ mod tests {
 
         // mock the fulfillment, this time using the right prover address.
         let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(request_id, eip712_domain, ctx.prover_signer.address());
+            mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
