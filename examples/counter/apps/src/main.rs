@@ -56,7 +56,7 @@ struct Args {
     set_verifier_address: Address,
     /// Address of the BoundlessMarket contract.
     #[clap(short, long, env)]
-    proof_market_address: Address,
+    boundless_market_address: Address,
 }
 
 #[tokio::main]
@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
         args.private_key,
         args.rpc_url,
         args.order_stream_url,
-        args.proof_market_address,
+        args.boundless_market_address,
         args.set_verifier_address,
         args.counter_address,
     )
@@ -91,7 +91,7 @@ async fn run(
     private_key: PrivateKeySigner,
     rpc_url: Url,
     order_stream_url: Url,
-    proof_market_address: Address,
+    boundless_market_address: Address,
     set_verifier_address: Address,
     counter_address: Address,
 ) -> Result<()> {
@@ -99,7 +99,7 @@ async fn run(
     let boundless_client = Client::from_parts(
         private_key,
         rpc_url,
-        proof_market_address,
+        boundless_market_address,
         set_verifier_address,
         order_stream_url,
         storage_provider_from_env().await?,
@@ -278,7 +278,7 @@ mod tests {
                 ctx.customer_signer,
                 anvil.endpoint_url(),
                 url::Url::parse("http://order_stream_url").unwrap(),
-                ctx.proof_market_addr,
+                ctx.boundless_market_addr,
                 ctx.set_verifier_addr,
                 counter_address,
             ),

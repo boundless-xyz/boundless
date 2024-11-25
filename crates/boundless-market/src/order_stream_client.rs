@@ -174,7 +174,7 @@ pub struct Client {
     /// Signer for signing requests
     pub signer: LocalSigner<SigningKey>,
     /// Address of the proof market contract
-    pub proof_market_address: Address,
+    pub boundless_market_address: Address,
     /// Chain ID of the network
     pub chain_id: u64,
 }
@@ -184,19 +184,25 @@ impl Client {
     pub fn new(
         base_url: Url,
         signer: LocalSigner<SigningKey>,
-        proof_market_address: Address,
+        boundless_market_address: Address,
         chain_id: u64,
     ) -> Self {
-        Self { client: reqwest::Client::new(), base_url, signer, proof_market_address, chain_id }
+        Self {
+            client: reqwest::Client::new(),
+            base_url,
+            signer,
+            boundless_market_address,
+            chain_id,
+        }
     }
 
     /// Submit a proving request to the order stream server
     pub async fn submit_request(&self, request: &ProvingRequest) -> Result<Order> {
         let url = Url::parse(&format!("{}{ORDER_SUBMISSION_PATH}", self.base_url))?;
         let signature =
-            request.sign_request(&self.signer, self.proof_market_address, self.chain_id)?;
+            request.sign_request(&self.signer, self.boundless_market_address, self.chain_id)?;
         let order = Order { request: request.clone(), signature };
-        order.validate(self.proof_market_address, self.chain_id)?;
+        order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;
         let response = self
             .client

@@ -109,7 +109,7 @@ pub struct Args {
 
     /// Address of the BoundlessMarket contract
     #[clap(long, env)]
-    proof_market_address: Address,
+    boundless_market_address: Address,
 
     /// Minimum balance required to connect to the WebSocket
     #[clap(long, value_parser = parse_ether)]
@@ -155,7 +155,7 @@ impl From<&Args> for Config {
     fn from(args: &Args) -> Self {
         Self {
             rpc_url: args.rpc_url.clone(),
-            market_address: args.proof_market_address,
+            market_address: args.boundless_market_address,
             min_balance: args.min_balance,
             max_connections: args.max_connections,
             queue_size: args.queue_size,

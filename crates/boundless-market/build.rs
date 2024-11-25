@@ -49,7 +49,7 @@ fn main() {
 
     println!("cargo::rerun-if-env-changed=OUT_DIR");
     let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("proof_market.rs");
+    let dest_path = Path::new(&out_dir).join("boundless_market.rs");
     fs::write(
         dest_path,
         format!(

@@ -14,7 +14,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
-    proof_market::BoundlessMarketService, IBoundlessMarket, ProofStatus,
+    boundless_market::BoundlessMarketService, IBoundlessMarket, ProofStatus,
 };
 use futures_util::StreamExt;
 
@@ -265,8 +265,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        proof_market::BoundlessMarketService, test_utils::deploy_proof_market, Input, InputType,
-        Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
+        InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
 
     #[tokio::test]
@@ -278,11 +278,15 @@ mod tests {
             .wallet(EthereumWallet::from(signer.clone()))
             .on_http(anvil.endpoint().parse().unwrap());
 
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
-                .await
-                .unwrap();
-        let proof_market = BoundlessMarketService::new(
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            Address::ZERO,
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -291,7 +295,7 @@ mod tests {
         let min_price = 1;
         let max_price = 10;
         let proving_request = ProvingRequest {
-            id: proof_market.request_id_from_nonce().await.unwrap(),
+            id: boundless_market.request_id_from_nonce().await.unwrap(),
             requirements: Requirements {
                 imageId: B256::ZERO,
                 predicate: Predicate {
@@ -311,7 +315,7 @@ mod tests {
             },
         };
 
-        proof_market.submit_request(&proving_request, &signer).await.unwrap();
+        boundless_market.submit_request(&proving_request, &signer).await.unwrap();
 
         // let event: Event<_, _, IBoundlessMarket::RequestSubmitted, _> = Event::new(&provider,
         // Filter::new());

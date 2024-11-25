@@ -21,7 +21,7 @@ contract Deploy is Script, RiscZeroCheats {
 
     IRiscZeroVerifier verifier;
     RiscZeroSetVerifier setVerifier;
-    address proofMarketAddress;
+    address boundlessMarketAddress;
     bytes32 setBuilderImageId;
     bytes32 assessorImageId;
 
@@ -34,8 +34,8 @@ contract Deploy is Script, RiscZeroCheats {
         require(deployerKey != 0, "No deployer key provided. Please set the env var DEPLOYER_PRIVATE_KEY.");
         vm.rememberKey(deployerKey);
 
-        address proofMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
-        console2.log("BoundlessMarket Owner:", proofMarketOwner);
+        address boundlessMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
+        console2.log("BoundlessMarket Owner:", boundlessMarketOwner);
 
         // Read and log the chainID
         uint256 chainId = block.chainid;
@@ -104,10 +104,10 @@ contract Deploy is Script, RiscZeroCheats {
         // Deploy the proof market
         address newImplementation = address(new BoundlessMarket(setVerifier, assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
-        proofMarketAddress = UnsafeUpgrades.deployUUPSProxy(
-            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (proofMarketOwner, assessorGuestUrl))
+        boundlessMarketAddress = UnsafeUpgrades.deployUUPSProxy(
+            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
         );
-        console2.log("Deployed BoundlessMarket (proxy) to", proofMarketAddress);
+        console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
 
         vm.stopBroadcast();
     }

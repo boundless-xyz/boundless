@@ -14,7 +14,7 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::{
-    encode_seal, proof_market::BoundlessMarketService, set_verifier::SetVerifierService,
+    boundless_market::BoundlessMarketService, encode_seal, set_verifier::SetVerifierService,
     Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
@@ -367,7 +367,7 @@ mod tests {
     };
     use assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
-        test_utils::{deploy_proof_market, MockVerifier, SetVerifier},
+        test_utils::{deploy_boundless_market, MockVerifier, SetVerifier},
         Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
     };
     use chrono::Utc;
@@ -407,7 +407,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let market_address = deploy_proof_market(
+        let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
             *set_verifier.address(),

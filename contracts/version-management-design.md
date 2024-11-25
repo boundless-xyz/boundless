@@ -46,11 +46,11 @@ flowchart LR
         marketProxy["BoundlessMarket [proxy]"]
     end
     subgraph BoundlessMarket["Proof market implementations"]
-        proofMarketv1["BoundlessMarket [v1]"]
-        proofMarketv2["BoundlessMarket [v2]"]
+        boundlessMarketv1["BoundlessMarket [v1]"]
+        boundlessMarketv2["BoundlessMarket [v2]"]
     end
 
-    marketProxy -- calls --> proofMarketv2
+    marketProxy -- calls --> boundlessMarketv2
   end
   timelock[TimelockController]
   multisig["RISC Zero Multisig"]
@@ -61,7 +61,7 @@ flowchart LR
   multisig -- upgrade --> proxy
   setv1 -- calls --> router
   setv2 -- calls --> router
-  proofMarketv2 -- calls --> router
+  boundlessMarketv2 -- calls --> router
 ```
 
 [erc-1967]: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/proxy/ERC1967/ERC1967Proxy.sol

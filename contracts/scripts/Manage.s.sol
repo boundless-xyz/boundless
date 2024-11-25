@@ -90,8 +90,8 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
 contract DeployBoundlessMarket is RiscZeroManagementScript {
     function run() external {
-        address proofMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
-        console2.log("proofMarketOwner:", proofMarketOwner);
+        address boundlessMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
+        console2.log("boundlessMarketOwner:", boundlessMarketOwner);
 
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -116,11 +116,11 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         vm.broadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         // TODO(#108): Switch to using the Upgrades library.
-        address proofMarketAddress = UnsafeUpgrades.deployUUPSProxy(
-            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (proofMarketOwner, assessorGuestUrl))
+        address boundlessMarketAddress = UnsafeUpgrades.deployUUPSProxy(
+            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
         );
 
-        console2.log("Deployed BoundlessMarket (proxy) contract at", proofMarketAddress);
+        console2.log("Deployed BoundlessMarket (proxy) contract at", boundlessMarketAddress);
     }
 }
 
@@ -132,18 +132,18 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
 contract UpgradeBoundlessMarket is RiscZeroManagementScript {
     function run() external {
-        address proofMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
-        console2.log("proofMarketOwner:", proofMarketOwner);
+        address boundlessMarketOwner = vm.envAddress("PROOF_MARKET_OWNER");
+        console2.log("boundlessMarketOwner:", boundlessMarketOwner);
 
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
-        address proofMarketAddress = deploymentConfig.proofMarket;
-        require(proofMarketAddress != address(0), "BoundlessMarket (proxy) address must be set in config");
-        console2.log("Using BoundlessMarket (proxy) at address", proofMarketAddress);
+        address boundlessMarketAddress = deploymentConfig.boundlessMarket;
+        require(boundlessMarketAddress != address(0), "BoundlessMarket (proxy) address must be set in config");
+        console2.log("Using BoundlessMarket (proxy) at address", boundlessMarketAddress);
 
         // Get the current assessor image ID and guest URL
-        BoundlessMarket market = BoundlessMarket(proofMarketAddress);
+        BoundlessMarket market = BoundlessMarket(boundlessMarketAddress);
         (bytes32 imageID, string memory guestUrl) = market.imageInfo();
 
         // Use the same verifier as the existing implementation.
@@ -161,17 +161,17 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         if (assessorImageId != imageID || keccak256(bytes(assessorGuestUrl)) == keccak256(bytes(guestUrl))) {
             // TODO(#108): Switch to using the Upgrades library.
             UnsafeUpgrades.upgradeProxy(
-                proofMarketAddress,
+                boundlessMarketAddress,
                 newImplementation,
                 abi.encodeCall(BoundlessMarket.setImageUrl, (assessorGuestUrl)),
-                proofMarketOwner
+                boundlessMarketOwner
             );
         } else {
             // TODO(#108): Switch to using the Upgrades library.
-            UnsafeUpgrades.upgradeProxy(proofMarketAddress, newImplementation, "", proofMarketOwner);
+            UnsafeUpgrades.upgradeProxy(boundlessMarketAddress, newImplementation, "", boundlessMarketOwner);
         }
         vm.stopBroadcast();
 
-        console2.log("Upgraded BoundlessMarket (proxy) contract at", proofMarketAddress);
+        console2.log("Upgraded BoundlessMarket (proxy) contract at", boundlessMarketAddress);
     }
 }

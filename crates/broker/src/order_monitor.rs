@@ -16,7 +16,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
-    proof_market::{BoundlessMarketService, MarketError},
+    boundless_market::{BoundlessMarketService, MarketError},
     ProofStatus,
 };
 use std::{sync::Arc, time::Duration};
@@ -258,7 +258,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::deploy_proof_market, Input, InputType, Offer, Predicate, PredicateType,
+        test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
         ProvingRequest, Requirements,
     };
     use chrono::Utc;
@@ -276,20 +276,24 @@ mod tests {
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
 
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
-                .await
-                .unwrap();
-        let proof_market = BoundlessMarketService::new(
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            Address::ZERO,
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
-        proof_market
+        boundless_market
             .add_prover_to_appnet_allowlist(provider.default_signer_address())
             .await
             .unwrap();
-        proof_market.deposit(utils::parse_ether("10").unwrap()).await.unwrap();
+        boundless_market.deposit(utils::parse_ether("10").unwrap()).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -322,7 +326,7 @@ mod tests {
         let order_id = U256::from(request.id);
         tracing::info!("addr: {} ID: {:x}", signer.address(), request.id);
 
-        // let client_sig = proof_market.eip721_signature(&request, &signer).await.unwrap();
+        // let client_sig = boundless_market.eip721_signature(&request, &signer).await.unwrap();
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig =
             request.sign_request(&signer, market_address, chain_id).unwrap().as_bytes();
@@ -341,7 +345,7 @@ mod tests {
             lock_price: None,
             error_msg: None,
         };
-        let request_id = proof_market.submit_request(&order.request, &signer).await.unwrap();
+        let request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
         assert_eq!(request_id, order_id);
 
         provider.anvil_mine(Some(U256::from(2)), Some(U256::from(block_time))).await.unwrap();
@@ -381,16 +385,20 @@ mod tests {
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
 
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO, Some(signer.address()))
-                .await
-                .unwrap();
-        let proof_market = BoundlessMarketService::new(
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            Address::ZERO,
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
-        proof_market.deposit(utils::parse_ether("10").unwrap()).await.unwrap();
+        boundless_market.deposit(utils::parse_ether("10").unwrap()).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -400,7 +408,7 @@ mod tests {
         let max_price = 2;
 
         let request = ProvingRequest::new(
-            proof_market.index_from_nonce().await.unwrap(),
+            boundless_market.index_from_nonce().await.unwrap(),
             &signer.address(),
             Requirements {
                 imageId: B256::ZERO,
@@ -441,7 +449,7 @@ mod tests {
             error_msg: None,
         };
 
-        let _request_id = proof_market.submit_request(&order.request, &signer).await.unwrap();
+        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
 
         db.add_order(order_id, order).await.unwrap();
 

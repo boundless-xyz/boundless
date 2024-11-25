@@ -31,9 +31,9 @@ pub use risc0_ethereum_contracts::encode_seal;
 #[cfg(not(target_os = "zkvm"))]
 const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 
-// proof_market.rs is a copy of IBoundlessMarket.sol with alloy derive statements added.
+// boundless_market.rs is a copy of IBoundlessMarket.sol with alloy derive statements added.
 // See the build.rs script in this crate for more details.
-include!(concat!(env!("OUT_DIR"), "/proof_market.rs"));
+include!(concat!(env!("OUT_DIR"), "/boundless_market.rs"));
 
 /// Status of a proving request
 #[derive(Debug, PartialEq)]
@@ -387,7 +387,7 @@ impl Predicate {
 }
 
 #[cfg(not(target_os = "zkvm"))]
-pub mod proof_market;
+pub mod boundless_market;
 #[cfg(not(target_os = "zkvm"))]
 pub mod set_verifier;
 
@@ -524,7 +524,7 @@ pub mod test_utils {
     use std::sync::Arc;
 
     use crate::contracts::{
-        proof_market::BoundlessMarketService, set_verifier::SetVerifierService,
+        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService,
     };
 
     alloy::sol!(
@@ -568,7 +568,7 @@ pub mod test_utils {
     pub struct TestCtx {
         pub verifier_addr: Address,
         pub set_verifier_addr: Address,
-        pub proof_market_addr: Address,
+        pub boundless_market_addr: Address,
         pub prover_signer: PrivateKeySigner,
         pub customer_signer: PrivateKeySigner,
         pub prover_provider: ProviderWallet,
@@ -597,7 +597,7 @@ pub mod test_utils {
         Ok(*set_verifier.address())
     }
 
-    pub async fn deploy_proof_market<T, P>(
+    pub async fn deploy_boundless_market<T, P>(
         deployer_signer: &PrivateKeySigner,
         deployer_provider: P,
         set_verifier: Address,
@@ -608,7 +608,7 @@ pub mod test_utils {
         P: Provider<T, Ethereum> + 'static + Clone,
     {
         let deployer_address = deployer_signer.address();
-        let proof_market = BoundlessMarket::deploy(
+        let boundless_market = BoundlessMarket::deploy(
             &deployer_provider,
             set_verifier,
             <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
@@ -621,9 +621,10 @@ pub mod test_utils {
             .calldata()
             .clone();
 
-        let proxy = ERC1967Proxy::deploy_builder(&deployer_provider, *proof_market.address(), data)
-            .deploy()
-            .await?;
+        let proxy =
+            ERC1967Proxy::deploy_builder(&deployer_provider, *boundless_market.address(), data)
+                .deploy()
+                .await?;
 
         if let Some(prover) = allowed_prover {
             BoundlessMarketService::new(
@@ -654,7 +655,7 @@ pub mod test_utils {
             let verifier = deploy_verifier(Arc::clone(&deployer_provider)).await?;
             let set_verifier =
                 deploy_set_verifier(Arc::clone(&deployer_provider), verifier).await?;
-            let proof_market = deploy_proof_market(
+            let boundless_market = deploy_boundless_market(
                 &deployer_signer,
                 Arc::clone(&deployer_provider),
                 set_verifier,
@@ -666,11 +667,11 @@ pub mod test_utils {
             deployer_provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
             deployer_provider.anvil_set_interval_mining(2).await.unwrap();
 
-            Ok((verifier, set_verifier, proof_market))
+            Ok((verifier, set_verifier, boundless_market))
         }
 
         pub async fn new(anvil: &AnvilInstance) -> Result<Self> {
-            let (verifier_addr, set_verifier_addr, proof_market_addr) =
+            let (verifier_addr, set_verifier_addr, boundless_market_addr) =
                 TestCtx::deploy_contracts(&anvil).await.unwrap();
 
             let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
@@ -697,13 +698,13 @@ pub mod test_utils {
                 .unwrap();
 
             let prover_market = BoundlessMarketService::new(
-                proof_market_addr,
+                boundless_market_addr,
                 prover_provider.clone(),
                 prover_signer.address(),
             );
 
             let customer_market = BoundlessMarketService::new(
-                proof_market_addr,
+                boundless_market_addr,
                 customer_provider.clone(),
                 customer_signer.address(),
             );
@@ -717,7 +718,7 @@ pub mod test_utils {
             // Add the prover to the allowlist for lockin. Note that verifier_signer is the owner
             // of the contracts. This code will be removed after the appnet phase is over.
             BoundlessMarketService::new(
-                proof_market_addr,
+                boundless_market_addr,
                 verifier_provider.clone(),
                 verifier_signer.address(),
             )
@@ -727,7 +728,7 @@ pub mod test_utils {
             Ok(TestCtx {
                 verifier_addr,
                 set_verifier_addr,
-                proof_market_addr,
+                boundless_market_addr,
                 prover_signer,
                 customer_signer,
                 prover_provider,

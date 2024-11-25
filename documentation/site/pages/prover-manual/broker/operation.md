@@ -74,9 +74,9 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS
 ```
 
 ```txt [Terminal]
-2024-10-23T14:29:52.704754Z DEBUG boundless_market::contracts::proof_market: Calling deposit() value: 500000000000000000
-2024-10-23T14:29:52.993892Z DEBUG boundless_market::contracts::proof_market: Broadcasting deposit tx 0xfc5c11e75101a9158735ec9e9519f5692b2f64b3337268b7ed999502956cd982
-2024-10-23T14:30:07.175952Z DEBUG boundless_market::contracts::proof_market: Submitted deposit 0xfc5c11e75101a9158735ec9e9519f5692b2f64b3337268b7ed999502956cd982
+2024-10-23T14:29:52.704754Z DEBUG boundless_market::contracts::boundless_market: Calling deposit() value: 500000000000000000
+2024-10-23T14:29:52.993892Z DEBUG boundless_market::contracts::boundless_market: Broadcasting deposit tx 0xfc5c11e75101a9158735ec9e9519f5692b2f64b3337268b7ed999502956cd982
+2024-10-23T14:30:07.175952Z DEBUG boundless_market::contracts::boundless_market: Submitted deposit 0xfc5c11e75101a9158735ec9e9519f5692b2f64b3337268b7ed999502956cd982
 2024-10-23T14:30:07.175994Z  INFO cli: Deposited: 500000000000000000
 ```
 

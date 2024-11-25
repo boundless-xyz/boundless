@@ -112,9 +112,9 @@ pub(crate) async fn websocket_handler(
 
     // Skip balance checks if the client_address is on a allow list
     if !state.config.bypass_addrs.contains(&client_addr) {
-        let proof_market =
+        let boundless_market =
             IBoundlessMarket::new(state.config.market_address, state.rpc_provider.clone());
-        let balance = proof_market.balanceOf(client_addr).call().await.unwrap()._0;
+        let balance = boundless_market.balanceOf(client_addr).call().await.unwrap()._0;
         if balance < state.config.min_balance {
             return Ok((
                 StatusCode::UNAUTHORIZED,
