@@ -149,7 +149,7 @@ The Broker needs to have funds deposited on the Boundless market contract to cov
 Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
 ```sh [Terminal]
-RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${BOUNDLESS_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
+RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --boundless-market-addr ${BOUNDLESS_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
 ```
 
 ::::

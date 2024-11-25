@@ -60,13 +60,13 @@ devnet-up: check-deps
 		RUST_LOG=$(RUST_LOG) ./target/debug/order_stream \
 			--bind-addr localhost:$(ORDER_STREAM_PORT) \
 			--rpc-url http://localhost:$(ANVIL_PORT) \
-			--proof-market-address $$BOUNDLESS_MARKET_ADDRESS \
+			--boundless-market-address $$BOUNDLESS_MARKET_ADDRESS \
 			--chain-id $(CHAIN_ID) \
 			--min-balance 1 > $(LOGS_DIR)/order_stream.txt 2>&1 & echo $$! >> $(PID_FILE); \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \
 			--private-key $(PRIVATE_KEY) \
-			--proof-market-addr $$BOUNDLESS_MARKET_ADDRESS \
+			--boundless-market-addr $$BOUNDLESS_MARKET_ADDRESS \
 			--set-verifier-addr $$SET_VERIFIER_ADDRESS \
 			--order-stream-url http://localhost:$(ORDER_STREAM_PORT) \
 			--deposit-amount $(DEPOSIT_AMOUNT) > $(LOGS_DIR)/broker.txt 2>&1 & echo $$! >> $(PID_FILE); \

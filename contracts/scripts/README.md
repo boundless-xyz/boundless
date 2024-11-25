@@ -270,7 +270,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    Load the deployed BoundlessMarket (proxy) address into the environment:
 
    ```zsh
-   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
+   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].boundless-market" contracts/deployment.toml | tee /dev/stderr)
    ```
 
 5. Test the deployment.
@@ -310,7 +310,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 4. Load the upgraded BoundlessMarket (proxy) address into the environment:
 
    ```zsh
-   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
+   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].market" contracts/deployment.toml | tee /dev/stderr)
    ```
 
 5. Test the deployment.

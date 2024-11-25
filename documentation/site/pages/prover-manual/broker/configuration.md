@@ -9,7 +9,7 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 
 ## Deposit / Balance
 
-The proof-market works via a escrow system. Brokers must first deposit some ETH (or SepETH) into the market contract to cover staking during lock-in. It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
+The Boundless market works via a escrow system. Brokers must first deposit some ETH (or SepETH) into the market contract to cover staking during lock-in. It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
 
 ### Deposit to the Market
 
