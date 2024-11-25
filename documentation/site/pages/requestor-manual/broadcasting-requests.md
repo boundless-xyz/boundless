@@ -98,7 +98,7 @@ Should output something similar to
 2024-09-17T15:01:00.471591Z DEBUG boundless_market::contracts::boundless_market: Submitted deposit 0x001c…ff91
 2024-09-17T15:01:00.471634Z DEBUG boundless_market::contracts::boundless_market: Calling submitRequest(ProofRequest { id: 3554585979324098154284013313896898623039163403618679259140, requirements: Requirements { imageId: 0x257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d, predicate: Predicate { predicateType: PrefixMatch, data: 0x57656420 } }, imageUrl: "https://dweb.link/ipfs/QmTx3vDKicYG5RxzMxrZEiCQJqhpgYNrSFABdVz9ri2m5P", input: Input { inputType: Inline, data: 0x1d000000570000006500000064000000200000004a000000750000006c0000002000000020000000330000002000000031000000340000003a00000033000000370000003a00000031000000320000002000000050000000440000005400000020000000320000003000000032000000340000000a000000 }, offer: Offer { minPrice: 100000000000000, maxPrice: 2000000000000000, biddingStart: 619, rampUpPeriod: 1000, timeout: 2000, lockinStake: 100000000000000 } })
 2024-09-17T15:01:00.476867Z DEBUG boundless_market::contracts::boundless_market: Broadcasting tx 0xd25d00d87fc57c8c5da47236dd6980fb250ae748f2e38e33f7c17cd3cb968b7e
-2024-09-17T15:01:02.480340Z  INFO cli: request ID 3554585979324098154284013313896898623039163403618679259140, bidding start at block number 619
+2024-09-17T15:01:02.480340Z  INFO cli: Request ID 3554585979324098154284013313896898623039163403618679259140, bidding start at block number 619
 ```
 
 #### Wait Until Fulfilled
