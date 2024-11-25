@@ -78,7 +78,7 @@ pub(crate) async fn list_orders(
 
 #[utoipa::path(
     get,
-    path = "api/nonce/<addr>",
+    path = "/api/nonce/<addr>",
     params(
         Pagination,
     ),

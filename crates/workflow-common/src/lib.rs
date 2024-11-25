@@ -12,11 +12,11 @@ pub const AUX_WORK_TYPE: &str = "aux";
 /// Executor worker stream identifier
 pub const EXEC_WORK_TYPE: &str = "exec";
 
-/// GPU prove+lift worker stream identifier
-pub const PROVE_WORK_TYPE: &str = "gpu-prove";
+/// prove+lift worker stream identifier
+pub const PROVE_WORK_TYPE: &str = "prove";
 
-/// GPU join worker stream identifier
-pub const JOIN_WORK_TYPE: &str = "gpu-join";
+/// join worker stream identifier
+pub const JOIN_WORK_TYPE: &str = "join";
 
 /// SNARK worker stream identifier
 pub const SNARK_WORK_TYPE: &str = "snark";

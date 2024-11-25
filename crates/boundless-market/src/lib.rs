@@ -2,6 +2,13 @@
 //
 // All rights reserved.
 
+/// Re-export of [alloy], provided to ensure that the correct version of the types used in the
+/// public API are available in case multiple versions of [alloy] are in use.
+///
+/// Because [alloy] is a v0.x crate, it is not covered under the semver policy of this crate.
+#[cfg(not(target_os = "zkvm"))]
+pub use alloy;
+
 #[cfg(not(target_os = "zkvm"))]
 pub mod client;
 pub mod contracts;

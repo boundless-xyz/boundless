@@ -57,7 +57,7 @@ impl From<alloy::contract::Error> for MarketError {
     }
 }
 
-/// Boundless market service.
+/// Proof market service.
 pub struct BoundlessMarketService<T, P> {
     instance: IBoundlessMarketInstance<T, P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
