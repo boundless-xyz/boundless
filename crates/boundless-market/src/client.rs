@@ -29,7 +29,7 @@ use crate::{
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
         set_verifier::SetVerifierService,
-        ProvingRequest, RequestError,
+        ProofRequest, RequestError,
     },
     order_stream_client::Client as OrderStreamClient,
     storage::{
@@ -142,7 +142,7 @@ where
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request(&self, request: &ProvingRequest) -> Result<U256, ClientError>
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<U256, ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
     {
@@ -168,10 +168,7 @@ where
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request_offchain(
-        &self,
-        request: &ProvingRequest,
-    ) -> Result<U256, ClientError>
+    pub async fn submit_request_offchain(&self, request: &ProofRequest) -> Result<U256, ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
     {

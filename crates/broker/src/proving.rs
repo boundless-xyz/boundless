@@ -187,7 +187,7 @@ mod tests {
     };
     use alloy::primitives::{Bytes, B256, U256};
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -220,7 +220,7 @@ mod tests {
             status: OrderStatus::Locking,
             updated_at: Utc::now(),
             target_block: Some(0),
-            request: ProvingRequest {
+            request: ProofRequest {
                 id: U256::ZERO,
                 requirements: Requirements {
                     imageId: B256::ZERO,
@@ -287,7 +287,7 @@ mod tests {
             status: OrderStatus::Proving,
             updated_at: Utc::now(),
             target_block: Some(0),
-            request: ProvingRequest {
+            request: ProofRequest {
                 id: order_id,
                 requirements: Requirements {
                     imageId: B256::ZERO,

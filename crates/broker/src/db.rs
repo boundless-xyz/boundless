@@ -14,7 +14,7 @@ use sqlx::{
 };
 use thiserror::Error;
 
-use crate::{Batch, BatchStatus, Node, Order, OrderStatus, ProvingRequest};
+use crate::{Batch, BatchStatus, Node, Order, OrderStatus, ProofRequest};
 
 #[derive(Error, Debug)]
 pub enum DbError {
@@ -71,7 +71,7 @@ pub trait BrokerDb {
     async fn get_submission_order(
         &self,
         id: U256,
-    ) -> Result<(ProvingRequest, String, B256, Vec<Digest>), DbError>;
+    ) -> Result<(ProofRequest, String, B256, Vec<Digest>), DbError>;
     async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
@@ -223,7 +223,7 @@ impl BrokerDb for SqliteDb {
     async fn get_submission_order(
         &self,
         id: U256,
-    ) -> Result<(ProvingRequest, String, B256, Vec<Digest>), DbError> {
+    ) -> Result<(ProofRequest, String, B256, Vec<Digest>), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             Ok((
@@ -925,7 +925,7 @@ impl BrokerDb for SqliteDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ProvingRequest;
+    use crate::ProofRequest;
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, Requirements,
@@ -937,7 +937,7 @@ mod tests {
             status: OrderStatus::New,
             updated_at: Utc::now(),
             target_block: None,
-            request: ProvingRequest::new(
+            request: ProofRequest::new(
                 1,
                 &Address::ZERO,
                 Requirements {

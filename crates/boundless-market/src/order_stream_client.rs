@@ -23,7 +23,7 @@ use tokio_tungstenite::{
 };
 use utoipa::ToSchema;
 
-use crate::contracts::{ProvingRequest, RequestError};
+use crate::contracts::{ProofRequest, RequestError};
 
 pub const ORDER_SUBMISSION_PATH: &str = "api/submit_order";
 pub const ORDER_LIST_PATH: &str = "api/orders";
@@ -59,14 +59,14 @@ pub enum OrderError {
     RequestError(#[from] RequestError),
 }
 
-/// Order struct, containing a ProvingRequest and its Signature
+/// Order struct, containing a ProofRequest and its Signature
 ///
 /// The contents of this struct match the calldata of the `submitOrder` function in the `BoundlessMarket` contract.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Order {
     /// Order request
     #[schema(value_type = Object)]
-    pub request: ProvingRequest,
+    pub request: ProofRequest,
     /// Order signature
     #[schema(value_type = Object)]
     pub signature: Signature,
@@ -100,7 +100,7 @@ pub struct SubmitOrderRes {
 
 impl Order {
     /// Create a new Order
-    pub fn new(request: ProvingRequest, signature: Signature) -> Self {
+    pub fn new(request: ProofRequest, signature: Signature) -> Self {
         Self { request, signature }
     }
 
@@ -197,7 +197,7 @@ impl Client {
     }
 
     /// Submit a proving request to the order stream server
-    pub async fn submit_request(&self, request: &ProvingRequest) -> Result<Order> {
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<Order> {
         let url = Url::parse(&format!("{}{ORDER_SUBMISSION_PATH}", self.base_url))?;
         let signature =
             request.sign_request(&self.signer, self.boundless_market_address, self.chain_id)?;

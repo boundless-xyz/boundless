@@ -13,7 +13,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::Client,
-    contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     storage::storage_provider_from_env,
 };
 use clap::Parser;
@@ -147,7 +147,7 @@ async fn run(
     //   the maxPrice, starting from the the bidding start;
     // - the lockin price: the price at which the request can be locked in by a prover, if the
     //   request is not fulfilled before the timeout, the prover can be slashed.
-    let request = ProvingRequest::default()
+    let request = ProofRequest::default()
         .with_image_url(&image_url)
         .with_input(Input::url(&input_url))
         .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))

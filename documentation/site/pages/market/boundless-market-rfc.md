@@ -61,7 +61,7 @@ Market operations such as the auction and settlement are implemented in a smart 
 
 ### Order Placement
 
-**Order broadcast:** Requestors will initiate an order by broadcasting a `ProvingRequest` to the provers. Requestors have a choice of two broadcast channels depending on their needs:
+**Order broadcast:** Requestors will initiate an order by broadcasting a `ProofRequest` to the provers. Requestors have a choice of two broadcast channels depending on their needs:
 
 - Broadcast via EVM calldata. This has the highest possible assurance for data availability and censorship resistance.
 - Broadcast via an off-chain broadcast channel. This has the lowest cost and latency.
@@ -73,7 +73,7 @@ Off-chain broadcast channel is not a requirement for the initial MVP deployment.
 **Request structure:**
 
 ```solidity
-struct ProvingRequest {
+struct ProofRequest {
     /// Unique ID for this request, constructed from the client address and a 32-bit counter.
     /// Constructed as (address(client) << 32) | id
     uint192 id;
@@ -186,7 +186,7 @@ struct AssessorJournal {
 ```solidity [IBoundlessMarket.sol]
 interface IBoundlessMarket {
     /// Event logged when a new proving request is submitted by a client.
-    event RequestSubmitted(ProvingRequest request, bytes clientSignature);
+    event RequestSubmitted(ProofRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
     /// Event logged when a request is fulfilled.
@@ -238,14 +238,14 @@ interface IBoundlessMarket {
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
     /// @dev Submitting the transaction only broadcasting it, and is not a required step.
-    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable;
+    function submitRequest(ProofRequest calldata request, bytes calldata clientSignature) external payable;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method should be called from the address of the prover.
-    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external;
+    function lockin(ProofRequest calldata request, bytes calldata clientSignature) external;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
@@ -253,7 +253,7 @@ interface IBoundlessMarket {
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method uses the provided signature to authenticate the prover.
     function lockinWithSig(
-        ProvingRequest calldata request,
+        ProofRequest calldata request,
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external;
@@ -291,13 +291,13 @@ interface IBoundlessMarket {
     /// that is not locked. This is useful when the prover wishes to fulfill a request, but does
     /// not want to issue a lock transaction e.g. because the stake is to high or to save money by
     /// avoiding the gas costs of the lock transaction.
-    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) external;
+    function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;
 
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     function priceAndFulfillBatch(
-        ProvingRequest[] calldata requests,
+        ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         bytes calldata assessorSeal,

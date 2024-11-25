@@ -544,7 +544,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -658,7 +658,7 @@ mod tests {
 
         let min_price = 2;
         // Order 0
-        let order_request = ProvingRequest::new(
+        let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
             Requirements {
@@ -715,7 +715,7 @@ mod tests {
         db.add_order(order_id, order.clone()).await.unwrap();
 
         // Order 1
-        let order_request = ProvingRequest::new(
+        let order_request = ProofRequest::new(
             1,
             &customer_signer.address(),
             Requirements {
@@ -822,7 +822,7 @@ mod tests {
         let chain_id = provider.get_chain_id().await.unwrap();
 
         let min_price = 200000000000000000u64;
-        let order_request = ProvingRequest::new(
+        let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
             Requirements {
@@ -928,7 +928,7 @@ mod tests {
         let chain_id = provider.get_chain_id().await.unwrap();
 
         let min_price = 200000000000000000u64;
-        let order_request = ProvingRequest::new(
+        let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
             Requirements {

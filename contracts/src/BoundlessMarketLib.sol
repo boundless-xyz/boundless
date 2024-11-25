@@ -15,7 +15,7 @@ import {
     Offer,
     Predicate,
     PredicateType,
-    ProvingRequest,
+    ProofRequest,
     Requirements
 } from "./IBoundlessMarket.sol";
 
@@ -44,11 +44,11 @@ library BoundlessMarketLib {
     bytes32 constant OFFER_TYPEHASH = keccak256(abi.encodePacked(OFFER_TYPE));
 
     string constant PROVINGREQUEST_TYPE =
-        "ProvingRequest(uint256 id,Requirements requirements,string imageUrl,Input input,Offer offer)";
+        "ProofRequest(uint256 id,Requirements requirements,string imageUrl,Input input,Offer offer)";
     bytes32 constant PROVINGREQUEST_TYPEHASH =
         keccak256(abi.encodePacked(PROVINGREQUEST_TYPE, INPUT_TYPE, OFFER_TYPE, PREDICATE_TYPE, REQUIREMENTS_TYPE));
 
-    function eip712Digest(ProvingRequest memory request) internal pure returns (bytes32) {
+    function eip712Digest(ProofRequest memory request) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
                 BoundlessMarketLib.PROVINGREQUEST_TYPEHASH,

@@ -32,13 +32,13 @@ A cluster of services that coordinate to search for, bid on, and attempt to fulf
 
 ## Broker
 
-The Broker monitors a [deployment][page-deployments] of the [Boundless Market](#boundless-market) and, based on customizable criteria, bids on and locks-in on proof requests. Proof generation jobs are subsequently passed to an instance of [Bento](#bento), and ultimately are the request(s) are fulfilled it on the Market.
+The Broker monitors a [deployment][page-deployments] of the [Boundless Market](#boundless-market) and, based on customizable criteria, bids on and locks-in on requests. Proof generation jobs are subsequently passed to an instance of [Bento](#bento), and ultimately are the request(s) are fulfilled it on the Market.
 
 > See the [Broker Section][page-broker] for more details.
 
 ## Preflight
 
-Running a proof request's execution _only_ via [Bento](#bento) (essential using [RISC Zero's `dev-mode`][r0-page-dev-mode]) in order to calculate the required [cycles][r0-term-clock-cycles] for the [proof order](#proof-order).
+Running a request's execution _only_ via [Bento](#bento) (essential using [RISC Zero's `dev-mode`][r0-page-dev-mode]) in order to calculate the required [cycles][r0-term-clock-cycles] for the [proof order](#proof-order).
 
 This allows one to:
 
@@ -56,11 +56,11 @@ The market participant that fulfills [proof orders](#proof-order).
 
 An order - also called a request - placed on the [Boundless Market](#boundless-market) to that includes:
 
-- A Unique ID for the request on the Market
-- Proof Requirements for a this order to be fulfilled, including the [Image ID][r0-term-image-id]
+- A unique ID for the request on the Market
+- Requirements of the delivered proof for a this order to be fulfilled, including the [Image ID][r0-term-image-id]
 - A URL where the [ELF Binary][r0-term-elf-binary] for the program with required Image ID's can be retrieved by the [Prover](#prover)
-- [Guest Program][r0-term-guest-program] inputs
-- An Offer specifying remuneration for successful order fulfillment
+- [Guest program][r0-term-guest-program] inputs
+- An offer specifying reward for successful order fulfillment
 
 See `contracts/src/IBoundlessMarket.sol` for more details.
 

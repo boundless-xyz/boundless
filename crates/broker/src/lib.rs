@@ -15,7 +15,7 @@ use anyhow::{ensure, Context, Result};
 use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, InputType,
-        ProvingRequest,
+        ProofRequest,
     },
     order_stream_client::Client as OrderStreamClient,
 };
@@ -130,7 +130,7 @@ enum OrderStatus {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Order {
     /// Proving request object
-    request: ProvingRequest,
+    request: ProofRequest,
     /// status of the order
     status: OrderStatus,
     /// Last update time
@@ -167,7 +167,7 @@ struct Order {
 }
 
 impl Order {
-    pub fn new(request: ProvingRequest, client_sig: Bytes) -> Self {
+    pub fn new(request: ProofRequest, client_sig: Bytes) -> Self {
         Self {
             request,
             status: OrderStatus::New,

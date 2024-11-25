@@ -7,7 +7,7 @@ pragma solidity ^0.8.20;
 // TODO(#159) Think about compressing this struct. One way to reduce
 // associated gas costs would be to put all the fields not needed for lockin
 // into a sub-struct that is hashed.
-struct ProvingRequest {
+struct ProofRequest {
     /// @notice Unique ID for this request, constructed from the client address and a 32-bit index.
     /// Constructed as (address(client) << 32) | index.
     /// @dev Note that the high-order 64 bits of this ID are currently unused and must set to zero.
@@ -118,7 +118,7 @@ interface IBoundlessMarket {
     /// @notice Event logged when a new proving request is submitted by a client.
     /// @dev Note that the signature is not verified by the contract and should instead be verified
     ///      by the receiver of the event.
-    event RequestSubmitted(uint256 indexed requestId, ProvingRequest request, bytes clientSignature);
+    event RequestSubmitted(uint256 indexed requestId, ProofRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint256 indexed requestId, address prover);
     /// Event logged when a request is fulfilled.
@@ -206,14 +206,14 @@ interface IBoundlessMarket {
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
     /// @dev Submitting the transaction only broadcasting it, and is not a required step.
     ///      This method does not validate the signature or store any state related to the request.
-    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable;
+    function submitRequest(ProofRequest calldata request, bytes calldata clientSignature) external payable;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method should be called from the address of the prover.
-    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external;
+    function lockin(ProofRequest calldata request, bytes calldata clientSignature) external;
 
     /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
@@ -221,7 +221,7 @@ interface IBoundlessMarket {
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method uses the provided signature to authenticate the prover.
     function lockinWithSig(
-        ProvingRequest calldata request,
+        ProofRequest calldata request,
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external;
@@ -248,13 +248,13 @@ interface IBoundlessMarket {
     /// that is not locked. This is useful when the prover wishes to fulfill a request, but does
     /// not want to issue a lock transaction e.g. because the stake is to high or to save money by
     /// avoiding the gas costs of the lock transaction.
-    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) external;
+    function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;
 
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     function priceAndFulfillBatch(
-        ProvingRequest[] calldata requests,
+        ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         bytes calldata assessorSeal,

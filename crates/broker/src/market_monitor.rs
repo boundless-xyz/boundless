@@ -266,7 +266,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
-        InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
 
     #[tokio::test]
@@ -294,7 +294,7 @@ mod tests {
 
         let min_price = 1;
         let max_price = 10;
-        let proving_request = ProvingRequest {
+        let proving_request = ProofRequest {
             id: boundless_market.request_id_from_nonce().await.unwrap(),
             requirements: Requirements {
                 imageId: B256::ZERO,

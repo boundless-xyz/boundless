@@ -30,7 +30,7 @@ use boundless_market::{
     client::Client,
     contracts::{
         boundless_market::BoundlessMarketService, Input, InputType, Offer, Predicate,
-        PredicateType, ProvingRequest, Requirements,
+        PredicateType, ProofRequest, Requirements,
     },
     storage::{
         storage_provider_from_env, BuiltinStorageProvider, StorageProvider, TempFileStorageProvider,
@@ -409,7 +409,7 @@ where
     };
 
     // Construct the request from its individual parts.
-    let request = ProvingRequest::new(
+    let request = ProofRequest::new(
         id,
         &client.signer.address(),
         Requirements { imageId: image_id, predicate },
@@ -470,7 +470,7 @@ where
     // Read the YAML request file
     let file = File::open(request_path).context("failed to open request file")?;
     let reader = BufReader::new(file);
-    let mut request_yaml: ProvingRequest =
+    let mut request_yaml: ProofRequest =
         serde_yaml::from_reader(reader).context("failed to parse request from YAML")?;
 
     // If set to 0, override the offer bidding_start field with the current block number.
@@ -485,7 +485,7 @@ where
         request_yaml.offer = Offer { biddingStart: latest_block, ..request_yaml.offer };
     }
 
-    let mut request = ProvingRequest::new(
+    let mut request = ProofRequest::new(
         id,
         &client.signer.address(),
         request_yaml.requirements,
@@ -533,7 +533,7 @@ where
     Ok(Some(request_id))
 }
 
-async fn execute(request: &ProvingRequest) -> Result<SessionInfo> {
+async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     let elf = fetch_url(&request.imageUrl.to_string()).await?;
     let input = match request.input.inputType {
         InputType::Inline => request.input.data.clone(),

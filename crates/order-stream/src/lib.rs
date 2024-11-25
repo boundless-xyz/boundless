@@ -293,7 +293,7 @@ mod tests {
         primitives::{B256, U256},
     };
     use boundless_market::{
-        contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProvingRequest, Requirements},
+        contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProofRequest, Requirements},
         order_stream_client::Client,
     };
     use futures_util::StreamExt;
@@ -305,8 +305,8 @@ mod tests {
     };
     use tokio::task::JoinHandle;
 
-    fn new_request(idx: u32, addr: &Address) -> ProvingRequest {
-        ProvingRequest::new(
+    fn new_request(idx: u32, addr: &Address) -> ProofRequest {
+        ProofRequest::new(
             idx,
             addr,
             Requirements { imageId: B256::from([1u8; 32]), predicate: Predicate::default() },

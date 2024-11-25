@@ -15,7 +15,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "./IRiscZeroSetVerifier.sol";
 
-import {IBoundlessMarket, ProvingRequest, Offer, Fulfillment, AssessorJournal} from "./IBoundlessMarket.sol";
+import {IBoundlessMarket, ProofRequest, Offer, Fulfillment, AssessorJournal} from "./IBoundlessMarket.sol";
 import {BoundlessMarketLib} from "./BoundlessMarketLib.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
@@ -129,7 +129,7 @@ contract BoundlessMarket is
 {
     using AccountLib for Account;
     using BoundlessMarketLib for Offer;
-    using BoundlessMarketLib for ProvingRequest;
+    using BoundlessMarketLib for ProofRequest;
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for uint256;
     using TransientPriceLib for TransientPrice;
@@ -235,7 +235,7 @@ contract BoundlessMarket is
     }
 
     /// Internal method for verifying signatures over requests. Reverts on failure.
-    function verifyRequestSignature(address addr, ProvingRequest calldata request, bytes calldata signature)
+    function verifyRequestSignature(address addr, ProofRequest calldata request, bytes calldata signature)
         public
         view
         returns (bytes32 requestDigest)
@@ -276,14 +276,14 @@ contract BoundlessMarket is
     // NOTE: We could verify the client signature here, but this adds about 18k gas (with a naive
     // implementation), doubling the cost of calling this method. It is not required for protocol
     // safety as the signature is checked during lockin, and during fulfillment (by the assessor).
-    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable {
+    function submitRequest(ProofRequest calldata request, bytes calldata clientSignature) external payable {
         if (msg.value > 0) {
             deposit();
         }
         emit RequestSubmitted(request.id, request, clientSignature);
     }
 
-    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external {
+    function lockin(ProofRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) =
             (BoundlessMarketLib.requestFrom(request.id), BoundlessMarketLib.requestIndex(request.id));
         (bytes32 requestDigest) = verifyRequestSignature(client, request, clientSignature);
@@ -292,7 +292,7 @@ contract BoundlessMarket is
     }
 
     function lockinWithSig(
-        ProvingRequest calldata request,
+        ProofRequest calldata request,
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external {
@@ -311,7 +311,7 @@ contract BoundlessMarket is
 
     /// Check that the request is valid, and not already locked or fulfilled by another prover.
     /// Returns the auction price and deadline for the request.
-    function _validateRequestForLockin(ProvingRequest calldata request, address client, uint32 idx)
+    function _validateRequestForLockin(ProofRequest calldata request, address client, uint32 idx)
         internal
         view
         returns (uint96 price, uint64 deadline)
@@ -342,7 +342,7 @@ contract BoundlessMarket is
     }
 
     function _lockinAuthed(
-        ProvingRequest calldata request,
+        ProofRequest calldata request,
         bytes32 requestDigest,
         address client,
         uint32 idx,
@@ -383,7 +383,7 @@ contract BoundlessMarket is
 
     /// Validates the request and records the price to transient storage such that it can be
     /// fulfilled within the same transaction without taking a lock on it.
-    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) public {
+    function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
         (address client, uint32 idx) =
             (BoundlessMarketLib.requestFrom(request.id), BoundlessMarketLib.requestIndex(request.id));
         (bytes32 requestDigest) = verifyRequestSignature(client, request, clientSignature);
@@ -468,7 +468,7 @@ contract BoundlessMarket is
     }
 
     function priceAndFulfillBatch(
-        ProvingRequest[] calldata requests,
+        ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         bytes calldata assessorSeal,

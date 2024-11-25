@@ -14,7 +14,7 @@ use tempfile::NamedTempFile;
 use crate::{config::Config, provers::encode_input, Args, Broker};
 use aggregation_set::SET_BUILDER_GUEST_PATH;
 use boundless_market::contracts::{
-    test_utils::TestCtx, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
+    test_utils::TestCtx, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
     Requirements,
 };
 use guest_assessor::ASSESSOR_GUEST_PATH;
@@ -74,7 +74,7 @@ async fn simple_e2e() {
 
     // Submit a order
 
-    let request = ProvingRequest::new(
+    let request = ProofRequest::new(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         Requirements {

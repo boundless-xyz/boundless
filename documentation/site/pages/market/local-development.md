@@ -23,7 +23,7 @@ To accelerate development, there are helpful utilities provided:
   - `deposit`: Deposit funds
   - `withdraw`: Withdraw funds
   - `balance`: Check the balance of an account
-  - `submit-offer`: Submit a proof request, constructed with the given offer, input, and image
+  - `submit-offer`: Submit a request, constructed with the given offer, input, and image
   - `submit-request`: Submit a fully specified proof request
   - `slash`: Slash a prover for a given request
   - `get-proof`: Get the journal and seal for a given request

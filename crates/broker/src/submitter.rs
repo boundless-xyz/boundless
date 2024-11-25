@@ -368,7 +368,7 @@ mod tests {
     use assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, MockVerifier, SetVerifier},
-        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
@@ -446,7 +446,7 @@ mod tests {
             prover.prove_and_monitor_stark(&echo_id_str, &input_id, vec![]).await.unwrap();
         let echo_receipt = prover.get_receipt(&echo_proof.id).await.unwrap().unwrap();
 
-        let order_request = ProvingRequest::new(
+        let order_request = ProofRequest::new(
             market_customer.index_from_nonce().await.unwrap(),
             &customer_addr,
             Requirements {

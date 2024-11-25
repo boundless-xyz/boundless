@@ -23,7 +23,7 @@ use thiserror::Error;
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    Offer, ProofStatus, ProvingRequest, TxnErr, TXN_CONFIRM_TIMEOUT,
+    Offer, ProofRequest, ProofStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -273,7 +273,7 @@ where
     /// on. Includes the specified value, which will be deposited to the account of msg.sender.
     pub async fn submit_request_with_value(
         &self,
-        request: &ProvingRequest,
+        request: &ProofRequest,
         signer: &(impl Signer + SignerSync),
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
@@ -306,7 +306,7 @@ where
     /// the offer.
     pub async fn submit_request(
         &self,
-        request: &ProvingRequest,
+        request: &ProofRequest,
         signer: &(impl Signer + SignerSync),
     ) -> Result<U256, MarketError> {
         let balance = self
@@ -326,7 +326,7 @@ where
     /// This method should be called from the address of the prover.
     pub async fn lockin_request(
         &self,
-        request: &ProvingRequest,
+        request: &ProofRequest,
         client_sig: &Bytes,
         priority_gas: Option<u64>,
     ) -> Result<u64, MarketError> {
@@ -382,7 +382,7 @@ where
     /// This method uses the provided signature to authenticate the prover.
     pub async fn lockin_request_with_sig(
         &self,
-        request: &ProvingRequest,
+        request: &ProofRequest,
         client_sig: &Bytes,
         prover_sig: &Bytes,
         _priority_gas: Option<u128>,
@@ -574,7 +574,7 @@ where
 
     pub async fn price_and_fulfill_batch(
         &self,
-        requests: Vec<ProvingRequest>,
+        requests: Vec<ProofRequest>,
         client_sigs: Vec<Bytes>,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
@@ -755,7 +755,7 @@ where
         request_id: U256,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
-    ) -> Result<(ProvingRequest, Bytes), MarketError> {
+    ) -> Result<(ProofRequest, Bytes), MarketError> {
         let mut upper_block = upper_bound.unwrap_or(self.get_latest_block().await?);
         let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
             self.event_query_config.block_range * self.event_query_config.max_iterations,
@@ -811,7 +811,7 @@ where
         &self,
         request_id: U256,
         tx_hash: Option<B256>,
-    ) -> Result<(ProvingRequest, Bytes), MarketError> {
+    ) -> Result<(ProofRequest, Bytes), MarketError> {
         if let Some(tx_hash) = tx_hash {
             let receipt = self
                 .instance
@@ -989,7 +989,7 @@ mod tests {
     use super::BoundlessMarketService;
     use crate::contracts::{
         test_utils::TestCtx, AssessorJournal, Fulfillment, IBoundlessMarket, Input, InputType,
-        Offer, Predicate, PredicateType, ProofStatus, ProvingRequest, Requirements,
+        Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements,
     };
     use aggregation_set::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_GUEST_ID};
     use alloy::{
@@ -1022,8 +1022,8 @@ mod tests {
         }
     }
 
-    async fn new_request(idx: u32, ctx: &TestCtx) -> ProvingRequest {
-        ProvingRequest::new(
+    async fn new_request(idx: u32, ctx: &TestCtx) -> ProofRequest {
+        ProofRequest::new(
             idx,
             &ctx.customer_signer.address(),
             Requirements {
@@ -1051,7 +1051,7 @@ mod tests {
     }
 
     fn mock_singleton(
-        request: &ProvingRequest,
+        request: &ProofRequest,
         eip712_domain: Eip712Domain,
         prover: Address,
     ) -> (B256, Bytes, Fulfillment, Bytes) {

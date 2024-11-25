@@ -5,7 +5,7 @@
 use alloy_primitives::{Address, Signature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
-use boundless_market::contracts::{EIP721DomainSaltless, ProvingRequest};
+use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// into the Merkle tree of the aggregated set of proofs.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fulfillment {
-    pub request: ProvingRequest,
+    pub request: ProofRequest,
     pub signature: Vec<u8>,
     pub journal: Vec<u8>,
     pub require_payment: bool,
@@ -79,7 +79,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
+        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
         Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
@@ -90,13 +90,8 @@ mod tests {
         ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     };
 
-    fn proving_request(
-        id: u32,
-        signer: Address,
-        image_id: B256,
-        prefix: Vec<u8>,
-    ) -> ProvingRequest {
-        ProvingRequest::new(
+    fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
+        ProofRequest::new(
             id,
             &signer,
             Requirements {
@@ -150,7 +145,7 @@ mod tests {
         assert_eq!(domain, domain2);
     }
 
-    fn setup_proving_request_and_signature(signer: &PrivateKeySigner) -> (ProvingRequest, Vec<u8>) {
+    fn setup_proving_request_and_signature(signer: &PrivateKeySigner) -> (ProofRequest, Vec<u8>) {
         let request = proving_request(
             1,
             signer.address(),

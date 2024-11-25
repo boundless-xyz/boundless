@@ -259,7 +259,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
-        ProvingRequest, Requirements,
+        ProofRequest, Requirements,
     };
     use chrono::Utc;
     use tracing_test::traced_test;
@@ -302,7 +302,7 @@ mod tests {
         let min_price = 1;
         let max_price = 2;
 
-        let request = ProvingRequest::new(
+        let request = ProofRequest::new(
             1,
             &signer.address(),
             Requirements {
@@ -407,7 +407,7 @@ mod tests {
         let min_price = 1;
         let max_price = 2;
 
-        let request = ProvingRequest::new(
+        let request = ProofRequest::new(
             boundless_market.index_from_nonce().await.unwrap(),
             &signer.address(),
             Requirements {

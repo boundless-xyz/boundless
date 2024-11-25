@@ -425,7 +425,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
-        ProvingRequest, Requirements,
+        ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -491,7 +491,7 @@ mod tests {
         let order = Order {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
-            request: ProvingRequest::new(
+            request: ProofRequest::new(
                 boundless_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
@@ -591,7 +591,7 @@ mod tests {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
             target_block: None,
-            request: ProvingRequest::new(
+            request: ProofRequest::new(
                 boundless_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
@@ -684,7 +684,7 @@ mod tests {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
             target_block: None,
-            request: ProvingRequest::new(
+            request: ProofRequest::new(
                 boundless_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
@@ -780,7 +780,7 @@ mod tests {
         let order = Order {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
-            request: ProvingRequest::new(
+            request: ProofRequest::new(
                 boundless_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {

@@ -32,7 +32,7 @@ import {
     Offer,
     Predicate,
     PredicateType,
-    ProvingRequest,
+    ProofRequest,
     Requirements
 } from "../src/IBoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/BoundlessMarketLib.sol";
@@ -50,7 +50,7 @@ contract Client {
     using SafeCast for uint256;
     using SafeCast for int256;
     using BoundlessMarketLib for Requirements;
-    using BoundlessMarketLib for ProvingRequest;
+    using BoundlessMarketLib for ProofRequest;
     using BoundlessMarketLib for Offer;
 
     string public identifier;
@@ -87,8 +87,8 @@ contract Client {
         });
     }
 
-    function request(uint32 idx) public view returns (ProvingRequest memory) {
-        return ProvingRequest({
+    function request(uint32 idx) public view returns (ProofRequest memory) {
+        return ProofRequest({
             id: BoundlessMarketLib.requestId(wallet.addr, idx),
             requirements: defaultRequirements(),
             imageUrl: "https://image.dev.null",
@@ -97,8 +97,8 @@ contract Client {
         });
     }
 
-    function request(uint32 idx, Offer memory offer) public view returns (ProvingRequest memory) {
-        return ProvingRequest({
+    function request(uint32 idx, Offer memory offer) public view returns (ProofRequest memory) {
+        return ProofRequest({
             id: BoundlessMarketLib.requestId(wallet.addr, idx),
             requirements: defaultRequirements(),
             imageUrl: "https://image.dev.null",
@@ -107,7 +107,7 @@ contract Client {
         });
     }
 
-    function sign(ProvingRequest memory req) public returns (bytes memory) {
+    function sign(ProofRequest memory req) public returns (bytes memory) {
         bytes32 structDigest =
             MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), req.eip712Digest());
         (uint8 v, bytes32 r, bytes32 s) = VM.sign(wallet, structDigest);
@@ -133,7 +133,7 @@ contract Client {
 contract BoundlessMarketTest is Test {
     using ReceiptClaimLib for ReceiptClaim;
     using BoundlessMarketLib for Requirements;
-    using BoundlessMarketLib for ProvingRequest;
+    using BoundlessMarketLib for ProofRequest;
     using BoundlessMarketLib for Offer;
     using TestUtils for RiscZeroSetVerifier;
 
@@ -241,11 +241,11 @@ contract BoundlessMarketTest is Test {
         );
     }
 
-    function fulfillRequest(ProvingRequest memory request, bytes memory journal, address prover)
+    function fulfillRequest(ProofRequest memory request, bytes memory journal, address prover)
         internal
         returns (Fulfillment memory, bytes memory assessorSeal)
     {
-        ProvingRequest[] memory requests = new ProvingRequest[](1);
+        ProofRequest[] memory requests = new ProofRequest[](1);
         requests[0] = request;
         bytes[] memory journals = new bytes[](1);
         journals[0] = journal;
@@ -253,7 +253,7 @@ contract BoundlessMarketTest is Test {
         return (fills[0], seal);
     }
 
-    function fulfillRequestBatch(ProvingRequest[] memory requests, bytes[] memory journals, address prover)
+    function fulfillRequestBatch(ProofRequest[] memory requests, bytes[] memory journals, address prover)
         internal
         returns (Fulfillment[] memory fills, bytes memory assessorSeal)
     {
@@ -264,7 +264,7 @@ contract BoundlessMarketTest is Test {
         return (fills, assessorSeal);
     }
 
-    function createFills(ProvingRequest[] memory requests, bytes[] memory journals, address prover, bool requirePayment)
+    function createFills(ProofRequest[] memory requests, bytes[] memory journals, address prover, bool requirePayment)
         internal
         view
         returns (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root)
@@ -301,15 +301,15 @@ contract BoundlessMarketTest is Test {
         return (fills, assessorSeal, root);
     }
 
-    function newBatch(uint256 batchSize) internal returns (ProvingRequest[] memory requests, bytes[] memory journals) {
-        requests = new ProvingRequest[](batchSize);
+    function newBatch(uint256 batchSize) internal returns (ProofRequest[] memory requests, bytes[] memory journals) {
+        requests = new ProofRequest[](batchSize);
         journals = new bytes[](batchSize);
         for (uint256 j = 0; j < 5; j++) {
             getClient(j);
         }
         for (uint256 i = 0; i < batchSize; i++) {
             Client client = clients[i % 5];
-            ProvingRequest memory request = client.request(uint32(i / 5));
+            ProofRequest memory request = client.request(uint32(i / 5));
             bytes memory clientSignature = client.sign(request);
             vm.prank(address(testProver));
             boundlessMarket.lockin(request, clientSignature);
@@ -321,7 +321,7 @@ contract BoundlessMarketTest is Test {
 
 contract BoundlessMarketBasicTest is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
-    using BoundlessMarketLib for ProvingRequest;
+    using BoundlessMarketLib for ProofRequest;
 
     function testDeposit() public {
         vm.deal(address(testProver), 1 ether);
@@ -355,7 +355,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testSubmitRequest() public {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
 
         // Submit the request with no funds
@@ -375,9 +375,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.submitRequest{value: request.offer.maxPrice}(request, clientSignature);
     }
 
-    function _testLockin(bool withSig) private returns (Client, ProvingRequest memory) {
+    function _testLockin(bool withSig) private returns (Client, ProofRequest memory) {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
@@ -403,16 +403,16 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
-    function testLockin() public returns (Client, ProvingRequest memory) {
+    function testLockin() public returns (Client, ProofRequest memory) {
         return _testLockin(true);
     }
 
-    function testLockinWithSig() public returns (Client, ProvingRequest memory) {
+    function testLockinWithSig() public returns (Client, ProofRequest memory) {
         return _testLockin(false);
     }
 
     function _testLockinAlreadyLocked(bool withSig) private {
-        (Client client, ProvingRequest memory request) = _testLockin(withSig);
+        (Client client, ProofRequest memory request) = _testLockin(withSig);
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
@@ -439,8 +439,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function _testLockinBadClientSignature(bool withSig) private {
         Client clientA = getClient(1);
         Client clientB = getClient(2);
-        ProvingRequest memory request1 = clientA.request(1);
-        ProvingRequest memory request2 = clientA.request(2);
+        ProofRequest memory request1 = clientA.request(1);
+        ProofRequest memory request2 = clientA.request(2);
         bytes memory proverSignature = testProver.sign(request1);
 
         // case: request signed by a different client
@@ -479,19 +479,19 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testLockinWithSigBadProverSignature() public {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
         // Bad signature is over the wrong request.
         bytes memory badProverSignature = testProver.sign(client.request(2));
 
         // NOTE: Error is "ProverNotInAppnetLockinAllowList" because we will recover _some_ address.
         // It should be completed random and never correspond to a real account.
-        // TODO: This address will need to change anytime we change the ProvingRequest struct or
+        // TODO: This address will need to change anytime we change the ProofRequest struct or
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
                 IBoundlessMarket.ProverNotInAppnetLockinAllowList.selector,
-                address(0xC7B481eC52630ff2fE17290f04D021001205e403)
+                address(0xf687Db62D5ca4674E6654503C991FB66c78bD9B0)
             )
         );
         boundlessMarket.lockinWithSig(request, clientSignature, badProverSignature);
@@ -503,7 +503,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function _testLockinNotEnoughFunds(bool withSig) private {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
@@ -547,7 +547,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function _testLockinExpired(bool withSig) private {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
@@ -587,7 +587,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         });
 
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1, offer);
+        ProofRequest memory request = client.request(1, offer);
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
@@ -622,7 +622,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         });
 
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1, offer);
+        ProofRequest memory request = client.request(1, offer);
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
@@ -646,9 +646,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return _testLockinInvalidRequest2(false);
     }
 
-    function _testLockinAppnetAllowlist(bool withSig) private returns (Client, ProvingRequest memory) {
+    function _testLockinAppnetAllowlist(bool withSig) private returns (Client, ProofRequest memory) {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
@@ -693,11 +693,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
-    function testLockinAppnetAllowlist() public returns (Client, ProvingRequest memory) {
+    function testLockinAppnetAllowlist() public returns (Client, ProofRequest memory) {
         return _testLockinAppnetAllowlist(true);
     }
 
-    function testLockinWithSigAppnetAllowlist() public returns (Client, ProvingRequest memory) {
+    function testLockinWithSigAppnetAllowlist() public returns (Client, ProofRequest memory) {
         return _testLockinAppnetAllowlist(false);
     }
 
@@ -708,12 +708,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     // Base for fulfillment tests with different methods for lockin, including none. All paths should yield the same result.
-    function _testFulfill(uint32 requestIdx, LockinMethod lockinMethod)
-        private
-        returns (Client, ProvingRequest memory)
-    {
+    function _testFulfill(uint32 requestIdx, LockinMethod lockinMethod) private returns (Client, ProofRequest memory) {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(requestIdx);
+        ProofRequest memory request = client.request(requestIdx);
         bytes memory clientSignature = client.sign(request);
 
         client.snapshotBalance();
@@ -732,7 +729,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             // Annoying boilerplate for creating singleton lists.
             Fulfillment[] memory fills = new Fulfillment[](1);
             fills[0] = fill;
-            ProvingRequest[] memory requests = new ProvingRequest[](1);
+            ProofRequest[] memory requests = new ProofRequest[](1);
             requests[0] = request;
             bytes[] memory clientSignatures = new bytes[](1);
             clientSignatures[0] = client.sign(request);
@@ -800,7 +797,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             batchSize += batch[i];
         }
 
-        ProvingRequest[] memory requests = new ProvingRequest[](batchSize);
+        ProofRequest[] memory requests = new ProofRequest[](batchSize);
         bytes[] memory journals = new bytes[](batchSize);
         uint256 expectedRevenue = 0;
         uint256 idx = 0;
@@ -808,7 +805,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Client client = getClient(i);
 
             for (uint256 j = 0; j < batch[i]; j++) {
-                ProvingRequest memory request = client.request(uint32(j));
+                ProofRequest memory request = client.request(uint32(j));
 
                 // TODO: This is a fragile part of this test. It should be improved.
                 uint256 desiredPrice = uint256(1.5 ether);
@@ -845,7 +842,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillDistinctProversRequirePayment() public {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(3);
+        ProofRequest memory request = client.request(3);
 
         boundlessMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         // address(3) is just a standin for some other address.
@@ -862,9 +859,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-    function testFulfillDistinctProversNoPayment() public returns (Client, ProvingRequest memory) {
+    function testFulfillDistinctProversNoPayment() public returns (Client, ProofRequest memory) {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(3);
+        ProofRequest memory request = client.request(3);
 
         boundlessMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         // address(3) is just a standin for some other address.
@@ -890,7 +887,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // In some cases, a request can be fulfilled without payment being sent. This test starts with
     // one of those cases and checks that the prover can submit fulfillment again to get payment.
     function testCollectPaymentOnFulfilledRequest() public {
-        (, ProvingRequest memory request) = testFulfillDistinctProversNoPayment();
+        (, ProofRequest memory request) = testFulfillDistinctProversNoPayment();
 
         testProver.snapshotBalance();
 
@@ -907,7 +904,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFulfillFulfillProverAddrDoesNotMatchAssessorReceipt() public {
         Client client = getClient(1);
 
-        ProvingRequest memory request = client.request(3);
+        ProofRequest memory request = client.request(3);
 
         boundlessMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         // address(3) is just a standin for some other address.
@@ -924,13 +921,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testPriceAndFulfill() external {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(3);
+        ProofRequest memory request = client.request(3);
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
         Fulfillment[] memory fills = new Fulfillment[](1);
         fills[0] = fill;
-        ProvingRequest[] memory requests = new ProvingRequest[](1);
+        ProofRequest[] memory requests = new ProofRequest[](1);
         requests[0] = request;
         bytes[] memory clientSignatures = new bytes[](1);
         clientSignatures[0] = client.sign(request);
@@ -949,7 +946,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     function _testFulfillAlreadyFulfilled(uint32 idx, LockinMethod lockinMethod) private {
-        (, ProvingRequest memory request) = _testFulfill(idx, lockinMethod);
+        (, ProofRequest memory request) = _testFulfill(idx, lockinMethod);
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
         // Attempt to fulfill a request already fulfilled
@@ -968,7 +965,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillRequestNotLocked() public {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        ProofRequest memory request = client.request(1);
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
 
         // Attempt to fulfill a request without locking or pricing it.
@@ -978,9 +975,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-    function testFulfillExpired() public returns (Client, ProvingRequest memory) {
+    function testFulfillExpired() public returns (Client, ProofRequest memory) {
         Client client = getClient(1);
-        ProvingRequest memory request = client.request(1);
+        ProofRequest memory request = client.request(1);
 
         boundlessMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
@@ -1009,8 +1006,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerA = client.defaultOffer();
         Offer memory offerB = client.defaultOffer();
         offerB.maxPrice = 3 ether;
-        ProvingRequest memory requestA = client.request(1, offerA);
-        ProvingRequest memory requestB = client.request(1, offerB);
+        ProofRequest memory requestA = client.request(1, offerA);
+        ProofRequest memory requestB = client.request(1, offerB);
         bytes memory clientSignatureA = client.sign(requestA);
 
         client.snapshotBalance();
@@ -1033,7 +1030,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Fulfillment[] memory fills = new Fulfillment[](1);
             fills[0] = fill;
             // Here we price with request A and try to fill with request B.
-            ProvingRequest[] memory requests = new ProvingRequest[](1);
+            ProofRequest[] memory requests = new ProofRequest[](1);
             requests[0] = requestA;
             bytes[] memory clientSignatures = new bytes[](1);
             clientSignatures[0] = clientSignatureA;
@@ -1085,8 +1082,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfillRepeatIndex(LockinMethod.None);
     }
 
-    function testSlash() public returns (Client, ProvingRequest memory) {
-        (Client client, ProvingRequest memory request) = testFulfillExpired();
+    function testSlash() public returns (Client, ProofRequest memory) {
+        (Client client, ProofRequest memory request) = testFulfillExpired();
 
         // Slash the request
         vm.expectEmit(true, true, true, true);
@@ -1111,7 +1108,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     function testSlashNotExpired() public {
-        (, ProvingRequest memory request) = testLockin();
+        (, ProofRequest memory request) = testLockin();
 
         // Attempt to slash a request not expired
         // should revert with "RequestIsNotExpired({requestId: request.id,  deadline: deadline})"
@@ -1124,7 +1121,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     function _testSlashFulfilled(uint32 idx, LockinMethod lockinMethod) private {
-        (, ProvingRequest memory request) = _testFulfill(idx, lockinMethod);
+        (, ProofRequest memory request) = _testFulfill(idx, lockinMethod);
 
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLocked.selector, request.id));
         boundlessMarket.slash(request.id);
@@ -1139,7 +1136,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     function testSlashSlash() public {
-        (, ProvingRequest memory request) = testSlash();
+        (, ProofRequest memory request) = testSlash();
 
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLocked.selector, request.id));
         boundlessMarket.slash(request.id);
@@ -1148,7 +1145,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     function testsubmitRootAndFulfillBatch() public {
-        (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(2);
+        (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(2);
         (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) =
             createFills(requests, journals, address(testProver), true);
 
@@ -1166,7 +1163,7 @@ contract BoundlessMarketBench is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
 
     function benchFulfillBatch(uint256 batchSize) public {
-        (ProvingRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
+        (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
         (Fulfillment[] memory fills, bytes memory assessorSeal) =
             fulfillRequestBatch(requests, journals, address(testProver));
 
