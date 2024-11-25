@@ -82,7 +82,7 @@ contract DeployEstopSetVerifier is RiscZeroManagementScript {
     }
 }
 
-/// @notice Deployment script for the Proof Market deployment.
+/// @notice Deployment script for the market deployment.
 /// @dev Use the following environment variable to control the deployment:
 ///     * PROOF_MARKET_OWNER owner of the BoundlessMarket contract
 ///
@@ -109,7 +109,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         console2.logString(assessorGuestUrl);
 
         vm.broadcast(deployerAddress());
-        // Deploy the proof market implementation
+        // Deploy the market implementation
         address newImplementation = address(new BoundlessMarket(IRiscZeroVerifier(router), assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
 
@@ -124,7 +124,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
     }
 }
 
-/// @notice Deployment script for the Proof Market upgrade.
+/// @notice Deployment script for the market contract upgrade.
 /// @dev Use the following environment variable to control the deployment:
 ///     * PROOF_MARKET_OWNER owner of the BoundlessMarket contract
 ///
@@ -152,7 +152,7 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
 
         vm.startBroadcast(deployerAddress());
 
-        // Deploy the proof market implementation
+        // Deploy the market implementation
         address newImplementation = address(new BoundlessMarket(verifier, assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
 

@@ -101,7 +101,7 @@ contract Deploy is Script, RiscZeroCheats {
             console2.log("Using RiscZeroSetVerifier contract deployed at", address(setVerifier));
         }
 
-        // Deploy the proof market
+        // Deploy the Boundless market
         address newImplementation = address(new BoundlessMarket(setVerifier, assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = UnsafeUpgrades.deployUUPSProxy(

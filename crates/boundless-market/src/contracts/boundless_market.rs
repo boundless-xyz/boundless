@@ -26,7 +26,7 @@ use super::{
     Offer, ProofStatus, ProvingRequest, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
-/// Proof market errors.
+/// Boundless market errors.
 #[derive(Error, Debug)]
 pub enum MarketError {
     #[error("Transaction error: {0}")]
@@ -57,7 +57,7 @@ impl From<alloy::contract::Error> for MarketError {
     }
 }
 
-/// Proof market service.
+/// Boundless market service.
 pub struct BoundlessMarketService<T, P> {
     instance: IBoundlessMarketInstance<T, P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
@@ -154,7 +154,7 @@ where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
 {
-    /// Creates a new proof market service.
+    /// Creates a new Boundless market service.
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
         let instance = IBoundlessMarket::new(address, provider);
 
@@ -177,7 +177,7 @@ where
         Self { event_query_config: config, ..self }
     }
 
-    /// Returns the proof market instance.
+    /// Returns the market contract instance.
     pub fn instance(&self) -> &IBoundlessMarketInstance<T, P, Ethereum> {
         &self.instance
     }
@@ -229,7 +229,7 @@ where
         Ok(())
     }
 
-    /// Deposit Ether into the proof market to pay for proof and/or lockin stake.
+    /// Deposit Ether into the market to pay for proof and/or lockin stake.
     pub async fn deposit(&self, value: U256) -> Result<(), MarketError> {
         tracing::debug!("Calling deposit() value: {value}");
         let call = self.instance.deposit().value(value);
@@ -245,7 +245,7 @@ where
         Ok(())
     }
 
-    /// Withdraw Ether from the proof market.
+    /// Withdraw Ether from the market.
     pub async fn withdraw(&self, amount: U256) -> Result<(), MarketError> {
         tracing::debug!("Calling withdraw({amount})");
         let call = self.instance.withdraw(amount);

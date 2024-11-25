@@ -131,9 +131,9 @@ interface IBoundlessMarket {
     /// Event when prover stake is slashed for failing to fulfill a request by the deadline.
     /// Part of the stake is burned, and part is transferred to the client as compensation.
     event ProverSlashed(uint256 indexed requestId, uint256 stakeBurned, uint256 stakeTransferred);
-    /// Event when a deposit is made to the proof market.
+    /// Event when a deposit is made to the market.
     event Deposit(address indexed account, uint256 value);
-    /// Event when a withdrawal is made from the proof market.
+    /// Event when a withdrawal is made from the market.
     event Withdrawal(address indexed account, uint256 value);
     /// Contract upgraded to a new version.
     event Upgraded(uint64 indexed version);
@@ -193,10 +193,10 @@ interface IBoundlessMarket {
     /// @notice Return when the given request expires.
     function requestDeadline(uint256 requestId) external view returns (uint64);
 
-    /// @notice Deposit Ether into the proof market to pay for proof and/or lockin stake.
+    /// @notice Deposit Ether into the market to pay for proof and/or lockin stake.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
     function deposit() external payable;
-    /// @notice Withdraw Ether from the proof market.
+    /// @notice Withdraw Ether from the market.
     /// @dev Value is debited from msg.sender.
     function withdraw(uint256 value) external;
     /// @notice Check the deposited balance, in Ether, of the given account.

@@ -40,19 +40,19 @@ use boundless_market::{
 // TODO(victor): Update corresponding docs
 #[derive(Subcommand, Clone, Debug)]
 enum Command {
-    /// Deposit funds into the proof market
+    /// Deposit funds into the market
     Deposit {
         /// Amount in ether to deposit
         #[clap(value_parser = parse_ether)]
         amount: U256,
     },
-    /// Withdraw funds from the proof market
+    /// Withdraw funds from the market
     Withdraw {
         /// Amount in ether to withdraw
         #[clap(value_parser = parse_ether)]
         amount: U256,
     },
-    /// Check the balance of an account in the proof market
+    /// Check the balance of an account in the market
     Balance {
         /// Address to check the balance of;
         /// if not provided, defaults to the wallet address
@@ -180,7 +180,7 @@ struct MainArgs {
     /// Private key of the wallet
     #[clap(long, env)]
     private_key: PrivateKeySigner,
-    /// Address of the proof market contract
+    /// Address of the market contract
     #[clap(short, long, env)]
     boundless_market_address: Address,
     /// Address of the SetVerifier contract

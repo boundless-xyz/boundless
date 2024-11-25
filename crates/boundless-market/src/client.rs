@@ -226,7 +226,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
     /// - PRIVATE_KEY: The private key of the wallet
     /// - RPC_URL: The URL of the RPC server
     /// - ORDER_STREAM_URL: The URL of the order stream server
-    /// - PROOF_MARKET_ADDRESS: The address of the proof market contract
+    /// - PROOF_MARKET_ADDRESS: The address of the market contract
     /// - SET_VERIFIER_ADDRESS: The address of the set verifier contract
     pub async fn from_env() -> Result<Self, ClientError> {
         let private_key_str = env::var("private_key").context("private_key not set")?;
@@ -268,12 +268,6 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
     }
 
     /// Create a new client from parts
-    ///
-    /// The wallet private key is used to sign transactions.
-    /// The RPC URL is the URL of the RPC server.
-    /// The proof market address is the address of the proof market contract.
-    /// The set verifier address is the address of the set verifier contract.
-    /// The order stream URL is the URL of the order stream server.
     pub async fn from_parts(
         private_key: PrivateKeySigner,
         rpc_url: Url,

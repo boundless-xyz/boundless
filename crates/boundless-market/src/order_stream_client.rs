@@ -173,7 +173,7 @@ pub struct Client {
     pub base_url: Url,
     /// Signer for signing requests
     pub signer: LocalSigner<SigningKey>,
-    /// Address of the proof market contract
+    /// Address of the market contract
     pub boundless_market_address: Address,
     /// Chain ID of the network
     pub chain_id: u64,

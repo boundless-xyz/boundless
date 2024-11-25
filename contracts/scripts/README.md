@@ -220,11 +220,11 @@ This is a two-step process, guarded by the `TimelockController`.
 
    Follow the deployment instructions detailed in the [finish-the-update] section.
 
-## Deploy and upgrade the proof market with the **UUPS** proxy pattern
+## Deploy and upgrade the market contract with the **UUPS** proxy pattern
 
 The Boundless market is deployed and upgraded using the **UUPS (Universal Upgradeable Proxy Standard)** proxy pattern.
 
-### Deploy the proof market
+### Deploy the market contract
 
 1. Make available for download the `asessor` elf and set its image ID and url in the `deployment.toml` file.
 
@@ -243,7 +243,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!TIP]
    > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
 
-2. Dry run deployment of the proof market and proxy:
+2. Dry run deployment of the market implementation and proxy:
 
    ```zsh
    PROOF_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
@@ -251,7 +251,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    ```
 
    > [!IMPORTANT]
-   > Check the logs from this dry run to verify the proof market owner is the expected address.
+   > Check the logs from this dry run to verify the market owner is the expected address.
    > It should be equal to the RISC Zero admin address on the given chain.
    > Note that it should not be the `TimelockController`.
    > Also check the chain ID to ensure you are deploying to the chain you expect.
@@ -260,7 +260,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!TIP]
    > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
 
-3. Send deployment transactions for the proof market by running the command again with `--broadcast`.
+3. Send deployment transactions for the market contract by running the command again with `--broadcast`.
 
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
@@ -284,11 +284,11 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!IMPORTANT]
    > Make sure the Assessor info to make sure they match what you expect.
 
-### Upgrade the proof market
+### Upgrade the market contract
 
 1. If changed, upload the new `assessor` elf and update its imageID and url in the `deployment.toml` file (optional)
 
-2. Dry run the upgrade of the proof market and proxy:
+2. Dry run the upgrade of the market implementation and proxy:
 
    ```zsh
    PROOF_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
@@ -296,13 +296,13 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    ```
 
    > [!IMPORTANT]
-   > Check the logs from this dry run to verify the proof market owner is the expected address.
+   > Check the logs from this dry run to verify the market owner is the expected address.
    > It should be equal to the RISC Zero admin address on the given chain.
    > Note that it should not be the `TimelockController`.
    > Also check the chain ID to ensure you are deploying to the chain you expect.
    > And check the Assessor info to make sure they match what you expect.
 
-3. Send the upgrade transactions for the proof market by running the command again with `--broadcast`.
+3. Send the upgrade transactions for the market contract by running the command again with `--broadcast`.
 
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.

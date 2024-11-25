@@ -62,12 +62,12 @@ pub struct Args {
     #[clap(long, env)]
     pub private_key: PrivateKeySigner,
 
-    /// Proof market address
+    /// Boundless market address
     #[clap(long, env)]
     pub boundless_market_addr: Address,
 
     /// Risc zero Set verifier address
-    // TODO: Get this from the proof market via view call
+    // TODO: Get this from the market contract via view call
     #[clap(long, env)]
     set_verifier_addr: Address,
 

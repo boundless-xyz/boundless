@@ -5,7 +5,7 @@
 The Boundless [BoundlessMarket](./src/BoundlessMarket.sol) contract is deployed and upgraded using an [ERC-1967][erc-1967] storage proxy and the [UUPS][uups] (Universal Upgradeable Proxy Standard) proxy pattern.
 This pattern allows to upgrade the contract logic while keeping all the state, providing flexibility to improve the implementation over time without service interruptions or manual migration processes.
 
-The proof market uses the RISC Zero verifier router, building upon the [verifier versioning system][verifier-versioning].
+The Boundless market uses the RISC Zero verifier router, building upon the [verifier versioning system][verifier-versioning].
 
 ```mermaid
 ---
@@ -45,7 +45,7 @@ flowchart LR
     subgraph proxy["ERC1967Proxy"]
         marketProxy["BoundlessMarket [proxy]"]
     end
-    subgraph BoundlessMarket["Proof market implementations"]
+    subgraph BoundlessMarket["Boundless market implementations"]
         boundlessMarketv1["BoundlessMarket [v1]"]
         boundlessMarketv2["BoundlessMarket [v2]"]
     end
