@@ -18,8 +18,8 @@ use axum::{
     Router,
 };
 use boundless_market::order_stream_client::{
-    AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
-    ORDER_WS_PATH,
+    AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
+    ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
 };
 use clap::Parser;
 use reqwest::{Client, Url};
@@ -37,7 +37,8 @@ mod order_db;
 mod ws;
 
 use api::{
-    __path_get_nonce, __path_list_orders, __path_submit_order, get_nonce, list_orders, submit_order,
+    __path_get_nonce, __path_health, __path_list_orders, __path_submit_order, get_nonce, health,
+    list_orders, submit_order,
 };
 use order_db::OrderDb;
 use ws::{start_broadcast_task, websocket_handler, ConnectionsMap, __path_websocket_handler};
@@ -204,7 +205,7 @@ const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
 
 #[derive(OpenApi, Debug, Deserialize)]
 #[openapi(
-    paths(submit_order, list_orders, get_nonce, websocket_handler),
+    paths(submit_order, list_orders, get_nonce, health, websocket_handler),
     components(schemas(AuthMsg)),
     info(
         title = "Boundless Order Stream service",
@@ -225,6 +226,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(ORDER_LIST_PATH, get(list_orders))
         .route(&format!("{AUTH_GET_NONCE}:addr"), get(get_nonce))
         .route(ORDER_WS_PATH, get(websocket_handler))
+        .route(HEALTH_CHECK, get(health))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
