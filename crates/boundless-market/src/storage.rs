@@ -111,8 +111,8 @@ pub struct StorageProviderConfig {
 }
 
 #[cfg(feature = "cli")]
-impl Default for StorageProviderConfig {
-    fn default() -> Self {
+impl StorageProviderConfig {
+    fn dev_mode() -> Self {
         Self {
             storage_provider: "file".to_string(),
             s3_access_key: None,
