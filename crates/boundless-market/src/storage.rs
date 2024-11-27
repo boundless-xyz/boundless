@@ -34,13 +34,13 @@ pub trait StorageProvider {
     /// Upload a risc0-zkvm ELF binary.
     ///
     /// Returns the URL which can be used to publicly access the uploaded ELF. This URL can be
-    /// included in a proving request sent to Boundless.
+    /// included in a request sent to Boundless.
     async fn upload_image(&self, elf: &[u8]) -> Result<String, Self::Error>;
 
-    /// Upload the input for use in a proving request.
+    /// Upload the input for use in a proof request.
     ///
     /// Returns the URL which can be used to publicly access the uploaded input. This URL can be
-    /// included in a proving request sent to Boundless.
+    /// included in a request sent to Boundless.
     async fn upload_input(&self, input: &[u8]) -> Result<String, Self::Error>;
 }
 
@@ -112,7 +112,7 @@ pub struct StorageProviderConfig {
 
 #[cfg(feature = "cli")]
 impl StorageProviderConfig {
-    fn dev_mode() -> Self {
+    pub fn dev_mode() -> Self {
         Self {
             storage_provider: "file".to_string(),
             s3_access_key: None,

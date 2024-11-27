@@ -1,5 +1,5 @@
 # Offer specifying how much the client is willing to pay 
-# to have an associated proving request fulfilled.
+# to have an associated proof request fulfilled.
 minPrice: 100000000000000
 maxPrice: 2000000000000000
 biddingStart: 0 # if set to 0, gets overwritten by the current block height

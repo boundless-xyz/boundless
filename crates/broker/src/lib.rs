@@ -14,8 +14,8 @@ use alloy::{
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
     contracts::{
-        proof_market::ProofMarketService, set_verifier::SetVerifierService, InputType,
-        ProvingRequest,
+        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, InputType,
+        ProofRequest,
     },
     order_stream_client::Client as OrderStreamClient,
 };
@@ -62,12 +62,12 @@ pub struct Args {
     #[clap(long, env)]
     pub private_key: PrivateKeySigner,
 
-    /// Proof market address
+    /// Boundless market address
     #[clap(long, env)]
-    pub proof_market_addr: Address,
+    pub boundless_market_addr: Address,
 
     /// Risc zero Set verifier address
-    // TODO: Get this from the proof market via view call
+    // TODO: Get this from the market contract via view call
     #[clap(long, env)]
     set_verifier_addr: Address,
 
@@ -129,8 +129,8 @@ enum OrderStatus {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Order {
-    /// Proving request object
-    request: ProvingRequest,
+    /// Proof request object
+    request: ProofRequest,
     /// status of the order
     status: OrderStatus,
     /// Last update time
@@ -167,7 +167,7 @@ struct Order {
 }
 
 impl Order {
-    pub fn new(request: ProvingRequest, client_sig: Bytes) -> Self {
+    pub fn new(request: ProofRequest, client_sig: Bytes) -> Self {
         Self {
             request,
             status: OrderStatus::New,
@@ -334,14 +334,14 @@ where
 
             Ok((img_id, elf_buf))
         } else {
-            let proof_market = ProofMarketService::new(
-                self.args.proof_market_addr,
+            let boundless_market = BoundlessMarketService::new(
+                self.args.boundless_market_addr,
                 self.provider.clone(),
                 Address::ZERO,
             );
 
             let (image_id, image_url_str) =
-                proof_market.image_info().await.context("Failed to get contract image_info")?;
+                boundless_market.image_info().await.context("Failed to get contract image_info")?;
             let image_uri = UriHandlerBuilder::new(&image_url_str)
                 .set_max_size(max_file_size)
                 .build()
@@ -401,7 +401,7 @@ where
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
-            self.args.proof_market_addr,
+            self.args.boundless_market_addr,
             self.provider.clone(),
             self.db.clone(),
         ));
@@ -421,7 +421,7 @@ where
             OrderStreamClient::new(
                 url,
                 self.args.private_key.clone(),
-                self.args.proof_market_addr,
+                self.args.boundless_market_addr,
                 chain_id,
             )
         });
@@ -480,7 +480,7 @@ where
             self.config_watcher.config.clone(),
             prover.clone(),
             block_times,
-            self.args.proof_market_addr,
+            self.args.boundless_market_addr,
             self.provider.clone(),
         ));
         supervisor_tasks.spawn(async move {
@@ -493,7 +493,7 @@ where
             self.provider.clone(),
             self.config_watcher.config.clone(),
             block_times,
-            self.args.proof_market_addr,
+            self.args.boundless_market_addr,
         )?);
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_monitor).await.context("Failed to start order monitor")?;
@@ -529,7 +529,7 @@ where
                 set_builder_img_data.1,
                 assessor_img_data.0,
                 assessor_img_data.1,
-                self.args.proof_market_addr,
+                self.args.boundless_market_addr,
                 prover_addr,
                 self.config_watcher.config.clone(),
                 prover.clone(),
@@ -550,7 +550,7 @@ where
             prover.clone(),
             self.provider.clone(),
             self.args.set_verifier_addr,
-            self.args.proof_market_addr,
+            self.args.boundless_market_addr,
             set_builder_img_data.0,
         )?);
         supervisor_tasks.spawn(async move {
@@ -708,7 +708,7 @@ pub mod test_utils {
         let args = Args {
             db_url: "sqlite::memory:".into(),
             config_file: config_file.path().to_path_buf(),
-            proof_market_addr: ctx.proof_market_addr,
+            boundless_market_addr: ctx.boundless_market_addr,
             set_verifier_addr: ctx.set_verifier_addr,
             rpc_url,
             order_stream_url: None,

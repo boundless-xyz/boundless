@@ -4,7 +4,7 @@
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{aliases::U96, utils, B256, U256},
+    primitives::{utils, B256, U256},
     providers::Provider,
 };
 use httpmock::prelude::*;
@@ -14,7 +14,7 @@ use tempfile::NamedTempFile;
 use crate::{config::Config, provers::encode_input, Args, Broker};
 use aggregation_set::SET_BUILDER_GUEST_PATH;
 use boundless_market::contracts::{
-    test_utils::TestCtx, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
+    test_utils::TestCtx, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
     Requirements,
 };
 use guest_assessor::ASSESSOR_GUEST_PATH;
@@ -57,7 +57,7 @@ async fn simple_e2e() {
     let args = Args {
         db_url: "sqlite::memory:".into(),
         config_file: config_file.path().to_path_buf(),
-        proof_market_addr: ctx.proof_market_addr,
+        boundless_market_addr: ctx.boundless_market_addr,
         set_verifier_addr: ctx.set_verifier_addr,
         rpc_url: anvil.endpoint_url(),
         order_stream_url: None,
@@ -74,7 +74,7 @@ async fn simple_e2e() {
 
     // Submit a order
 
-    let request = ProvingRequest::new(
+    let request = ProofRequest::new(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         Requirements {
@@ -90,12 +90,12 @@ async fn simple_e2e() {
             data: encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().into(),
         },
         Offer {
-            minPrice: U96::from(20000000000000u64),
-            maxPrice: U96::from(40000000000000u64),
+            minPrice: U256::from(20000000000000u64),
+            maxPrice: U256::from(40000000000000u64),
             biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
             timeout: 100,
             rampUpPeriod: 1,
-            lockinStake: U96::from(10),
+            lockinStake: U256::from(10),
         },
     );
 

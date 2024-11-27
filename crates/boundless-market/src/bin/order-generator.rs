@@ -8,13 +8,13 @@ use std::{
 };
 
 use alloy::{
-    primitives::{aliases::U96, utils::parse_ether, Address, U256},
+    primitives::{utils::parse_ether, Address, U256},
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
 use boundless_market::{
     client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProvingRequest, Requirements},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     storage::StorageProviderConfig,
 };
 use clap::{Args, Parser};
@@ -43,9 +43,9 @@ struct MainArgs {
     /// Address of the SetVerifier contract.
     #[clap(short, long, env)]
     set_verifier_address: Address,
-    /// Address of the ProofMarket contract.
+    /// Address of the BoundlessMarket contract.
     #[clap(short, long, env)]
-    proof_market_address: Address,
+    boundless_market_address: Address,
     /// Interval in seconds between requests.
     #[clap(short, long, default_value = "60")]
     interval: u64,
@@ -123,7 +123,7 @@ async fn main() -> Result<()> {
 async fn run(args: &MainArgs) -> Result<()> {
     let boundless_client = ClientBuilder::default()
         .with_rpc_url(args.rpc_url.clone())
-        .with_proof_market_address(args.proof_market_address)
+        .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url.clone())
         .with_storage_provider_config(&args.storage_config)
@@ -172,7 +172,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             .div_ceil(1_000_000);
         let journal = session_info.journal;
 
-        let request = ProvingRequest::default()
+        let request = ProofRequest::default()
             .with_image_url(&image_url)
             .with_input(Input::inline(encoded_input))
             .with_requirements(Requirements::new(
@@ -181,15 +181,9 @@ async fn run(args: &MainArgs) -> Result<()> {
             ))
             .with_offer(
                 Offer::default()
-                    .with_min_price_per_mcycle(
-                        U96::from::<U256>(args.min_price_per_mcycle),
-                        mcycles_count,
-                    )
-                    .with_max_price_per_mcycle(
-                        U96::from::<U256>(args.max_price_per_mcycle),
-                        mcycles_count,
-                    )
-                    .with_lockin_stake(U96::from::<U256>(args.lockin_stake))
+                    .with_min_price_per_mcycle(args.min_price_per_mcycle, mcycles_count)
+                    .with_max_price_per_mcycle(args.max_price_per_mcycle, mcycles_count)
+                    .with_lockin_stake(args.lockin_stake)
                     .with_ramp_up_period(args.ramp_up)
                     .with_timeout(args.timeout),
             );
@@ -214,7 +208,7 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::contracts::{test_utils::TestCtx, IProofMarket};
+    use boundless_market::contracts::{test_utils::TestCtx, IBoundlessMarket};
     use tracing_test::traced_test;
 
     use super::*;
@@ -228,10 +222,10 @@ mod tests {
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             order_stream_url: None,
-            storage_config: StorageProviderConfig::default(),
+            storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             set_verifier_address: ctx.set_verifier_addr,
-            proof_market_address: ctx.proof_market_addr,
+            boundless_market_address: ctx.boundless_market_addr,
             interval: 1,
             count: Some(2),
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
@@ -249,12 +243,12 @@ mod tests {
 
         // Check that the requests were submitted
         let filter = Filter::new()
-            .event_signature(IProofMarket::RequestSubmitted::SIGNATURE_HASH)
+            .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(0)
-            .address(ctx.proof_market_addr);
+            .address(ctx.boundless_market_addr);
         let logs = ctx.customer_provider.get_logs(&filter).await.unwrap();
         let decoded_logs = logs.iter().filter_map(|log| {
-            match log.log_decode::<IProofMarket::RequestSubmitted>() {
+            match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {
                 Ok(res) => Some(res),
                 Err(err) => {
                     tracing::error!("Failed to decode RequestSubmitted log: {err:?}");

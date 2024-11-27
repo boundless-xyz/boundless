@@ -1,4 +1,4 @@
-FROM rust:1.79.0-bookworm AS builder
+FROM rust:1.81.0-bookworm AS builder
 
 RUN apt-get -qq update && apt-get install -y -q clang
 
@@ -12,12 +12,12 @@ COPY rust-toolchain.toml .
 COPY .sqlx/ ./.sqlx/
 
 COPY ./dockerfiles/sccache-setup.sh .
-RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.1"
+RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 COPY ./dockerfiles/sccache-config.sh .
 SHELL ["/bin/bash", "-c"]
 
 # Prevent sccache collision in compose-builds
-ENV SCCACHE_SERVER_PORT=4228
+ENV SCCACHE_SERVER_PORT=4230
 
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
@@ -27,7 +27,7 @@ RUN \
     cp /src/target/release/rest_api /src/rest_api && \
     sccache --show-stats
 
-FROM rust:1.79.0-bookworm AS runtime
+FROM rust:1.81.0-bookworm AS runtime
 
 RUN mkdir /app/ && \
     apt -qq update && \

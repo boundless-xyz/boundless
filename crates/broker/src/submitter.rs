@@ -7,13 +7,15 @@ use std::{sync::Arc, time::Duration};
 use aggregation_set::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use alloy::{
     network::Ethereum,
-    primitives::{aliases::U192, Address, B256, U256},
+    primitives::{Address, B256, U256},
     providers::{Provider, WalletProvider},
+    sol_types::SolStruct,
     transports::Transport,
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::{
-    encode_seal, proof_market::ProofMarketService, set_verifier::SetVerifierService, Fulfillment,
+    boundless_market::BoundlessMarketService, encode_seal, set_verifier::SetVerifierService,
+    Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_zkvm::{
@@ -33,7 +35,7 @@ use crate::{
 pub struct Submitter<T, P> {
     db: DbObj,
     prover: ProverObj,
-    market: ProofMarketService<T, Arc<P>>,
+    market: BoundlessMarketService<T, Arc<P>>,
     set_verifier: SetVerifierService<T, Arc<P>>,
     set_builder_img_id: Digest,
     prover_address: Address,
@@ -60,7 +62,7 @@ where
             config.batcher.txn_timeout
         };
 
-        let mut market = ProofMarketService::new(
+        let mut market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -116,7 +118,7 @@ where
         for order_id in batch.orders.iter() {
             tracing::info!("Submitting order {order_id:x}");
 
-            let (order_proof_id, order_img_id, order_path) = match self
+            let (order_request, order_proof_id, order_img_id, order_path) = match self
                 .db
                 .get_submission_order(*order_id)
                 .await
@@ -181,11 +183,15 @@ where
                 }
             };
 
+            let request_digest = order_request
+                .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
             fulfillments.push(Fulfillment {
-                id: U192::from(*order_id),
+                id: *order_id,
+                requestDigest: request_digest,
                 imageId: order_img_id,
                 journal: order_journal.into(),
                 seal: seal.into(),
+                requirePayment: true,
             });
         }
 
@@ -354,15 +360,15 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{aliases::U96, FixedBytes, B256, U256},
+        primitives::{FixedBytes, B256, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
         sol_types::SolValue,
     };
     use assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
-        test_utils::{deploy_proof_market, MockVerifier, SetVerifier},
-        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        test_utils::{deploy_boundless_market, MockVerifier, SetVerifier},
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
@@ -401,14 +407,20 @@ mod tests {
         )
         .await
         .unwrap();
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), *set_verifier.address()).await.unwrap();
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            *set_verifier.address(),
+            Some(prover_addr),
+        )
+        .await
+        .unwrap();
 
-        let market = ProofMarketService::new(market_address, provider.clone(), prover_addr);
+        let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
         market.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let market_customer =
-            ProofMarketService::new(market_address, customer_provider.clone(), customer_addr);
+            BoundlessMarketService::new(market_address, customer_provider.clone(), customer_addr);
         market_customer.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
@@ -434,7 +446,7 @@ mod tests {
             prover.prove_and_monitor_stark(&echo_id_str, &input_id, vec![]).await.unwrap();
         let echo_receipt = prover.get_receipt(&echo_proof.id).await.unwrap().unwrap();
 
-        let order_request = ProvingRequest::new(
+        let order_request = ProofRequest::new(
             market_customer.index_from_nonce().await.unwrap(),
             &customer_addr,
             Requirements {
@@ -447,12 +459,12 @@ mod tests {
             "http://risczero.com/image".into(),
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
-                minPrice: U96::from(2),
-                maxPrice: U96::from(4),
+                minPrice: U256::from(2),
+                maxPrice: U256::from(4),
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U96::from(10),
+                lockinStake: U256::from(10),
             },
         );
 
@@ -489,6 +501,7 @@ mod tests {
                         request: order_request.clone(),
                         signature: client_sig.into(),
                         journal: echo_receipt.journal.bytes,
+                        require_payment: true,
                     }],
                     prover_address: prover_addr,
                 }
