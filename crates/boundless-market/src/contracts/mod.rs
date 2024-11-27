@@ -503,7 +503,7 @@ pub mod test_utils {
     };
     use anyhow::Result;
     use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
+    use risc0_aggregation::SET_BUILDER_ID;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
 

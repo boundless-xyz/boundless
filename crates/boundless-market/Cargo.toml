@@ -27,7 +27,6 @@ clap = { workspace = true, optional = true }
 dotenvy = { workspace = true, optional = true }
 futures-util = { workspace = true }
 guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true, optional = true }
 guest-util = { workspace = true, optional = true }
 hex = { workspace = true }
 rand = { workspace = true }
@@ -59,4 +58,4 @@ tracing-test = { workspace = true }
 [features]
 cli = ["dep:clap", "dep:dotenvy", "dep:guest-util", "dep:serde_yaml", "tokio/rt-multi-thread"]
 default = ["cli"]
-test-utils = ["dep:guest-set-builder"]
+test-utils = []

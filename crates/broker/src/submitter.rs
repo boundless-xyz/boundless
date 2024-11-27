@@ -372,7 +372,7 @@ mod tests {
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use risc0_aggregation::{GuestInput, GuestOutput, SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
+    use risc0_aggregation::{GuestInput, GuestOutput, SET_BUILDER_ELF, SET_BUILDER_ID};
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
@@ -402,7 +402,7 @@ mod tests {
         let set_verifier = SetVerifier::deploy(
             &provider,
             *verifier.address(),
-            FixedBytes::from_slice(&Digest::from(SET_BUILDER_GUEST_ID).as_bytes()),
+            FixedBytes::from_slice(&Digest::from(SET_BUILDER_ID).as_bytes()),
             String::new(),
         )
         .await
@@ -434,9 +434,9 @@ mod tests {
             .await
             .unwrap();
 
-        let set_builder_id = Digest::from(SET_BUILDER_GUEST_ID);
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
         let set_builder_id_str = set_builder_id.to_string();
-        prover.upload_image(&set_builder_id_str, SET_BUILDER_GUEST_ELF.to_vec()).await.unwrap();
+        prover.upload_image(&set_builder_id_str, SET_BUILDER_ELF.to_vec()).await.unwrap();
 
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         let assessor_id_str = assessor_id.to_string();

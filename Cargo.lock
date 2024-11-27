@@ -1926,7 +1926,6 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "guest-assessor",
- "guest-set-builder",
  "guest-util",
  "hex",
  "rand",

@@ -547,7 +547,7 @@ mod tests {
     };
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use risc0_aggregation::{SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
+    use risc0_aggregation::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -640,8 +640,8 @@ mod tests {
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
-            Digest::from(SET_BUILDER_GUEST_ID),
-            SET_BUILDER_GUEST_ELF.to_vec(),
+            Digest::from(SET_BUILDER_ID),
+            SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
@@ -805,8 +805,8 @@ mod tests {
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
-            Digest::from(SET_BUILDER_GUEST_ID),
-            SET_BUILDER_GUEST_ELF.to_vec(),
+            Digest::from(SET_BUILDER_ID),
+            SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
@@ -911,8 +911,8 @@ mod tests {
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
-            Digest::from(SET_BUILDER_GUEST_ID),
-            SET_BUILDER_GUEST_ELF.to_vec(),
+            Digest::from(SET_BUILDER_ID),
+            SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,

@@ -49,7 +49,6 @@ chrono = { version = "0.4", features = ["serde"] }
 deadpool-redis = "0.15"
 dotenvy = "0.15"
 futures-util = "0.3"
-guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 postcard = { version = "1.0" }
 rand = { version = "0.8" }
