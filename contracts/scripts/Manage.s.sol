@@ -115,7 +115,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
 
         vm.broadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
-        address boundlessMarketAddress = Upgrades.deployUUPSProxy(
+        address marketAddress = Upgrades.deployUUPSProxy(
             "BoundlessMarket.sol:BoundlessMarket",
             abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl)),
             opts
@@ -152,7 +152,7 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         bytes32 assessorImageId = deploymentConfig.assessorImageId;
 
         UpgradeOptions memory opts;
-        opts.constructorData = ProofMarketLib.encodeConstructorArgs(verifier, assessorImageId);
+        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(verifier, assessorImageId);
         opts.referenceContract = "build-info-reference:ProofMarket";
         opts.referenceBuildInfoDir = "contracts/reference-contract/build-info-reference";
 
@@ -168,7 +168,7 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
                 marketOwner
             );
         } else {
-            Upgrades.upgradeProxy(proofMarketAddress, "BoundlessMarket.sol:BoundlessMarket", "", opts, marketOwner);
+            Upgrades.upgradeProxy(marketAddress, "BoundlessMarket.sol:BoundlessMarket", "", opts, marketOwner);
         }
         vm.stopBroadcast();
 
