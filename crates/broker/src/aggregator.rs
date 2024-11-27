@@ -4,7 +4,6 @@
 
 use std::{marker::PhantomData, sync::Arc};
 
-use aggregation_set::{GuestInput, GuestOutput};
 use alloy::{
     network::Ethereum,
     primitives::{utils, Address, U256},
@@ -16,6 +15,7 @@ use anyhow::{Context, Result};
 use assessor::{AssessorInput, Fulfillment};
 use boundless_market::contracts::eip712_domain;
 use chrono::Utc;
+use risc0_aggregation::{GuestInput, GuestOutput};
 use risc0_zkvm::sha::Digest;
 
 use crate::{
@@ -535,7 +535,6 @@ mod tests {
         provers::{encode_input, MockProver},
         BatchStatus, Order, OrderStatus,
     };
-    use aggregation_set::{SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -548,6 +547,7 @@ mod tests {
     };
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
+    use risc0_aggregation::{SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use tracing_test::traced_test;
 
     #[tokio::test]

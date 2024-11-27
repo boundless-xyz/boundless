@@ -18,7 +18,6 @@ url = { workspace = true }
 
 # Host dependencies
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
-aggregation-set = { workspace = true }
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 async-stream = { workspace = true }
 async-trait = "0.1"
@@ -28,11 +27,13 @@ clap = { workspace = true, optional = true }
 dotenvy = { workspace = true, optional = true }
 futures-util = { workspace = true }
 guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true, optional = true }
 guest-util = { workspace = true, optional = true }
 hex = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
-risc0-ethereum-contracts = { workspace = true }
+risc0-aggregation = { workspace = true }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true, optional = true }
@@ -58,4 +59,4 @@ tracing-test = { workspace = true }
 [features]
 cli = ["dep:clap", "dep:dotenvy", "dep:guest-util", "dep:serde_yaml", "tokio/rt-multi-thread"]
 default = ["cli"]
-test-utils = []
+test-utils = ["dep:guest-set-builder"]

@@ -9,7 +9,7 @@ use std::str::FromStr;
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
     contract::Error as ContractErr,
-    primitives::SignatureError,
+    primitives::{PrimitiveSignature, SignatureError},
     signers::{Signature, SignerSync},
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
@@ -26,7 +26,7 @@ use url::Url;
 use risc0_zkvm::sha::Digest;
 
 #[cfg(not(target_os = "zkvm"))]
-pub use risc0_ethereum_contracts::encode_seal;
+pub use risc0_ethereum_contracts::{encode_seal, IRiscZeroSetVerifier};
 
 #[cfg(not(target_os = "zkvm"))]
 const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
@@ -207,7 +207,7 @@ impl ProofRequest {
         signer: &impl SignerSync,
         contract_addr: Address,
         chain_id: u64,
-    ) -> Result<Signature, RequestError> {
+    ) -> Result<PrimitiveSignature, RequestError> {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         Ok(signer.sign_hash_sync(&hash)?)
@@ -362,12 +362,6 @@ impl Default for Input {
     }
 }
 
-#[cfg(not(target_os = "zkvm"))]
-alloy::sol!(
-    #![sol(rpc, all_derives)]
-    "../../contracts/src/IRiscZeroSetVerifier.sol"
-);
-
 use sha2::{Digest as _, Sha256};
 #[cfg(not(target_os = "zkvm"))]
 use IBoundlessMarket::IBoundlessMarketErrors;
@@ -471,16 +465,6 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
 }
 
 #[cfg(not(target_os = "zkvm"))]
-impl IRiscZeroSetVerifierErrors {
-    pub fn decode_error(err: ContractErr) -> TxnErr {
-        match decode_contract_err(err) {
-            Ok(res) => TxnErr::SetVerifierErr(res),
-            Err(decode_err) => decode_err,
-        }
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
 impl IBoundlessMarketErrors {
     pub fn decode_error(err: ContractErr) -> TxnErr {
         match decode_contract_err(err) {
@@ -502,7 +486,6 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
-    use aggregation_set::SET_BUILDER_GUEST_ID;
     use alloy::{
         network::{Ethereum, EthereumWallet},
         node_bindings::AnvilInstance,
@@ -520,6 +503,7 @@ pub mod test_utils {
     };
     use anyhow::Result;
     use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_set_builder::SET_BUILDER_ID;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
 
@@ -590,7 +574,7 @@ pub mod test_utils {
         let set_verifier = SetVerifier::deploy(
             &deployer_provider,
             verifier_address,
-            <[u8; 32]>::from(Digest::from(SET_BUILDER_GUEST_ID)).into(),
+            <[u8; 32]>::from(Digest::from(SET_BUILDER_ID)).into(),
             String::new(),
         )
         .await?;

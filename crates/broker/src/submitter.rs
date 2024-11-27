@@ -4,7 +4,6 @@
 
 use std::{sync::Arc, time::Duration};
 
-use aggregation_set::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use alloy::{
     network::Ethereum,
     primitives::{Address, B256, U256},
@@ -18,6 +17,7 @@ use boundless_market::contracts::{
     Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
+use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
@@ -356,7 +356,6 @@ mod tests {
         provers::{encode_input, MockProver},
         Batch, BatchStatus, Order, OrderStatus,
     };
-    use aggregation_set::{GuestInput, GuestOutput, SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -373,6 +372,7 @@ mod tests {
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
+    use risc0_aggregation::{GuestInput, GuestOutput, SET_BUILDER_GUEST_ELF, SET_BUILDER_GUEST_ID};
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 

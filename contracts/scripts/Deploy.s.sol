@@ -13,7 +13,7 @@ import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.s
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
-import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
+import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 
 contract Deploy is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.

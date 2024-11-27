@@ -650,7 +650,6 @@ async fn upload_input_uri(
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
 
-    use aggregation_set::SET_BUILDER_GUEST_PATH;
     use alloy::{
         network::{Ethereum, EthereumWallet},
         providers::{
@@ -664,6 +663,7 @@ pub mod test_utils {
     };
     use anyhow::Result;
     use boundless_market::contracts::test_utils::TestCtx;
+    use risc0_aggregation::SET_BUILDER_GUEST_PATH;
 
     use guest_assessor::ASSESSOR_GUEST_PATH;
 

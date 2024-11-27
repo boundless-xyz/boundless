@@ -991,7 +991,6 @@ mod tests {
         test_utils::TestCtx, AssessorJournal, Fulfillment, IBoundlessMarket, Input, InputType,
         Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements,
     };
-    use aggregation_set::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_GUEST_ID};
     use alloy::{
         node_bindings::Anvil,
         primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256},
@@ -1000,6 +999,7 @@ mod tests {
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_util::ECHO_ID;
+    use risc0_aggregation::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_GUEST_ID};
     use risc0_ethereum_contracts::encode_seal;
     use risc0_zkvm::{
         sha::{Digest, Digestible},

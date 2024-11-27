@@ -12,13 +12,13 @@ use risc0_zkvm::sha::Digest;
 use tempfile::NamedTempFile;
 // use broker::Broker;
 use crate::{config::Config, provers::encode_input, Args, Broker};
-use aggregation_set::SET_BUILDER_GUEST_PATH;
 use boundless_market::contracts::{
     test_utils::TestCtx, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
     Requirements,
 };
 use guest_assessor::ASSESSOR_GUEST_PATH;
 use guest_util::{ECHO_ELF, ECHO_ID};
+use risc0_aggregation::SET_BUILDER_GUEST_PATH;
 use tokio::time::Duration;
 use tracing_test::traced_test;
 

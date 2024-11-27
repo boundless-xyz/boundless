@@ -3,7 +3,7 @@
 // All rights reserved.
 
 use alloy::{
-    primitives::{Address, Signature, U256},
+    primitives::{Address, PrimitiveSignature, U256},
     signers::{k256::ecdsa::SigningKey, local::LocalSigner, Error as SignerErr, Signer},
 };
 use anyhow::{Context, Result};
@@ -69,7 +69,7 @@ pub struct Order {
     pub request: ProofRequest,
     /// Order signature
     #[schema(value_type = Object)]
-    pub signature: Signature,
+    pub signature: PrimitiveSignature,
 }
 
 /// Order data + order-stream id
@@ -100,7 +100,7 @@ pub struct SubmitOrderRes {
 
 impl Order {
     /// Create a new Order
-    pub fn new(request: ProofRequest, signature: Signature) -> Self {
+    pub fn new(request: ProofRequest, signature: PrimitiveSignature) -> Self {
         Self { request, signature }
     }
 
@@ -124,7 +124,7 @@ pub struct AuthMsg {
     message: SiweMsg,
     /// SIWE Signature of `message` field
     #[schema(value_type = Object)]
-    signature: Signature,
+    signature: PrimitiveSignature,
 }
 
 impl AuthMsg {

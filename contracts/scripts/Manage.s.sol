@@ -10,7 +10,7 @@ import {Strings} from "openzeppelin/contracts/utils/Strings.sol";
 import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
 import {RiscZeroVerifierEmergencyStop} from "risc0/RiscZeroVerifierEmergencyStop.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
-import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
+import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";

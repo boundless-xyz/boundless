@@ -6,13 +6,13 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-aggregation-set = { path = "../../../aggregation-set", default-features = false, features = ["verify"] }
+risc0-aggregation = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2", default-features = false, features = ["verify"] }
 alloy-primitives = { version = "0.8" }
 alloy-sol-types = { version = "0.8", features = ["eip712-serde"] }
 assessor = { path = "../../../assessor" }
 boundless-market = { path = "../../../boundless-market", default-features = false }
 postcard = "1.0"
-risc0-zkvm = { version = "1.1", default-features = false, features = ["std"] }
+risc0-zkvm = { version = "1.2.0-rc.1", default-features = false, features = ["std"] }
 
 [patch.crates-io]
 # use optimized risc0 circuit

@@ -7,7 +7,7 @@
 
 extern crate alloc;
 
-use aggregation_set::merkle_root;
+use risc0_aggregation::merkle_root;
 use alloc::{vec, vec::Vec};
 use alloy_primitives::B256;
 use alloy_sol_types::SolValue;
@@ -49,7 +49,7 @@ fn main() {
     }
 
     // recompute the merkle root of the aggregation set
-    let root = merkle_root(&claim_digests).expect("failed to compute merkle root");
+    let root = merkle_root(&claim_digests);
 
     let journal = AssessorJournal {
         requestDigests: request_digests,
