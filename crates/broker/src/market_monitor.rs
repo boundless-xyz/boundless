@@ -13,7 +13,9 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::{proof_market::ProofMarketService, IProofMarket, ProofStatus};
+use boundless_market::contracts::{
+    boundless_market::BoundlessMarketService, IBoundlessMarket, ProofStatus,
+};
 use futures_util::StreamExt;
 
 use crate::{
@@ -79,8 +81,8 @@ where
 
         tracing::info!("Searching for existing open orders: {start_block} - {current_block}");
 
-        let market = ProofMarketService::new(market_addr, provider.clone(), Address::ZERO);
-        // let event: Event<_, _, IProofMarket::RequestSubmitted, _> = Event::new(
+        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        // let event: Event<_, _, IBoundlessMarket::RequestSubmitted, _> = Event::new(
         //     provider.clone(),
         //     Filter::new().from_block(start_block).address(market_addr),
         // );
@@ -88,7 +90,7 @@ where
         // let logs = event.query().await.context("Failed to query RequestSubmitted events")?;
 
         let filter = Filter::new()
-            .event_signature(IProofMarket::RequestSubmitted::SIGNATURE_HASH)
+            .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(start_block)
             .address(market_addr);
 
@@ -97,7 +99,7 @@ where
         // interface would randomly fail for me?
         let logs = provider.get_logs(&filter).await?;
         let decoded_logs = logs.iter().filter_map(|log| {
-            match log.log_decode::<IProofMarket::RequestSubmitted>() {
+            match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {
                 Ok(res) => Some(res),
                 Err(err) => {
                     tracing::error!("Failed to decode RequestSubmitted log: {err:?}");
@@ -162,7 +164,7 @@ where
     async fn monitor_orders(market_addr: Address, provider: Arc<P>, db: DbObj) -> Result<()> {
         let chain_id = provider.get_chain_id().await?;
 
-        let market = ProofMarketService::new(market_addr, provider, Address::ZERO);
+        let market = BoundlessMarketService::new(market_addr, provider, Address::ZERO);
         // TODO: RPC providers can drop filters over time or flush them
         // we should try and move this to a subscription filter if we have issue with the RPC
         // dropping filters
@@ -258,13 +260,13 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{aliases::U96, Address, B256, U256},
+        primitives::{Address, B256, U256},
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        proof_market::ProofMarketService, test_utils::deploy_proof_market, Input, InputType, Offer,
-        Predicate, PredicateType, ProvingRequest, Requirements,
+        boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
+        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
 
     #[tokio::test]
@@ -276,9 +278,15 @@ mod tests {
             .wallet(EthereumWallet::from(signer.clone()))
             .on_http(anvil.endpoint().parse().unwrap());
 
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
-        let proof_market = ProofMarketService::new(
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            Address::ZERO,
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -286,8 +294,8 @@ mod tests {
 
         let min_price = 1;
         let max_price = 10;
-        let proving_request = ProvingRequest {
-            id: proof_market.request_id_from_nonce().await.unwrap(),
+        let proving_request = ProofRequest {
+            id: boundless_market.request_id_from_nonce().await.unwrap(),
             requirements: Requirements {
                 imageId: B256::ZERO,
                 predicate: Predicate {
@@ -298,18 +306,18 @@ mod tests {
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },
             offer: Offer {
-                minPrice: U96::from(min_price),
-                maxPrice: U96::from(max_price),
+                minPrice: U256::from(min_price),
+                maxPrice: U256::from(max_price),
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
-                lockinStake: U96::from(0),
+                lockinStake: U256::from(0),
             },
         };
 
-        proof_market.submit_request(&proving_request, &signer).await.unwrap();
+        boundless_market.submit_request(&proving_request, &signer).await.unwrap();
 
-        // let event: Event<_, _, IProofMarket::RequestSubmitted, _> = Event::new(&provider,
+        // let event: Event<_, _, IBoundlessMarket::RequestSubmitted, _> = Event::new(&provider,
         // Filter::new());
 
         // tx_receipt.inner.logs().into_iter().map(|log| Ok((decode_log(&log)?, log))).collect()

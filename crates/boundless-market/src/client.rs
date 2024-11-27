@@ -6,7 +6,7 @@ use std::{env, str::FromStr};
 
 use alloy::{
     network::Ethereum,
-    primitives::{aliases::U192, Address, Bytes, U256},
+    primitives::{Address, Bytes, U256},
     providers::{
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -27,9 +27,9 @@ use url::Url;
 
 use crate::{
     contracts::{
-        proof_market::{MarketError, ProofMarketService},
+        boundless_market::{BoundlessMarketService, MarketError},
         set_verifier::SetVerifierService,
-        ProvingRequest,
+        ProofRequest, RequestError,
     },
     order_stream_client::Client as OrderStreamClient,
     storage::{
@@ -59,6 +59,8 @@ pub enum ClientError {
     StorageProviderError(#[from] BuiltinStorageProviderError),
     #[error("Market error {0}")]
     MarketError(#[from] MarketError),
+    #[error("RequestError {0}")]
+    RequestError(#[from] RequestError),
     #[error("Error {0}")]
     Error(#[from] anyhow::Error),
 }
@@ -66,7 +68,7 @@ pub enum ClientError {
 #[derive(Clone)]
 /// Client for interacting with the boundless market
 pub struct Client<T, P, S> {
-    pub proof_market: ProofMarketService<T, P>,
+    pub boundless_market: BoundlessMarketService<T, P>,
     pub set_verifier: SetVerifierService<T, P>,
     pub signer: LocalSigner<SigningKey>,
     pub storage_provider: S,
@@ -81,25 +83,25 @@ where
 {
     /// Create a new client
     pub fn new(
-        proof_market: ProofMarketService<T, P>,
+        boundless_market: BoundlessMarketService<T, P>,
         set_verifier: SetVerifierService<T, P>,
         signer: LocalSigner<SigningKey>,
         storage_provider: S,
         offchain_client: OrderStreamClient,
         tx_timeout: Option<std::time::Duration>,
     ) -> Self {
-        let mut proof_market = proof_market.clone();
+        let mut boundless_market = boundless_market.clone();
         let mut set_verifier = set_verifier.clone();
         if let Some(timeout) = tx_timeout {
-            proof_market = proof_market.with_timeout(timeout);
+            boundless_market = boundless_market.with_timeout(timeout);
             set_verifier = set_verifier.with_timeout(timeout);
         }
-        Self { proof_market, set_verifier, signer, storage_provider, offchain_client }
+        Self { boundless_market, set_verifier, signer, storage_provider, offchain_client }
     }
 
     /// Get the provider
     pub fn provider(&self) -> P {
-        self.proof_market.instance().provider().clone()
+        self.boundless_market.instance().provider().clone()
     }
 
     /// Get the caller address
@@ -109,7 +111,7 @@ where
 
     pub fn with_timeout(self, tx_timeout: std::time::Duration) -> Self {
         Self::new(
-            self.proof_market,
+            self.boundless_market,
             self.set_verifier,
             self.signer,
             self.storage_provider,
@@ -136,18 +138,18 @@ where
             .map_err(|_| anyhow!("Failed to upload input"))?)
     }
 
-    /// Submit a proving request.
+    /// Submit a proof request.
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request(&self, request: &ProvingRequest) -> Result<U256, ClientError>
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<U256, ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
     {
         let mut request = request.clone();
 
-        if request.id == U192::ZERO {
-            request.id = self.proof_market.request_id_from_nonce().await?;
+        if request.id == U256::ZERO {
+            request.id = self.boundless_market.request_id_from_nonce().await?;
         };
         if request.offer.biddingStart == 0 {
             request.offer.biddingStart = self
@@ -159,24 +161,21 @@ where
 
         request.validate()?;
 
-        Ok(self.proof_market.submit_request(&request, &self.signer.clone()).await?)
+        Ok(self.boundless_market.submit_request(&request, &self.signer.clone()).await?)
     }
 
-    /// Submit a proving request offchain via the order stream service.
+    /// Submit a proof request offchain via the order stream service.
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request_offchain(
-        &self,
-        request: &ProvingRequest,
-    ) -> Result<U256, ClientError>
+    pub async fn submit_request_offchain(&self, request: &ProofRequest) -> Result<U256, ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
     {
         let mut request = request.clone();
 
-        if request.id == U192::ZERO {
-            request.id = self.proof_market.request_id_from_rand().await?;
+        if request.id == U256::ZERO {
+            request.id = self.boundless_market.request_id_from_rand().await?;
         };
         if request.offer.biddingStart == 0 {
             request.offer.biddingStart = self
@@ -186,7 +185,7 @@ where
                 .context("Failed to get current block number")?
         };
         // Ensure address' balance is sufficient to cover the request
-        let balance = self.proof_market.balance_of(request.client_address()).await?;
+        let balance = self.boundless_market.balance_of(request.client_address()?).await?;
         if balance < U256::from(request.offer.maxPrice) {
             return Err(ClientError::Error(anyhow!(
                 "Insufficient balance to cover request: {} < {}",
@@ -211,7 +210,7 @@ where
         expires_at: u64,
     ) -> Result<(Bytes, Bytes), ClientError> {
         Ok(self
-            .proof_market
+            .boundless_market
             .wait_for_request_fulfillment(request_id, check_interval, expires_at)
             .await?)
     }
@@ -224,7 +223,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
     /// - PRIVATE_KEY: The private key of the wallet
     /// - RPC_URL: The URL of the RPC server
     /// - ORDER_STREAM_URL: The URL of the order stream server
-    /// - PROOF_MARKET_ADDRESS: The address of the proof market contract
+    /// - BOUNDLESS_MARKET_ADDRESS: The address of the market contract
     /// - SET_VERIFIER_ADDRESS: The address of the set verifier contract
     pub async fn from_env() -> Result<Self, ClientError> {
         let private_key_str = env::var("private_key").context("private_key not set")?;
@@ -232,10 +231,10 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             PrivateKeySigner::from_str(&private_key_str).context("Invalid private_key")?;
         let rpc_url_str = env::var("RPC_URL").context("RPC_URL not set")?;
         let rpc_url = Url::parse(&rpc_url_str).context("Invalid RPC_URL")?;
-        let proof_market_address_str =
-            env::var("PROOF_MARKET_ADDRESS").context("PROOF_MARKET_ADDRESS not set")?;
-        let proof_market_address =
-            Address::from_str(&proof_market_address_str).context("Invalid PROOF_MARKET_ADDRESS")?;
+        let boundless_market_address_str =
+            env::var("BOUNDLESS_MARKET_ADDRESS").context("BOUNDLESS_MARKET_ADDRESS not set")?;
+        let boundless_market_address = Address::from_str(&boundless_market_address_str)
+            .context("Invalid BOUNDLESS_MARKET_ADDRESS")?;
         let set_verifier_address_str =
             env::var("SET_VERIFIER_ADDRESS").context("SET_VERIFIER_ADDRESS not set")?;
         let set_verifier_address =
@@ -247,7 +246,8 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let provider =
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
-        let proof_market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
+        let boundless_market =
+            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
         let storage_provider = storage_provider_from_env().await?;
@@ -257,24 +257,18 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let offchain_client = OrderStreamClient::new(
             Url::parse(&order_stream_url).context("Invalid ORDER_STREAM_URL")?,
             signer.clone(),
-            proof_market_address,
+            boundless_market_address,
             chain_id,
         );
 
-        Ok(Self { proof_market, set_verifier, signer, storage_provider, offchain_client })
+        Ok(Self { boundless_market, set_verifier, signer, storage_provider, offchain_client })
     }
 
     /// Create a new client from parts
-    ///
-    /// The wallet private key is used to sign transactions.
-    /// The RPC URL is the URL of the RPC server.
-    /// The proof market address is the address of the proof market contract.
-    /// The set verifier address is the address of the set verifier contract.
-    /// The order stream URL is the URL of the order stream server.
     pub async fn from_parts(
         private_key: PrivateKeySigner,
         rpc_url: Url,
-        proof_market_address: Address,
+        boundless_market_address: Address,
         set_verifier_address: Address,
         order_stream_url: Url,
         storage_provider: BuiltinStorageProvider,
@@ -285,17 +279,18 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let provider =
             ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
 
-        let proof_market = ProofMarketService::new(proof_market_address, provider.clone(), caller);
+        let boundless_market =
+            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         let offchain_client = OrderStreamClient::new(
             order_stream_url,
             signer.clone(),
-            proof_market_address,
+            boundless_market_address,
             chain_id,
         );
 
-        Ok(Self { proof_market, set_verifier, signer, storage_provider, offchain_client })
+        Ok(Self { boundless_market, set_verifier, signer, storage_provider, offchain_client })
     }
 }

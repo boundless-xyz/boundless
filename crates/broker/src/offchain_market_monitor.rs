@@ -32,12 +32,19 @@ impl OffchainMarketMonitor {
         stream
             .for_each(|order| async {
                 match order {
-                    Ok(order) => {
-                        tracing::info!("Detected new order {:x}", order.request.id);
+                    Ok(elm) => {
+                        tracing::info!(
+                            "Detected new order {:x} - stream id: {}",
+                            elm.id,
+                            elm.order.request.id
+                        );
                         if let Err(err) = db
                             .add_order(
-                                U256::from(order.request.id),
-                                Order::new(order.request, order.signature.as_bytes().into()),
+                                U256::from(elm.order.request.id),
+                                Order::new(
+                                    elm.order.request,
+                                    elm.order.signature.as_bytes().into(),
+                                ),
                             )
                             .await
                         {

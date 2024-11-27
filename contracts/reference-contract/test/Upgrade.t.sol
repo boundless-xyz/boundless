@@ -11,8 +11,8 @@ import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.s
 contract UpgradeTest is Test {
     function testUpgradeability() public {
         UpgradeOptions memory opts;
-        opts.referenceContract = "build-info-reference:ProofMarket";
+        opts.referenceContract = "build-info-reference:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/reference-contract/build-info-reference";
-        Upgrades.validateUpgrade("ProofMarket.sol:ProofMarket", opts);
+        Upgrades.validateUpgrade("BoundlessMarket.sol:BoundlessMarket", opts);
     }
 }

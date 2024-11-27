@@ -43,30 +43,30 @@ devnet-up: check-deps
 		sleep 5; \
 	fi
 	echo "Deploying contracts..."
-	DEPLOYER_PRIVATE_KEY=$(DEPLOYER_PRIVATE_KEY) CHAIN_KEY=${CHAIN_KEY} RISC0_DEV_MODE=$(RISC0_DEV_MODE) PROOF_MARKET_OWNER=$(ADMIN_ADDRESS) forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$(ANVIL_PORT) --broadcast -vv || { echo "Failed to deploy contracts"; $(MAKE) devnet-down; exit 1; }
+	DEPLOYER_PRIVATE_KEY=$(DEPLOYER_PRIVATE_KEY) CHAIN_KEY=${CHAIN_KEY} RISC0_DEV_MODE=$(RISC0_DEV_MODE) BOUNDLESS_MARKET_OWNER=$(ADMIN_ADDRESS) forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$(ANVIL_PORT) --broadcast -vv || { echo "Failed to deploy contracts"; $(MAKE) devnet-down; exit 1; }
 	echo "Fetching contract addresses..."
 	{ \
 		SET_VERIFIER_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
-		PROOF_MARKET_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
+		BOUNDLESS_MARKET_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
 		echo "Contract deployed at addresses:"; \
 		echo "SET_VERIFIER_ADDRESS=$$SET_VERIFIER_ADDRESS"; \
-		echo "PROOF_MARKET_ADDRESS=$$PROOF_MARKET_ADDRESS"; \
+		echo "BOUNDLESS_MARKET_ADDRESS=$$BOUNDLESS_MARKET_ADDRESS"; \
 		echo "Updating .env file..."; \
 		sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$$SET_VERIFIER_ADDRESS/" .env && \
-		sed -i.bak "s/^PROOF_MARKET_ADDRESS=.*/PROOF_MARKET_ADDRESS=$$PROOF_MARKET_ADDRESS/" .env && \
+		sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$$BOUNDLESS_MARKET_ADDRESS/" .env && \
 		rm .env.bak; \
 		echo ".env file updated successfully."; \
 		echo "Starting Order Stream service..."; \
 		RUST_LOG=$(RUST_LOG) ./target/debug/order_stream \
 			--bind-addr localhost:$(ORDER_STREAM_PORT) \
 			--rpc-url http://localhost:$(ANVIL_PORT) \
-			--proof-market-address $$PROOF_MARKET_ADDRESS \
+			--boundless-market-address $$BOUNDLESS_MARKET_ADDRESS \
 			--chain-id $(CHAIN_ID) \
 			--min-balance 1 > $(LOGS_DIR)/order_stream.txt 2>&1 & echo $$! >> $(PID_FILE); \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \
 			--private-key $(PRIVATE_KEY) \
-			--proof-market-addr $$PROOF_MARKET_ADDRESS \
+			--boundless-market-addr $$BOUNDLESS_MARKET_ADDRESS \
 			--set-verifier-addr $$SET_VERIFIER_ADDRESS \
 			--order-stream-url http://localhost:$(ORDER_STREAM_PORT) \
 			--deposit-amount $(DEPOSIT_AMOUNT) > $(LOGS_DIR)/broker.txt 2>&1 & echo $$! >> $(PID_FILE); \
