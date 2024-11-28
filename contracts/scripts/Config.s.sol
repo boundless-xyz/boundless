@@ -11,11 +11,8 @@ struct DeploymentConfig {
     string name;
     uint256 chainId;
     address admin;
-    address router;
-    address setVerifier;
+    address verifier;
     address market;
-    bytes32 setBuilderImageId;
-    string setBuilderGuestUrl;
     bytes32 assessorImageId;
     string assessorGuestUrl;
 }
@@ -68,11 +65,8 @@ library ConfigParser {
         deploymentConfig.name = stdToml.readString(config, string.concat(chain, ".name"));
         deploymentConfig.chainId = stdToml.readUint(config, string.concat(chain, ".id"));
         deploymentConfig.admin = stdToml.readAddress(config, string.concat(chain, ".admin"));
-        deploymentConfig.router = stdToml.readAddress(config, string.concat(chain, ".router"));
-        deploymentConfig.setVerifier = stdToml.readAddress(config, string.concat(chain, ".set-verifier"));
+        deploymentConfig.verifier = stdToml.readAddress(config, string.concat(chain, ".verifier"));
         deploymentConfig.market = stdToml.readAddress(config, string.concat(chain, ".market"));
-        deploymentConfig.setBuilderImageId = stdToml.readBytes32(config, string.concat(chain, ".set-builder-image-id"));
-        deploymentConfig.setBuilderGuestUrl = stdToml.readString(config, string.concat(chain, ".set-builder-guest-url"));
         deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));
         deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
 

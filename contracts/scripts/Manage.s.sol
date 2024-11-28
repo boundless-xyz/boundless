@@ -32,56 +32,6 @@ contract RiscZeroManagementScript is Script {
     }
 }
 
-/// @notice Deployment script for the RISC Zero SetVerifier with Emergency Stop mechanism.
-/// @dev Use the following environment variable to control the deployment:
-///     * VERIFIER_ESTOP_OWNER owner of the emergency stop contract
-///
-/// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract DeployEstopSetVerifier is RiscZeroManagementScript {
-    IRiscZeroVerifier _router;
-    RiscZeroSetVerifier _setVerifier;
-    RiscZeroVerifierEmergencyStop _verifierEstop;
-
-    function run() external {
-        address verifierEstopOwner = vm.envAddress("VERIFIER_ESTOP_OWNER");
-        console2.log("verifierEstopOwner:", verifierEstopOwner);
-
-        // Read and log the chainID
-        uint256 chainId = block.chainid;
-        console2.log("You are deploying on ChainID %d", chainId);
-
-        // Load the config and chainKey
-        string memory chainKey = vm.envOr("CHAIN_KEY", string(""));
-        DeploymentConfig memory deploymentConfig =
-            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
-        _router = IRiscZeroVerifier(deploymentConfig.router);
-
-        // Use a pre-deployed verifier, if not abort.
-        require(address(_router) != address(0), "An IRiscZeroVerifier contract must be specified");
-        console2.log("Using IRiscZeroVerifier contract deployed at", address(_router));
-
-        vm.broadcast(deployerAddress());
-        _setVerifier =
-            new RiscZeroSetVerifier(_router, deploymentConfig.setBuilderImageId, deploymentConfig.setBuilderGuestUrl);
-        console2.log("Deployed RiscZeroSetVerifier to", address(_setVerifier));
-
-        vm.broadcast(deployerAddress());
-        _verifierEstop = new RiscZeroVerifierEmergencyStop(IRiscZeroVerifier(address(_setVerifier)), verifierEstopOwner);
-
-        // Print in TOML format
-        console2.log("");
-        console2.log(string.concat("[[chains.", chainKey, ".verifiers]]"));
-        console2.log("name = RiscZeroSetVerifier");
-        console2.log(string.concat("version = \"", _setVerifier.VERSION(), "\""));
-        console2.log(
-            string.concat("selector = \"", Strings.toHexString(uint256(uint32(_setVerifier.SELECTOR())), 4), "\"")
-        );
-        console2.log(string.concat("verifier = \"", Strings.toHexString(uint256(uint160(address(_setVerifier)))), "\""));
-        console2.log(string.concat("estop = \"", Strings.toHexString(uint256(uint160(address(_verifierEstop)))), "\""));
-    }
-}
-
 /// @notice Deployment script for the market deployment.
 /// @dev Use the following environment variable to control the deployment:
 ///     * BOUNDLESS_MARKET_OWNER owner of the BoundlessMarket contract
@@ -97,9 +47,9 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address router = deploymentConfig.router;
-        require(router != address(0), "RiscZeroVerifierRouter address must be set in config");
-        console2.log("Using RiscZeroVerifierRouter at address", router);
+        address verifier = deploymentConfig.verifier;
+        require(verifier != address(0), "verifier address must be set in config");
+        console2.log("Using IRiscZeroVerifier at address", verifier);
         bytes32 assessorImageId = deploymentConfig.assessorImageId;
         require(assessorImageId != bytes32(0), "Assessor image ID must be set in config");
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl;
@@ -110,7 +60,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
 
         vm.broadcast(deployerAddress());
         // Deploy the market implementation
-        address newImplementation = address(new BoundlessMarket(IRiscZeroVerifier(router), assessorImageId));
+        address newImplementation = address(new BoundlessMarket(IRiscZeroVerifier(verifier), assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
 
         vm.broadcast(deployerAddress());

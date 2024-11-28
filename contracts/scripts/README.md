@@ -23,7 +23,7 @@ go install github.com/mikefarah/yq/v4@latest
 ## Configuration
 
 Configurations and deployment state information is stored in `deployment.toml`.
-It contains information about each chain (e.g. name, ID, Etherscan URL), and addresses for the RISC Zero verifier router contracts on each chain.
+It contains information about each chain (e.g. name, ID, Etherscan URL), and addresses for the RISC Zero verifier and Boundless market contracts on each chain.
 
 Accompanying the `deployment.toml` file is a `deployment_secrets.toml` file with the following schema.
 It is used to store somewhat sensative API keys for RPC services and Etherscan.
@@ -118,107 +118,6 @@ Then, in the instructions below, pass the `--fireblocks` (`-f`) flag to the `man
 > In order to avoid sending the same transaction for approval twice (or more), use ctrl-c to
 > kill the forge script once you see that the transaction is pending approval in the Fireblocks
 > console.
-
-## Deploy a set verifier with emergency stop mechanism
-
-This is a two-step process, guarded by the `TimelockController`.
-
-> [!IMPORTANT]
-> Currently only the deployment of the set verifier with emergency stop mechanism can be executed from this repo.
-> Adding the new set verifier to the `RiscZeroVerifierRouter` must, instead, be done via the `risc0-ethereum` repo.
-
-### Deploy the set verifier
-
-1. Make available for download the `set-builder` elf and set its image ID and url in the `deployment.toml` file.
-
-   To generate a deterministic image ID run:
-
-   ```zsh
-   RISC0_USE_DOCKER=true cargo build
-   ```
-
-   > [!NOTE]
-   > This will populate the image ID in the `contracts/src/SetBuilderImageID.sol`.
-   > You can then upload the file located in `target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/aggregation_set_guest/aggregation-set-guest`
-   > to some HTTP server and get back a download URL.
-   > Finally copy over these values in the `deployment.toml` file.
-
-2. Dry run deployment of the set verifier and estop:
-
-   ```zsh
-   VERIFIER_ESTOP_OWNER=${ADMIN_PUBLIC_KEY:?} \
-   bash contracts/scripts/manage DeployEstopSetVerifier
-   ```
-
-   > [!IMPORTANT]
-   > Check the logs from this dry run to verify the estop owner is the expected address.
-   > It should be equal to the RISC Zero admin address on the given chain.
-   > Note that it should not be the `TimelockController`.
-   > Also check the chain ID to ensure you are deploying to the chain you expect.
-   > And check the selector to make sure it matches what you expect.
-
-3. Send deployment transactions for the set verifier by running the command again with `--broadcast`.
-
-   > [!NOTE]
-   > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
-
-4. Replace the `set-verifier` field of the `deployment.toml` file with the newly deployed set verifier address.
-
-5. Add the addresses for the newly deployed contract to the `deployment.toml` file of the `risc0-ethereum` repo.
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   It should look like:
-
-   ```toml
-   [[chains.anvil.verifiers]]
-   version = "0.3.0"
-   selector = "0x03ca0a3e"
-   verifier = "0x0165878a594ca255338adfa4d48449f69242eb8f"
-   estop = "0xa513e6e4b8f2a923d98304ec87f64353c4d5c853"
-   ```
-
-6. Set the verifier selector and estop address for the verifier:
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   > TIP: One place to find this information is from the output of the previous step.
-
-   ```zsh
-   export VERIFIER_SELECTOR="0x..."
-   export VERIFIER_ESTOP=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].verifiers[] | select(.selector == \"${VERIFIER_SELECTOR:?}\") | .estop" contracts/deployment.toml | tee /dev/stderr)
-   ```
-
-7. Dry run the operation to schedule the operation to add the verifier to the router.
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   Fill in the addresses for the relevant chain below.
-   `ADMIN_PUBLIC_KEY` should be set to the Fireblocks admin address.
-
-   ```zsh
-   bash contracts/script/manage ScheduleAddVerifier
-   ```
-
-8. Send the transaction for the scheduled update by running the command again with `--broadcast`.
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   This will send one transaction from the admin address.
-
-   > [!IMPORTANT]
-   > If the admin address is in Fireblocks, this will prompt the admins for approval.
-
-9. Finish the update.
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   Follow the deployment instructions detailed in the [finish-the-update] section.
 
 ## Deploy and upgrade the market contract with the **UUPS** proxy pattern
 

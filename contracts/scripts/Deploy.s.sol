@@ -8,25 +8,21 @@ import {Script, console2} from "forge-std/Script.sol";
 import "forge-std/Test.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {ControlID, RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol";
+import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
-
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
-import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 
 contract Deploy is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG_FILE = "contracts/deployment.toml";
 
     IRiscZeroVerifier verifier;
-    RiscZeroSetVerifier setVerifier;
     address boundlessMarketAddress;
-    bytes32 setBuilderImageId;
     bytes32 assessorImageId;
 
     function run() external {
-        string memory setBuilderGuestUrl = "";
         string memory assessorGuestUrl = "";
 
         // load ENV variables first
@@ -46,36 +42,26 @@ contract Deploy is Script, RiscZeroCheats {
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG_FILE));
 
         // Assign parsed config values to the variables
-        verifier = IRiscZeroVerifier(deploymentConfig.router);
-        setVerifier = RiscZeroSetVerifier(deploymentConfig.setVerifier);
-        setBuilderImageId = deploymentConfig.setBuilderImageId;
-        setBuilderGuestUrl = deploymentConfig.setBuilderGuestUrl;
+        verifier = IRiscZeroVerifier(deploymentConfig.verifier);
         assessorImageId = deploymentConfig.assessorImageId;
         assessorGuestUrl = deploymentConfig.assessorGuestUrl;
 
-        vm.startBroadcast(deployerKey);
-
-        // Deploy the verifier, if not already deployed.
-        if (address(verifier) == address(0)) {
-            verifier = deployRiscZeroVerifier();
-        } else {
-            console2.log("Using IRiscZeroVerifier contract deployed at", address(verifier));
-        }
-
-        // Set the setBuilderImageId and assessorImageId if not set.
-        if (setBuilderImageId == bytes32(0)) {
-            revert("set builder image ID must be set in deployment.toml");
-        }
         if (assessorImageId == bytes32(0)) {
             revert("assessor image ID must be set in deployment.toml");
         }
 
+        vm.startBroadcast(deployerKey);
+
+        // Deploy the verifier, if dev mode is enabled.
         if (bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0) {
+            IRiscZeroVerifier _verifier = deployRiscZeroVerifier();
+
             // TODO: Create a more robust way of getting a URI for guests, and ensure that it is
             // in-sync with the configured image ID.
-            string memory setBuilderPath = "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest";
+            string memory setBuilderPath =
+                "/target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder";
             string memory cwd = vm.envString("PWD");
-            setBuilderGuestUrl = string.concat("file://", cwd, setBuilderPath);
+            string memory setBuilderGuestUrl = string.concat("file://", cwd, setBuilderPath);
             console2.log("Set builder URI", setBuilderGuestUrl);
 
             string[] memory argv = new string[](4);
@@ -83,26 +69,29 @@ contract Deploy is Script, RiscZeroCheats {
             argv[1] = "--id";
             argv[2] = "--elf";
             argv[3] = string.concat(".", setBuilderPath);
-            setBuilderImageId = abi.decode(vm.ffi(argv), (bytes32));
+            bytes32 setBuilderImageId = abi.decode(vm.ffi(argv), (bytes32));
 
-            string memory assessorPath = "/target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest";
+            string memory assessorPath =
+                "/target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest";
             assessorGuestUrl = string.concat("file://", cwd, assessorPath);
             console2.log("Assessor URI", assessorGuestUrl);
 
             argv[3] = string.concat(".", assessorPath);
             assessorImageId = abi.decode(vm.ffi(argv), (bytes32));
+
+            RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(_verifier, setBuilderImageId, setBuilderGuestUrl);
+            console2.log("Deployed RiscZeroSetVerifier to", address(setVerifier));
+            verifier = IRiscZeroVerifier(setVerifier);
         }
 
-        // Deploy the setVerifier, if not already deployed.
-        if (address(setVerifier) == address(0)) {
-            setVerifier = new RiscZeroSetVerifier(verifier, setBuilderImageId, setBuilderGuestUrl);
-            console2.log("Deployed RiscZeroSetVerifier to", address(setVerifier));
+        if (address(verifier) == address(0)) {
+            revert("verifier must be specified in deployment.toml");
         } else {
-            console2.log("Using RiscZeroSetVerifier contract deployed at", address(setVerifier));
+            console2.log("Using IRiscZeroVerifier deployed at", address(verifier));
         }
 
         // Deploy the Boundless market
-        address newImplementation = address(new BoundlessMarket(setVerifier, assessorImageId));
+        address newImplementation = address(new BoundlessMarket(verifier, assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = UnsafeUpgrades.deployUUPSProxy(
             newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
