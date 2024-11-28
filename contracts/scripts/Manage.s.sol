@@ -20,12 +20,12 @@ contract RiscZeroManagementScript is Script {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG = "contracts/deployment.toml";
 
-    /// @notice Returns the address of the deployer, set in the DEPLOYER_PUBLIC_KEY env var.
+    /// @notice Returns the address of the deployer, set in the DEPLOYER_ADDRESS env var.
     function deployerAddress() internal returns (address) {
-        address deployer = vm.envAddress("DEPLOYER_PUBLIC_KEY");
+        address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         uint256 deployerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
         if (deployerKey != 0) {
-            require(vm.addr(deployerKey) == deployer, "DEPLOYER_PUBLIC_KEY and DEPLOYER_PRIVATE_KEY are inconsistent");
+            require(vm.addr(deployerKey) == deployer, "DEPLOYER_ADDRESS and DEPLOYER_PRIVATE_KEY are inconsistent");
             vm.rememberKey(deployerKey);
         }
         return deployer;
@@ -55,8 +55,8 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl;
         require(bytes(assessorGuestUrl).length != 0, "Assessor guest URL must be set in config");
         console2.log("Assessor info:");
-        console2.logBytes32(assessorImageId);
-        console2.logString(assessorGuestUrl);
+        console2.log("image ID:", Strings.toHexString(uint256(assessorImageId)));
+        console2.log("URL:", assessorGuestUrl);
 
         vm.broadcast(deployerAddress());
         // Deploy the market implementation
@@ -88,7 +88,7 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
-        address marketAddress = deploymentConfig.market;
+        address marketAddress = deploymentConfig.boundlessMarket;
         require(marketAddress != address(0), "BoundlessMarket (proxy) address must be set in config");
         console2.log("Using BoundlessMarket (proxy) at address", marketAddress);
 

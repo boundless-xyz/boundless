@@ -125,7 +125,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
 ### Deploy the market contract
 
-1. Make available for download the `asessor` elf and set its image ID and url in the `deployment.toml` file.
+1. Make available for download the `assessor` elf and set its image ID and url in the `deployment.toml` file.
 
    To generate a deterministic image ID run:
 
@@ -135,7 +135,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
    > [!NOTE]
    > This will populate the image ID in the `contracts/src/AssessorImageID.sol`.
-   > You can then upload the file located in `target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/asessor_guest/assessor-guest`
+   > You can then upload the file located in `target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest`
    > to some HTTP server and get back a download URL.
    > Finally copy over these values in the `deployment.toml` file.
 
