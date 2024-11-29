@@ -1,0 +1,30 @@
+[package]
+name = "boundless-prover"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+url = { workspace = true }
+aggregation-set = { workspace = true }
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+assessor = { workspace = true }
+boundless-market = { workspace = true }
+bytemuck = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+risc0-ethereum-contracts = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["std", "client"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[[bin]]
+name = "fulfill"
+

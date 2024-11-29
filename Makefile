@@ -61,7 +61,6 @@ devnet-up: check-deps
 			--bind-addr localhost:$(ORDER_STREAM_PORT) \
 			--rpc-url http://localhost:$(ANVIL_PORT) \
 			--boundless-market-address $$BOUNDLESS_MARKET_ADDRESS \
-			--chain-id $(CHAIN_ID) \
 			--min-balance 1 > $(LOGS_DIR)/order_stream.txt 2>&1 & echo $$! >> $(PID_FILE); \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \

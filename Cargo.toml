@@ -11,6 +11,7 @@ members = [
     "crates/guest/set-builder",
     "crates/guest/util",
     "crates/order-stream",
+    "crates/prover",
     "crates/taskdb",
     "crates/workflow",
     "crates/workflow-common"
