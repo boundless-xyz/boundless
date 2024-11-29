@@ -12,9 +12,9 @@ use std::{
 
 use alloy::{
     hex::FromHex,
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{Address, Bytes, PrimitiveSignature, B256, U256},
     providers::{network::EthereumWallet, ProviderBuilder},
-    signers::{local::PrivateKeySigner, Signature},
+    signers::local::PrivateKeySigner,
     sol_types::SolValue,
 };
 use anyhow::{bail, ensure, Context, Result};
@@ -134,7 +134,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                 boundless_market_address,
                 boundless_market.get_chain_id().await?,
             )?;
-            let order = Order { request, signature: Signature::try_from(sig.as_ref())? };
+            let order = Order { request, signature: PrimitiveSignature::try_from(sig.as_ref())? };
 
             let order_fulfilled = prover.fulfill(order.clone(), false).await?;
 
@@ -183,7 +183,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                     true,
                 )
                 .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?,
-                signature: Signature::try_from(sig_bytes.as_ref())?,
+                signature: PrimitiveSignature::try_from(sig_bytes.as_ref())?,
             };
             let order_fulfilled = prover.fulfill(order, false).await?;
 

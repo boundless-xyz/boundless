@@ -7,11 +7,8 @@ homepage = { workspace = true }
 repository = { workspace = true }
 
 [dependencies]
-anyhow = { workspace = true }
-serde = { workspace = true }
-url = { workspace = true }
-aggregation-set = { workspace = true }
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+anyhow = { workspace = true }
 assessor = { workspace = true }
 boundless-market = { workspace = true }
 bytemuck = { workspace = true }
@@ -20,11 +17,14 @@ dotenvy = { workspace = true }
 hex = { workspace = true }
 libc = "0.2.159"
 reqwest = { workspace = true }
+risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
+serde = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
 
 [[bin]]
 name = "fulfill"

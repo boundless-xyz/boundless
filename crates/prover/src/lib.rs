@@ -2,16 +2,16 @@
 //
 // All rights reserved.
 
-use aggregation_set::{
-    merkle_path, GuestInput, GuestOutput, SetInclusionReceipt,
-    SetInclusionReceiptVerifierParameters,
-};
 use alloy::{
     primitives::Address,
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{bail, Result};
 use assessor::{AssessorInput, Fulfillment};
+use risc0_aggregation::{
+    merkle_path, GuestInput, GuestOutput, SetInclusionReceipt,
+    SetInclusionReceiptVerifierParameters,
+};
 use risc0_ethereum_contracts::encode_seal;
 use risc0_zkvm::{
     compute_image_id, default_prover,
@@ -153,8 +153,8 @@ impl DefaultProver {
         let root = <GuestOutput>::abi_decode(&root_receipt.journal.bytes, true)?.root();
         let root_seal = encode_seal(&root_receipt)?;
 
-        let order_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 0)?;
-        let assessor_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 1)?;
+        let order_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 0);
+        let assessor_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 1);
 
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_image_id };
