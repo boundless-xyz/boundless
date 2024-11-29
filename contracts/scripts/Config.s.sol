@@ -12,6 +12,7 @@ struct DeploymentConfig {
     uint256 chainId;
     address admin;
     address verifier;
+    address setVerifier;
     address boundlessMarket;
     bytes32 assessorImageId;
     string assessorGuestUrl;
@@ -66,6 +67,7 @@ library ConfigParser {
         deploymentConfig.chainId = stdToml.readUint(config, string.concat(chain, ".id"));
         deploymentConfig.admin = stdToml.readAddress(config, string.concat(chain, ".admin"));
         deploymentConfig.verifier = stdToml.readAddress(config, string.concat(chain, ".verifier"));
+        deploymentConfig.setVerifier = stdToml.readAddress(config, string.concat(chain, ".set-verifier"));
         deploymentConfig.boundlessMarket = stdToml.readAddress(config, string.concat(chain, ".boundless-market"));
         deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));
         deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
