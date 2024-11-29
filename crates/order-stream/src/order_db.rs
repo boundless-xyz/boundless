@@ -260,6 +260,12 @@ impl OrderDb {
             }
         }))
     }
+
+    /// Simple health check to test postgesql connectivity
+    pub async fn health_check(&self) -> Result<(), OrderDbErr> {
+        sqlx::query("SELECT COUNT(*) FROM orders LIMIT 1").execute(&self.pool).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

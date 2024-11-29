@@ -5,7 +5,9 @@
 //! Provider implementations for uploading image and input files such that they are publicly
 //! accessible to provers.
 
-use std::{env::VarError, fmt::Debug, result::Result::Ok, sync::Arc, time::Duration};
+use std::{
+    env::VarError, fmt::Debug, path::PathBuf, result::Result::Ok, sync::Arc, time::Duration,
+};
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
@@ -16,6 +18,7 @@ use aws_sdk_s3::{
     types::CreateBucketConfiguration,
     Error as S3Error,
 };
+use clap::{Parser, ValueEnum};
 use reqwest::{
     multipart::{Form, Part},
     Url,
@@ -41,7 +44,7 @@ pub trait StorageProvider {
     async fn upload_input(&self, input: &[u8]) -> Result<String, Self::Error>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum BuiltinStorageProvider {
     S3(S3StorageProvider),
@@ -58,8 +61,84 @@ pub enum BuiltinStorageProviderError {
     Pinata(#[from] PinataStorageProviderError),
     #[error("temp file storage provider error")]
     File(#[from] TempFileStorageProviderError),
+    #[error("Invalid storage provider: {0}")]
+    InvalidProvider(String),
     #[error("no storage provider is configured")]
     NoProvider,
+}
+
+#[cfg(feature = "cli")]
+#[derive(Clone, Debug, ValueEnum)]
+#[non_exhaustive]
+pub enum StorageProviderType {
+    S3,
+    Pinata,
+    File,
+}
+
+#[cfg(feature = "cli")]
+#[derive(Clone, Debug, Parser)]
+pub struct StorageProviderConfig {
+    /// Storage provider to use [possible values: s3, pinata, file]
+    ///
+    /// - For 's3', the following options are required:
+    ///   --s3-access-key, --s3-secret-key, --s3-bucket, --s3-url, --aws-region
+    /// - For 'pinata', the following option is required:
+    ///   --pinata-jwt (optionally, you can specify --pinata-api-url, --ipfs-gateway-url)
+    /// - For 'file', no additional options are required (optionally, you can specify --file-path)    
+    #[arg(long, env, value_enum, default_value_t = StorageProviderType::Pinata)]
+    pub storage_provider: StorageProviderType,
+
+    // **S3 Storage Provider Options**
+    /// S3 access key
+    #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    pub s3_access_key: Option<String>,
+    /// S3 secret key
+    #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    pub s3_secret_key: Option<String>,
+    /// S3 bucket
+    #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    pub s3_bucket: Option<String>,
+    /// S3 URL
+    #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    pub s3_url: Option<String>,
+    /// S3 region
+    #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    pub aws_region: Option<String>,
+
+    // **Pinata Storage Provider Options**
+    /// Pinata JWT
+    #[arg(long, env, required_if_eq("storage_provider", "pinata"))]
+    pub pinata_jwt: Option<String>,
+    /// Pinata API URL
+    #[arg(long, env, requires("pinata_jwt"))]
+    pub pinata_api_url: Option<Url>,
+    /// Pinata gateway URL
+    #[arg(long, env, requires("pinata_jwt"))]
+    pub ipfs_gateway_url: Option<Url>,
+
+    // **File Storage Provider Options**
+    /// Path for file storage provider
+    #[arg(long)]
+    pub file_path: Option<PathBuf>,
+}
+
+#[cfg(feature = "cli")]
+impl StorageProviderConfig {
+    pub fn dev_mode() -> Self {
+        Self {
+            storage_provider: StorageProviderType::File,
+            s3_access_key: None,
+            s3_secret_key: None,
+            s3_bucket: None,
+            s3_url: None,
+            aws_region: None,
+            pinata_jwt: None,
+            pinata_api_url: None,
+            ipfs_gateway_url: None,
+            file_path: None,
+        }
+    }
 }
 
 #[async_trait]
@@ -92,7 +171,7 @@ impl StorageProvider for BuiltinStorageProvider {
 pub async fn storage_provider_from_env(
 ) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
     if risc0_zkvm::is_dev_mode() {
-        return Ok(BuiltinStorageProvider::File(TempFileStorageProvider::new().await?));
+        return Ok(BuiltinStorageProvider::File(TempFileStorageProvider::new()?));
     }
 
     if let Ok(provider) = PinataStorageProvider::from_env().await {
@@ -107,12 +186,12 @@ pub async fn storage_provider_from_env(
 }
 
 /// Storage provider that uploads inputs and inputs to IPFS via Pinata.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PinataStorageProvider {
     client: reqwest::Client,
-    api_key: String,
-    api_url: Url,
-    gateway_url: Url,
+    pinata_jwt: String,
+    pinata_api_url: Url,
+    ipfs_gateway_url: Url,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -126,6 +205,9 @@ pub enum PinataStorageProviderError {
     #[error("environment variable error: {0}")]
     EnvVar(#[from] VarError),
 
+    #[error("missing config parameter: {0}")]
+    Config(String),
+
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
@@ -135,9 +217,9 @@ const DEFAULT_GATEWAY_URL: &str = "https://gateway.pinata.cloud";
 
 impl PinataStorageProvider {
     pub async fn from_env() -> Result<Self, PinataStorageProviderError> {
-        let api_key = std::env::var("PINATA_JWT")
+        let jwt = std::env::var("PINATA_JWT")
             .context("failed to fetch environment variable 'PINATA_JWT'")?;
-        if api_key.is_empty() {
+        if jwt.is_empty() {
             return Err(anyhow!("pinata api key must be non-empty").into());
         }
 
@@ -161,7 +243,40 @@ impl PinataStorageProvider {
 
         let client = reqwest::Client::new();
 
-        Ok(Self { api_key, api_url, gateway_url, client })
+        Ok(Self { pinata_jwt: jwt, pinata_api_url: api_url, ipfs_gateway_url: gateway_url, client })
+    }
+
+    pub async fn from_parts(
+        jwt: String,
+        api_url: String,
+        gateway_url: String,
+    ) -> Result<Self, PinataStorageProviderError> {
+        let api_url = Url::parse(&api_url)?;
+        let gateway_url = Url::parse(&gateway_url)?;
+        let client = reqwest::Client::new();
+
+        Ok(Self { pinata_jwt: jwt, pinata_api_url: api_url, ipfs_gateway_url: gateway_url, client })
+    }
+
+    #[cfg(feature = "cli")]
+    pub async fn from_config(
+        config: &StorageProviderConfig,
+    ) -> Result<Self, PinataStorageProviderError> {
+        Ok(PinataStorageProvider {
+            pinata_jwt: config
+                .pinata_jwt
+                .clone()
+                .ok_or_else(|| PinataStorageProviderError::Config("pinata_jwt".to_string()))?,
+            pinata_api_url: config
+                .pinata_api_url
+                .clone()
+                .unwrap_or(Url::parse(DEFAULT_PINATA_API_URL)?),
+            ipfs_gateway_url: config
+                .ipfs_gateway_url
+                .clone()
+                .unwrap_or(Url::parse(DEFAULT_GATEWAY_URL)?),
+            client: reqwest::Client::new(),
+        })
     }
 
     async fn upload(
@@ -170,7 +285,7 @@ impl PinataStorageProvider {
         filename: impl Into<String>,
     ) -> Result<Url, PinataStorageProviderError> {
         // https://docs.pinata.cloud/api-reference/endpoint/pin-file-to-ipfs
-        let url = self.api_url.join("/pinning/pinFileToIPFS")?;
+        let url = self.pinata_api_url.join("/pinning/pinFileToIPFS")?;
         let form = Form::new().part(
             "file",
             Part::bytes(data.as_ref().to_vec())
@@ -181,7 +296,7 @@ impl PinataStorageProvider {
         let request = self
             .client
             .post(url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", format!("Bearer {}", self.pinata_jwt))
             .multipart(form)
             .build()?;
 
@@ -201,7 +316,7 @@ impl PinataStorageProvider {
             .as_str()
             .ok_or(anyhow!("response from Pinata contains an invalid IpfsHash"))?;
 
-        let data_url = self.gateway_url.join(&format!("ipfs/{ipfs_hash}"))?;
+        let data_url = self.ipfs_gateway_url.join(&format!("ipfs/{ipfs_hash}"))?;
         Ok(data_url)
     }
 }
@@ -223,10 +338,10 @@ impl StorageProvider for PinataStorageProvider {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct S3StorageProvider {
+    s3_bucket: String,
     client: aws_sdk_s3::Client,
-    bucket: String,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -240,6 +355,9 @@ pub enum S3StorageProviderError {
     #[error("environment variable error: {0}")]
     EnvVar(#[from] VarError),
 
+    #[error("missing config parameter: {0}")]
+    Config(String),
+
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
@@ -251,13 +369,30 @@ impl S3StorageProvider {
         let bucket = std::env::var("S3_BUCKET")?;
         let url = std::env::var("S3_URL")?;
         let region = std::env::var("AWS_REGION")?;
-        let cred = Credentials::new(access_key, secret_key, None, None, "loaded-from-custom-env");
+
+        Self::from_parts(access_key, secret_key, bucket, url, region).await
+    }
+
+    pub async fn from_parts(
+        access_key: String,
+        secret_key: String,
+        bucket: String,
+        url: String,
+        region: String,
+    ) -> Result<Self, S3StorageProviderError> {
+        let cred = Credentials::new(
+            access_key.clone(),
+            secret_key.clone(),
+            None,
+            None,
+            "loaded-from-custom-env",
+        );
 
         let s3_config = Builder::new()
-            .endpoint_url(url)
+            .endpoint_url(url.clone())
             .credentials_provider(cred)
             .behavior_version_latest()
-            .region(Region::new(region))
+            .region(Region::new(region.clone()))
             .force_path_style(true)
             .build();
 
@@ -280,7 +415,38 @@ impl S3StorageProvider {
             }
         }
 
-        Ok(Self { client, bucket })
+        Ok(Self { s3_bucket: bucket, client })
+    }
+
+    #[cfg(feature = "cli")]
+    pub async fn from_config(
+        config: &StorageProviderConfig,
+    ) -> Result<Self, S3StorageProviderError> {
+        let access_key = config
+            .s3_access_key
+            .clone()
+            .ok_or_else(|| S3StorageProviderError::Config("s3_access_key".to_string()))?;
+
+        let secret_key = config
+            .s3_secret_key
+            .clone()
+            .ok_or_else(|| S3StorageProviderError::Config("s3_secret_key".to_string()))?;
+
+        let bucket = config
+            .s3_bucket
+            .clone()
+            .ok_or_else(|| S3StorageProviderError::Config("s3_bucket".to_string()))?;
+        let url = config
+            .s3_url
+            .clone()
+            .ok_or_else(|| S3StorageProviderError::Config("s3_url".to_string()))?;
+
+        let region = config
+            .aws_region
+            .clone()
+            .ok_or_else(|| S3StorageProviderError::Config("s3_region".to_string()))?;
+
+        Self::from_parts(access_key, secret_key, bucket, url, region).await
     }
 
     async fn upload(
@@ -292,7 +458,7 @@ impl S3StorageProvider {
 
         self.client
             .put_object()
-            .bucket(&self.bucket)
+            .bucket(&self.s3_bucket)
             .key(key)
             .body(byte_stream)
             .send()
@@ -304,7 +470,7 @@ impl S3StorageProvider {
         let presigned_request = self
             .client
             .get_object()
-            .bucket(&self.bucket)
+            .bucket(&self.s3_bucket)
             .key(key)
             .presigned(PresigningConfig::expires_in(Duration::from_secs(3600))?)
             .await
@@ -331,7 +497,7 @@ impl StorageProvider for S3StorageProvider {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TempFileStorageProvider {
     temp_dir: Arc<TempDir>,
 }
@@ -349,8 +515,22 @@ pub enum TempFileStorageProviderError {
 }
 
 impl TempFileStorageProvider {
-    pub async fn new() -> Result<Self, TempFileStorageProviderError> {
+    pub fn new() -> Result<Self, TempFileStorageProviderError> {
         Ok(Self { temp_dir: Arc::new(tempfile::tempdir()?) })
+    }
+
+    pub fn from_parts(path: &PathBuf) -> Result<Self, TempFileStorageProviderError> {
+        Ok(Self { temp_dir: Arc::new(tempfile::tempdir_in(path)?) })
+    }
+
+    #[cfg(feature = "cli")]
+    pub fn from_config(
+        config: &StorageProviderConfig,
+    ) -> Result<Self, TempFileStorageProviderError> {
+        Ok(match &config.file_path {
+            Some(path) => Self::from_parts(path)?,
+            None => Self::new()?,
+        })
     }
 
     async fn save_file(
@@ -386,13 +566,33 @@ impl StorageProvider for TempFileStorageProvider {
     }
 }
 
+#[cfg(feature = "cli")]
+pub async fn storage_provider_from_config(
+    config: &StorageProviderConfig,
+) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
+    match config.storage_provider {
+        StorageProviderType::S3 => {
+            let provider = S3StorageProvider::from_config(config).await?;
+            Ok(BuiltinStorageProvider::S3(provider))
+        }
+        StorageProviderType::Pinata => {
+            let provider = PinataStorageProvider::from_config(config).await?;
+            Ok(BuiltinStorageProvider::Pinata(provider))
+        }
+        StorageProviderType::File => {
+            let provider = TempFileStorageProvider::from_config(config)?;
+            Ok(BuiltinStorageProvider::File(provider))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{StorageProvider, TempFileStorageProvider};
 
     #[tokio::test]
     async fn test_temp_file_storage_provider() {
-        let provider = TempFileStorageProvider::new().await.unwrap();
+        let provider = TempFileStorageProvider::new().unwrap();
 
         let image_data = guest_util::ECHO_ELF;
         let input_data = b"test input data";

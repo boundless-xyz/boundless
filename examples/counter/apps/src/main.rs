@@ -12,9 +12,9 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::{
-    client::Client,
+    client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
-    storage::storage_provider_from_env,
+    storage::StorageProviderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
@@ -44,7 +44,10 @@ struct Args {
     rpc_url: Url,
     /// URL of the offchain order stream endpoint.
     #[clap(short, long, env)]
-    order_stream_url: Url,
+    order_stream_url: Option<Url>,
+    /// Storage provider to use
+    #[clap(flatten)]
+    storage_config: StorageProviderConfig,
     /// Private key used to interact with the Counter contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -78,6 +81,7 @@ async fn main() -> Result<()> {
         args.private_key,
         args.rpc_url,
         args.order_stream_url,
+        &args.storage_config,
         args.boundless_market_address,
         args.set_verifier_address,
         args.counter_address,
@@ -90,21 +94,22 @@ async fn main() -> Result<()> {
 async fn run(
     private_key: PrivateKeySigner,
     rpc_url: Url,
-    order_stream_url: Url,
+    order_stream_url: Option<Url>,
+    storage_config: &StorageProviderConfig,
     boundless_market_address: Address,
     set_verifier_address: Address,
     counter_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client = Client::from_parts(
-        private_key,
-        rpc_url,
-        boundless_market_address,
-        set_verifier_address,
-        order_stream_url,
-        storage_provider_from_env().await?,
-    )
-    .await?;
+    let boundless_client = ClientBuilder::default()
+        .with_rpc_url(rpc_url)
+        .with_boundless_market_address(boundless_market_address)
+        .with_set_verifier_address(set_verifier_address)
+        .with_order_stream_url(order_stream_url)
+        .with_storage_provider_config(storage_config)
+        .with_private_key(private_key)
+        .build()
+        .await?;
 
     // Upload the ECHO ELF to the storage provider so that it can be fetched by the market.
     let image_url = boundless_client.upload_image(ECHO_ELF).await?;
@@ -114,8 +119,8 @@ async fn run(
     // accepts only unique proofs. Using the same input twice would result in the same proof.
     let timestamp = format! {"{:?}", SystemTime::now()};
 
-    // Encode the input and upload it to the storage provider.
-    let input = encode_input(timestamp.as_bytes())?;
+    // Upload the input to the storage provider.
+    let input = timestamp.as_bytes();
     let input_url = boundless_client.upload_input(&input).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
@@ -214,11 +219,6 @@ async fn run(
     Ok(())
 }
 
-// Encode the input as expected by the echo guest.
-fn encode_input(input: &[u8]) -> Result<Vec<u8>> {
-    Ok(bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(input)?))
-}
-
 #[cfg(test)]
 mod tests {
     use alloy::{
@@ -277,7 +277,8 @@ mod tests {
             run(
                 ctx.customer_signer,
                 anvil.endpoint_url(),
-                url::Url::parse("http://order_stream_url").unwrap(),
+                None,
+                &StorageProviderConfig::dev_mode(),
                 ctx.boundless_market_addr,
                 ctx.set_verifier_addr,
                 counter_address,

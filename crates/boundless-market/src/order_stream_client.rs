@@ -28,6 +28,7 @@ use crate::contracts::{ProofRequest, RequestError};
 pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
 pub const ORDER_LIST_PATH: &str = "/api/orders";
 pub const AUTH_GET_NONCE: &str = "/api/nonce/";
+pub const HEALTH_CHECK: &str = "/api/health";
 pub const ORDER_WS_PATH: &str = "/ws/orders";
 
 /// Error body for API responses
