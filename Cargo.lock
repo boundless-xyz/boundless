@@ -1960,6 +1960,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "hex",
+ "libc",
  "reqwest",
  "risc0-ethereum-contracts",
  "risc0-zkvm",

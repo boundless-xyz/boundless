@@ -29,9 +29,9 @@ alloy::sol!(
     #[sol(all_derives)]
     struct OrderFulfilled {
         bytes32 root;
-        bytes calldata seal;
+        bytes seal;
         BoundlessFulfillment[] fills;
-        bytes calldata assessorSeal;
+        bytes assessorSeal;
         address prover;
     }
 );

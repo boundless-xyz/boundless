@@ -1,16 +1,28 @@
 // Copyright (c) 2024 RISC Zero, Inc.
 //
 // All rights reserved.
-use std::time::Duration;
+
+use std::{
+    fs::{File, OpenOptions},
+    io,
+    io::Write,
+    os::unix::io::{AsRawFd, FromRawFd},
+    time::Duration,
+};
 
 use alloy::{
-    primitives::{Address, B256, U256},
+    hex::FromHex,
+    primitives::{Address, Bytes, B256, U256},
     providers::{network::EthereumWallet, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signature},
+    sol_types::SolValue,
 };
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, set_verifier::SetVerifierService},
+    contracts::{
+        boundless_market::BoundlessMarketService, eip712_domain, set_verifier::SetVerifierService,
+        ProofRequest,
+    },
     order_stream_client::Order,
 };
 use clap::Parser;
@@ -46,12 +58,22 @@ enum Command {
         #[clap(long)]
         tx_hash: Option<B256>,
     },
-    // Print {
-    //     #[clap(long)]
-    //     set_builder_url: String,
-    //     #[clap(long)]
-    //     assessor_url: String,
-    // }
+    Print {
+        #[clap(long)]
+        set_builder_url: String,
+        #[clap(long)]
+        assessor_url: String,
+        #[clap(long)]
+        prover_address: Address,
+        #[clap(long)]
+        boundless_market_address: Address,
+        #[clap(long)]
+        chain_id: U256,
+        #[clap(long)]
+        request: String,
+        #[clap(long)]
+        signature: String,
+    },
 }
 
 #[tokio::main]
@@ -139,5 +161,59 @@ pub(crate) async fn run(command: Command) -> Result<()> {
 
             Ok(())
         }
+        Command::Print {
+            set_builder_url,
+            assessor_url,
+            boundless_market_address,
+            chain_id,
+            prover_address,
+            request,
+            signature,
+        } => {
+            // Take stdout is ensure no extra data is written to it.
+            let mut stdout = take_stdout()?;
+            let set_builder_elf = fetch_url(&set_builder_url).await?;
+            let assessor_elf = fetch_url(&assessor_url).await?;
+            let sig_bytes = Bytes::from_hex(signature.trim_start_matches("0x"))?;
+            let domain = eip712_domain(boundless_market_address, chain_id.try_into()?);
+            let prover = DefaultProver::new(set_builder_elf, assessor_elf, prover_address, domain)?;
+            let order = Order {
+                request: <ProofRequest>::abi_decode(
+                    &hex::decode(request.trim_start_matches("0x"))?,
+                    true,
+                )
+                .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?,
+                signature: Signature::try_from(sig_bytes.as_ref())?,
+            };
+            let order_fulfilled = prover.fulfill(order, false).await?;
+
+            // Forge test FFI calls expect hex encoded bytes sent to stdout
+            write!(&mut stdout, "{}", hex::encode(order_fulfilled.abi_encode()))
+                .context("failed to write to stdout")?;
+            stdout.flush().context("failed to flush stdout")?;
+            Ok(())
+        }
+    }
+}
+
+/// "Takes" stdout, returning a handle and ensuring no other code in this process can write to it.
+/// This is used to ensure that no additional data (e.g. log lines) is written to stdout, as any
+/// extra will cause a decoding failure in the Forge FFI cheatcode.
+fn take_stdout() -> Result<File> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    // Ensure all buffered data is written before redirection
+    handle.flush()?;
+
+    let devnull = OpenOptions::new().write(true).open("/dev/null")?;
+
+    unsafe {
+        // Create a copy of stdout to use for our output.
+        let dup_fd = libc::dup(handle.as_raw_fd());
+        ensure!(dup_fd >= 0, "call to libc::dup failed: {}", dup_fd);
+        // Redirect stdout to the fd we opened for /dev/null
+        let dup2_result = libc::dup2(devnull.as_raw_fd(), libc::STDOUT_FILENO);
+        ensure!(dup2_result >= 0, "call to libc::dup2 failed: {}", dup2_result);
+        Ok(File::from_raw_fd(dup_fd))
     }
 }
