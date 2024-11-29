@@ -12,8 +12,8 @@ set-verifier = "0x0000000000000000000000000000000000000000"
 boundless-market = "0x0000000000000000000000000000000000000000"
 
 # Guests info
-assessor-image-id = "0x2ab12d7b0d46a96caabb303a1d765ae70ecf8ba48c2992c1afa112b0b2da8755"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmR9twsCF8wsXW4i3GfwSYY5jgfXHMcjav8vHdThfR7Kht"
+assessor-image-id = "0xbe0d5370f3a9cd3ef5c8f1e986d0afbfdc5a9935fb42a61bd4d53ab8c571b1a8"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmWJrJwphFNZxE4N3sVuLJqe4vmWdStiCqedfEbNVaoPNK"
 
 
 ###
@@ -27,10 +27,10 @@ etherscan-url = "https://sepolia.etherscan.io/"
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 
 # Contracts
-verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+verifier = "0xB301644F7B1DB130674709E221a262Dc599DFF00"
 set-verifier = "0x32c0098e744b1595dca8279f53c92794bdc945a8"
-boundless-market = "0xCEE19941951ED3F377849b7ec424cC5CB9F95A89"
+boundless-market = "0x853C39184401e11372ec4cD09115d9E2a30d4CaC"
 
 # Guests info
-assessor-image-id = "0x2ab12d7b0d46a96caabb303a1d765ae70ecf8ba48c2992c1afa112b0b2da8755"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmR9twsCF8wsXW4i3GfwSYY5jgfXHMcjav8vHdThfR7Kht"
+assessor-image-id = "0xbe0d5370f3a9cd3ef5c8f1e986d0afbfdc5a9935fb42a61bd4d53ab8c571b1a8"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmWJrJwphFNZxE4N3sVuLJqe4vmWdStiCqedfEbNVaoPNK"
