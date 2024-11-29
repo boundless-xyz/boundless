@@ -1,14 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/aggregation-set",
     "crates/api",
     "crates/assessor",
     "crates/bento-client",
     "crates/boundless-market",
     "crates/broker",
     "crates/guest/assessor",
-    "crates/guest/set-builder",
     "crates/guest/util",
     "crates/order-stream",
     "crates/prover",
@@ -24,12 +22,10 @@ homepage = "https://beboundless.xyz/"
 repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
-aggregation-set = { path = "crates/aggregation-set" }
 assessor = { path = "crates/assessor" }
 async-stream = "0.3"
 bento-client = { path = "crates/bento-client" }
 boundless-market = { path = "crates/boundless-market" }
-guest-set-builder = { path = "crates/guest/set-builder" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
@@ -37,7 +33,7 @@ taskdb = { path = "crates/taskdb" }
 workflow = { path = "crates/workflow" }
 workflow-common = { path = "crates/workflow-common" }
 
-alloy = { version = "0.4" }
+alloy = { version = "0.6" }
 alloy-primitives = { version = "0.8" }
 alloy-sol-types = { version = "0.8", features = ["json"] }
 anyhow = { version = "1.0" }
@@ -46,7 +42,7 @@ aws-sdk-s3 = "1.34" # used for minio for max compatibility
 axum = "0.7"
 axum-extra = { version = "0.9" }
 bincode = "1.3"
-bonsai-sdk = { version = "1.1", features = ["non_blocking"] }
+bonsai-sdk = { version = "1.2.0-rc.1", features = ["non_blocking"] }
 bs58 = "0.5"
 bytemuck = "1.16"
 clap = { version = "4.5", features = ["derive", "env"] }
@@ -59,11 +55,12 @@ postcard = { version = "1.0" }
 rand = { version = "0.8" }
 redis = { version = "0.25", features = ["tokio-comp"] }
 reqwest = "0.12"
-risc0-binfmt = "1.1"
-risc0-build = { version = "1.1", features = ["docker"] }
-risc0-build-ethereum = "1.1"
-risc0-ethereum-contracts = "1.1"
-risc0-zkvm = { version = "1.1", default-features = false }
+risc0-aggregation = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
+risc0-binfmt = "1.2.0-rc.1"
+risc0-build = { version = "1.2.0-rc.1", features = ["docker"] }
+risc0-build-ethereum = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
+risc0-ethereum-contracts = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
+risc0-zkvm = { version = "1.2.0-rc.1", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"

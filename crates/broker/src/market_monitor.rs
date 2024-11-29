@@ -53,7 +53,7 @@ where
         for i in sample_start..current_block {
             let block = self
                 .provider
-                .get_block_by_number(i.into(), false)
+                .get_block_by_number(i.into(), false.into())
                 .await
                 .with_context(|| format!("Failed get block {i}"))?
                 .with_context(|| format!("Missing block {i}"))?;

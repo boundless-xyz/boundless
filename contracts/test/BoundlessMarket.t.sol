@@ -36,7 +36,7 @@ import {
     Requirements
 } from "../src/IBoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/BoundlessMarketLib.sol";
-import {RiscZeroSetVerifier} from "../src/RiscZeroSetVerifier.sol";
+import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 

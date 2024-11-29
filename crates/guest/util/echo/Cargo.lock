@@ -498,6 +498,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+dependencies = [
+ "cpufeatures",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.164"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -664,9 +673,9 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 
 [[package]]
 name = "risc0-binfmt"
-version = "1.1.3"
+version = "1.2.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9749a29181f87bebd2580b39b3ec0368daaaefbb30429ff429383a7ade360321"
+checksum = "b955226bf6eb5c253033d53b1df0e1dcde70a6fcb99b2a5675af3bd382bcc761"
 dependencies = [
  "anyhow",
  "borsh",
@@ -674,15 +683,14 @@ dependencies = [
  "risc0-zkp",
  "risc0-zkvm-platform",
  "serde",
- "syn 2.0.89",
  "tracing",
 ]
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "1.1.3"
+version = "1.2.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90745aa984e4eb404f0e0eb6a7ab2e956d963a0dad751fb89ef138cc6e4e3afc"
+checksum = "dd7691a27b9f1f605c9c456cb7f9e5136e2fe52d9d3a59dd96f12c28ef47e358"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -695,9 +703,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "1.1.3"
+version = "1.2.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "079b2c6789c6cbfee3500aff69108f853bdfe13fd0071ac1fbe3cbf7d0866420"
+checksum = "5cbc12e1239b0140c6123f0e3f558a6a27260d09840c986e671b4f26afc73109"
 dependencies = [
  "anyhow",
  "metal",
@@ -711,9 +719,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-core"
-version = "1.1.3"
+version = "1.2.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fd39ba3f881fcf0197464bde04391602dbbb886f87fddc372a68d79aa9de9d9"
+checksum = "2532188911aad4c2302029f8df217137881fec213c71a8776581ba6f2d6bfbbe"
 dependencies = [
  "bytemuck",
  "rand_core",
@@ -721,9 +729,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "1.1.3"
+version = "1.2.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c86b43367c2f29ce1a0ee5730f0af6892e5b6197c8dded614c7ff1068afcd302"
+checksum = "7b0a96017f756c512d7d7409a46a15f12fe98b90a3f56d117d3e4148bf28a891"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -737,13 +745,14 @@ dependencies = [
  "risc0-binfmt",
  "risc0-zkp",
  "serde",
+ "stability",
 ]
 
 [[package]]
 name = "risc0-zkp"
-version = "1.1.3"
+version = "1.2.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15b5525e1f2abaa5954579e50df0d6a5d01b456b0ac6aae0e87cf92f073e12f7"
+checksum = "e3fb399c51a971357aa83826d8b3476a8730b38a7f061a1fd1fbde61ad8062c1"
 dependencies = [
  "anyhow",
  "blake2",
@@ -765,9 +774,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "1.1.3"
+version = "1.2.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de11138ba073e43ec494d15728baeddbf3155fc95d5710000077eb5f7f345070"
+checksum = "39d05fc65302f675d6211aa34be0d750ae4bfc4c93982b9f60748f15dc91478f"
 dependencies = [
  "anyhow",
  "borsh",
@@ -785,15 +794,16 @@ dependencies = [
  "semver",
  "serde",
  "sha2",
+ "sha3",
  "stability",
  "tracing",
 ]
 
 [[package]]
 name = "risc0-zkvm-platform"
-version = "1.1.3"
+version = "1.2.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57748f1916078b24faed0bc620aa6dfc386e066e6f75a710ec0ac68f7126e7d7"
+checksum = "d447ce26b96637d7822ced6f82d65c2e72741f5258fecb6a59640b21f39f8dcc"
 dependencies = [
  "bytemuck",
  "getrandom",
@@ -855,6 +865,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "sha3"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+dependencies = [
+ "digest",
+ "keccak",
 ]
 
 [[package]]
