@@ -55,6 +55,7 @@ Boundless requires that ELF Image of the program requested, and optionally the i
 The best supported options are listed in the `boundless-market::BuiltinStorageProvider` enum.
 IPFS storage is presently the best supported, specifically through [Pinata](https://www.pinata.cloud) which offers a free tier sufficient for most Boundless use cases.
 To use Pinata, [fetch the JWT credentials](https://docs.pinata.cloud/account-management/api-keys) and set the `PINATA_JWT` environment variable.
+If running in `RISC0_DEV_MODE` an easier solution is to use the `file` storage provider.
 
 ### Sepolia Testnet
 
@@ -84,7 +85,7 @@ The `cli` allows to:
 An example can be found in `request.yaml`.
 
 ```sh [Terminal]
-RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request --storage-provider pinata request.yaml
 ```
 
 Should output something similar to
@@ -206,7 +207,7 @@ If instead the env variable `RISC0_DEV_MODE` is enabled, a temporary file storag
 and the Pinata one will be ignored.
 
 ```sh [Terminal]
-PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
+PINATA_JWT="YOUR_PINATA_JWT" RUST_LOG=info cargo run --bin cli -- submit-offer --storage-provider pinata --input "Hello world!" --inline-input --encode-input --journal-prefix "" offer.yaml
 ```
 
 ### Slash a Request and Get Back Funds

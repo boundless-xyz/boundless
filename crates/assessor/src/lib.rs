@@ -158,7 +158,7 @@ mod tests {
     }
 
     fn echo(input: &str) -> Receipt {
-        let env = ExecutorEnv::builder().write(&input.as_bytes()).unwrap().build().unwrap();
+        let env = ExecutorEnv::builder().write_slice(&input.as_bytes()).build().unwrap();
 
         // TODO: Change this to use SessionInfo::claim or another method.
         // See https://github.com/risc0/risc0/issues/2267.
