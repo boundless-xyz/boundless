@@ -81,21 +81,47 @@ impl DefaultProver {
         Ok(Self { set_builder_elf, set_builder_image_id, assessor_elf, address, domain })
     }
 
-    pub fn prove(&self, elf: &[u8], input: Vec<u8>, assumptions: Vec<Receipt>) -> Result<Receipt> {
-        let mut env = ExecutorEnv::builder();
-        env.write_slice(&input);
-        for assumption_receipt in assumptions.iter() {
-            env.add_assumption(assumption_receipt.clone());
-        }
-        let env = env.build()?;
-        Ok(default_prover().prove_with_opts(env, &elf, &ProverOpts::succinct())?.receipt)
+    pub async fn prove(
+        &self,
+        elf: Vec<u8>,
+        input: Vec<u8>,
+        assumptions: Vec<Receipt>,
+    ) -> Result<Receipt> {
+        let receipt = tokio::task::spawn_blocking(move || {
+            let mut env = ExecutorEnv::builder();
+            env.write_slice(&input);
+            for assumption_receipt in assumptions.iter() {
+                env.add_assumption(assumption_receipt.clone());
+            }
+            let env = env.build()?;
+            default_prover().prove_with_opts(env, &elf, &ProverOpts::succinct())
+        })
+        .await??
+        .receipt;
+        Ok(receipt)
     }
 
-    pub fn compress(&self, receipt: Receipt) -> Result<Receipt> {
-        default_prover().compress(&ProverOpts::groth16(), &receipt)
+    pub async fn prove_compress(
+        &self,
+        elf: Vec<u8>,
+        input: Vec<u8>,
+        assumptions: Vec<Receipt>,
+    ) -> Result<Receipt> {
+        let receipt = tokio::task::spawn_blocking(move || {
+            let mut env = ExecutorEnv::builder();
+            env.write_slice(&input);
+            for assumption_receipt in assumptions.iter() {
+                env.add_assumption(assumption_receipt.clone());
+            }
+            let env = env.build()?;
+            default_prover().prove_with_opts(env, &elf, &ProverOpts::groth16())
+        })
+        .await??
+        .receipt;
+        Ok(receipt)
     }
 
-    pub fn join(&self, left: Receipt, right: Receipt) -> Result<Receipt> {
+    pub async fn join(&self, left: Receipt, right: Receipt) -> Result<Receipt> {
         let left_output = <GuestOutput>::abi_decode(&left.journal.bytes, true)?;
         let right_output = <GuestOutput>::abi_decode(&right.journal.bytes, true)?;
         let input = GuestInput::Join {
@@ -104,20 +130,24 @@ impl DefaultProver {
             right_set_root: right_output.root(),
         };
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
-        self.prove(&self.set_builder_elf, encoded_input, vec![left, right])
+        self.prove_compress(self.set_builder_elf.clone(), encoded_input, vec![left, right]).await
     }
 
-    pub fn singleton(&self, receipt: Receipt) -> Result<Receipt> {
+    pub async fn singleton(&self, receipt: Receipt) -> Result<Receipt> {
         let claim = receipt.inner.claim()?.value()?;
         let input = GuestInput::Singleton { self_image_id: self.set_builder_image_id, claim };
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
-        self.prove(&self.set_builder_elf, encoded_input, vec![receipt])
+        self.prove(self.set_builder_elf.clone(), encoded_input, vec![receipt]).await
     }
 
-    pub fn assessor(&self, fills: Vec<Fulfillment>, receipts: Vec<Receipt>) -> Result<Receipt> {
+    pub async fn assessor(
+        &self,
+        fills: Vec<Fulfillment>,
+        receipts: Vec<Receipt>,
+    ) -> Result<Receipt> {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
-        self.prove(&self.assessor_elf, assessor_input.to_vec(), receipts)
+        self.prove(self.assessor_elf.clone(), assessor_input.to_vec(), receipts).await
     }
 
     pub async fn fulfill(&self, order: Order, require_payment: bool) -> Result<OrderFulfilled> {
@@ -128,10 +158,10 @@ impl DefaultProver {
             InputType::Url => fetch_url(&request.input.data.to_string()).await?.into(),
             _ => bail!("Unsupported input type"),
         };
-        let order_receipt = self.prove(&order_elf, order_input, vec![])?;
+        let order_receipt = self.prove(order_elf.clone(), order_input, vec![]).await?;
         let order_journal = order_receipt.journal.bytes.clone();
         let order_image_id = compute_image_id(&order_elf)?;
-        let order_singleton = self.singleton(order_receipt.clone())?;
+        let order_singleton = self.singleton(order_receipt.clone()).await?;
 
         let fill = Fulfillment {
             request: order.request.clone(),
@@ -140,16 +170,16 @@ impl DefaultProver {
             require_payment,
         };
 
-        let assessor_receipt = self.assessor(vec![fill], vec![order_receipt])?;
+        let assessor_receipt = self.assessor(vec![fill], vec![order_receipt]).await?;
         let assessor_journal = assessor_receipt.journal.bytes.clone();
         let assessor_image_id = compute_image_id(&self.assessor_elf)?;
-        let assessor_singleton = self.singleton(assessor_receipt)?;
+        let assessor_singleton = self.singleton(assessor_receipt).await?;
 
         let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
         let order_claim_digest = order_claim.digest();
         let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal);
         let assessor_claim_digest = assessor_claim.digest();
-        let root_receipt = self.compress(self.join(order_singleton, assessor_singleton)?)?;
+        let root_receipt = self.join(order_singleton, assessor_singleton).await?;
         let root = <GuestOutput>::abi_decode(&root_receipt.journal.bytes, true)?.root();
         let root_seal = encode_seal(&root_receipt)?;
 
