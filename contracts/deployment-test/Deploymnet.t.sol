@@ -42,7 +42,6 @@ contract DeploymentTest is Test {
     IBoundlessMarket internal boundlessMarket;
 
     mapping(uint256 => Client) internal clients;
-    Client internal testProver;
 
     struct OrderFulfilled {
         bytes32 root;
@@ -124,6 +123,7 @@ contract DeploymentTest is Test {
     }
 
     function testPriceAndFulfillBatch() external {
+        Client testProver = createClientContract("PROVER");
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
 
@@ -168,7 +168,6 @@ contract DeploymentTest is Test {
 
         OrderFulfilled memory result = abi.decode(vm.ffi(argv), (OrderFulfilled));
 
-        testProver = createClientContract("PROVER");
         boundlessMarket.priceAndFulfillBatch(
             requests, clientSignatures, result.fills, result.assessorSeal, address(testProver)
         );
