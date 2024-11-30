@@ -31,9 +31,9 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-1.1
+        uses: risc0/risc0/.github/actions/rustup@release-1.2
         with:
-          toolchain: '1.79'
+          toolchain: '1.81'
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -41,8 +41,8 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.1'
-          toolchain-version: 'r0.1.79.0-2'
+          risczero-version: '1.2.0-rc.1'
+          toolchain-version: 'r0.1.81.0''
 
       - name: forge build
         run: forge build
