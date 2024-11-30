@@ -58,19 +58,28 @@ enum Command {
         #[clap(long)]
         tx_hash: Option<B256>,
     },
+    /// Print the result of fulfilling a proof request using the RISC Zero zkVM default prover.
+    /// This is used to generate test FFI calls for the Forge cheatcode.
     Print {
+        /// URL of the SetBuilder ELF
         #[clap(long)]
         set_builder_url: String,
+        /// URL of the Assessor ELF
         #[clap(long)]
         assessor_url: String,
+        /// Address of the prover
         #[clap(long)]
         prover_address: Address,
+        /// Address of the Boundless market contract
         #[clap(long)]
         boundless_market_address: Address,
+        /// Chain ID of the network where Boundless market contract is deployed
         #[clap(long)]
         chain_id: U256,
+        /// Hex encoded proof request
         #[clap(long)]
         request: String,
+        /// Hex encoded request' signature
         #[clap(long)]
         signature: String,
     },
@@ -174,7 +183,6 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let mut stdout = take_stdout()?;
             let set_builder_elf = fetch_url(&set_builder_url).await?;
             let assessor_elf = fetch_url(&assessor_url).await?;
-            let sig_bytes = Bytes::from_hex(signature.trim_start_matches("0x"))?;
             let domain = eip712_domain(boundless_market_address, chain_id.try_into()?);
             let prover = DefaultProver::new(set_builder_elf, assessor_elf, prover_address, domain)?;
             let order = Order {
@@ -183,7 +191,9 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                     true,
                 )
                 .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?,
-                signature: PrimitiveSignature::try_from(sig_bytes.as_ref())?,
+                signature: PrimitiveSignature::try_from(
+                    Bytes::from_hex(signature.trim_start_matches("0x"))?.as_ref(),
+                )?,
             };
             let order_fulfilled = prover.fulfill(order, false).await?;
 
