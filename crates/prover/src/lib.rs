@@ -190,12 +190,12 @@ impl DefaultProver {
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_image_id };
 
         let mut order_inclusion_receipt =
-            SetInclusionReceipt::from_path(order_claim, order_path).with_root(root_receipt.clone());
+            SetInclusionReceipt::from_path(order_claim, order_path);
         order_inclusion_receipt.verifier_parameters = verifier_parameters.digest();
         let order_seal = order_inclusion_receipt.abi_encode_seal()?;
 
         let mut assessor_inclusion_receipt =
-            SetInclusionReceipt::from_path(assessor_claim, assessor_path).with_root(root_receipt);
+            SetInclusionReceipt::from_path(assessor_claim, assessor_path);
         assessor_inclusion_receipt.verifier_parameters = verifier_parameters.digest();
         let assessor_seal = assessor_inclusion_receipt.abi_encode_seal()?;
 

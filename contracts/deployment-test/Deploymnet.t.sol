@@ -135,11 +135,6 @@ contract DeploymentTest is Test {
         (, string memory setBuilderUrl) = setVerifier.imageInfo();
         (, string memory assessorUrl) = boundlessMarket.imageInfo();
 
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id);
-        vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
-
         string[] memory argv = new string[](23);
         uint256 i = 0;
         argv[i++] = "cargo";
@@ -168,6 +163,13 @@ contract DeploymentTest is Test {
 
         OrderFulfilled memory result = abi.decode(vm.ffi(argv), (OrderFulfilled));
 
+        setVerifier.submitMerkleRoot(result.root, result.seal);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
+        
         boundlessMarket.priceAndFulfillBatch(
             requests, clientSignatures, result.fills, result.assessorSeal, address(testProver)
         );
