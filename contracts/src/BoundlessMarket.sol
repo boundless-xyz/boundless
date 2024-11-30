@@ -13,7 +13,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
-import {IRiscZeroSetVerifier} from "./IRiscZeroSetVerifier.sol";
+import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket, ProofRequest, Offer, Fulfillment, AssessorJournal} from "./IBoundlessMarket.sol";
 import {BoundlessMarketLib} from "./BoundlessMarketLib.sol";
