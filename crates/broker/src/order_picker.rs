@@ -14,10 +14,11 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::proof_market::ProofMarketService;
+use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum PriceOrderErr {
     #[error("Failed to fetch / push input: {0}")]
     FetchInputErr(anyhow::Error),
@@ -27,6 +28,9 @@ pub enum PriceOrderErr {
 
     #[error("Guest execution faulted: {0}")]
     GuestPanic(String),
+
+    #[error("Request: {0}")]
+    RequestError(#[from] RequestError),
 
     #[error("Other: {0}")]
     OtherErr(#[from] anyhow::Error),
@@ -47,7 +51,7 @@ pub struct OrderPicker<T, P> {
     prover: ProverObj,
     provider: Arc<P>,
     block_time: u64,
-    market: ProofMarketService<T, Arc<P>>,
+    market: BoundlessMarketService<T, Arc<P>>,
 }
 
 impl<T, P> OrderPicker<T, P>
@@ -63,7 +67,7 @@ where
         market_addr: Address,
         provider: Arc<P>,
     ) -> Self {
-        let market = ProofMarketService::new(
+        let market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -84,7 +88,7 @@ where
 
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
-            let client_addr = order.request.client_address();
+            let client_addr = order.request.client_address()?;
             if !allow_addresses.contains(&client_addr) {
                 tracing::warn!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
                 self.db.skip_order(order_id).await.context("Order not in allowed addr list")?;
@@ -415,13 +419,13 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{aliases::U96, Address, Bytes, B256},
+        primitives::{Address, Bytes, B256, U256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::deploy_proof_market, Input, InputType, Offer, Predicate, PredicateType,
-        ProvingRequest, Requirements,
+        test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
+        ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -446,9 +450,15 @@ mod tests {
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
 
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
-        let proof_market = ProofMarketService::new(
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            Address::ZERO,
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -481,8 +491,8 @@ mod tests {
         let order = Order {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
-            request: ProvingRequest::new(
-                proof_market.index_from_nonce().await.unwrap(),
+            request: ProofRequest::new(
+                boundless_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),
@@ -494,12 +504,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: U96::from(min_price),
-                    maxPrice: U96::from(max_price),
+                    minPrice: U256::from(min_price),
+                    maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U96::from(0),
+                    lockinStake: U256::from(0),
                 },
             ),
             target_block: None,
@@ -513,7 +523,7 @@ mod tests {
             error_msg: None,
         };
 
-        let _request_id = proof_market.submit_request(&order.request, &signer).await.unwrap();
+        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
 
         db.add_order(order_id, order.clone()).await.unwrap();
         picker.price_order(order_id, &order).await.unwrap();
@@ -539,9 +549,15 @@ mod tests {
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
 
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
-        let proof_market = ProofMarketService::new(
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            Address::ZERO,
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -575,8 +591,8 @@ mod tests {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
             target_block: None,
-            request: ProvingRequest::new(
-                proof_market.index_from_nonce().await.unwrap(),
+            request: ProofRequest::new(
+                boundless_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),
@@ -588,12 +604,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: U96::from(min_price),
-                    maxPrice: U96::from(max_price),
+                    minPrice: U256::from(min_price),
+                    maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U96::from(0),
+                    lockinStake: U256::from(0),
                 },
             ),
             image_id: None,
@@ -606,7 +622,7 @@ mod tests {
             error_msg: None,
         };
 
-        let _request_id = proof_market.submit_request(&order.request, &signer).await.unwrap();
+        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
 
         db.add_order(order_id, order.clone()).await.unwrap();
         picker.price_order(order_id, &order).await.unwrap();
@@ -633,9 +649,15 @@ mod tests {
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
 
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
-        let proof_market = ProofMarketService::new(
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            Address::ZERO,
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -654,7 +676,7 @@ mod tests {
 
         let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
 
-        let order_id = U256::from(proof_market.request_id_from_nonce().await.unwrap());
+        let order_id = U256::from(boundless_market.request_id_from_nonce().await.unwrap());
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
@@ -662,8 +684,8 @@ mod tests {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
             target_block: None,
-            request: ProvingRequest::new(
-                proof_market.index_from_nonce().await.unwrap(),
+            request: ProofRequest::new(
+                boundless_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),
@@ -675,12 +697,12 @@ mod tests {
                 "",
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: U96::from(min_price),
-                    maxPrice: U96::from(max_price),
+                    minPrice: U256::from(min_price),
+                    maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U96::from(0),
+                    lockinStake: U256::from(0),
                 },
             ),
             image_id: None,
@@ -693,7 +715,7 @@ mod tests {
             error_msg: None,
         };
 
-        let _request_id = proof_market.submit_request(&order.request, &signer).await.unwrap();
+        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
 
         db.add_order(order_id, order.clone()).await.unwrap();
         picker.price_order(order_id, &order).await.unwrap();
@@ -717,9 +739,15 @@ mod tests {
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let market_address =
-            deploy_proof_market(&signer, provider.clone(), Address::ZERO).await.unwrap();
-        let proof_market = ProofMarketService::new(
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            Address::ZERO,
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -752,8 +780,8 @@ mod tests {
         let order = Order {
             status: OrderStatus::Pricing,
             updated_at: Utc::now(),
-            request: ProvingRequest::new(
-                proof_market.index_from_nonce().await.unwrap(),
+            request: ProofRequest::new(
+                boundless_market.index_from_nonce().await.unwrap(),
                 &signer.address(),
                 Requirements {
                     imageId: <[u8; 32]>::from(image_id).into(),
@@ -765,12 +793,12 @@ mod tests {
                 &image_uri,
                 Input { inputType: InputType::Inline, data: input_buf.into() },
                 Offer {
-                    minPrice: U96::from(min_price),
-                    maxPrice: U96::from(max_price),
+                    minPrice: U256::from(min_price),
+                    maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U96::from(0),
+                    lockinStake: U256::from(0),
                 },
             ),
             target_block: None,
@@ -784,7 +812,7 @@ mod tests {
             error_msg: None,
         };
 
-        let _request_id = proof_market.submit_request(&order.request, &signer).await.unwrap();
+        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
         db.add_order(order_id, order.clone()).await.unwrap();
 
         picker.find_existing_orders().await.unwrap();

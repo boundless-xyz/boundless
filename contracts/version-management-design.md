@@ -2,10 +2,10 @@
 
 ## Overview
 
-The Boundless [ProofMarket](./src/ProofMarket.sol) contract is deployed and upgraded using an [ERC-1967][erc-1967] storage proxy and the [UUPS][uups] (Universal Upgradeable Proxy Standard) proxy pattern.
+The Boundless [BoundlessMarket](./src/BoundlessMarket.sol) contract is deployed and upgraded using an [ERC-1967][erc-1967] storage proxy and the [UUPS][uups] (Universal Upgradeable Proxy Standard) proxy pattern.
 This pattern allows to upgrade the contract logic while keeping all the state, providing flexibility to improve the implementation over time without service interruptions or manual migration processes.
 
-The proof market uses the RISC Zero verifier router, building upon the [verifier versioning system][verifier-versioning].
+The Boundless market uses the RISC Zero verifier router, building upon the [verifier versioning system][verifier-versioning].
 
 ```mermaid
 ---
@@ -43,14 +43,14 @@ flowchart LR
   end
   subgraph Boundless market
     subgraph proxy["ERC1967Proxy"]
-        marketProxy["ProofMarket [proxy]"]
+        marketProxy["BoundlessMarket [proxy]"]
     end
-    subgraph ProofMarket["Proof market implementations"]
-        proofMarketv1["ProofMarket [v1]"]
-        proofMarketv2["ProofMarket [v2]"]
+    subgraph BoundlessMarket["Boundless market implementations"]
+        boundlessMarketv1["BoundlessMarket [v1]"]
+        boundlessMarketv2["BoundlessMarket [v2]"]
     end
 
-    marketProxy -- calls --> proofMarketv2
+    marketProxy -- calls --> boundlessMarketv2
   end
   timelock[TimelockController]
   multisig["RISC Zero Multisig"]
@@ -61,7 +61,7 @@ flowchart LR
   multisig -- upgrade --> proxy
   setv1 -- calls --> router
   setv2 -- calls --> router
-  proofMarketv2 -- calls --> router
+  boundlessMarketv2 -- calls --> router
 ```
 
 [erc-1967]: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/proxy/ERC1967/ERC1967Proxy.sol

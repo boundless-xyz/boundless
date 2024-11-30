@@ -7,7 +7,6 @@ homepage = { workspace = true }
 repository = { workspace = true }
 
 [dependencies]
-aggregation-set = { workspace = true }
 alloy = { workspace = true, features = ["network", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "rpc", "rpc-types"] }
 alloy-chains = "0.1"
 anyhow = { workspace = true }
@@ -18,8 +17,7 @@ bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-market = { workspace = true }
 bytemuck = { workspace = true }
-cfg-if = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 clap = { workspace = true }
 futures = "0.3"
 futures-util = { workspace = true }
@@ -28,7 +26,7 @@ guest-assessor = { workspace = true }
 http = "1.1"
 notify = "6.1"
 reqwest = { workspace = true }
-risc0-ethereum-contracts = { workspace = true }
+risc0-aggregation = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

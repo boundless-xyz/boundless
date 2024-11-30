@@ -130,7 +130,7 @@ services:
     # NOTE: if adding more aux workers, only one needs --monitor-requeue (for task reaping)
     entrypoint: /app/agent -t aux --monitor-requeue
 
-  gpu_agent0: &gpu
+  gpu_prove_agent0: &gpu
     image: agent
     runtime: nvidia
     pull_policy: never
@@ -153,7 +153,7 @@ services:
       RUST_LOG: ${RUST_LOG}
       RUST_BACKTRACE: 1
 
-    entrypoint: /app/agent -t gpu
+    entrypoint: /app/agent -t prove
 
     deploy:
       resources:
@@ -164,7 +164,7 @@ services:
               device_ids: ['0']
               capabilities: [gpu]
 
-  # gpu_agent1:
+  # gpu_prove_agent1:
   #   <<: *gpu
 
   #   deploy:
@@ -174,6 +174,13 @@ services:
   #           - driver: nvidia
   #             device_ids: ['1']
   #             capabilities: [gpu]
+
+
+  gpu_join_agent0:
+    <<: *gpu
+    mem_limit: 2G
+    cpu_count: 2
+    entrypoint: /app/agent -t join
 
   snark_agent:
     image: agent
@@ -264,7 +271,7 @@ services:
       PRIVATE_KEY: ${PRIVATE_KEY}
       RPC_URL: ${RPC_URL}
 
-    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --set-verifier-addr ${SET_VERIFIER_ADDR} --proof-market-addr ${PROOF_MARKET_ADDR} --config-file /app/broker.toml --bento-api-url http://localhost:8081
+    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --set-verifier-addr ${SET_VERIFIER_ADDR} --boundless-market-addr ${BOUNDLESS_MARKET_ADDR} --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
 volumes:
   redis-data:

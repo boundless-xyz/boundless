@@ -25,7 +25,7 @@ Using the [Boundless market indexer](https://indexer.beboundless.xyz) is one of 
 
 ### Balances
 
-When running the broker it is critical to monitor both your hot wallet balance of ETH and the proof market balance. If your broker runs out of ETH balance it will be unable to cover gas costs for transactions to locking / fulfill orders. If you run out of balance on the proof-market contract the broker will be unable to lockin orders with higher stakes. It is strongly recommended to keep your proof-market balance above the brokers configured `max_stake` parameter.
+When running the broker it is critical to monitor both your hot wallet balance of ETH and the market balance. If your broker runs out of ETH balance it will be unable to cover gas costs for transactions to locking / fulfill orders. If you run out of balance on the market contract the broker will be unable to lockin orders with higher stakes. It is strongly recommended to keep your market balance above the brokers configured `max_stake` parameter.
 
 ### Broker Logs
 

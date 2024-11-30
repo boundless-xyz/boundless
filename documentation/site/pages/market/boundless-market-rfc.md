@@ -61,7 +61,7 @@ Market operations such as the auction and settlement are implemented in a smart 
 
 ### Order Placement
 
-**Order broadcast:** Requestors will initiate an order by broadcasting a `ProvingRequest` to the provers. Requestors have a choice of two broadcast channels depending on their needs:
+**Order broadcast:** Requestors will initiate an order by broadcasting a `ProofRequest` to the provers. Requestors have a choice of two broadcast channels depending on their needs:
 
 - Broadcast via EVM calldata. This has the highest possible assurance for data availability and censorship resistance.
 - Broadcast via an off-chain broadcast channel. This has the lowest cost and latency.
@@ -73,7 +73,7 @@ Off-chain broadcast channel is not a requirement for the initial MVP deployment.
 **Request structure:**
 
 ```solidity
-struct ProvingRequest {
+struct ProofRequest {
     /// Unique ID for this request, constructed from the client address and a 32-bit counter.
     /// Constructed as (address(client) << 32) | id
     uint192 id;
@@ -181,12 +181,12 @@ struct AssessorJournal {
 
 ### Market Contract Interface
 
-> See `contracts/src/IProofMarket.sol` for the present implementation.
+> See `contracts/src/IBoundlessMarket.sol` for the present implementation.
 
-```solidity [IProofMarket.sol]
-interface IProofMarket {
-    /// Event logged when a new proving request is submitted by a client.
-    event RequestSubmitted(ProvingRequest request, bytes clientSignature);
+```solidity [IBoundlessMarket.sol]
+interface IBoundlessMarket {
+    /// Event logged when a new request is submitted by a client.
+    event RequestSubmitted(ProofRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint192 indexed requestId, address prover);
     /// Event logged when a request is fulfilled.
@@ -198,9 +198,9 @@ interface IProofMarket {
     event ProofDelivered(uint192 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is burned for failing to fulfill a request by the deadline.
     event LockinStakeBurned(uint192 indexed requestId, uint96 stake);
-    /// Event when a deposit is made to the proof market.
+    /// Event when a deposit is made to the market.
     event Deposit(address indexed account, uint256 value);
-    /// Event when a withdrawal is made from the proof market.
+    /// Event when a withdrawal is made from the market.
     event Withdrawal(address indexed account, uint256 value);
 
     /// Request is locked when it was not expected to be.
@@ -226,10 +226,10 @@ interface IProofMarket {
     /// @notice Return when the given request expires.
     function requestDeadline(uint192 requestId) external view returns (uint64);
 
-    /// @notice Deposit Ether into the proof market to pay for proof and/or lockin stake.
+    /// @notice Deposit Ether into the market to pay for proof and/or lockin stake.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
     function deposit() external payable;
-    /// @notice Withdraw Ether from the proof market.
+    /// @notice Withdraw Ether from the market.
     /// @dev Value is debited from msg.sender.
     function withdraw(uint256 value) external;
     /// @notice Check the deposited balance, in Ether, of the given account.
@@ -238,22 +238,22 @@ interface IProofMarket {
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
     /// @dev Submitting the transaction only broadcasting it, and is not a required step.
-    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable;
+    function submitRequest(ProofRequest calldata request, bytes calldata clientSignature) external payable;
 
-    /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
+    /// @notice Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method should be called from the address of the prover.
-    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external;
+    function lockin(ProofRequest calldata request, bytes calldata clientSignature) external;
 
-    /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
+    /// @notice Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method uses the provided signature to authenticate the prover.
     function lockinWithSig(
-        ProvingRequest calldata request,
+        ProofRequest calldata request,
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external;
@@ -267,7 +267,7 @@ interface IProofMarket {
     /// Note that this can differ from the address of the prover that locked the
     /// request. When they differ, the locked-in prover is the one that received payment.
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
-    /// @notice Fulfills a batch of locked requests. See IProofMarket.fulfill for more information.
+    /// @notice Fulfills a batch of locked requests. See IBoundlessMarket.fulfill for more information.
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
     /// @notice Delivers a proof satisfying a referenced request, without modifying contract state.
@@ -282,7 +282,7 @@ interface IProofMarket {
     /// Note that this can differ from the address of the prover that locked the
     /// request.
     function deliver(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
-    /// @notice Delivers a batch of proofs. See IProofMarket.deliver for more information.
+    /// @notice Delivers a batch of proofs. See IBoundlessMarket.deliver for more information.
     function deliverBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
     /// @notice Checks the validity of the request and then writes the current auction price to
@@ -291,13 +291,13 @@ interface IProofMarket {
     /// that is not locked. This is useful when the prover wishes to fulfill a request, but does
     /// not want to issue a lock transaction e.g. because the stake is to high or to save money by
     /// avoiding the gas costs of the lock transaction.
-    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) external;
+    function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;
 
-    /// @notice A combined call to `IProofMarket.priceRequest` and `IProofMarket.fulfillBatch`.
+    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     function priceAndFulfillBatch(
-        ProvingRequest[] calldata requests,
+        ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         bytes calldata assessorSeal,

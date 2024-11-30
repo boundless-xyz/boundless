@@ -11,7 +11,7 @@ We describe the Boundless [reverse-Dutch auction](https://en.wikipedia.org/wiki/
 
 **TL;DR**: The requestor broadcasts a proof request. Initially, the request offers a low reward; eventually the reward begins to increase, until it reaches some max. At any time prior to the request's expiration/completion, the request can be "locked-in" by a prover who escrows some stake; this gives them the exclusive ability to be paid for a proof, and on success their reward will be based on when they "locked-in" the request.
 
-In slightly more detail, the lifecycle of a successful proving request looks like this:
+In slightly more detail, the lifecycle of a successful request looks like this:
 The requester broadcasts their request (e.g., via calldata on the market). The request includes requirements for the proof (Image ID, predicates on the journal, etc.) as well as an offer (the parameters of the auction), which includes (among other things) the maximum price that the requester is willing to pay.
 
 When publishing their request, the requester escrows the necessary funds (i.e., maximum price) in the market.

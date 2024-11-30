@@ -7,13 +7,13 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
-import "../src/ProofMarket.sol";
-import "../src/IProofMarket.sol";
+import "../src/BoundlessMarket.sol";
+import "../src/IBoundlessMarket.sol";
 
-contract ProofMarketLibTest is Test {
-    using ProofMarketLib for Offer;
-    using ProofMarketLib for Requirements;
-    using ProofMarketLib for Predicate;
+contract BoundlessMarketLibTest is Test {
+    using BoundlessMarketLib for Offer;
+    using BoundlessMarketLib for Requirements;
+    using BoundlessMarketLib for Predicate;
 
     function testBlockAtPrice() public {
         Offer memory offer = Offer({
@@ -37,7 +37,7 @@ contract ProofMarketLibTest is Test {
 
         assertEq(offer.blockAtPrice(2 ether), 200);
 
-        vm.expectRevert("Price cannot exceed maxPrice");
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
         offer.blockAtPrice(3 ether);
     }
 
