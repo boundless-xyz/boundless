@@ -54,9 +54,10 @@ jobs:
         run: cargo build
 
       - name: forge test
-        run: forge test -vvv --fork-url=https://ethereum-sepolia-rpc.publicnode.com
+        run: forge test -vvv --fork-url="$RPC_URL"
         env:
           FOUNDRY_PROFILE: deployment-test
+          RPC_URL: https://ethereum-sepolia-rpc.publicnode.com
 
       - name: sccache stats
         run: sccache --show-stats
