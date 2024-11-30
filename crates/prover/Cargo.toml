@@ -29,3 +29,7 @@ url = { workspace = true }
 [[bin]]
 name = "fulfill"
 
+[dev-dependencies]
+guest-assessor = { workspace = true }
+guest-util = { workspace = true }
+

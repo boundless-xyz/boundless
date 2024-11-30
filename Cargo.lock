@@ -1961,6 +1961,8 @@ dependencies = [
  "bytemuck",
  "clap",
  "dotenvy",
+ "guest-assessor",
+ "guest-util",
  "hex",
  "libc",
  "reqwest",

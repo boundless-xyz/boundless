@@ -36,6 +36,28 @@ alloy::sol!(
     }
 );
 
+impl OrderFulfilled {
+    /// Creates a new [OrderFulfilled],
+    pub fn new(
+        fill: BoundlessFulfillment,
+        root_receipt: Receipt,
+        assessor_receipt: SetInclusionReceipt<ReceiptClaim>,
+        prover: Address,
+    ) -> Result<Self> {
+        let root = <GuestOutput>::abi_decode(&root_receipt.journal.bytes, true)?.root();
+        let root_seal = encode_seal(&root_receipt)?;
+        let assessor_seal = assessor_receipt.abi_encode_seal()?;
+
+        Ok(OrderFulfilled {
+            root: <[u8; 32]>::from(root).into(),
+            seal: root_seal.into(),
+            fills: vec![fill],
+            assessorSeal: assessor_seal.into(),
+            prover,
+        })
+    }
+}
+
 /// Fetches the content of a URL.
 /// Supported URL schemes are `http`, `https`, and `file`.
 pub async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
@@ -179,8 +201,21 @@ impl DefaultProver {
         .await
     }
 
-    /// Fulfills an order as a singleton, returning the relevant data as [OrderFulfilled].
-    pub async fn fulfill(&self, order: Order, require_payment: bool) -> Result<OrderFulfilled> {
+    /// Fulfills an order as a singleton, returning the relevant data:
+    /// * The [Fulfillment] of the order.
+    /// * The [Receipt] of the root set.
+    /// * The [SetInclusionReceipt] of the order.
+    /// * The [SetInclusionReceipt] of the assessor.
+    pub async fn fulfill(
+        &self,
+        order: Order,
+        require_payment: bool,
+    ) -> Result<(
+        BoundlessFulfillment,
+        Receipt,
+        SetInclusionReceipt<ReceiptClaim>,
+        SetInclusionReceipt<ReceiptClaim>,
+    )> {
         let request = order.request.clone();
         let order_elf = fetch_url(&request.imageUrl).await?;
         let order_input: Vec<u8> = match request.input.inputType {
@@ -211,8 +246,6 @@ impl DefaultProver {
         let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal);
         let assessor_claim_digest = assessor_claim.digest();
         let root_receipt = self.join(order_singleton, assessor_singleton).await?;
-        let root = <GuestOutput>::abi_decode(&root_receipt.journal.bytes, true)?.root();
-        let root_seal = encode_seal(&root_receipt)?;
 
         let order_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 0);
         let assessor_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 1);
@@ -227,7 +260,6 @@ impl DefaultProver {
         let mut assessor_inclusion_receipt =
             SetInclusionReceipt::from_path(assessor_claim, assessor_path);
         assessor_inclusion_receipt.verifier_parameters = verifier_parameters.digest();
-        let assessor_seal = assessor_inclusion_receipt.abi_encode_seal()?;
 
         let fulfillment = BoundlessFulfillment {
             id: request.id,
@@ -238,12 +270,74 @@ impl DefaultProver {
             seal: order_seal.into(),
         };
 
-        Ok(OrderFulfilled {
-            root: <[u8; 32]>::from(root).into(),
-            seal: root_seal.into(),
-            fills: vec![fulfillment],
-            assessorSeal: assessor_seal.into(),
-            prover: self.address,
-        })
+        Ok((fulfillment, root_receipt, order_inclusion_receipt, assessor_inclusion_receipt))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{primitives::PrimitiveSignature, signers::local::PrivateKeySigner};
+    use boundless_market::contracts::{
+        eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements,
+    };
+    use guest_assessor::ASSESSOR_GUEST_ELF;
+    use guest_util::{ECHO_ID, ECHO_PATH};
+    use risc0_aggregation::SET_BUILDER_ELF;
+    use risc0_zkvm::VerifierContext;
+
+    fn setup_proving_request_and_signature(
+        signer: &PrivateKeySigner,
+    ) -> (ProofRequest, PrimitiveSignature) {
+        let request = ProofRequest::new(
+            0,
+            &signer.address(),
+            Requirements {
+                imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
+                predicate: Predicate::prefix_match(vec![1]),
+            },
+            &format!("file://{ECHO_PATH}"),
+            Input::inline(vec![1, 2, 3, 4]),
+            Offer::default(),
+        );
+
+        let signature = request.sign_request(signer, Address::ZERO, 1).unwrap();
+        (request, signature)
+    }
+
+    #[tokio::test]
+    async fn test_fulfill() {
+        let signer = PrivateKeySigner::random();
+        let (request, signature) = setup_proving_request_and_signature(&signer);
+
+        let domain = eip712_domain(Address::ZERO, 1);
+        let prover = DefaultProver::new(
+            SET_BUILDER_ELF.to_vec(),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            domain,
+        )
+        .expect("failed to create prover");
+
+        let order = Order { request, signature };
+        let (_, root_receipt, order_receipt, assessor_receipt) =
+            prover.fulfill(order.clone(), false).await.unwrap();
+
+        order_receipt
+            .with_root(root_receipt.clone())
+            .verify_integrity_with_context(
+                &VerifierContext::default(),
+                SetInclusionReceiptVerifierParameters::default(),
+                None,
+            )
+            .unwrap();
+        assessor_receipt
+            .with_root(root_receipt.clone())
+            .verify_integrity_with_context(
+                &VerifierContext::default(),
+                SetInclusionReceiptVerifierParameters::default(),
+                None,
+            )
+            .unwrap();
     }
 }
