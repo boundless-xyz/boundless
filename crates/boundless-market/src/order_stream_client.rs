@@ -264,7 +264,6 @@ impl Client {
             Some(port) => format!("{ws_scheme}://{host}:{port}{ORDER_WS_PATH}"),
             None => format!("{ws_scheme}://{host}{ORDER_WS_PATH}"),
         };
-        println!("url: {ws_url}");
 
         // Create the WebSocket request
         let mut request = ws_url.into_client_request().context("failed to create request")?;
