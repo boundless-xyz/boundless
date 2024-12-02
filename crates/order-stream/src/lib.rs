@@ -131,6 +131,10 @@ pub struct Args {
     /// List of addresses to skip balance checks when connecting them as brokers
     #[clap(long, value_delimiter = ',')]
     bypass_addrs: Vec<Address>,
+
+    /// Time between sending websocket pings (in seconds)
+    #[clap(long, default_value_t = 120)]
+    ping_time: u64,
 }
 
 /// Configuration struct
@@ -150,6 +154,8 @@ pub struct Config {
     pub domain: String,
     /// List of address to skip balance checks
     pub bypass_addrs: Vec<Address>,
+    /// Time between sending WS Ping's (in seconds)
+    pub ping_time: u64,
 }
 
 impl From<&Args> for Config {
@@ -162,6 +168,7 @@ impl From<&Args> for Config {
             queue_size: args.queue_size,
             domain: args.domain.clone(),
             bypass_addrs: args.bypass_addrs.clone(),
+            ping_time: args.ping_time,
         }
     }
 }
@@ -342,6 +349,7 @@ mod tests {
             queue_size: 10,
             domain: "0.0.0.0:8585".parse().unwrap(),
             bypass_addrs: vec![],
+            ping_time: 20,
         };
         let app_state = AppState::new(&config, Some(pool)).await.unwrap();
         let app_state_clone = app_state.clone();

@@ -9,7 +9,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::Utc;
-use futures_util::{Stream, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use siwe::Message as SiweMsg;
@@ -316,6 +316,11 @@ pub fn order_stream(
                         Ok(order) => yield Ok(order),
                         Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
                     }
+                }
+                // Reply to Ping's inline
+                Ok(tungstenite::Message::Ping(mut data)) => {
+                    tracing::debug!("Responding to ping");
+                    socket.send(tungstenite::Message::Pong(data)).await?;
                 }
                 Ok(other) => {
                     tracing::debug!("Ignoring non-text message: {:?}", other);
