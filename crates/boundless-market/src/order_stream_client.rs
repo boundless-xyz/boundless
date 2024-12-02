@@ -257,10 +257,14 @@ impl Client {
 
         // Construct the WebSocket URL
         let host = self.base_url.host().context("missing host")?.to_string();
+        // Select TLS vs not
+        let ws_scheme = if self.base_url.scheme() == "https" { "wss" } else { "ws" };
+
         let ws_url = match self.base_url.port() {
-            Some(port) => format!("ws://{host}:{port}{ORDER_WS_PATH}"),
-            None => format!("ws://{host}{ORDER_WS_PATH}"),
+            Some(port) => format!("{ws_scheme}://{host}:{port}{ORDER_WS_PATH}"),
+            None => format!("{ws_scheme}://{host}{ORDER_WS_PATH}"),
         };
+        println!("url: {ws_url}");
 
         // Create the WebSocket request
         let mut request = ws_url.into_client_request().context("failed to create request")?;
