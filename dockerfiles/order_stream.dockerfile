@@ -1,4 +1,4 @@
-FROM rust:1.79.0-bookworm AS builder
+FROM rust:1.81.0-bookworm AS builder
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -16,7 +16,7 @@ COPY remappings.txt .
 COPY foundry.toml .
 
 COPY ./dockerfiles/sccache-setup.sh .
-RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.1"
+RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 COPY ./dockerfiles/sccache-config.sh .
 SHELL ["/bin/bash", "-c"]
 
@@ -41,9 +41,12 @@ RUN \
     cp /src/target/release/order_stream /src/order_stream && \
     sccache --show-stats
 
-FROM rust:1.79.0-bookworm AS runtime
+FROM rust:1.81.0-bookworm AS runtime
 
 RUN mkdir /app/
+
+RUN apt-get -qq update && \
+    apt install -y postgresql-client
 
 COPY --from=rust-builder /src/order_stream /app/order_stream
 ENTRYPOINT ["/app/order_stream"]

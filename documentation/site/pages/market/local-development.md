@@ -23,7 +23,7 @@ To accelerate development, there are helpful utilities provided:
   - `deposit`: Deposit funds
   - `withdraw`: Withdraw funds
   - `balance`: Check the balance of an account
-  - `submit-offer`: Submit a proof request, constructed with the given offer, input, and image
+  - `submit-offer`: Submit a request, constructed with the given offer, input, and image
   - `submit-request`: Submit a fully specified proof request
   - `slash`: Slash a prover for a given request
   - `get-proof`: Get the journal and seal for a given request
@@ -89,7 +89,7 @@ source .env
 ```
 
 :::success[🎉 Congratulations!]
-You now have a local devnet service running in the background and a prover that will respond to proving requests.
+You now have a local devnet service running in the background and a prover that will respond to proof requests.
 :::
 
 ### Manually
@@ -127,7 +127,7 @@ source .env
 DEPLOYER_PRIVATE_KEY=$PRIVATE_KEY \
 CHAIN_KEY=anvil \
 RISC0_DEV_MODE=$RISC0_DEV_MODE \
-PROOF_MARKET_OWNER=$PUBLIC_KEY \
+BOUNDLESS_MARKET_OWNER=$PUBLIC_KEY \
 forge script contracts/scripts/Deploy.s.sol --rpc-url $RPC_URL --broadcast -vv
 ```
 
@@ -149,13 +149,13 @@ The Broker needs to have funds deposited on the Boundless market contract to cov
 Setting the `--deposit-amount` flag below has the Broker deposit 10 ETH to the market upon startup.
 
 ```sh [Terminal]
-RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --proof-market-addr ${PROOF_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
+RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin broker -- --private-key ${PRIVATE_KEY:?} --boundless-market-addr ${BOUNDLESS_MARKET_ADDRESS:?} --set-verifier-addr ${SET_VERIFIER_ADDRESS:?} --deposit-amount 10
 ```
 
 ::::
 
 :::success[🎉 Congratulations!]
-You now have a local devnet running and a prover that will respond to proving requests.
+You now have a local devnet running and a prover that will respond to proof requests.
 :::
 
 ### Submit Proof Requests

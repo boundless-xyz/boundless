@@ -9,14 +9,14 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 
 ## Deposit / Balance
 
-The proof-market works via a escrow system. Brokers must first deposit some ETH (or SepETH) into the market contract to cover staking during lock-in. It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
+The Boundless market works via a escrow system. Brokers must first deposit some ETH (or SepETH) into the market contract to cover staking during lock-in. It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
 
 ### Deposit to the Market
 
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
+export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
 
 # Example: 'deposit 0.5'
 RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>
@@ -27,7 +27,7 @@ RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-export PROOF_MARKET_ADDRESS=<PROOF_MARKET_ADDR>
+export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
 
 RUST_LOG=info cargo run --bin cli -- balance [wallet_address]
 ```

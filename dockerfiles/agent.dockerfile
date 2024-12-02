@@ -18,7 +18,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # Install rust and a target rust version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 RUN chmod -R a+w $RUSTUP_HOME $CARGO_HOME
-RUN rustup install 1.79
+RUN rustup install 1.81
 
 FROM rust-builder AS builder
 
@@ -35,6 +35,10 @@ COPY .sqlx/ ./.sqlx/
 ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}
 
+# Prevent sccache collision in compose-builds
+ENV SCCACHE_SERVER_PORT=4227
+# ENV SCCACHE_LOG=trace
+
 COPY ./dockerfiles/sccache-setup.sh .
 RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 COPY ./dockerfiles/sccache-config.sh .
@@ -43,14 +47,10 @@ SHELL ["/bin/bash", "-c"]
 # Consider using if building and running on the same CPU
 # ENV RUSTFLAGS="-C target-cpu=native"
 
-# Prevent sccache collision in compose-builds
-ENV SCCACHE_SERVER_PORT=4226
-
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc \
     source ./sccache-config.sh && \
-    ls /root/.cache/sccache/ && \
     cargo build --release -F cuda -p workflow --bin agent && \
     cp /src/target/release/agent /src/agent && \
     sccache --show-stats
