@@ -5,10 +5,10 @@
     "RISC0_SKIP_BUILD": "1",
     "RISC0_SKIP_BUILD_KERNELS": "1"
   },
-  "[markdown]": {
-    "editor.defaultFormatter": "unifiedjs.vscode-remark",
-    "editor.formatOnSave": true
-  },
+  // "rust-analyzer.check.extraArgs": [
+  //   "--target-dir",
+  //   "target/analyzer"
+  // ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",
     "editor.codeActionsOnSave": {

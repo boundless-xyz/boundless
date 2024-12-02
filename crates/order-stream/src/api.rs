@@ -6,7 +6,7 @@ use alloy::primitives::Address;
 use anyhow::Context;
 use axum::extract::{Json, Path, Query, State};
 use boundless_market::order_stream_client::{
-    ErrMsg, Nonce, OrderData, SubmitOrderRes, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
+    ErrMsg, Nonce, OrderData, SubmitOrderRes, HEALTH_CHECK, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -78,7 +78,7 @@ pub(crate) async fn list_orders(
 
 #[utoipa::path(
     get,
-    path = "api/nonce/<addr>",
+    path = "/api/nonce/<addr>",
     params(
         Pagination,
     ),
@@ -108,4 +108,18 @@ pub(crate) async fn get_nonce(
     };
 
     Ok(Json(Nonce { nonce }))
+}
+
+#[utoipa::path(
+    get,
+    path = HEALTH_CHECK,
+    responses(
+        (status = 200, description = "Healthy"),
+        (status = 500, description = "Unhealthy", body = ErrMsg)
+    )
+)]
+/// Submit a new order to the market order-stream
+pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Result<(), AppError> {
+    state.db.health_check().await.context("Failed health check")?;
+    Ok(())
 }

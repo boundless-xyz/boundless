@@ -5,7 +5,7 @@
 use alloy_primitives::{Address, Signature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
-use boundless_market::contracts::{EIP721DomainSaltless, ProvingRequest};
+use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// into the Merkle tree of the aggregated set of proofs.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fulfillment {
-    pub request: ProvingRequest,
+    pub request: ProofRequest,
     pub signature: Vec<u8>,
     pub journal: Vec<u8>,
     pub require_payment: bool,
@@ -22,7 +22,7 @@ pub struct Fulfillment {
 
 impl Fulfillment {
     // TODO: Change this to use a thiserror error type.
-    pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<()> {
+    pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32]> {
         let hash = self.request.eip712_signing_hash(domain);
         let signature = Signature::try_from(self.signature.as_slice())?;
         // NOTE: This could be optimized by accepting the public key as input, checking it against
@@ -33,7 +33,7 @@ impl Fulfillment {
         if recovered != self.request.client_address()? {
             bail!("Invalid signature: mismatched addr {recovered} - {client_addr}");
         }
-        Ok(())
+        Ok(hash.into())
     }
     pub fn evaluate_requirements(&self) -> Result<()> {
         if !self.request.requirements.predicate.eval(&self.journal) {
@@ -79,7 +79,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProvingRequest,
+        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
         Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
@@ -90,13 +90,8 @@ mod tests {
         ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     };
 
-    fn proving_request(
-        id: u32,
-        signer: Address,
-        image_id: B256,
-        prefix: Vec<u8>,
-    ) -> ProvingRequest {
-        ProvingRequest::new(
+    fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
+        ProofRequest::new(
             id,
             &signer,
             Requirements {
@@ -150,7 +145,7 @@ mod tests {
         assert_eq!(domain, domain2);
     }
 
-    fn setup_proving_request_and_signature(signer: &PrivateKeySigner) -> (ProvingRequest, Vec<u8>) {
+    fn setup_proving_request_and_signature(signer: &PrivateKeySigner) -> (ProofRequest, Vec<u8>) {
         let request = proving_request(
             1,
             signer.address(),
@@ -163,7 +158,7 @@ mod tests {
     }
 
     fn echo(input: &str) -> Receipt {
-        let env = ExecutorEnv::builder().write(&input.as_bytes()).unwrap().build().unwrap();
+        let env = ExecutorEnv::builder().write_slice(&input.as_bytes()).build().unwrap();
 
         // TODO: Change this to use SessionInfo::claim or another method.
         // See https://github.com/risc0/risc0/issues/2267.
@@ -197,7 +192,7 @@ mod tests {
     #[test_log::test]
     fn test_assessor_e2e_singleton() {
         let signer = PrivateKeySigner::random();
-        // 1. Mock and sign a proving request
+        // 1. Mock and sign a request
         let (request, signature) = setup_proving_request_and_signature(&signer);
 
         // 2. Prove the request via the application guest
@@ -213,7 +208,7 @@ mod tests {
     #[test_log::test]
     fn test_assessor_e2e_two_leaves() {
         let signer = PrivateKeySigner::random();
-        // 1. Mock and sign a proving request
+        // 1. Mock and sign a request
         let (request, signature) = setup_proving_request_and_signature(&signer);
 
         // 2. Prove the request via the application guest

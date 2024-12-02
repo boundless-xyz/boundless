@@ -3,7 +3,7 @@
 // All rights reserved.
 
 use alloy::{
-    primitives::{Address, Signature, U256},
+    primitives::{Address, PrimitiveSignature, U256},
     signers::{k256::ecdsa::SigningKey, local::LocalSigner, Error as SignerErr, Signer},
 };
 use anyhow::{Context, Result};
@@ -23,12 +23,13 @@ use tokio_tungstenite::{
 };
 use utoipa::ToSchema;
 
-use crate::contracts::{ProvingRequest, RequestError};
+use crate::contracts::{ProofRequest, RequestError};
 
-pub const ORDER_SUBMISSION_PATH: &str = "api/submit_order";
-pub const ORDER_LIST_PATH: &str = "api/orders";
-pub const AUTH_GET_NONCE: &str = "api/nonce/";
-pub const ORDER_WS_PATH: &str = "ws/orders";
+pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
+pub const ORDER_LIST_PATH: &str = "/api/orders";
+pub const AUTH_GET_NONCE: &str = "/api/nonce/";
+pub const HEALTH_CHECK: &str = "/api/health";
+pub const ORDER_WS_PATH: &str = "/ws/orders";
 
 /// Error body for API responses
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -59,17 +60,17 @@ pub enum OrderError {
     RequestError(#[from] RequestError),
 }
 
-/// Order struct, containing a ProvingRequest and its Signature
+/// Order struct, containing a ProofRequest and its Signature
 ///
-/// The contents of this struct match the calldata of the `submitOrder` function in the `ProofMarket` contract.
+/// The contents of this struct match the calldata of the `submitOrder` function in the `BoundlessMarket` contract.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Order {
     /// Order request
     #[schema(value_type = Object)]
-    pub request: ProvingRequest,
+    pub request: ProofRequest,
     /// Order signature
     #[schema(value_type = Object)]
-    pub signature: Signature,
+    pub signature: PrimitiveSignature,
 }
 
 /// Order data + order-stream id
@@ -100,7 +101,7 @@ pub struct SubmitOrderRes {
 
 impl Order {
     /// Create a new Order
-    pub fn new(request: ProvingRequest, signature: Signature) -> Self {
+    pub fn new(request: ProofRequest, signature: PrimitiveSignature) -> Self {
         Self { request, signature }
     }
 
@@ -124,7 +125,7 @@ pub struct AuthMsg {
     message: SiweMsg,
     /// SIWE Signature of `message` field
     #[schema(value_type = Object)]
-    signature: Signature,
+    signature: PrimitiveSignature,
 }
 
 impl AuthMsg {
@@ -173,8 +174,8 @@ pub struct Client {
     pub base_url: Url,
     /// Signer for signing requests
     pub signer: LocalSigner<SigningKey>,
-    /// Address of the proof market contract
-    pub proof_market_address: Address,
+    /// Address of the market contract
+    pub boundless_market_address: Address,
     /// Chain ID of the network
     pub chain_id: u64,
 }
@@ -184,19 +185,25 @@ impl Client {
     pub fn new(
         base_url: Url,
         signer: LocalSigner<SigningKey>,
-        proof_market_address: Address,
+        boundless_market_address: Address,
         chain_id: u64,
     ) -> Self {
-        Self { client: reqwest::Client::new(), base_url, signer, proof_market_address, chain_id }
+        Self {
+            client: reqwest::Client::new(),
+            base_url,
+            signer,
+            boundless_market_address,
+            chain_id,
+        }
     }
 
-    /// Submit a proving request to the order stream server
-    pub async fn submit_request(&self, request: &ProvingRequest) -> Result<Order> {
-        let url = Url::parse(&format!("{}{ORDER_SUBMISSION_PATH}", self.base_url))?;
+    /// Submit a proof request to the order stream server
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<Order> {
+        let url = self.base_url.join(ORDER_SUBMISSION_PATH)?;
         let signature =
-            request.sign_request(&self.signer, self.proof_market_address, self.chain_id)?;
+            request.sign_request(&self.signer, self.boundless_market_address, self.chain_id)?;
         let order = Order { request: request.clone(), signature };
-        order.validate(self.proof_market_address, self.chain_id)?;
+        order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;
         let response = self
             .client
@@ -223,8 +230,7 @@ impl Client {
 
     /// Get the nonce from the order stream service for websocket auth
     pub async fn get_nonce(&self) -> Result<Nonce> {
-        let url =
-            Url::parse(&format!("{}{AUTH_GET_NONCE}{}", self.base_url, self.signer.address()))?;
+        let url = self.base_url.join(AUTH_GET_NONCE)?.join(&self.signer.address().to_string())?;
         let res = self.client.get(url).send().await?;
         if !res.status().is_success() {
             anyhow::bail!("Http error {} fetching nonce", res.status())
@@ -252,7 +258,7 @@ impl Client {
         // Construct the WebSocket URL
         let host = self.base_url.host().context("missing host")?.to_string();
         let ws_url = match self.base_url.port() {
-            Some(port) => format!("ws://{host}:{port}/{ORDER_WS_PATH}"),
+            Some(port) => format!("ws://{host}:{port}{ORDER_WS_PATH}"),
             None => format!("ws://{host}{ORDER_WS_PATH}"),
         };
 

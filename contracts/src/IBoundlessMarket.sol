@@ -7,7 +7,7 @@ pragma solidity ^0.8.20;
 // TODO(#159) Think about compressing this struct. One way to reduce
 // associated gas costs would be to put all the fields not needed for lockin
 // into a sub-struct that is hashed.
-struct ProvingRequest {
+struct ProofRequest {
     /// @notice Unique ID for this request, constructed from the client address and a 32-bit index.
     /// Constructed as (address(client) << 32) | index.
     /// @dev Note that the high-order 64 bits of this ID are currently unused and must set to zero.
@@ -73,6 +73,8 @@ struct Offer {
 struct Fulfillment {
     /// ID of the request that is being fulfilled.
     uint256 id;
+    /// EIP-712 digest of request struct.
+    bytes32 requestDigest;
     /// Image ID of the guest that was verifiably executed to satisfy the request.
     /// Must match the value in the request's requirements.
     bytes32 imageId;
@@ -100,21 +102,23 @@ struct Fulfillment {
 /// Merkle tree committed to by the given root. Assessor can verify a batch of
 /// requests, including batches of size one.
 struct AssessorJournal {
-    uint256[] requestIds;
+    /// @notice Digest of each request validated by the assessor.
+    /// @dev When a client signs two requests with the same ID, only one can ever be fulfilled.
+    /// Using the digest here ensures that the request validated by the assessor matches the one
+    /// that was locked / priced.
+    bytes32[] requestDigests;
     // Root of the Merkle tree committing to the set of proven claims.
     // In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;
-    // EIP712 domain separator.
-    bytes32 eip712DomainSeparator;
     // The address of the prover that produced the assessor receipt.
     address prover;
 }
 
-interface IProofMarket {
-    /// @notice Event logged when a new proving request is submitted by a client.
+interface IBoundlessMarket {
+    /// @notice Event logged when a new proof request is submitted by a client.
     /// @dev Note that the signature is not verified by the contract and should instead be verified
     ///      by the receiver of the event.
-    event RequestSubmitted(uint256 indexed requestId, ProvingRequest request, bytes clientSignature);
+    event RequestSubmitted(uint256 indexed requestId, ProofRequest request, bytes clientSignature);
     /// Event logged when a request is locked in by the given prover.
     event RequestLockedin(uint256 indexed requestId, address prover);
     /// Event logged when a request is fulfilled.
@@ -127,15 +131,15 @@ interface IProofMarket {
     /// Event when prover stake is slashed for failing to fulfill a request by the deadline.
     /// Part of the stake is burned, and part is transferred to the client as compensation.
     event ProverSlashed(uint256 indexed requestId, uint256 stakeBurned, uint256 stakeTransferred);
-    /// Event when a deposit is made to the proof market.
+    /// Event when a deposit is made to the market.
     event Deposit(address indexed account, uint256 value);
-    /// Event when a withdrawal is made from the proof market.
+    /// Event when a withdrawal is made from the market.
     event Withdrawal(address indexed account, uint256 value);
     /// Contract upgraded to a new version.
     event Upgraded(uint64 indexed version);
     /// @notice Event emitted during fulfillment if a request was fulfilled, but payment was not
     /// transferred because at least one condition was not met. See the documentation on
-    /// `IProofMarket.fulfillBatch` for more information.
+    /// `IBoundlessMarket.fulfillBatch` for more information.
     ///
     /// If there is an unexpired lock on the request, the order, the prover holding the lock may
     /// still be able to / transfer payment sending another transaction.
@@ -143,16 +147,24 @@ interface IProofMarket {
     /// @dev The payload of the event is an ABI encoded error, from the errors on this contract.
     event PaymentRequirementsFailed(bytes error);
 
-    /// Request is locked when it was not expected to be.
+    /// Request is locked when it was not required to be.
     error RequestIsLocked(uint256 requestId);
-    /// Request is not locked when it was expected to be.
+    /// Request is not priced when it was required to be. Either locking the request, or calling the
+    /// `IBoundlessMarket.priceRequest` function in the same transaction will satisfy this requirement.
+    error RequestIsNotPriced(uint256 requestId);
+    /// Request is not locked when it was required to be.
     error RequestIsNotLocked(uint256 requestId);
-    /// Request is fulfilled when it was not expected to be.
+    /// Request is fulfilled when it was not required to be.
     error RequestIsFulfilled(uint256 requestId);
     /// Request is no longer valid, as the deadline has passed.
     error RequestIsExpired(uint256 requestId, uint64 deadline);
     /// Request is still valid, as the deadline has yet to pass.
     error RequestIsNotExpired(uint256 requestId, uint64 deadline);
+    /// @notice Request fingerprint (shortened digest) doesn't match the value that is locked.
+    /// @dev This can happen if a client signs multiple requests with the same ID (i.e. multiple
+    /// versions of the same request) and a prover locks one version but the tries to call fulfill
+    /// using a different version.
+    error RequestLockFingerprintDoesNotMatch(uint256 requestId, bytes8 provided, bytes8 locked);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
     /// A signature did not pass verification checks.
@@ -181,10 +193,10 @@ interface IProofMarket {
     /// @notice Return when the given request expires.
     function requestDeadline(uint256 requestId) external view returns (uint64);
 
-    /// @notice Deposit Ether into the proof market to pay for proof and/or lockin stake.
+    /// @notice Deposit Ether into the market to pay for proof and/or lockin stake.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
     function deposit() external payable;
-    /// @notice Withdraw Ether from the proof market.
+    /// @notice Withdraw Ether from the market.
     /// @dev Value is debited from msg.sender.
     function withdraw(uint256 value) external;
     /// @notice Check the deposited balance, in Ether, of the given account.
@@ -194,22 +206,22 @@ interface IProofMarket {
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
     /// @dev Submitting the transaction only broadcasting it, and is not a required step.
     ///      This method does not validate the signature or store any state related to the request.
-    function submitRequest(ProvingRequest calldata request, bytes calldata clientSignature) external payable;
+    function submitRequest(ProofRequest calldata request, bytes calldata clientSignature) external payable;
 
-    /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
+    /// @notice Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method should be called from the address of the prover.
-    function lockin(ProvingRequest calldata request, bytes calldata clientSignature) external;
+    function lockin(ProofRequest calldata request, bytes calldata clientSignature) external;
 
-    /// @notice Lock the proving request to the prover, giving them exclusive rights to be paid to
+    /// @notice Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     /// @dev This method uses the provided signature to authenticate the prover.
     function lockinWithSig(
-        ProvingRequest calldata request,
+        ProofRequest calldata request,
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external;
@@ -227,7 +239,7 @@ interface IProofMarket {
     /// Note that this can differ from the address of the prover that locked the
     /// request. Only the locked-in prover can receive payment.
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
-    /// @notice Fulfills a batch of requests. See IProofMarket.fulfill for more information.
+    /// @notice Fulfills a batch of requests. See IBoundlessMarket.fulfill for more information.
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
 
     /// @notice Checks the validity of the request and then writes the current auction price to
@@ -236,13 +248,13 @@ interface IProofMarket {
     /// that is not locked. This is useful when the prover wishes to fulfill a request, but does
     /// not want to issue a lock transaction e.g. because the stake is to high or to save money by
     /// avoiding the gas costs of the lock transaction.
-    function priceRequest(ProvingRequest calldata request, bytes calldata clientSignature) external;
+    function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;
 
-    /// @notice A combined call to `IProofMarket.priceRequest` and `IProofMarket.fulfillBatch`.
+    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     function priceAndFulfillBatch(
-        ProvingRequest[] calldata requests,
+        ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         bytes calldata assessorSeal,

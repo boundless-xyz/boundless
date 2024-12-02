@@ -260,6 +260,12 @@ impl OrderDb {
             }
         }))
     }
+
+    /// Simple health check to test postgesql connectivity
+    pub async fn health_check(&self) -> Result<(), OrderDbErr> {
+        sqlx::query("SELECT COUNT(*) FROM orders LIMIT 1").execute(&self.pool).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -269,7 +275,7 @@ mod tests {
         signers::local::LocalSigner,
     };
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProvingRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use futures_util::StreamExt;
     use std::sync::Arc;
@@ -279,7 +285,7 @@ mod tests {
 
     fn create_order() -> Order {
         let signer = LocalSigner::random();
-        let req = ProvingRequest {
+        let req = ProofRequest {
             id: U256::ZERO,
             requirements: Requirements {
                 imageId: B256::ZERO,

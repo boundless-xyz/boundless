@@ -45,5 +45,8 @@ FROM rust:1.81.0-bookworm AS runtime
 
 RUN mkdir /app/
 
+RUN apt-get -qq update && \
+    apt install -y postgresql-client
+
 COPY --from=rust-builder /src/order_stream /app/order_stream
 ENTRYPOINT ["/app/order_stream"]

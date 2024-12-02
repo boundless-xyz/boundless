@@ -7,9 +7,9 @@
 
 extern crate alloc;
 
-use aggregation_set::merkle_root;
+use risc0_aggregation::merkle_root;
 use alloc::{vec, vec::Vec};
-use alloy_primitives::U256;
+use alloy_primitives::B256;
 use alloy_sol_types::SolValue;
 use assessor::AssessorInput;
 use boundless_market::contracts::AssessorJournal;
@@ -28,32 +28,32 @@ fn main() {
 
     let input: AssessorInput = postcard::from_bytes(&bytes).expect("failed to deserialize input");
 
-    // list of request ids
-    let mut ids: Vec<U256> = Vec::with_capacity(input.fills.len());
+    // list of request digests
+    let mut request_digests: Vec<B256> = Vec::with_capacity(input.fills.len());
     // list of ReceiptClaim digests used as leaves in the aggregation set
-    let mut leaves: Vec<Digest> = Vec::with_capacity(input.fills.len());
+    let mut claim_digests: Vec<Digest> = Vec::with_capacity(input.fills.len());
 
     let eip_domain_separator = input.domain.alloy_struct();
     // For each fill we
-    // - verify the proving request's signature
+    // - verify the request's signature
     // - evaluate the request's requirements
     // - verify the integrity of its claim
-    // We additionally collect the request ids and the digests from the claims
+    // We additionally collect the request and claim digests.
     for fill in input.fills.iter() {
-        fill.verify_signature(&eip_domain_separator).expect("signature does not verify");
+        let request_digest =
+            fill.verify_signature(&eip_domain_separator).expect("signature does not verify");
         fill.evaluate_requirements().expect("requirements not met");
         env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
-        ids.push(fill.request.id);
-        leaves.push(fill.receipt_claim().digest());
+        claim_digests.push(fill.receipt_claim().digest());
+        request_digests.push(request_digest.into());
     }
 
     // recompute the merkle root of the aggregation set
-    let root = merkle_root(&leaves).expect("failed to compute merkle root");
+    let root = merkle_root(&claim_digests);
 
     let journal = AssessorJournal {
-        requestIds: ids,
+        requestDigests: request_digests,
         root: <[u8; 32]>::from(root).into(),
-        eip712DomainSeparator: eip_domain_separator.hash_struct(),
         prover: input.prover_address,
     };
 

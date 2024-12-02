@@ -9,22 +9,22 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 
 import {
-    IProofMarket,
+    IBoundlessMarket,
     Input,
     InputType,
     Offer,
     Predicate,
     PredicateType,
-    ProvingRequest,
+    ProofRequest,
     Requirements
-} from "./IProofMarket.sol";
+} from "./IBoundlessMarket.sol";
 
-library ProofMarketLib {
+library BoundlessMarketLib {
     using SafeCast for uint256;
 
     // EIP-712 SIGNATURE UTILITIES
 
-    string constant EIP712_DOMAIN = "IProofMarket";
+    string constant EIP712_DOMAIN = "IBoundlessMarket";
     string constant EIP712_DOMAIN_VERSION = "1";
 
     // EIP-712 type strings of the structs from above.
@@ -43,15 +43,15 @@ library ProofMarketLib {
         "Offer(uint256 minPrice,uint256 maxPrice,uint64 biddingStart,uint32 rampUpPeriod,uint32 timeout,uint256 lockinStake)";
     bytes32 constant OFFER_TYPEHASH = keccak256(abi.encodePacked(OFFER_TYPE));
 
-    string constant PROVINGREQUEST_TYPE =
-        "ProvingRequest(uint256 id,Requirements requirements,string imageUrl,Input input,Offer offer)";
-    bytes32 constant PROVINGREQUEST_TYPEHASH =
-        keccak256(abi.encodePacked(PROVINGREQUEST_TYPE, INPUT_TYPE, OFFER_TYPE, PREDICATE_TYPE, REQUIREMENTS_TYPE));
+    string constant PROOF_REQUEST_TYPE =
+        "ProofRequest(uint256 id,Requirements requirements,string imageUrl,Input input,Offer offer)";
+    bytes32 constant PROOF_REQUEST_TYPEHASH =
+        keccak256(abi.encodePacked(PROOF_REQUEST_TYPE, INPUT_TYPE, OFFER_TYPE, PREDICATE_TYPE, REQUIREMENTS_TYPE));
 
-    function eip712Digest(ProvingRequest memory request) internal pure returns (bytes32) {
+    function eip712Digest(ProofRequest memory request) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                ProofMarketLib.PROVINGREQUEST_TYPEHASH,
+                BoundlessMarketLib.PROOF_REQUEST_TYPEHASH,
                 request.id,
                 eip712Digest(request.requirements),
                 keccak256(bytes(request.imageUrl)),
@@ -63,18 +63,20 @@ library ProofMarketLib {
 
     function eip712Digest(Requirements memory requirements) internal pure returns (bytes32) {
         return keccak256(
-            abi.encode(ProofMarketLib.REQUIREMENTS_TYPEHASH, requirements.imageId, eip712Digest(requirements.predicate))
+            abi.encode(
+                BoundlessMarketLib.REQUIREMENTS_TYPEHASH, requirements.imageId, eip712Digest(requirements.predicate)
+            )
         );
     }
 
     function eip712Digest(Input memory input) internal pure returns (bytes32) {
-        return keccak256(abi.encode(ProofMarketLib.INPUT_TYPEHASH, input.inputType, keccak256(input.data)));
+        return keccak256(abi.encode(BoundlessMarketLib.INPUT_TYPEHASH, input.inputType, keccak256(input.data)));
     }
 
     function eip712Digest(Offer memory offer) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                ProofMarketLib.OFFER_TYPEHASH,
+                BoundlessMarketLib.OFFER_TYPEHASH,
                 offer.minPrice,
                 offer.maxPrice,
                 offer.biddingStart,
@@ -86,8 +88,9 @@ library ProofMarketLib {
     }
 
     function eip712Digest(Predicate memory predicate) internal pure returns (bytes32) {
-        return
-            keccak256(abi.encode(ProofMarketLib.PREDICATE_TYPEHASH, predicate.predicateType, keccak256(predicate.data)));
+        return keccak256(
+            abi.encode(BoundlessMarketLib.PREDICATE_TYPEHASH, predicate.predicateType, keccak256(predicate.data))
+        );
     }
 
     // REQUEST ID UTILITIES
@@ -98,14 +101,14 @@ library ProofMarketLib {
 
     function requestFrom(uint256 id) internal pure returns (address) {
         if (id & (uint256(type(uint64).max) << 192) != 0) {
-            revert IProofMarket.InvalidRequest();
+            revert IBoundlessMarket.InvalidRequest();
         }
         return address(uint160(id >> 32));
     }
 
     function requestIndex(uint256 id) internal pure returns (uint32) {
         if (id & (uint256(type(uint64).max) << 192) != 0) {
-            revert IProofMarket.InvalidRequest();
+            revert IBoundlessMarket.InvalidRequest();
         }
         return uint32(id);
     }
@@ -114,17 +117,17 @@ library ProofMarketLib {
 
     function requireValid(Offer memory offer) internal pure {
         if (offer.rampUpPeriod > offer.timeout) {
-            revert IProofMarket.InvalidRequest();
+            revert IBoundlessMarket.InvalidRequest();
         }
         if (offer.minPrice > offer.maxPrice) {
-            revert IProofMarket.InvalidRequest();
+            revert IBoundlessMarket.InvalidRequest();
         }
     }
 
     // Calculates the earliest block at which the offer will be worth at least the given price.
     function blockAtPrice(Offer memory offer, uint256 price) internal pure returns (uint64) {
         if (price > offer.maxPrice) {
-            revert IProofMarket.InvalidRequest();
+            revert IBoundlessMarket.InvalidRequest();
         }
 
         if (price <= offer.minPrice) {
@@ -226,7 +229,7 @@ library ProofMarketLib {
     /// @notice ABI encode the constructor args for this contract.
     /// @dev This function exists to provide a type-safe way to ABI-encode constructor args, for
     /// use in the deployment process with OpenZeppelin Upgrades. Must be kept in sync with the
-    /// signature of the ProofMarket constructor.
+    /// signature of the BoundlessMarket constructor.
     function encodeConstructorArgs(IRiscZeroVerifier verifier, bytes32 assessorId)
         internal
         pure

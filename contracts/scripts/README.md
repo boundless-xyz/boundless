@@ -23,7 +23,7 @@ go install github.com/mikefarah/yq/v4@latest
 ## Configuration
 
 Configurations and deployment state information is stored in `deployment.toml`.
-It contains information about each chain (e.g. name, ID, Etherscan URL), and addresses for the RISC Zero verifier router contracts on each chain.
+It contains information about each chain (e.g. name, ID, Etherscan URL), and addresses for the RISC Zero verifier and Boundless market contracts on each chain.
 
 Accompanying the `deployment.toml` file is a `deployment_secrets.toml` file with the following schema.
 It is used to store somewhat sensative API keys for RPC services and Etherscan.
@@ -119,114 +119,13 @@ Then, in the instructions below, pass the `--fireblocks` (`-f`) flag to the `man
 > kill the forge script once you see that the transaction is pending approval in the Fireblocks
 > console.
 
-## Deploy a set verifier with emergency stop mechanism
-
-This is a two-step process, guarded by the `TimelockController`.
-
-> [!IMPORTANT]
-> Currently only the deployment of the set verifier with emergency stop mechanism can be executed from this repo.
-> Adding the new set verifier to the `RiscZeroVerifierRouter` must, instead, be done via the `risc0-ethereum` repo.
-
-### Deploy the set verifier
-
-1. Make available for download the `set-builder` elf and set its image ID and url in the `deployment.toml` file.
-
-   To generate a deterministic image ID run:
-
-   ```zsh
-   RISC0_USE_DOCKER=true cargo build
-   ```
-
-   > [!NOTE]
-   > This will populate the image ID in the `contracts/src/SetBuilderImageID.sol`.
-   > You can then upload the file located in `target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/aggregation_set_guest/aggregation-set-guest`
-   > to some HTTP server and get back a download URL.
-   > Finally copy over these values in the `deployment.toml` file.
-
-2. Dry run deployment of the set verifier and estop:
-
-   ```zsh
-   VERIFIER_ESTOP_OWNER=${ADMIN_PUBLIC_KEY:?} \
-   bash contracts/scripts/manage DeployEstopSetVerifier
-   ```
-
-   > [!IMPORTANT]
-   > Check the logs from this dry run to verify the estop owner is the expected address.
-   > It should be equal to the RISC Zero admin address on the given chain.
-   > Note that it should not be the `TimelockController`.
-   > Also check the chain ID to ensure you are deploying to the chain you expect.
-   > And check the selector to make sure it matches what you expect.
-
-3. Send deployment transactions for the set verifier by running the command again with `--broadcast`.
-
-   > [!NOTE]
-   > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
-
-4. Replace the `set-verifier` field of the `deployment.toml` file with the newly deployed set verifier address.
-
-5. Add the addresses for the newly deployed contract to the `deployment.toml` file of the `risc0-ethereum` repo.
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   It should look like:
-
-   ```toml
-   [[chains.anvil.verifiers]]
-   version = "0.3.0"
-   selector = "0x03ca0a3e"
-   verifier = "0x0165878a594ca255338adfa4d48449f69242eb8f"
-   estop = "0xa513e6e4b8f2a923d98304ec87f64353c4d5c853"
-   ```
-
-6. Set the verifier selector and estop address for the verifier:
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   > TIP: One place to find this information is from the output of the previous step.
-
-   ```zsh
-   export VERIFIER_SELECTOR="0x..."
-   export VERIFIER_ESTOP=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].verifiers[] | select(.selector == \"${VERIFIER_SELECTOR:?}\") | .estop" contracts/deployment.toml | tee /dev/stderr)
-   ```
-
-7. Dry run the operation to schedule the operation to add the verifier to the router.
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   Fill in the addresses for the relevant chain below.
-   `ADMIN_PUBLIC_KEY` should be set to the Fireblocks admin address.
-
-   ```zsh
-   bash contracts/script/manage ScheduleAddVerifier
-   ```
-
-8. Send the transaction for the scheduled update by running the command again with `--broadcast`.
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   This will send one transaction from the admin address.
-
-   > [!IMPORTANT]
-   > If the admin address is in Fireblocks, this will prompt the admins for approval.
-
-9. Finish the update.
-
-   > [!IMPORTANT]
-   > This step must be executed from the `risc0-ethereum` repo.
-
-   Follow the deployment instructions detailed in the [finish-the-update] section.
-
-## Deploy and upgrade the proof market with the **UUPS** proxy pattern
+## Deploy and upgrade the market contract with the **UUPS** proxy pattern
 
 The Boundless market is deployed and upgraded using the **UUPS (Universal Upgradeable Proxy Standard)** proxy pattern.
 
-### Deploy the proof market
+### Deploy the market contract
 
-1. Make available for download the `asessor` elf and set its image ID and url in the `deployment.toml` file.
+1. Make available for download the `assessor` elf and set its image ID and url in the `deployment.toml` file.
 
    To generate a deterministic image ID run:
 
@@ -236,22 +135,22 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
    > [!NOTE]
    > This will populate the image ID in the `contracts/src/AssessorImageID.sol`.
-   > You can then upload the file located in `target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/asessor_guest/assessor-guest`
+   > You can then upload the file located in `target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest`
    > to some HTTP server and get back a download URL.
    > Finally copy over these values in the `deployment.toml` file.
 
    > [!TIP]
    > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
 
-2. Dry run deployment of the proof market and proxy:
+2. Dry run deployment of the market implementation and proxy:
 
    ```zsh
-   PROOF_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
-   bash contracts/scripts/manage DeployProofMarket
+   BOUNDLESS_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
+   bash contracts/scripts/manage DeployBoundlessMarket
    ```
 
    > [!IMPORTANT]
-   > Check the logs from this dry run to verify the proof market owner is the expected address.
+   > Check the logs from this dry run to verify the market owner is the expected address.
    > It should be equal to the RISC Zero admin address on the given chain.
    > Note that it should not be the `TimelockController`.
    > Also check the chain ID to ensure you are deploying to the chain you expect.
@@ -260,64 +159,64 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!TIP]
    > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
 
-3. Send deployment transactions for the proof market by running the command again with `--broadcast`.
+3. Send deployment transactions for the market contract by running the command again with `--broadcast`.
 
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
 
-4. Add the ProofMarket (proxy) address of the newly deployed contract to the `deployment.toml` file.
+4. Add the BoundlessMarket (proxy) address of the newly deployed contract to the `deployment.toml` file.
 
-   Load the deployed ProofMarket (proxy) address into the environment:
+   Load the deployed BoundlessMarket (proxy) address into the environment:
 
    ```zsh
-   export PROOF_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
+   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].boundless-market" contracts/deployment.toml | tee /dev/stderr)
    ```
 
 5. Test the deployment.
 
    ```bash
    cast call --rpc-url ${RPC_URL:?} \
-       ${PROOF_MARKET:?} \
+       ${BOUNDLESS_MARKET:?} \
        'imageInfo()(bytes32,string)'
    ```
 
    > [!IMPORTANT]
    > Make sure the Assessor info to make sure they match what you expect.
 
-### Upgrade the proof market
+### Upgrade the market contract
 
 1. If changed, upload the new `assessor` elf and update its imageID and url in the `deployment.toml` file (optional)
 
-2. Dry run the upgrade of the proof market and proxy:
+2. Dry run the upgrade of the market implementation and proxy:
 
    ```zsh
-   PROOF_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
-   bash contracts/scripts/manage UpgradeProofMarket
+   BOUNDLESS_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
+   bash contracts/scripts/manage UpgradeBoundlessMarket
    ```
 
    > [!IMPORTANT]
-   > Check the logs from this dry run to verify the proof market owner is the expected address.
+   > Check the logs from this dry run to verify the market owner is the expected address.
    > It should be equal to the RISC Zero admin address on the given chain.
    > Note that it should not be the `TimelockController`.
    > Also check the chain ID to ensure you are deploying to the chain you expect.
    > And check the Assessor info to make sure they match what you expect.
 
-3. Send the upgrade transactions for the proof market by running the command again with `--broadcast`.
+3. Send the upgrade transactions for the market contract by running the command again with `--broadcast`.
 
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
 
-4. Load the upgraded ProofMarket (proxy) address into the environment:
+4. Load the upgraded BoundlessMarket (proxy) address into the environment:
 
    ```zsh
-   export PROOF_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].proof-market" contracts/deployment.toml | tee /dev/stderr)
+   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].market" contracts/deployment.toml | tee /dev/stderr)
    ```
 
 5. Test the deployment.
 
    ```bash
    cast call --rpc-url ${RPC_URL:?} \
-       ${PROOF_MARKET:?} \
+       ${BOUNDLESS_MARKET:?} \
        'imageInfo()(bytes32,string)'
    ```
 

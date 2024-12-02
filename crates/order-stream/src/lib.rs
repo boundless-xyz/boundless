@@ -18,8 +18,8 @@ use axum::{
     Router,
 };
 use boundless_market::order_stream_client::{
-    AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
-    ORDER_WS_PATH,
+    AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
+    ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
 };
 use clap::Parser;
 use reqwest::{Client, Url};
@@ -37,7 +37,8 @@ mod order_db;
 mod ws;
 
 use api::{
-    __path_get_nonce, __path_list_orders, __path_submit_order, get_nonce, list_orders, submit_order,
+    __path_get_nonce, __path_health, __path_list_orders, __path_submit_order, get_nonce, health,
+    list_orders, submit_order,
 };
 use order_db::OrderDb;
 use ws::{start_broadcast_task, websocket_handler, ConnectionsMap, __path_websocket_handler};
@@ -107,9 +108,9 @@ pub struct Args {
     #[clap(long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
 
-    /// Address of the ProofMarket contract
+    /// Address of the BoundlessMarket contract
     #[clap(long, env)]
-    proof_market_address: Address,
+    boundless_market_address: Address,
 
     /// Minimum balance required to connect to the WebSocket
     #[clap(long, value_parser = parse_ether)]
@@ -137,7 +138,7 @@ pub struct Args {
 pub struct Config {
     /// RPC URL for the Ethereum node
     pub rpc_url: Url,
-    /// Address of the ProofMarket contract
+    /// Address of the BoundlessMarket contract
     pub market_address: Address,
     /// Minimum balance required to connect to the WebSocket
     pub min_balance: U256,
@@ -155,7 +156,7 @@ impl From<&Args> for Config {
     fn from(args: &Args) -> Self {
         Self {
             rpc_url: args.rpc_url.clone(),
-            market_address: args.proof_market_address,
+            market_address: args.boundless_market_address,
             min_balance: args.min_balance,
             max_connections: args.max_connections,
             queue_size: args.queue_size,
@@ -204,7 +205,7 @@ const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
 
 #[derive(OpenApi, Debug, Deserialize)]
 #[openapi(
-    paths(submit_order, list_orders, get_nonce, websocket_handler),
+    paths(submit_order, list_orders, get_nonce, health, websocket_handler),
     components(schemas(AuthMsg)),
     info(
         title = "Boundless Order Stream service",
@@ -221,10 +222,11 @@ pub fn app(state: Arc<AppState>) -> Router {
     let body_size_limit = RequestBodyLimitLayer::new(MAX_ORDER_SIZE);
 
     Router::new()
-        .route(&format!("/{ORDER_SUBMISSION_PATH}"), post(submit_order).layer(body_size_limit))
-        .route(&format!("/{ORDER_LIST_PATH}"), get(list_orders))
-        .route(&format!("/{AUTH_GET_NONCE}:addr"), get(get_nonce))
-        .route(&format!("/{ORDER_WS_PATH}"), get(websocket_handler))
+        .route(ORDER_SUBMISSION_PATH, post(submit_order).layer(body_size_limit))
+        .route(ORDER_LIST_PATH, get(list_orders))
+        .route(&format!("{AUTH_GET_NONCE}:addr"), get(get_nonce))
+        .route(ORDER_WS_PATH, get(websocket_handler))
+        .route(HEALTH_CHECK, get(health))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
@@ -293,7 +295,7 @@ mod tests {
         primitives::{B256, U256},
     };
     use boundless_market::{
-        contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProvingRequest, Requirements},
+        contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProofRequest, Requirements},
         order_stream_client::Client,
     };
     use futures_util::StreamExt;
@@ -305,8 +307,8 @@ mod tests {
     };
     use tokio::task::JoinHandle;
 
-    fn new_request(idx: u32, addr: &Address) -> ProvingRequest {
-        ProvingRequest::new(
+    fn new_request(idx: u32, addr: &Address) -> ProofRequest {
+        ProofRequest::new(
             idx,
             addr,
             Requirements { imageId: B256::from([1u8; 32]), predicate: Predicate::default() },
