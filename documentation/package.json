@@ -15,8 +15,8 @@
   "dependencies": {
     "@biomejs/biome": "1.9.4",
     "@number-flow/react": "0.4.1",
-    "@risc0/ui": "0.0.228",
-    "@tanstack/react-query": "5.61.3",
+    "@risc0/ui": "0.0.230",
+    "@tanstack/react-query": "5.62.0",
     "@types/react": "18.3.12",
     "markdown-link-check": "3.13.6",
     "npm-run-all": "4.1.5",
@@ -41,7 +41,7 @@
     "vite-plugin-biome": "1.0.12",
     "vite-plugin-sitemap": "0.7.1",
     "vocs": "1.0.0-alpha.62",
-    "wagmi": "2.13.0"
+    "wagmi": "2.13.3"
   },
   "packageManager": "bun@1.1.36"
 }
