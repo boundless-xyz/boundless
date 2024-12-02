@@ -121,7 +121,7 @@ async fn run(
     let timestamp = format! {"{:?}", SystemTime::now()};
 
     // Encode the input and upload it to the storage provider.
-    let input = InputBuilder::new().write_slice(&timestamp.as_bytes())?.build();
+    let input = InputBuilder::new().write_slice(&timestamp.as_bytes()).build();
     let input_url = boundless_client.upload_input(&input).await?;
     tracing::info!("Uploaded input to {}", input_url);
 

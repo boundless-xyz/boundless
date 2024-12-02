@@ -31,9 +31,10 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, input::InputBuilder, Input, InputType, Offer,
-        Predicate, PredicateType, ProofRequest, Requirements,
+        boundless_market::BoundlessMarketService, Input, InputType, Offer, Predicate,
+        PredicateType, ProofRequest, Requirements,
     },
+    input::InputBuilder,
     storage::{StorageProvider, StorageProviderConfig},
 };
 
