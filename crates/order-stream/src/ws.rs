@@ -61,8 +61,9 @@ pub(crate) async fn websocket_handler(
     // Decode and parse the JSON header into `AuthMsg`
     let auth_msg: AuthMsg = match parse_auth_msg(auth_header) {
         Ok(auth_msg) => auth_msg,
-        Err(_) => {
-            return Ok((StatusCode::BAD_REQUEST, "Invalid auth message format").into_response())
+        Err(err) => {
+            tracing::error!("Invalid auth-msg format: {err:?}");
+            return Ok((StatusCode::BAD_REQUEST, "Invalid auth message format").into_response());
         }
     };
 
@@ -253,6 +254,10 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                                 break;
                             }
                             ping_data = None;
+                            if let Err(err) = state.db.broker_update(address).await {
+                                tracing::error!("Failed to update broker timestamp: {err:?}");
+                                break;
+                            }
                         } else {
                             tracing::warn!("Client {address} send out of order pong, closing conn");
                             break;
