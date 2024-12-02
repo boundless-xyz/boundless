@@ -142,6 +142,10 @@ body {
   @apply whitespace-pre;
 }
 
+[data-layout="landing"] .vocs_DocsLayout_gutterTop {
+  @apply bg-transparent;
+}
+
 :where(html:not(.dark)) .vocs_Sidebar_sectionTitle {
   @apply font-bold;
 }
