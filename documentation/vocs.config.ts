@@ -26,26 +26,12 @@ const SIDEBAR_CONFIG = [
     collapsed: false,
     items: [
       {
-        text: "Quickstart",
-        link: "/build/quickstart",
+        text: "Build a Program",
+        link: "/build/build-a-program",
       },
       {
-        text: "Build a Program",
-        collapsed: false,
-        items: [
-          {
-            text: "RISC Zero's zkVM",
-            link: "/build/build-a-program/risc-zero-zkvm",
-          },
-          {
-            text: "Extensions",
-            link: "/build/build-a-program/extensions",
-          },
-          {
-            text: "Foundry Template",
-            link: "/build/build-a-program/foundry-template",
-          },
-        ],
+        text: "Extensions",
+        link: "/build/extensions",
       },
       {
         text: "Request a Proof",

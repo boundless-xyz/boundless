@@ -17,7 +17,7 @@ export default function Main() {
         <div className="mt-4 flex gap-4">
           <a
             className="flex h-9 w-fit items-center whitespace-pre rounded-[var(--vocs-borderRadius\_4)] border border-[var(--vocs-color\_borderAccent)] bg-[var(--vocs-color\_backgroundAccent)] px-4 font-medium text-[var(--vocs-color\_backgroundAccentText)] text-sm transition-colors duration-100"
-            href="/build/quickstart"
+            href="/build/build-a-program"
           >
             Quick Start
           </a>
