@@ -58,6 +58,8 @@ RUN mkdir /app/
 
 COPY --from=builder /src/broker /app/broker
 # default config file for anyone to use
-COPY ../broker.toml /etc/broker.toml
+RUN apt-get update && \
+    apt-get install -y awscli && \
+    rm -rf /var/lib/apt/lists/*
 
 ENTRYPOINT ["/app/broker"]
