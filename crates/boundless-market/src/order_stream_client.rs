@@ -9,7 +9,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::Utc;
-use futures_util::{Stream, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use siwe::Message as SiweMsg;
@@ -257,9 +257,12 @@ impl Client {
 
         // Construct the WebSocket URL
         let host = self.base_url.host().context("missing host")?.to_string();
+        // Select TLS vs not
+        let ws_scheme = if self.base_url.scheme() == "https" { "wss" } else { "ws" };
+
         let ws_url = match self.base_url.port() {
-            Some(port) => format!("ws://{host}:{port}{ORDER_WS_PATH}"),
-            None => format!("ws://{host}{ORDER_WS_PATH}"),
+            Some(port) => format!("{ws_scheme}://{host}:{port}{ORDER_WS_PATH}"),
+            None => format!("{ws_scheme}://{host}{ORDER_WS_PATH}"),
         };
 
         // Create the WebSocket request
@@ -316,6 +319,11 @@ pub fn order_stream(
                         Ok(order) => yield Ok(order),
                         Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
                     }
+                }
+                // Reply to Ping's inline
+                Ok(tungstenite::Message::Ping(data)) => {
+                    tracing::debug!("Responding to ping");
+                    socket.send(tungstenite::Message::Pong(data)).await?;
                 }
                 Ok(other) => {
                     tracing::debug!("Ignoring non-text message: {:?}", other);
