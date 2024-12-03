@@ -23,7 +23,7 @@ use thiserror::Error;
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    Offer, ProofRequest, ProofStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -53,7 +53,7 @@ pub enum MarketError {
 
 impl From<alloy::contract::Error> for MarketError {
     fn from(err: alloy::contract::Error) -> Self {
-        MarketError::Error(err.into())
+        MarketError::Error(IBoundlessMarketErrors::decode_error(err).into())
     }
 }
 

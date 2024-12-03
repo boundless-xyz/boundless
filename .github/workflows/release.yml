@@ -1,20 +1,70 @@
 name: Release
 
 on:
+  merge_group:
   push:
     tags:
       - "v*.*.*"
-  # for testing purposes
   pull_request:
-    branches: [main, "release-*"]
+    branches: ["release-*"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   id-token: write
   contents: read
   pull-requests: read
 
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
-  release:
+  deployment:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required by license-check.py
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: install foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-1.2
+        with:
+          toolchain: '1.81'
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '1.2.0-rc.1'
+          toolchain-version: 'r0.1.81.0'
+
+      - name: forge build
+        run: forge build
+
+      - name: cargo build
+        run: cargo build
+
+      - name: forge test
+        run: forge test -vvv --fork-url="$RPC_URL"
+        env:
+          FOUNDRY_PROFILE: deployment-test
+          RPC_URL: https://ethereum-sepolia-rpc.publicnode.com
+
+      - name: sccache stats
+        run: sccache --show-stats
+        
+  image-id-check:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     steps:
       - name: checkout code
@@ -49,7 +99,7 @@ jobs:
         working-directory: contracts
 
       # This step currently fails due to some issues with importing the set-builder
-      # from tisc0-ethereum and building it with docker. Nontheless, the build of the
+      # from risc0-ethereum and building it with docker. Nonetheless, the build of the
       # assessor guest should be successful. 
       - name: cargo build
         run: cargo build

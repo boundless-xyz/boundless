@@ -28,7 +28,8 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -131,6 +132,10 @@ pub struct Args {
     /// List of addresses to skip balance checks when connecting them as brokers
     #[clap(long, value_delimiter = ',')]
     bypass_addrs: Vec<Address>,
+
+    /// Time between sending websocket pings (in seconds)
+    #[clap(long, default_value_t = 120)]
+    ping_time: u64,
 }
 
 /// Configuration struct
@@ -150,6 +155,8 @@ pub struct Config {
     pub domain: String,
     /// List of address to skip balance checks
     pub bypass_addrs: Vec<Address>,
+    /// Time between sending WS Ping's (in seconds)
+    pub ping_time: u64,
 }
 
 impl From<&Args> for Config {
@@ -162,22 +169,27 @@ impl From<&Args> for Config {
             queue_size: args.queue_size,
             domain: args.domain.clone(),
             bypass_addrs: args.bypass_addrs.clone(),
+            ping_time: args.ping_time,
         }
     }
 }
 
 /// Application state struct
 pub struct AppState {
-    // Database backend
+    /// Database backend
     db: OrderDb,
-    // Map of WebSocket connections by address
+    /// Map of WebSocket connections by address
     connections: Arc<Mutex<ConnectionsMap>>,
-    // Ethereum RPC provider
+    /// Ethereum RPC provider
     rpc_provider: RootProvider<Http<Client>>,
-    // Configuration
+    /// Configuration
     config: Config,
-    // chain_id
+    /// chain_id
     chain_id: u64,
+    /// Websocket tasks, used to monitor for shutdown
+    ws_tasks: TaskTracker,
+    /// Cancelation tokens set when a graceful shutdown is triggered
+    shutdown: CancellationToken,
 }
 
 impl AppState {
@@ -197,6 +209,8 @@ impl AppState {
             rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
             config: config.clone(),
             chain_id,
+            ws_tasks: TaskTracker::new(),
+            shutdown: CancellationToken::new(),
         }))
     }
 }
@@ -229,7 +243,10 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(HEALTH_CHECK, get(health))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(state)
-        .layer(TraceLayer::new_for_http())
+        .layer((
+            TraceLayer::new_for_http(),
+            TimeoutLayer::new(tokio::time::Duration::from_secs(10)),
+        ))
 }
 
 /// Run the REST API service
@@ -260,15 +277,15 @@ pub async fn run(args: &Args) -> Result<()> {
     });
 
     tracing::info!("REST API listening on: {}", args.bind_addr);
-    axum::serve(listener, self::app(app_state))
-        .with_graceful_shutdown(shutdown_signal())
+    axum::serve(listener, self::app(app_state.clone()))
+        .with_graceful_shutdown(async { shutdown_signal(app_state).await })
         .await
         .context("REST API service failed")?;
 
     Ok(())
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(state: Arc<AppState>) {
     let ctrl_c = async {
         tokio::signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
     };
@@ -284,6 +301,11 @@ async fn shutdown_signal() {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
+
+    tracing::info!("Triggering shutdown");
+    state.ws_tasks.close();
+    state.shutdown.cancel();
+    state.ws_tasks.wait().await;
 }
 
 #[cfg(test)]
@@ -342,6 +364,7 @@ mod tests {
             queue_size: 10,
             domain: "0.0.0.0:8585".parse().unwrap(),
             bypass_addrs: vec![],
+            ping_time: 20,
         };
         let app_state = AppState::new(&config, Some(pool)).await.unwrap();
         let app_state_clone = app_state.clone();

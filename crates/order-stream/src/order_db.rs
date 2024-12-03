@@ -124,7 +124,7 @@ impl OrderDb {
         }
 
         let res = sqlx::query(
-            "UPDATE brokers SET connections = connections + 1 WHERE addr = $1 AND connections < $2",
+            "UPDATE brokers SET connections = connections + 1, updated_at = NOW() WHERE addr = $1 AND connections < $2",
         )
         .bind(addr.as_slice())
         .bind(MAX_BROKER_CONNECTIONS)
@@ -142,11 +142,28 @@ impl OrderDb {
 
     /// Disconnects a broker, decreasing connection count
     pub async fn disconnect_broker(&self, addr: Address) -> Result<(), OrderDbErr> {
-        let res = sqlx::query("UPDATE brokers SET connections = connections - 1 WHERE addr = $1")
+        let res = sqlx::query(
+            "UPDATE brokers SET connections = connections - 1, updated_at = NOW() WHERE addr = $1",
+        )
+        .bind(addr.as_slice())
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(OrderDbErr::NoRows("disconnect broker"));
+        }
+
+        Ok(())
+    }
+
+    /// Mark the broker as updated by setting the update_at time
+    ///
+    /// Useful for any heartbeats or tracking liveness
+    pub async fn broker_update(&self, addr: Address) -> Result<(), OrderDbErr> {
+        let res = sqlx::query("UPDATE brokers SET updated_at = NOW() WHERE addr = $1")
             .bind(addr.as_slice())
             .execute(&self.pool)
             .await?;
-
         if res.rows_affected() == 0 {
             return Err(OrderDbErr::NoRows("disconnect broker"));
         }
@@ -456,5 +473,23 @@ mod tests {
         let order_id = db.add_order(order).await.unwrap();
         let db_order = task.await.unwrap().unwrap();
         assert_eq!(db_order.id, order_id);
+    }
+
+    #[sqlx::test]
+    async fn broker_update(pool: PgPool) {
+        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
+        let addr = Address::ZERO;
+
+        db.add_broker(addr).await.unwrap();
+        db.broker_update(addr).await.unwrap();
+
+        let db_nonce: Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>> =
+            sqlx::query_scalar("SELECT updated_at FROM brokers WHERE addr = $1")
+                .bind(addr.as_slice())
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+
+        assert!(db_nonce.is_some());
     }
 }
