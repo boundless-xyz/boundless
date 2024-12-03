@@ -894,7 +894,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "assessor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -2330,7 +2330,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "hex",
  "risc0-build",
