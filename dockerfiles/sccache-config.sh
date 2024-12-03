@@ -18,8 +18,7 @@ if [ -f /root/.aws/credentials ]; then
         export SCCACHE_REGION="us-west-2"
         export SCCACHE_S3_KEY_PREFIX=$S3_CACHE_PREFIX
 
-        echo "Using s3 [$SCCACHE_BUCKET] caching and sccache..."
-        # TODO: param these correctly and detect OS / arch
+        echo "Using s3 [$SCCACHE_BUCKET/$SCCACHE_S3_KEY_PREFIX] caching and sccache..."
     else
         echo "Using local sccache"
         export SCCACHE_DIR=/root/.cache/sccache/

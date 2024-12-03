@@ -5,6 +5,7 @@ RUN apt-get -qq update && \
 
 FROM builder AS rust-builder
 
+# TODO: param these correctly and detect OS / arch
 ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
 
 WORKDIR /src/
