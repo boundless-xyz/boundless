@@ -6,8 +6,7 @@ on:
     tags:
       - "v*.*.*"
   pull_request:
-    # TODO: For test only, main should be dropped
-    branches: ["main", "release-*"]
+    branches: ["release-*"]
   workflow_dispatch:
 
 concurrency:
