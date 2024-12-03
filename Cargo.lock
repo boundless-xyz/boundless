@@ -685,7 +685,7 @@ dependencies = [
  "alloy-pubsub",
  "alloy-transport",
  "futures",
- "http 1.1.0",
+ "http 1.2.0",
  "rustls 0.23.19",
  "serde_json",
  "tokio",
@@ -766,13 +766,13 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.93"
+version = "1.0.94"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c95c10ba0b00a02636238b814946408b1322d5ac4760326e6fb8ec956d85775"
+checksum = "c1fd03a028ef38ba2276dce7e33fcd6369c158a1bca17946c4b1b701891c1ff7"
 
 [[package]]
 name = "api"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1071,7 +1071,7 @@ dependencies = [
 
 [[package]]
 name = "assessor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -1437,7 +1437,7 @@ dependencies = [
  "hex",
  "hmac",
  "http 0.2.12",
- "http 1.1.0",
+ "http 1.2.0",
  "once_cell",
  "p256",
  "percent-encoding",
@@ -1559,7 +1559,7 @@ dependencies = [
  "aws-smithy-types",
  "bytes",
  "http 0.2.12",
- "http 1.1.0",
+ "http 1.2.0",
  "pin-project-lite",
  "tokio",
  "tracing",
@@ -1577,7 +1577,7 @@ dependencies = [
  "bytes-utils",
  "futures-core",
  "http 0.2.12",
- "http 1.1.0",
+ "http 1.2.0",
  "http-body 0.4.6",
  "http-body 1.0.1",
  "http-body-util",
@@ -1626,7 +1626,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-util",
- "http 1.1.0",
+ "http 1.2.0",
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.5.1",
@@ -1661,7 +1661,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
- "http 1.1.0",
+ "http 1.2.0",
  "http-body 1.0.1",
  "http-body-util",
  "mime",
@@ -1741,7 +1741,7 @@ dependencies = [
 
 [[package]]
 name = "bento-client"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bonsai-sdk",
@@ -1910,7 +1910,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -1952,7 +1952,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-prover"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -1998,7 +1998,7 @@ dependencies = [
  "guest-assessor",
  "guest-util",
  "hex",
- "http 1.1.0",
+ "http 1.2.0",
  "httpmock",
  "notify",
  "reqwest",
@@ -2196,9 +2196,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.21"
+version = "4.5.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb3b4b9e5a7c7514dfa52869339ee98b3156b0bfb4e8a77c4ff4babb64b1604f"
+checksum = "69371e34337c4c984bbe322360c2547210bf632eb2814bbe78a6e87a2935bd2b"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -2206,9 +2206,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.21"
+version = "4.5.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b17a95aa67cc7b5ebd32aa5370189aa0d79069ef1c64ce893bd30fb24bff20ec"
+checksum = "6e24c1b4099818523236a8ca881d2b45db98dadfb4625cf6608c12069fcbbde1"
 dependencies = [
  "anstream",
  "anstyle",
@@ -3428,7 +3428,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3446,7 +3446,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3483,7 +3483,7 @@ dependencies = [
  "fnv",
  "futures-core",
  "futures-sink",
- "http 1.1.0",
+ "http 1.2.0",
  "indexmap",
  "slab",
  "tokio",
@@ -3646,9 +3646,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21b9ddb458710bc376481b842f5da65cdf31522de232c1ca8146abce2a358258"
+checksum = "f16ca2af56261c99fba8bac40a10251ce8188205a4c448fbb745a2e4daa76fea"
 dependencies = [
  "bytes",
  "fnv",
@@ -3673,7 +3673,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1efedce1fb8e6913f23e0c92de8e62cd5b772a67e7b3946df930a62566c93184"
 dependencies = [
  "bytes",
- "http 1.1.0",
+ "http 1.2.0",
 ]
 
 [[package]]
@@ -3684,7 +3684,7 @@ checksum = "793429d76616a256bcb62c2a2ec2bed781c8307e797e2598c50010f2bee2544f"
 dependencies = [
  "bytes",
  "futures-util",
- "http 1.1.0",
+ "http 1.2.0",
  "http-body 1.0.1",
  "pin-project-lite",
 ]
@@ -3763,7 +3763,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "h2 0.4.7",
- "http 1.1.0",
+ "http 1.2.0",
  "http-body 1.0.1",
  "httparse",
  "httpdate",
@@ -3797,7 +3797,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08afdbb5c31130e3034af566421053ab03787c640246a446327f550d11bcb333"
 dependencies = [
  "futures-util",
- "http 1.1.0",
+ "http 1.2.0",
  "hyper 1.5.1",
  "hyper-util",
  "rustls 0.23.19",
@@ -3833,7 +3833,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "http 1.1.0",
+ "http 1.2.0",
  "http-body 1.0.1",
  "hyper 1.5.1",
  "pin-project-lite",
@@ -4821,7 +4821,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5314,7 +5314,7 @@ dependencies = [
  "rustc-hash",
  "rustls 0.23.19",
  "socket2",
- "thiserror 2.0.3",
+ "thiserror 2.0.4",
  "tokio",
  "tracing",
 ]
@@ -5333,7 +5333,7 @@ dependencies = [
  "rustls 0.23.19",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.3",
+ "thiserror 2.0.4",
  "tinyvec",
  "tracing",
  "web-time",
@@ -5549,7 +5549,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2 0.4.7",
- "http 1.1.0",
+ "http 1.2.0",
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.5.1",
@@ -5637,7 +5637,7 @@ dependencies = [
  "risc0-zkp",
  "risc0-zkvm",
  "serde",
- "thiserror 2.0.3",
+ "thiserror 2.0.4",
 ]
 
 [[package]]
@@ -5807,7 +5807,7 @@ dependencies = [
  "anyhow",
  "cfg-if",
  "risc0-zkvm",
- "thiserror 2.0.3",
+ "thiserror 2.0.4",
  "tracing",
 ]
 
@@ -6577,7 +6577,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95bdefc0eedf06440b27092fbfe33f2cb493ad6a3423aa12cfe7f2aac44bd618"
 dependencies = [
  "hex",
- "http 1.1.0",
+ "http 1.2.0",
  "iri-string",
  "k256",
  "rand",
@@ -7039,7 +7039,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "taskdb"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -7111,11 +7111,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.3"
+version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c006c85c7651b3cf2ada4584faa36773bd07bac24acfb39f3c431b36d7e667aa"
+checksum = "2f49a1853cf82743e3b7950f77e0f4d622ca36cf4317cba00c767838bac8d490"
 dependencies = [
- "thiserror-impl 2.0.3",
+ "thiserror-impl 2.0.4",
 ]
 
 [[package]]
@@ -7131,9 +7131,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.3"
+version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f077553d607adc1caf65430528a576c757a71ed73944b66ebb58ef2bbd243568"
+checksum = "8381894bb3efe0c4acac3ded651301ceee58a15d47c2e34885ed1908ad667061"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7405,7 +7405,7 @@ checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
 dependencies = [
  "bitflags 2.6.0",
  "bytes",
- "http 1.1.0",
+ "http 1.2.0",
  "http-body 1.0.1",
  "http-body-util",
  "pin-project-lite",
@@ -7534,7 +7534,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "data-encoding",
- "http 1.1.0",
+ "http 1.2.0",
  "httparse",
  "log",
  "rand",
@@ -8257,7 +8257,7 @@ checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "workflow"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-channel 2.3.1",
@@ -8282,7 +8282,7 @@ dependencies = [
 
 [[package]]
 name = "workflow-common"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "aws-sdk-s3",
@@ -8457,7 +8457,7 @@ dependencies = [
  "flate2",
  "indexmap",
  "memchr",
- "thiserror 2.0.3",
+ "thiserror 2.0.4",
  "zopfli",
 ]
 
