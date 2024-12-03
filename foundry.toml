@@ -30,3 +30,14 @@ quote_style = "double"
 test = "contracts/deployment-test"
 #match_path = "contracts/deployment-test/*"
 fs_permissions = [{ access = "read", path = "contracts/deployment.toml" }]
+
+# Profile used to run upgradeability tests.
+# TIP: You can select this profile by setting env var FOUNDRY_PROFILE=reference-contract
+[profile.reference-contract]
+src = "contracts/src"
+out = "contracts/reference-contract/out"
+test = "contracts/reference-contract/test"
+libs = ["lib"]
+ffi = true
+build_info = true
+extra_output = ["storageLayout"]

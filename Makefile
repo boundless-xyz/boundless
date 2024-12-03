@@ -6,15 +6,13 @@
 # Variables
 ANVIL_PORT = 8545
 ANVIL_BLOCK_TIME = 2
-CHAIN_ID = 31337
 RISC0_DEV_MODE = 1
 CHAIN_KEY = "anvil"
-RUST_LOG = info,broker=debug,boundless_market=debug,order_stream=debug
+RUST_LOG = info,broker=debug,boundless_market=debug
 DEPLOYER_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ADMIN_ADDRESS = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 DEPOSIT_AMOUNT = 10
-ORDER_STREAM_PORT = 8585
 
 LOGS_DIR = logs
 PID_FILE = $(LOGS_DIR)/devnet.pid
@@ -33,7 +31,6 @@ devnet-up: check-deps
 	forge build || { echo "Failed to build contracts"; $(MAKE) devnet-down; exit 1; }
 	echo "Building Rust project..."
 	cargo build --bin broker || { echo "Failed to build broker binary"; $(MAKE) devnet-down; exit 1; }
-	cargo build --bin order_stream || { echo "Failed to build order_Stream binary"; $(MAKE) devnet-down; exit 1; }
 	# Check if Anvil is already running
 	if nc -z localhost $(ANVIL_PORT); then \
 		echo "Anvil is already running on port $(ANVIL_PORT). Reusing existing instance."; \
@@ -56,20 +53,17 @@ devnet-up: check-deps
 		sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$$BOUNDLESS_MARKET_ADDRESS/" .env && \
 		rm .env.bak; \
 		echo ".env file updated successfully."; \
-		echo "Starting Order Stream service..."; \
-		RUST_LOG=$(RUST_LOG) ./target/debug/order_stream \
-			--bind-addr localhost:$(ORDER_STREAM_PORT) \
-			--rpc-url http://localhost:$(ANVIL_PORT) \
-			--boundless-market-address $$BOUNDLESS_MARKET_ADDRESS \
-			--min-balance 1 > $(LOGS_DIR)/order_stream.txt 2>&1 & echo $$! >> $(PID_FILE); \
+		echo "Registering prover address to allowed list."; \
+        cast send --private-key $(DEPLOYER_PRIVATE_KEY) \
+            --rpc-url http://localhost:$(ANVIL_PORT) \
+            $$BOUNDLESS_MARKET_ADDRESS "addProverToAppnetAllowlist(address)" $(ADMIN_ADDRESS); \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \
 			--private-key $(PRIVATE_KEY) \
 			--boundless-market-addr $$BOUNDLESS_MARKET_ADDRESS \
 			--set-verifier-addr $$SET_VERIFIER_ADDRESS \
-			--order-stream-url http://localhost:$(ORDER_STREAM_PORT) \
 			--deposit-amount $(DEPOSIT_AMOUNT) > $(LOGS_DIR)/broker.txt 2>&1 & echo $$! >> $(PID_FILE); \
-	} || { echo "Failed to fetch addresses or start broker or order_stream"; $(MAKE) devnet-down; exit 1; }
+	} || { echo "Failed to fetch addresses or start broker"; $(MAKE) devnet-down; exit 1; }
 	echo "Devnet is up and running!"
 	echo "Make sure to run 'source .env' to load the environment variables."
 
