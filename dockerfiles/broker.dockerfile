@@ -57,7 +57,6 @@ FROM rust:1.81.0-bookworm AS runtime
 RUN mkdir /app/
 
 COPY --from=builder /src/broker /app/broker
-# default config file for anyone to use
 RUN apt-get update && \
     apt-get install -y awscli && \
     rm -rf /var/lib/apt/lists/*
