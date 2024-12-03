@@ -1,4 +1,8 @@
+ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
+
 FROM rust:1.81.0-bookworm AS init
+
+ARG S3_CACHE_PREFIX
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -18,7 +22,7 @@ ENV SCCACHE_SERVER_PORT=4228
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
-    source ./sccache-config.sh && \
+    source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     ls /root/.cache/sccache/ && \
     cargo install --version 1.6.9 cargo-binstall && \
     cargo binstall -y --force cargo-risczero --version 1.1 && \
@@ -26,6 +30,8 @@ RUN \
     sccache --show-stats
 
 FROM init AS builder
+
+ARG S3_CACHE_PREFIX
 
 WORKDIR /src/
 COPY Cargo.toml .
@@ -47,7 +53,7 @@ ENV SCCACHE_SERVER_PORT=4228
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
-    source /sccache-config.sh && \
+    source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release --bin broker && \
     cp /src/target/release/broker /src/broker && \
     sccache --show-stats

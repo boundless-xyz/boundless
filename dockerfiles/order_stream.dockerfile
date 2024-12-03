@@ -1,3 +1,6 @@
+# TODO: param these correctly and detect OS / arch
+ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
+
 FROM rust:1.81.0-bookworm AS builder
 
 RUN apt-get -qq update && \
@@ -5,8 +8,7 @@ RUN apt-get -qq update && \
 
 FROM builder AS rust-builder
 
-# TODO: param these correctly and detect OS / arch
-ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_PREFIX
 
 WORKDIR /src/
 COPY Cargo.toml .
