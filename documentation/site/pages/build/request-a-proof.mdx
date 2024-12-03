@@ -7,19 +7,249 @@ import PricingCalculator from "../../components/pricing-calculator";
 
 # Request a Proof
 
-Key thing to mention here: proof here means an attestation from the set verifier that the proof they requested has been verified and included. Perhaps we could call this construct a "Boundless Proof" directly to delineate between standard ZKP ready for verification, and the above representation of a proof already verified and stored in a merkle tree.
+The interface for developers to use the rest of the boundless platform is the Boundless Market, developers interact with this by sending a proof request. This will allow provers to lock in the request, and fulfill the request by providing the proof  This can be done programmatically using the `boundless-market` crate or with the Boundless Market CLI.
 
-- To request a proof, you can either send an onchain transaction to the market contract. The parameters of the request are filled out by the requestor in request.yaml.
-- Next, explain offchain flow
-- Key point: the proof that you receive is already verified. It is an attestation to a proof that was verified, the proof verifications are merklised and stored onchain. This verified proof is what you use onchain.
-- Request.yaml explainer
-- Tradeoffs in dimensionality. A nice dynamic proof estimator tool would be great here.
-  - Megacycle, cost, time, cycle cost
-  - Current market price: ETH per mcycle cost.
-- How to track your proof request’s progress
-- How to get funds back for proofs that were not fulfilled
+## Programmatically
 
-Broadcasting Proof Requests from current documentation will fill out a lot of this page.
+The recommended flow of requesting a proof is:
+
+1. [Create a boundless client.](#1-create-a-boundless-client)
+2. [Upload the program executable (ELF binary) to IPFS.](#2-upload-program-executable-to-ipfs)
+3. [Upload the input of your program to IPFS.](#3-upload-the-input-of-your-program-to-ipfs)
+4. [Execute the program to estimate the total number of cycles, and to get the journal.](#4-execute-the-program-to-estimate-cycles-and-to-get-the-journal)
+5. [Create a proving request with URLs to the executable and inputs, the journal hash, the imageID, and the offer details (such as price range and timeout length).](#5-create-a-proof-request)
+6. [Submit the request to the market.](#6-submit-a-request)
+7. Wait for the request to be fulfilled, returning the journal and the seal.
+
+The Boundless Foundry Template provides a full code example of this workflow in [`apps/src/main.rs`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/apps/src/main.rs#L58).
+
+### 1. Create a Boundless Client
+
+To facilitate communication with the Boundless market, developers can use the `Client` struct from the boundless-market crate. `Client` manages interaction with the proof market contract and handles the necessary authentication and transaction signing.
+
+To instantiate a boundless client, you will need a wallet with sufficient funds on Sepolia (you will have to provide the maximum amount you are willing to pay for a proof request upfront), a working Sepolia RPC provider, and the proof market and set verifier contract addresses:
+
+```rust
+let boundless_client = Client::from_parts(
+    args.wallet_private_key,
+    args.rpc_url,
+    args.proof_market_address,
+    args.set_verifier_address,
+).await?;
+```
+
+For the latest deployment address, please see [Public Deployments](/public-deployments).
+
+### 2. Upload Program Executable to IPFS
+
+The ELF binary, also known as the image, of the program should be accessible to provers. This is done by uploading the ELF to a compatible storage provider. The supported options are listed in `boundless_market::BuiltInStorageProvider` (see [`BuiltInStorageProvider`](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L46)).
+
+The recommended storage provider is IPFS, specifically through [Pinata](https://pinata.cloud/) (the free tier should be sufficient for most Boundless use cases). To use Pinata, fetch the required JWT credential and set it to the `PINATA_JWT` environment variable in the `.env` file.
+
+With the `PINATA_JWT` set, the executable can be uploaded to IPFS with the `upload_image` method:
+
+```rust
+let image_url = boundless_client.upload_image(ELF).await?;
+```
+
+### 3. Upload the Input of your program to IPFS
+
+To execute and run proving, the prover requires the inputs of the program. Similar to the program executable, the program inputs are uploaded to a compatible storage provider. The supported options are listed in `boundless_market::BuiltInStorageProvider` (see [`BuiltInStorageProvider`](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L46)).
+
+The recommended storage provider is IPFS (see [Upload Program Executable to IPFS](#upload-program-executable-to-ipfs)).
+
+With the `PINATA_JWT` set, the inputs can be uploaded to IPFS with the `upload_input` method:
+
+```rust
+let input = U256::from(42).abi_encode();
+let input_url = boundless_client.upload_input(&input).await?;
+```
+
+As the input will be sent on-chain for proof verification (see [Use a Proof in your App](/build/use-a-proof-in-your-app)), it is good practice to ABI encode your inputs to make sure they can be destructured properly within Solidity.
+
+### 4. Execute the program to estimate cycles and to get the journal
+
+Before sending a proof request, developers should execute the program. This achieves a few separate goals:
+
+- It estimates the number of cycles in the program, which can be used to estimate the cost of the proof request offer.
+- It makes sure that the program executes without errors, saving the developer money by not sending unprovable proof requests to the market.
+- It retrieves the journal, the public outputs of the program, which are used to check proof validity along with the imageID.
+
+To execute the program and retrieve the cycle count (in MCycles), and journal:
+
+```rust
+let env = ExecutorEnv::builder().write_slice(&input).build()?;
+let session_info = default_executor().execute(env, ELF)?;
+let mcycles_count = session_info
+.segments
+       .iter()
+       .map(|segment| 1 << segment.po2)
+       .sum::<u64>()
+       .div_ceil(1_000_000);
+let journal = session_info.journal;
+```
+
+### 5. Create a Proof Request
+
+A proof request consists of four essential components that specify which program needs to be proven and under what conditions:
+
+```rust
+let request = ProvingRequest::default()
+    .with_image_url(&image_url)     // 1. Program Image
+    .with_input(Input::url(&input_url))     // 2. Program Input
+    .with_requirements(Requirements::new(    // 3. Verification Requirements
+        IS_EVEN_ID,
+        Predicate::digest_match(journal.digest()),
+    ))
+    .with_offer(Offer::default()
+    	.with_min_price_per_mcycle()
+    	.with_max_price_per_mcycle()
+    	.with_timeout())
+));
+```
+
+1. Program Image (`with_image_url`) (link to 2. above)
+2. Program Input (`with_input`) (link to 3. above)
+3. Requirements (`with_requirements`)
+4. Offer (`with_offer`)
+
+The program image and program inputs are discussed in steps 2 and 3 respectively.
+
+#### Proof Requirements
+
+The requirements ensure proof integrity and correctness by checking the [image ID](https://dev.risczero.com/terminology#image-id) (a unique identifier of each ELF binary run in the zkVM) and the hash of the journal. By checking both the imageID and the journal hash, we can be sure that the provers are working with the correct program and that the outputs match the expected outputs (the ones generated by the execution in step 4).
+
+#### Offer Details
+
+The offer details are specified with `with_offer()`. This allows the requestor to set the price range per million cycles (MCycles), and long the request remains valid (known as the timeout). The price mechanism helps match the request with provers.
+
+### 6. Submit a Request
+
+Once the request is configured, it can submitted to the market:
+
+```rust
+let request_id = boundless_client.submit_request(&request).await?;
+```
+
+The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
+
+### 7. Wait for the Request to be Fulfilled
+
+Once fulfilled, the journal and seal are returned. The journal contains the public outputs of the guest program, and the seal (see Proof Lifecycle Step 3 for more details).
+
+```rust
+let (_journal, seal) = boundless_client
+   .wait_for_request_fulfillment(request_id, Duration::from_secs(5), None)
+   .await?;
+```
+
+## Requesting a proof via the Market CLI
+
+In some circumstances, submitting a proof request via the command line can be advantageous, such as the early testing.
+
+### Market Client CLI
+
+The market client CLI builds upon the [`boundless_market::contracts`](https://github.com/boundless-xyz/boundless/tree/main/crates/boundless-market/src/contracts) library. It covers multiple market interactions such as submitting proof requests, cancelling requests, executing dry runs, requesting the status of a given request, retrieving the journal and seal of a fulfilled request and verifying a proof.
+
+To submit a proof, a valid `request.yaml` is required, this config file will specify the parameters of the request:
+
+- Request ID
+  - This can be specified, or if set to 0, a random ID will be assigned.
+- Requirements:
+  - The ImageID of the program being proven
+  - The contents of the outputs of the program, the journal. This is to make sure the outputs are as expected.
+- Image URL
+  - The link to the ELF binary stored on a [compatible storage provider](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L46), preferably IPFS.
+- Input:
+  - The input bytes are hex encoded and passed to the program for execution.
+- Offer Details:
+  - This includes the minimum and maximum price for the proof request, the block number to open bidding, the price ramp up period, how many blocks before the request should timeout, and the lock in stake the prover has to escrow to submit a bid.
+
+```yaml [request.yaml]
+# Unique ID for this request, constructed from the client address and a 32-bit index.
+# Constructed as (address(client) << 32) | index
+id: 0 # if set to 0, gets overwritten by a random id
+
+# Specifies the requirements for the delivered proof, including the program that must be run,
+# and the constraints on the journal's value, which define the statement to be proven.
+requirements:
+    imageId: 257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d
+    predicate:
+        predicateType: PrefixMatch
+        data: "57656420"
+
+# A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
+# provers that are evaluating whether to bid on the request.
+imageUrl: https://dweb.link/ipfs/QmTx3vDKicYG5RxzMxrZEiCQJqhpgYNrSFABdVz9ri2m5P
+
+# Input to be provided to the zkVM guest execution.
+input:
+    inputType: Inline
+    data: "1d000000570000006500000064000000200000004a000000750000006c0000002000000020000000330000002000000031000000340000003a00000033000000370000003a00000031000000320000002000000050000000440000005400000020000000320000003000000032000000340000000a000000"
+
+# Offer specifying how much the client is willing to pay to have this request fulfilled
+offer:
+    minPrice: 100000000000000
+    maxPrice: 2000000000000000
+    biddingStart: 0 # if set to 0, gets overwritten by the current block height
+    rampUpPeriod: 1000
+    timeout: 2000
+    lockinStake: 100000000000000
+```
+
+To submit a request, run the following from the boundless monorepo main directory:
+
+```sh [Terminal]
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml
+```
+
+To wait until the submitted request has been fulfilled, the `--wait` option can be added:
+
+```sh [Terminal]
+# [!code word:--wait]
+RUST_LOG=info,boundless_market=debug cargo run --bin cli -- submit-request request.yaml --wait
+```
+
+## Pricing A Request
+
+The `request.yaml` specifies the details of the offer. This section will cover these offer details and the interactions between the requestor and the prover in the early stages of the proof request, i.e. price auction, bid submission and prover lock in.
+
+An offer contains the following:
+
+- Pricing parameters
+- Minimum price
+- Maximum price
+- Bidding start (defined as a block number)
+- Length of ramp-up period (measured in blocks since the start of the bid)
+- Timeout (measured in blocks since the start of the bid)
+- Lock-in stake
+
+
+For example, an offer might specify:
+
+
+- Pricing parameters
+  - Minimum price: 1 Ether
+  - Maximum price: 2 Ether
+- Bidding start: Block number 1000
+- Length of ramp-up period: 5 blocks
+- Timeout: 100 blocks
+- Lock-in stake: 4 Ether
+
+The pricing parameters are used to determine the reward that gets paid-out when the request is fulfilled (ie, the proof has been verified). The reward is governed by the price function. Its inputs are:
+
+- The offer.
+- The number of blocks that have passed since the bidding started.
+
+The function works like so:
+
+- During the discovery period (the initial phase of the auction before bidding start), the price is just the minimum price.
+- During the ramp-up period (which immediately follows the discovery period), the price grows linearly up-to the maximum price.
+- After the ramp-up period, the price is just the maximum price.
+
+Continuing with the example offer given above, the price is constant (1 Ether, its minimum) for the first 10 blocks; on block 11 it jumps to 1.2 Ether; on 12 it jumps to 1.4 Ether; on 15 it reaches 2 Ether (its maximum), and remains at that value until the offer expires.
+
+When a prover locks-in a request, they are agreeing to be paid the reward offered by this function at the time of their bid.
 
 ## Pricing Calculator
 
