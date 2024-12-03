@@ -5,6 +5,8 @@ RUN apt-get -qq update && \
 
 FROM builder AS rust-builder
 
+ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
+
 WORKDIR /src/
 COPY Cargo.toml .
 COPY Cargo.lock .
@@ -36,7 +38,7 @@ ENV SCCACHE_SERVER_PORT=4229
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_orderstream_sccache \
-    source ./sccache-config.sh && \
+    source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p order-stream --bin order_stream && \
     cp /src/target/release/order_stream /src/order_stream && \
     sccache --show-stats
