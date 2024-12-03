@@ -7,7 +7,10 @@ use async_stream::stream;
 use boundless_market::order_stream_client::Order;
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgListener, PgPool, PgPoolOptions};
+use sqlx::{
+    postgres::{PgListener, PgPool, PgPoolOptions},
+    types::chrono::{DateTime, Utc},
+};
 use std::pin::Pin;
 use thiserror::Error as ThisError;
 
@@ -44,6 +47,7 @@ pub struct DbOrder {
     pub id: i64,
     #[sqlx(rename = "order_data", json)]
     pub order: Order,
+    pub created_at: DateTime<Utc>,
 }
 
 pub struct OrderDb {
@@ -211,19 +215,23 @@ impl OrderDb {
     /// all listeners of the new order.
     pub async fn add_order(&self, order: Order) -> Result<i64, OrderDbErr> {
         let mut txn = self.pool.begin().await?;
-        let id_res: Option<i64> =
-            sqlx::query_scalar("INSERT INTO orders (order_data) VALUES ($1) RETURNING id")
-                .bind(sqlx::types::Json(order.clone()))
-                .fetch_optional(&mut *txn)
-                .await?;
+        let row_res: Option<(i64, DateTime<Utc>)> = sqlx::query_as(
+            "INSERT INTO orders (order_data, created_at) VALUES ($1, NOW()) RETURNING id, created_at",
+        )
+        .bind(sqlx::types::Json(order.clone()))
+        .fetch_optional(&mut *txn)
+        .await?;
 
-        let Some(id) = id_res else {
+        let Some(row) = row_res else {
             return Err(OrderDbErr::NoRows("new order"));
         };
 
+        let id = row.0;
+        let created_at = row.1;
+
         sqlx::query("SELECT pg_notify($1, $2::text)")
             .bind(ORDER_CHANNEL)
-            .bind(sqlx::types::Json(DbOrder { id, order }))
+            .bind(sqlx::types::Json(DbOrder { id, created_at, order }))
             .execute(&mut *txn)
             .await?;
 
@@ -271,7 +279,6 @@ impl OrderDb {
 
         Ok(Box::pin(stream! {
             while let Some(elm) = listener.try_recv().await? {
-                println!("{}", elm.payload());
                 let order: DbOrder = serde_json::from_str(elm.payload())?;
                 yield Ok(order);
             }
