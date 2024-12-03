@@ -1,4 +1,4 @@
-name: Gas comparison
+name: Contracts
 
 on:
   pull_request:
@@ -36,10 +36,15 @@ jobs:
               - 'foundry.toml'
 
   gas-comparison:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     needs: contracts-changed
     if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
     steps:
+      - name: install npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
@@ -99,3 +104,47 @@ jobs:
                -X POST \
                -d "$COMMENT_PAYLOAD" \
                "https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/comments"
+
+  upgradability:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    needs: contracts-changed
+    if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
+    steps:
+      - name: install npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: install foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: checkout main code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: recursive
+
+      - name: Forge build on main branch
+        run: forge build
+
+      - name: Upload build-info artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-info
+          path: contracts/out/build-info/
+
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download build-info artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build-info
+          path: contracts/reference-contract/build-info-reference
+
+      - name: Run forge test on reference-contract profile
+        run: forge test
+        env:
+          FOUNDRY_PROFILE: reference-contract

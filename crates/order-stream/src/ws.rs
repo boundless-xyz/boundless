@@ -27,7 +27,7 @@ use boundless_market::{
     order_stream_client::{AuthMsg, ErrMsg, ORDER_WS_PATH},
 };
 use futures_util::{SinkExt, StreamExt};
-use rand::{seq::SliceRandom, thread_rng};
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -71,8 +71,9 @@ pub(crate) async fn websocket_handler(
     // Decode and parse the JSON header into `AuthMsg`
     let auth_msg: AuthMsg = match parse_auth_msg(auth_header) {
         Ok(auth_msg) => auth_msg,
-        Err(_) => {
-            return Ok((StatusCode::BAD_REQUEST, "Invalid auth message format").into_response())
+        Err(err) => {
+            tracing::error!("Invalid auth-msg format: {err:?}");
+            return Ok((StatusCode::BAD_REQUEST, "Invalid auth message format").into_response());
         }
     };
 
@@ -126,6 +127,7 @@ pub(crate) async fn websocket_handler(
             IBoundlessMarket::new(state.config.market_address, state.rpc_provider.clone());
         let balance = boundless_market.balanceOf(client_addr).call().await.unwrap()._0;
         if balance < state.config.min_balance {
+            state.db.disconnect_broker(client_addr).await.context("Failed to disconnect broker")?;
             return Ok((
                 StatusCode::UNAUTHORIZED,
                 format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
@@ -193,68 +195,110 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
 }
 
 async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<AppState>) {
-    let (mut sender_ws, mut recver_ws) = socket.split();
+    let parent_state = state.clone();
+    parent_state.ws_tasks.spawn(async move {
+        let (mut sender_ws, mut recver_ws) = socket.split();
 
-    let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
+        let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
 
-    // Add sender to the list of connections
-    {
-        let mut connections = state.connections.lock().await;
-        connections.insert(address, ClientConnection { sender: sender_channel.clone() });
-    }
+        // Add sender to the list of connections
+        {
+            let mut connections = state.connections.lock().await;
+            connections.insert(address, ClientConnection { sender: sender_channel.clone() });
+        }
 
-    let mut errors_counter = 0usize;
+        let mut errors_counter = 0usize;
 
-    loop {
-        tokio::select! {
-            msg = receiver_channel.recv() => {
-                match msg {
-                    Some(msg) => {
-                        match sender_ws.send(Message::Text(msg)).await {
-                            Ok(_) => {
-                                // Reset the error counter on successful send
-                                errors_counter = 0;
-                            }
-                            Err(err) => {
-                                tracing::warn!("Failed to send message to client {}: {}", address, err);
-                                errors_counter += 1;
-                                if errors_counter > 10 {
-                                    tracing::warn!(
-                                        "Too many consecutive send errors to client {}; disconnecting",
-                                        address
-                                    );
-                                    break;
+        let mut ping_data: Option<Vec<u8>> = None;
+        let mut ping_interval =
+            tokio::time::interval(tokio::time::Duration::from_secs(state.config.ping_time));
+
+        loop {
+            tokio::select! {
+                msg = receiver_channel.recv() => {
+                    match msg {
+                        Some(msg) => {
+                            match sender_ws.send(Message::Text(msg)).await {
+                                Ok(_) => {
+                                    // Reset the error counter on successful send
+                                    errors_counter = 0;
+                                }
+                                Err(err) => {
+                                    tracing::warn!("Failed to send message to client {}: {}", address, err);
+                                    errors_counter += 1;
+                                    if errors_counter > 10 {
+                                        tracing::warn!(
+                                            "Too many consecutive send errors to client {}; disconnecting",
+                                            address
+                                        );
+                                        break;
+                                    }
                                 }
                             }
                         }
+                        None => break,
                     }
-                    None => break,
                 }
-            }
-            ws_msg = recver_ws.next() => {
-                // This polls on the recv side of the websocket connection, once a connection closes
-                // either via Err or graceful Message::Close, the next() will return None and we can close the
-                // connection.
-                match ws_msg {
-                    Some(_) => {
-                        // TODO: cleaner management of Some(Ok(Message::Close))
-                    }
-                    None => {
-                        tracing::debug!("Empty recv, closing connections");
+                _ = ping_interval.tick() => {
+                    if ping_data.is_some() {
+                        tracing::error!("Client {address} never responded to ping, closing conn");
                         break;
                     }
+                    // Send ping
+                    let random_bytes: Vec<u8> = thread_rng().gen::<[u8; 16]>().into();
+                    if let Err(err) = sender_ws.send(Message::Ping(random_bytes.clone())).await {
+                        tracing::warn!("Failed to send Ping: {err:?}");
+                        break;
+                    }
+                    tracing::debug!("Send Ping");
+                    ping_data = Some(random_bytes);
+                }
+                ws_msg = recver_ws.next() => {
+                    // This polls on the recv side of the websocket connection, once a connection closes
+                    // either via Err or graceful Message::Close, the next() will return None and we can close the
+                    // connection.
+                    match ws_msg {
+                        Some(Ok(Message::Pong(data))) => {
+                            tracing::debug!("Got Pong");
+                            if let Some(send_data) = ping_data.as_ref() {
+                                if *send_data != data {
+                                    tracing::error!("Invalid ping data from client {address}, closing conn");
+                                    break;
+                                }
+                                ping_data = None;
+                                if let Err(err) = state.db.broker_update(address).await {
+                                    tracing::error!("Failed to update broker timestamp: {err:?}");
+                                    break;
+                                }
+                            } else {
+                                tracing::warn!("Client {address} send out of order pong, closing conn");
+                                break;
+                            }
+                        }
+                        Some(Ok(Message::Close(_))) => {
+                            tracing::warn!("Client sent close message, closing conn");
+                            break;
+                            // TODO: cleaner management of Some(Ok(Message::Close))
+                        }
+                        _ => {
+                            tracing::debug!("Empty recv, closing connections");
+                            break;
+                        }
+                    }
+                }
+                _ = state.shutdown.cancelled() => {
+                    break;
                 }
             }
         }
-    }
-
-    // Remove the connection when the send loop exits
-    let mut connections = state.connections.lock().await;
-    connections.remove(&address);
-    if let Err(err) = state.db.disconnect_broker(address).await {
-        tracing::error!("Failed to remove broker connection from DB: {address} - {err:?}");
-    }
-    tracing::debug!("WebSocket connection closed: {}", address);
+        // Remove the connection when the send loop exits
+        let mut connections = state.connections.lock().await;
+        connections.remove(&address);
+        if let Err(err) = state.db.disconnect_broker(address).await {
+            tracing::error!("Failed to remove broker connection from DB: {address} - {err:?}");
+        }
+        tracing::debug!("WebSocket connection closed: {}", address);
+    });
 }
 
 pub(crate) fn start_broadcast_task(

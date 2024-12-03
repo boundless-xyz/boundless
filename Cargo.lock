@@ -1951,6 +1951,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-prover"
+version = "0.3.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "assessor",
+ "boundless-market",
+ "bytemuck",
+ "clap",
+ "dotenvy",
+ "guest-assessor",
+ "guest-util",
+ "hex",
+ "libc",
+ "reqwest",
+ "risc0-aggregation",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.18",
+ "url",
+]
+
+[[package]]
 name = "broker"
 version = "0.3.0"
 dependencies = [
@@ -3412,7 +3438,7 @@ dependencies = [
 [[package]]
 name = "guest-set-builder"
 version = "0.1.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#cfa7ee7b8491c63a79bf42dc26455204f66ab0ac"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#abd97bca9533d70302b41f67020f7fd1e41d9cf7"
 dependencies = [
  "risc0-build",
  "risc0-build-ethereum",
@@ -4812,6 +4838,7 @@ dependencies = [
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-util",
  "tower-http",
  "tracing",
  "tracing-subscriber 0.3.18",
@@ -5249,7 +5276,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9552f850d5f0964a4e4d0bf306459ac29323ddfbae05e35a7c0d35cb0803cc5"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.89",
@@ -5601,7 +5628,7 @@ dependencies = [
 [[package]]
 name = "risc0-aggregation"
 version = "0.1.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#cfa7ee7b8491c63a79bf42dc26455204f66ab0ac"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#abd97bca9533d70302b41f67020f7fd1e41d9cf7"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -5651,7 +5678,7 @@ dependencies = [
 [[package]]
 name = "risc0-build-ethereum"
 version = "1.2.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#cfa7ee7b8491c63a79bf42dc26455204f66ab0ac"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#abd97bca9533d70302b41f67020f7fd1e41d9cf7"
 dependencies = [
  "anyhow",
  "hex",
@@ -5775,7 +5802,7 @@ dependencies = [
 [[package]]
 name = "risc0-ethereum-contracts"
 version = "1.2.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#cfa7ee7b8491c63a79bf42dc26455204f66ab0ac"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#abd97bca9533d70302b41f67020f7fd1e41d9cf7"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7315,6 +7342,8 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
+ "hashbrown 0.14.5",
  "pin-project-lite",
  "tokio",
 ]
@@ -7381,6 +7410,7 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "pin-project-lite",
+ "tokio",
  "tower-layer",
  "tower-service",
  "tracing",
