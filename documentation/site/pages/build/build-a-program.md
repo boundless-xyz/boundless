@@ -38,7 +38,7 @@ The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foun
 
 The zkVM program for this example app is a simple program that takes an input number, checks if it is even and if so, outputs the number to the public outputs of the computation (known as the [journal](https://dev.risczero.com/terminology#journal)).
 
-The entire program is only \~20 lines, so let’s run through it:
+The entire program is only \~20 lines, so let's run through it:
 
 ```rust
 use std::io::Read;
@@ -95,7 +95,7 @@ Finally, if the number is even, the assert will pass and the number can be commi
 
 ### [`contracts/src/EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
 
-The `EvenNumber` smart contract holds a `uint256` variable called `number`. This number is guaranteed to be even, however the smart contract itself never checks the number’s parity directly. It verifies a ZK proof of a program that has checked if the number is even. This is done in the `set` function:
+The `EvenNumber` smart contract holds a `uint256` variable called `number`. This number is guaranteed to be even, however the smart contract itself never checks the number's parity directly. It verifies a ZK proof of a program that has checked if the number is even. This is done in the `set` function:
 
 ```solidity
 /// @notice Set the even number stored on the contract. Requires a RISC Zero proof that the number is even.
@@ -107,7 +107,7 @@ function set(uint256 x, bytes calldata seal) public {
 }
 ```
 
-This `set` function is called with two arguments, a number `x`, and the `seal`. The number `x` is the number that the ZK proof has proven is even, and it is used to reconstruct the journal (the [journal](https://dev.risczero.com/terminology#journal) refers to the public outputs of the program). The `seal` is the proof. In [zkVM terminology](https://dev.risczero.com/terminology#seal), the seal usually refers to a zk-STARK or SNARK directly. In Boundless, the seal is actually a Merkle inclusion proof that the program’s proof verification has been included in the Batch Verification Tree. See [Proof Lifecycle](introduction/proof-lifecycle) to read more about this.
+This `set` function is called with two arguments, a number `x`, and the `seal`. The number `x` is the number that the ZK proof has proven is even, and it is used to reconstruct the journal (the [journal](https://dev.risczero.com/terminology#journal) refers to the public outputs of the program). The `seal` is the proof. In [zkVM terminology](https://dev.risczero.com/terminology#seal), the seal usually refers to a zk-STARK or SNARK directly. In Boundless, the seal is actually a Merkle inclusion proof that the program's proof verification has been included in the Batch Verification Tree. See [Proof Lifecycle](introduction/proof-lifecycle) to read more about this.
 
 #### Proof Verification Using the VerifierRouter Contract
 
