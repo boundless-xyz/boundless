@@ -28,8 +28,6 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          # Full history is required by license-check.py
-          fetch-depth: 0
           submodules: recursive
 
       - name: install foundry
@@ -98,11 +96,8 @@ jobs:
         run: forge build
         working-directory: contracts
 
-      # This step currently fails due to some issues with importing the set-builder
-      # from risc0-ethereum and building it with docker. Nonetheless, the build of the
-      # assessor guest should be successful. 
       - name: cargo build
-        run: cargo build
+        run: cargo build --manifest-path crates/guest/assessor/Cargo.toml
         continue-on-error: true
         env:
           RISC0_USE_DOCKER: 1
