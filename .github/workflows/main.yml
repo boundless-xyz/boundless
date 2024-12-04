@@ -23,6 +23,7 @@ jobs:
     if: always()
     needs:
       - rust
+      - license-check
       - link-check
       - format
       - foundry
