@@ -278,7 +278,7 @@ mod tests {
                 ctx.customer_signer,
                 anvil.endpoint_url(),
                 None,
-                &StorageProviderConfig::dev_mode(),
+                Some(StorageProviderConfig::dev_mode()),
                 ctx.boundless_market_addr,
                 ctx.set_verifier_addr,
                 counter_address,
