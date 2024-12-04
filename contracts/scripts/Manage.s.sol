@@ -14,6 +14,7 @@ import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/BoundlessMarketLib.sol";
 import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
 
@@ -60,16 +61,17 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         console2.log("image ID:", Strings.toHexString(uint256(assessorImageId)));
         console2.log("URL:", assessorGuestUrl);
 
-        UpgradeOptions memory opts;
-        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(IRiscZeroVerifier(verifier), assessorImageId);
-
-        vm.broadcast(deployerAddress());
+        vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
-        address marketAddress = Upgrades.deployUUPSProxy(
-            "BoundlessMarket.sol:BoundlessMarket",
-            abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl)),
-            opts
+        bytes32 salt = deploymentConfig.salt;
+        address newImplementation =
+            address(new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId));
+        address marketAddress = address(
+            new ERC1967Proxy{salt: salt}(
+                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl))
+            )
         );
+        vm.stopBroadcast();
 
         console2.log("Deployed BoundlessMarket (proxy) contract at", marketAddress);
     }
