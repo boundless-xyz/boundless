@@ -122,5 +122,5 @@ jobs:
           curl -s -H "Authorization: token $GITHUB_TOKEN" \
               -H "Content-Type: application/json" \
               -X POST \
-              -d '{"body": "Uploaded to Pinata. IPFS Hash: `'"$id"'`"}' \
+              -d '{"body": "Assessor ELF pinned to IPFS - https://gateway.pinata.cloud/ipfs/'"$id"'"}' \
               "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
