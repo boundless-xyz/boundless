@@ -47,7 +47,7 @@ struct Args {
     order_stream_url: Option<Url>,
     /// Storage provider to use
     #[clap(flatten)]
-    storage_config: StorageProviderConfig,
+    storage_config: Option<StorageProviderConfig>,
     /// Private key used to interact with the Counter contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
         args.private_key,
         args.rpc_url,
         args.order_stream_url,
-        &args.storage_config,
+        args.storage_config,
         args.boundless_market_address,
         args.set_verifier_address,
         args.counter_address,
@@ -95,7 +95,7 @@ async fn run(
     private_key: PrivateKeySigner,
     rpc_url: Url,
     order_stream_url: Option<Url>,
-    storage_config: &StorageProviderConfig,
+    storage_config: Option<StorageProviderConfig>,
     boundless_market_address: Address,
     set_verifier_address: Address,
     counter_address: Address,
@@ -106,7 +106,7 @@ async fn run(
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)
         .with_order_stream_url(order_stream_url)
-        .with_storage_provider_config(storage_config)
+        .with_storage_provider_config(storage_config.clone())
         .with_private_key(private_key)
         .build()
         .await?;

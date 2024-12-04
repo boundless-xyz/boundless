@@ -64,7 +64,7 @@ enum Command {
     SubmitRequest {
         /// Storage provider to use
         #[clap(flatten)]
-        storage_config: StorageProviderConfig,
+        storage_config: Option<StorageProviderConfig>,
         /// Path to a YAML file containing the request
         yaml_request: String,
         /// Optional identifier for the request
@@ -118,7 +118,7 @@ enum Command {
 struct SubmitOfferArgs {
     /// Storage provider to use
     #[clap(flatten)]
-    storage_config: StorageProviderConfig,
+    storage_config: Option<StorageProviderConfig>,
     /// Path to a YAML file containing the offer
     yaml_offer: String,
     /// Optional identifier for the request
@@ -251,8 +251,8 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
                 .with_set_verifier_address(args.set_verifier_address)
-                .with_order_stream_url(offer_args.offchain.clone())
-                .with_storage_provider_config(&offer_args.storage_config)
+                .with_storage_provider_config(offer_args.clone().storage_config)
+                .with_order_stream_url(offer_args.clone().offchain)
                 .with_timeout(args.tx_timeout)
                 .build()
                 .await?;
@@ -270,7 +270,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .with_boundless_market_address(args.boundless_market_address)
                 .with_set_verifier_address(args.set_verifier_address)
                 .with_order_stream_url(offchain.clone())
-                .with_storage_provider_config(&storage_config)
+                .with_storage_provider_config(storage_config)
                 .with_timeout(args.tx_timeout)
                 .build()
                 .await?;
@@ -611,7 +611,7 @@ mod tests {
             set_verifier_address: ctx.set_verifier_addr,
             tx_timeout: None,
             command: Command::SubmitRequest {
-                storage_config: StorageProviderConfig::dev_mode(),
+                storage_config: Some(StorageProviderConfig::dev_mode()),
                 yaml_request: "../../request.yaml".to_string(),
                 id: None,
                 wait: false,
