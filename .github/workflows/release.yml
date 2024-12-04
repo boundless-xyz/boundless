@@ -12,7 +12,7 @@ concurrency:
 permissions:
   id-token: write
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,9 +65,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Install GitHub CLI
-        run: sudo apt-get update && sudo apt-get install -y gh
 
       - name: install python
         uses: actions/setup-python@v4
@@ -122,4 +119,8 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }} && ${{ steps.image_id_check.outcome == 'failure' }}
         run: |
           id=${{ steps.pinata_upload.outputs.pinata_id }}
-          gh pr comment ${{ github.event.pull_request.number }} --body "Uploaded to Pinata. IPFS Hash: \`$id\`"
+          curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              -X POST \
+              -d '{"body": "Uploaded to Pinata. IPFS Hash: `'"$id"'`"}' \
+              "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
