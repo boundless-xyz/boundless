@@ -60,6 +60,8 @@ jobs:
         
   image-id-check:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
+    outputs:
+      image_check_failed: ${{ steps.image_check_status.outputs.failed }}
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -103,9 +105,19 @@ jobs:
           name: assessor-guest
           path: target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest
 
-      - name: image ID check
-        id: image_id_check
-        run: bash image-id-check.sh
+      - name: Image ID check
+        id: image_check_status
+        run: |
+          set +e
+          bash image-id-check.sh
+          if [ $? -ne 0 ]; then
+            echo "failed=true" >> $GITHUB_ENV
+            echo "::set-output name=failed::true"
+            exit 1
+          else
+            echo "failed=false" >> $GITHUB_ENV
+            echo "::set-output name=failed::false"
+          fi
 
   upload-assessor-elf:
     runs-on: ubuntu-latest
@@ -118,7 +130,7 @@ jobs:
 
       - name: upload to Pinata
         id: pinata_upload
-        if: ${{ needs.image_id_check.result == 'failure' }}
+        if: ${{ needs.image-id-check.outputs.image_check_failed == 'true' }}
         run: |
           response=$(curl -H "Authorization: Bearer ${{ secrets.PINATA_JWT }}" --request POST \
           --url 'https://api.pinata.cloud/pinning/pinFileToIPFS?=&=' \
@@ -130,7 +142,7 @@ jobs:
           echo "pinata_id=$id" >> $GITHUB_ENV
 
       - name: Post PR Comment
-        if: ${{ github.event_name == 'pull_request' }} && ${{ needs.image_id_check.result == 'failure' }}
+        if: ${{ github.event_name == 'pull_request' }} && ${{ needs.image-id-check.outputs.image_check_failed == 'true' }}
         run: |
           id=${{ env.pinata_id }}
           gh pr comment ${{ github.event.pull_request.number }} --body "Uploaded to Pinata. IPFS Hash: \`$id\`"
