@@ -63,7 +63,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
 
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
-        bytes32 salt = deploymentConfig.salt;
+        bytes32 salt = bytes32(0);
         address newImplementation =
             address(new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId));
         address marketAddress = address(

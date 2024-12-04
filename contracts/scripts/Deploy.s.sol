@@ -91,7 +91,7 @@ contract Deploy is Script, RiscZeroCheats {
         }
 
         // Deploy the Boundless market
-        bytes32 salt = deploymentConfig.salt;
+        bytes32 salt = bytes32(0);
         address newImplementation = address(new BoundlessMarket{salt: salt}(verifier, assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
