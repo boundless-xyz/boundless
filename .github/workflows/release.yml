@@ -117,7 +117,7 @@ jobs:
           name: assessor-guest
 
       - name: upload to Pinata
-      - id: pinata_upload
+        id: pinata_upload
         if: ${{ needs.image_id_check.result == 'failure' }}
         run: |
           response=$(curl -H "Authorization: Bearer ${{ secrets.PINATA_JWT }}" --request POST \
