@@ -1,12 +1,8 @@
 name: Release
 
 on:
-  merge_group:
-  push:
-    tags:
-      - "v*.*.*"
   pull_request:
-    branches: ["release-*"]
+    #branches: ["release-*"]
   workflow_dispatch:
 
 concurrency:
@@ -103,4 +99,24 @@ jobs:
           RISC0_USE_DOCKER: 1
 
       - name: image ID check
+        id: image_id_check
         run: bash image-id-check.sh
+
+      - name: upload to Pinata
+      - id: pinata_upload
+        if: ${{ steps.image_id_check.outcome == 'failure' }}
+        run: |
+          response=$(curl -H "Authorization: Bearer ${{ secrets.PINATA_JWT }}" --request POST \
+          --url 'https://api.pinata.cloud/pinning/pinFileToIPFS?=&=' \
+          --header 'Content-Type: multipart/form-data' \
+          --form 'pinataMetadata={  "name": "assessor-guest"}' \
+          --form file=@target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest)
+          echo "Response: $response"
+          id=$(echo "$response" | jq -r '.IpfsHash')
+          echo "::set-output name=pinata_id::$id"
+
+      - name: Post PR Comment
+        if: ${{ github.event_name == 'pull_request' }} && ${{ steps.image_id_check.outcome == 'failure' }}
+        run: |
+          id=${{ steps.pinata_upload.outputs.pinata_id }}
+          gh pr comment ${{ github.event.pull_request.number }} --body "Uploaded to Pinata. IPFS Hash: \`$id\`"
