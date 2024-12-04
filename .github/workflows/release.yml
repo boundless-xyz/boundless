@@ -58,10 +58,8 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
         
-  image-id-check:
+  upload-assessor-elf:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
-    outputs:
-      image_check_failed: ${{ steps.image_check_status.outputs.failed }}
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -99,50 +97,26 @@ jobs:
         env:
           RISC0_USE_DOCKER: 1
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: assessor-guest
-          path: target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest
-
-      - name: Image ID check
-        id: image_check_status
-        run: |
-          set +e
-          bash image-id-check.sh
-          if [ $? -ne 0 ]; then
-            echo "failed=true" >> $GITHUB_ENV
-            echo "::set-output name=failed::true"
-            exit 1
-          else
-            echo "failed=false" >> $GITHUB_ENV
-            echo "::set-output name=failed::false"
-          fi
-
-  upload-assessor-elf:
-    runs-on: ubuntu-latest
-    needs: image-id-check
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: assessor-guest
+      - name: image ID check
+        continue-on-error: true
+        id: image_id_check
+        run: bash image-id-check.sh
 
       - name: upload to Pinata
         id: pinata_upload
-        if: ${{ needs.image-id-check.outputs.image_check_failed == 'true' }}
+        if: ${{ steps.image_id_check.outcome == 'failure' }}
         run: |
           response=$(curl -H "Authorization: Bearer ${{ secrets.PINATA_JWT }}" --request POST \
           --url 'https://api.pinata.cloud/pinning/pinFileToIPFS?=&=' \
           --header 'Content-Type: multipart/form-data' \
           --form 'pinataMetadata={  "name": "assessor-guest"}' \
-          --form file=@assessor-guest)
+          --form file=@target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest)
           echo "Response: $response"
           id=$(echo "$response" | jq -r '.IpfsHash')
-          echo "pinata_id=$id" >> $GITHUB_ENV
+          echo "::set-output name=pinata_id::$id"
 
       - name: Post PR Comment
-        if: ${{ github.event_name == 'pull_request' }} && ${{ needs.image-id-check.outputs.image_check_failed == 'true' }}
+        if: ${{ github.event_name == 'pull_request' }} && ${{ steps.image_id_check.outcome == 'failure' }}
         run: |
-          id=${{ env.pinata_id }}
+          id=${{ steps.pinata_upload.outputs.pinata_id }}
           gh pr comment ${{ github.event.pull_request.number }} --body "Uploaded to Pinata. IPFS Hash: \`$id\`"
