@@ -94,12 +94,10 @@ jobs:
 
       - name: cargo build
         run: cargo build --manifest-path crates/guest/assessor/Cargo.toml
-        continue-on-error: true
         env:
           RISC0_USE_DOCKER: 1
 
       - name: Upload build artifact
-        if: ${{ success() }}
         uses: actions/upload-artifact@v3
         with:
           name: assessor-guest
