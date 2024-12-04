@@ -12,8 +12,9 @@ set-verifier = "0x0000000000000000000000000000000000000000"
 boundless-market = "0x0000000000000000000000000000000000000000"
 
 # Guests info
-assessor-image-id = "0xbe0d5370f3a9cd3ef5c8f1e986d0afbfdc5a9935fb42a61bd4d53ab8c571b1a8"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmWJrJwphFNZxE4N3sVuLJqe4vmWdStiCqedfEbNVaoPNK"
+deployment-commit = "59aa93eab78cda637eb76cc71b1799fa68ddcc53" # v0.3.0
+assessor-image-id = "0xfcf21d487a37ca422f0eab16168086337ee9d661a207bd0d5963c68d24622b9c"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmaM8vvRRF2WrnySNeryrKtbBavvTehfwqWKY1fJCrsuL7"
 
 
 ###
@@ -27,10 +28,14 @@ etherscan-url = "https://sepolia.etherscan.io/"
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 
 # Contracts
-verifier = "0xB301644F7B1DB130674709E221a262Dc599DFF00"
-set-verifier = "0x32c0098e744b1595dca8279f53c92794bdc945a8"
-boundless-market = "0x853C39184401e11372ec4cD09115d9E2a30d4CaC"
+# TODO: fix the submitRootAndFulfillBatch method and the upgrade with the verifier router as the verifier used by the market.
+#verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+verifier = "0xea6a0Ca4BfD0A6C43081D57672b3B6D43B69265F"
+set-verifier = "0xea6a0Ca4BfD0A6C43081D57672b3B6D43B69265F"
+boundless-market = "0x01e4130C977b39aaa28A744b8D3dEB23a5297654"
+boundless-market-version = "v0.3.0"
 
 # Guests info
-assessor-image-id = "0xbe0d5370f3a9cd3ef5c8f1e986d0afbfdc5a9935fb42a61bd4d53ab8c571b1a8"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmWJrJwphFNZxE4N3sVuLJqe4vmWdStiCqedfEbNVaoPNK"
+deployment-commit = "59aa93eab78cda637eb76cc71b1799fa68ddcc53" # v0.3.0
+assessor-image-id = "0xfcf21d487a37ca422f0eab16168086337ee9d661a207bd0d5963c68d24622b9c"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmaM8vvRRF2WrnySNeryrKtbBavvTehfwqWKY1fJCrsuL7"
