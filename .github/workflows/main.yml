@@ -49,14 +49,7 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          # Full history is required by license-check.py
-          fetch-depth: 0
           submodules: recursive
-
-      - name: install python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -87,9 +80,6 @@ jobs:
 
       - name: cargo format
         run: cargo fmt --all -- --check
-
-      - name: license check
-        run: python license-check.py
 
       - name: forge build
         run: forge build
@@ -155,6 +145,23 @@ jobs:
           path: .lycheecache
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
+  license-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required by license-check.py
+          fetch-depth: 0
+
+      - name: install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: license check
+        run: python license-check.py
+
   format:
     runs-on: ubuntu-latest
     steps:
@@ -200,8 +207,6 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          # Full history is required by license-check.py
-          fetch-depth: 0
           submodules: recursive
 
       - name: install foundry
