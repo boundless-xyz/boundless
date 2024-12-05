@@ -58,6 +58,9 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Install python packages
+        run: pip install deepdiff
+
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
 

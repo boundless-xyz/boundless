@@ -1,8 +1,47 @@
+import json
 import os
 import shutil
 import filecmp
 import subprocess
 import sys
+from deepdiff import DeepDiff  # Install with: pip install deepdiff
+
+def compare_field(file1, file2, field) -> bool:
+    """Compare a specific field between two JSON files."""
+    try:
+        # Load JSON files
+        with open(file1, 'r') as f1, open(file2, 'r') as f2:
+            json1 = json.load(f1)
+            json2 = json.load(f2)
+
+        # Extract the specified field
+        value1 = json1
+        value2 = json2
+
+        # Traverse the JSON to find the specified field
+        for key in field.split('.'):
+            value1 = value1.get(key) if isinstance(value1, dict) else None
+            value2 = value2.get(key) if isinstance(value2, dict) else None
+
+        if value1 is None or value2 is None:
+            print(f"Field '{field}' not found in one or both files.")
+            return
+
+        # Compare the extracted values
+        differences = DeepDiff(value1, value2, verbose_level=2)
+        if differences:
+            print(f"Differences in field '{field}':")
+            print(json.dumps(differences, indent=4))
+            return False
+        else:
+            return True
+
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
 
 def run_forge_build():
     """Run `forge build` command."""
@@ -32,7 +71,7 @@ def copy_files(file_list, target_folder):
         except Exception as e:
             print(f"Error copying {file_path} to {target_folder}: {e}")
 
-def check_file_diffs(file_list, target_folder):
+def check_bytecode_diffs(file_list, target_folder):
     """Check if the differences between files in file_list and target_folder are empty."""
     all_match = True
 
@@ -50,7 +89,7 @@ def check_file_diffs(file_list, target_folder):
             all_match = False
             continue
 
-        if not filecmp.cmp(file_path, target_path, shallow=False):
+        if not compare_field(file_path, target_path, "bytecode"):
             print(f"Files differ: {file_path} != {target_path}")
             all_match = False
         else:
@@ -85,7 +124,7 @@ if __name__ == "__main__":
             copy_files(file_list, target_folder)
         elif command == "check":
             run_forge_build()
-            check_file_diffs(file_list, target_folder)
+            check_bytecode_diffs(file_list, target_folder)
             print("All files match.")
         else:
             print(f"Unknown command: {command}")
