@@ -38,7 +38,7 @@ export COUNTER_ADDRESS=#COPY COUNTER ADDRESS FROM DEPLOY LOGS
 
 ## Run the example
 
-Running this example requires having access to a Boundless market deployment. You can set a local one up by following the \[local devnet]\[page-local-development] instructions.
+Running this example requires having access to a Boundless market deployment.
 
 To run the example run:
 
