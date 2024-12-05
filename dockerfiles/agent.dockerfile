@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 ARG CUDA_IMG=nvidia/cuda:12.2.0-devel-ubuntu22.04
 ARG CUDA_RUNTIME_IMG=nvidia/cuda:12.2.0-runtime-ubuntu22.04
+ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${CUDA_IMG} AS rust-builder
 
@@ -24,6 +25,7 @@ FROM rust-builder AS builder
 
 ARG NVCC_APPEND_FLAGS=""
 ARG CUDA_OPT_LEVEL=1
+ARG S3_CACHE_PREFIX
 
 WORKDIR /src/
 COPY Cargo.toml .
@@ -50,7 +52,7 @@ SHELL ["/bin/bash", "-c"]
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc \
-    source ./sccache-config.sh && \
+    source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -F cuda -p workflow --bin agent && \
     cp /src/target/release/agent /src/agent && \
     sccache --show-stats

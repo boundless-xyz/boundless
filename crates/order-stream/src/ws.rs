@@ -55,7 +55,10 @@ pub(crate) async fn websocket_handler(
 ) -> Result<Response, AppError> {
     let auth_header = match headers.get("X-Auth-Data") {
         Some(value) => value,
-        None => return Ok((StatusCode::BAD_REQUEST, "Missing auth header").into_response()),
+        None => {
+            tracing::warn!("request missing auth header");
+            return Ok((StatusCode::BAD_REQUEST, "Missing auth header").into_response());
+        }
     };
 
     // Decode and parse the JSON header into `AuthMsg`
@@ -71,15 +74,18 @@ pub(crate) async fn websocket_handler(
     let addr_nonce = match state.db.get_nonce(client_addr).await {
         Ok(res) => res,
         Err(OrderDbErr::AddrNotFound(_)) => {
-            return Ok((StatusCode::UNAUTHORIZED, "Unauthorized").into_response())
+            tracing::warn!("Failed to authorize {client_addr}");
+            return Ok((StatusCode::UNAUTHORIZED, "Unauthorized").into_response());
         }
         Err(err) => {
+            tracing::warn!("getting DB nonce failed: {client_addr} {err:?}");
             return Err(AppError::InternalErr(err.into()));
         }
     };
 
     // Check the signature
     if let Err(err) = auth_msg.verify(&state.config.domain, &addr_nonce).await {
+        tracing::warn!("Auth message failed to verify: {err:?}");
         return Ok(
             (StatusCode::UNAUTHORIZED, format!("Authentication error: {:?}", err)).into_response()
         );
@@ -92,7 +98,8 @@ pub(crate) async fn websocket_handler(
     {
         match state.db.connect_broker(client_addr).await {
             Err(OrderDbErr::MaxConnections) => {
-                return Ok((StatusCode::CONFLICT, format!("Max connections hit")).into_response())
+                tracing::warn!("{client_addr} at max connections");
+                return Ok((StatusCode::CONFLICT, format!("Max connections hit")).into_response());
             }
             Err(err) => return Err(AppError::InternalErr(anyhow::anyhow!(err))),
             _ => {}
@@ -118,6 +125,7 @@ pub(crate) async fn websocket_handler(
         let balance = boundless_market.balanceOf(client_addr).call().await.unwrap()._0;
         if balance < state.config.min_balance {
             state.db.disconnect_broker(client_addr).await.context("Failed to disconnect broker")?;
+            tracing::warn!("Insufficient balance for addr: {client_addr}");
             return Ok((
                 StatusCode::UNAUTHORIZED,
                 format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
@@ -129,7 +137,7 @@ pub(crate) async fn websocket_handler(
     }
 
     // Proceed with WebSocket upgrade
-    tracing::debug!("New webSocket connection from {}", client_addr);
+    tracing::info!("New webSocket connection from {client_addr}");
     Ok(ws.on_upgrade(move |socket| websocket_connection(socket, client_addr, state)))
 }
 

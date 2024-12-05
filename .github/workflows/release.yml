@@ -6,8 +6,7 @@ on:
     tags:
       - "v*.*.*"
   pull_request:
-    # TODO: For test only, main should be dropped
-    branches: ["main", "release-*"]
+    branches: ["release-*"]
   workflow_dispatch:
 
 concurrency:
@@ -47,7 +46,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0-rc.1'
+          risczero-version: '1.2.0-rc.2'
           toolchain-version: 'r0.1.81.0'
 
       - name: forge build
@@ -92,7 +91,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0-rc.1'
+          risczero-version: '1.2.0-rc.2'
           toolchain-version: 'r0.1.81.0'
 
       - name: forge build

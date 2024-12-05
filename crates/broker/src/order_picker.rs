@@ -145,7 +145,7 @@ where
             return Ok(());
         }
 
-        let (skip_preflight, max_size, peak_prove_khz, fetch_retries) = {
+        let (skip_preflight, max_size, peak_prove_khz, fetch_retries, max_mcycle_limit) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             let skip_preflight =
                 if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
@@ -159,6 +159,7 @@ where
                 config.market.max_file_size,
                 config.market.peak_prove_khz,
                 config.market.max_fetch_retries,
+                config.market.max_mcycle_limit,
             )
         };
 
@@ -232,6 +233,16 @@ where
                 }
                 _ => PriceOrderErr::OtherErr(err.into()),
             })?;
+
+        // If a max_mcycle_limit is configured check if the order is over that limit
+        if let Some(mcycle_limit) = max_mcycle_limit {
+            let mcycles = proof_res.stats.total_cycles / 1_000_000;
+            if mcycles >= mcycle_limit {
+                tracing::warn!("Order {order_id:x} max_mcycle_limit check failed req: {mcycle_limit} | config: {mcycles}");
+                self.db.skip_order(order_id).await.context("Failed to delete order")?;
+                return Ok(());
+            }
+        }
 
         // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently
         // can absorb that proving load, we need to cordinate this check with parallel
