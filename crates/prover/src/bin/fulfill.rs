@@ -57,6 +57,10 @@ enum Command {
         /// The tx hash of the request submission
         #[clap(long)]
         tx_hash: Option<B256>,
+        /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
+        /// request is locked to another prover).
+        #[clap(long, default_value = "false")]
+        require_payment: bool,
     },
     /// Print the result of fulfilling a proof request using the RISC Zero zkVM default prover.
     /// This is used to generate test FFI calls for the Forge cheatcode.
@@ -82,6 +86,10 @@ enum Command {
         /// Hex encoded request' signature
         #[clap(long)]
         signature: String,
+        /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
+        /// request is locked to another prover).
+        #[clap(long, default_value = "false")]
+        require_payment: bool,
     },
 }
 
@@ -110,6 +118,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             tx_timeout,
             request_id,
             tx_hash,
+            require_payment,
         } => {
             let caller = private_key.address();
             let wallet = EthereumWallet::from(private_key.clone());
@@ -146,14 +155,24 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let order = Order { request, signature: PrimitiveSignature::try_from(sig.as_ref())? };
 
             let (fill, root_receipt, _, assessor_receipt) =
-                prover.fulfill(order.clone(), false).await?;
+                prover.fulfill(order.clone(), require_payment).await?;
             let order_fulfilled =
                 OrderFulfilled::new(fill, root_receipt, assessor_receipt, caller)?;
             set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
 
+            // If the request is not locked in, we need to "price" which checks the requirements
+            // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
+            // and empty if the request is locked.
+            let requests_to_price: Vec<ProofRequest> = boundless_market
+                .is_locked_in(request_id)
+                .await?
+                .then_some(order.request)
+                .into_iter()
+                .collect();
+
             match boundless_market
                 .price_and_fulfill_batch(
-                    vec![order.request],
+                    requests_to_price,
                     vec![sig],
                     order_fulfilled.fills,
                     order_fulfilled.assessorSeal,
@@ -180,6 +199,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             prover_address,
             request,
             signature,
+            require_payment,
         } => {
             // Take stdout is ensure no extra data is written to it.
             let mut stdout = take_stdout()?;
@@ -198,7 +218,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                 )?,
             };
             let (fill, root_receipt, _, assessor_receipt) =
-                prover.fulfill(order.clone(), false).await?;
+                prover.fulfill(order.clone(), require_payment).await?;
             let order_fulfilled =
                 OrderFulfilled::new(fill, root_receipt, assessor_receipt, prover_address)?;
 
