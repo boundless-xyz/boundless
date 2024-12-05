@@ -7,7 +7,7 @@ import PricingCalculator from "../../components/pricing-calculator";
 
 # Request a Proof
 
-The interface for developers to use the rest of the boundless platform is the Boundless Market, developers interact with this by sending a proof request. This will allow provers to lock in the request, and fulfill the request by providing the proof  This can be done programmatically using the `boundless-market` crate or with the Boundless Market CLI.
+The interface for developers to use the Boundless core services is the Boundless Market, developers interact with this by sending a proof request. This will allow provers to lock in the request, and fulfill the request by providing the proof  This can be done programmatically using the boundless-market crate or with the Boundless CLI.
 
 ## Programmatically
 
@@ -30,15 +30,20 @@ To facilitate communication with the Boundless market, developers can use the `C
 To instantiate a boundless client, you will need a wallet with sufficient funds on Sepolia (you will have to provide the maximum amount you are willing to pay for a proof request upfront), a working Sepolia RPC provider, and the proof market and set verifier contract addresses:
 
 ```rust
-let boundless_client = Client::from_parts(
-    args.wallet_private_key,
-    args.rpc_url,
-    args.proof_market_address,
-    args.set_verifier_address,
-).await?;
+let boundless_client = ClientBuilder::default()
+    .with_rpc_url(rpc_url)
+    .with_boundless_market_address(boundless_market_address)
+    .with_set_verifier_address(set_verifier_address)
+    .with_order_stream_url(order_stream_url)
+    .with_storage_provider_config(storage_config.clone())
+    .with_private_key(private_key)
+    .build()
+    .await?;
 ```
 
 For the latest deployment address, please see [Public Deployments](/public-deployments).
+
+> Relevant links: [Sepolia Faucet](https://www.sepoliafaucet.io/), [Sepolia Public RPCs](https://chainlist.org/chain/11155111), [Boundless Deployments Reference](/public-deployments)
 
 ### 2. Upload Program Executable to IPFS
 
@@ -61,11 +66,10 @@ The recommended storage provider is IPFS (see [Upload Program Executable to IPFS
 With the `PINATA_JWT` set, the inputs can be uploaded to IPFS with the `upload_input` method:
 
 ```rust
-let input = U256::from(42).abi_encode();
-let input_url = boundless_client.upload_input(&input).await?;
+let image_url = boundless_client.upload_image(ELF).await?;
 ```
 
-As the input will be sent on-chain for proof verification (see [Use a Proof in your App](/build/use-a-proof-in-your-app)), it is good practice to ABI encode your inputs to make sure they can be destructured properly within Solidity.
+> Relevant links: [BuiltInStorageProvider](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L46), [Pinata](https://pinata.cloud/), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload_image for PinataStorageProvider](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L213)
 
 ### 4. Execute the program to estimate cycles and to get the journal
 
@@ -89,29 +93,39 @@ let mcycles_count = session_info
 let journal = session_info.journal;
 ```
 
+> Relevant links: [ExecutorEnvBuilder](https://docs.rs/risc0-zkvm/latest/risc0_zkvm/struct.ExecutorEnvBuilder.html)
+
 ### 5. Create a Proof Request
 
 A proof request consists of four essential components that specify which program needs to be proven and under what conditions:
 
-```rust
-let request = ProvingRequest::default()
-    .with_image_url(&image_url)     // 1. Program Image
-    .with_input(Input::url(&input_url))     // 2. Program Input
-    .with_requirements(Requirements::new(    // 3. Verification Requirements
-        IS_EVEN_ID,
-        Predicate::digest_match(journal.digest()),
-    ))
-    .with_offer(Offer::default()
-    	.with_min_price_per_mcycle()
-    	.with_max_price_per_mcycle()
-    	.with_timeout())
-));
+```rust showLineNumbers
+let request = ProofRequest::default()
+	.with_image_url(&image_url)
+	.with_input(Input::url(&input_url))
+	.with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
+	.with_offer(
+    	Offer::default()
+        	// The market uses a reverse Dutch auction mechanism to match requests with provers.
+        	// Each request has a price range that a prover can bid on. One way to set the price
+        	// is to choose a desired (min and max) price per million cycles and multiply it
+        	// by the number of cycles. Alternatively, you can use the `with_min_price` and
+        	// `with_max_price` methods to set the price directly.
+        	.with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
+        	// NOTE: If your offer is not being accepted, try increasing the max price.
+        	.with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
+        	// The timeout is the maximum number of blocks the request can stay
+        	// unfulfilled in the market before it expires. If a prover locks in
+        	// the request and does not fulfill it before the timeout, the prover can be
+        	// slashed.
+        	.with_timeout(1000),
+	);
 ```
 
-1. Program Image (`with_image_url`) (link to 2. above)
-2. Program Input (`with_input`) (link to 3. above)
-3. Requirements (`with_requirements`)
-4. Offer (`with_offer`)
+1. Program Image (`with_image_url`) (line #2)
+2. Program Input (`with_input`) (line #3)
+3. Requirements (`with_requirements`) (line #4)
+4. Offer (`with_offer`) (line #5)
 
 The program image and program inputs are discussed in steps 2 and 3 respectively.
 
@@ -123,6 +137,8 @@ The requirements ensure proof integrity and correctness by checking the [image I
 
 The offer details are specified with `with_offer()`. This allows the requestor to set the price range per million cycles (MCycles), and long the request remains valid (known as the timeout). The price mechanism helps match the request with provers.
 
+> Relevant links: [Cycles](https://dev.risczero.com/terminology#clock-cycles), [ELF Binary](https://dev.risczero.com/terminology#elf-binary)
+
 ### 6. Submit a Request
 
 Once the request is configured, it can submitted to the market:
@@ -131,17 +147,25 @@ Once the request is configured, it can submitted to the market:
 let request_id = boundless_client.submit_request(&request).await?;
 ```
 
+This will send the request onchain in a transaction. Using `boundless_client.submit_request_offchain`, you can send your request off-chain through the order-stream service. This will not cost any gas, but does require you to deposit funds to the market first.
+
 The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
 
 ### 7. Wait for the Request to be Fulfilled
 
-Once fulfilled, the journal and seal are returned. The journal contains the public outputs of the guest program, and the seal (see Proof Lifecycle Step 3 for more details).
+Once fulfilled, the journal and seal are returned. The journal contains the public outputs of the guest program, and the seal.
 
 ```rust
 let (_journal, seal) = boundless_client
-   .wait_for_request_fulfillment(request_id, Duration::from_secs(5), None)
-   .await?;
+	.wait_for_request_fulfillment(
+    	request_id,
+    	Duration::from_secs(5), // check every 5 seconds
+    	request.expires_at(),
+	)
+	.await?;
 ```
+
+> Relevant links: [Seal](https://dev.risczero.com/terminology#seal), [Journal](https://dev.risczero.com/terminology#journal)
 
 ## Requesting a proof via the Market CLI
 
@@ -173,28 +197,28 @@ id: 0 # if set to 0, gets overwritten by a random id
 # Specifies the requirements for the delivered proof, including the program that must be run,
 # and the constraints on the journal's value, which define the statement to be proven.
 requirements:
-    imageId: 257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d
-    predicate:
-        predicateType: PrefixMatch
-        data: "57656420"
+	imageId: "722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4"
+	predicate:
+    	predicateType: PrefixMatch
+    	data: "57656420"
 
 # A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.
-imageUrl: https://dweb.link/ipfs/QmTx3vDKicYG5RxzMxrZEiCQJqhpgYNrSFABdVz9ri2m5P
+imageUrl: "https://dweb.link/ipfs/QmTx3vDKicYG5RxzMxrZEiCQJqhpgYNrSFABdVz9ri2m5P"
 
 # Input to be provided to the zkVM guest execution.
 input:
-    inputType: Inline
-    data: "1d000000570000006500000064000000200000004a000000750000006c0000002000000020000000330000002000000031000000340000003a00000033000000370000003a00000031000000320000002000000050000000440000005400000020000000320000003000000032000000340000000a000000"
+	inputType: Inline
+	data: "576564204a756c2020332031343a33373a31322050445420323032340a"
 
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 offer:
-    minPrice: 100000000000000
-    maxPrice: 2000000000000000
-    biddingStart: 0 # if set to 0, gets overwritten by the current block height
-    rampUpPeriod: 1000
-    timeout: 2000
-    lockinStake: 100000000000000
+	minPrice: 100000000000000
+	maxPrice: 2000000000000000
+	biddingStart: 0 # if set to 0, gets overwritten by the current block height
+	rampUpPeriod: 100
+	timeout: 300 # 1 hour at 12s block times.
+	lockinStake: 100000000000000
 ```
 
 To submit a request, run the following from the boundless monorepo main directory:
@@ -224,9 +248,7 @@ An offer contains the following:
 - Timeout (measured in blocks since the start of the bid)
 - Lock-in stake
 
-
 For example, an offer might specify:
-
 
 - Pricing parameters
   - Minimum price: 1 Ether
