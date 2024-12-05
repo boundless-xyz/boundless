@@ -94,7 +94,8 @@ pub struct EventQueryConfig {
 
 impl Default for EventQueryConfig {
     fn default() -> Self {
-        Self { max_iterations: 100, block_range: 100 }
+        // Default values chosen based on the docs and pricing of requests on common RPC providers.
+        Self { max_iterations: 100, block_range: 1000 }
     }
 }
 
