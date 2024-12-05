@@ -43,13 +43,13 @@ let boundless_client = ClientBuilder::default()
 
 For the latest deployment address, please see [Public Deployments](/public-deployments).
 
-> Relevant links: [Sepolia Faucet](https://www.sepoliafaucet.io/), [Sepolia Public RPCs](https://chainlist.org/chain/11155111), [Boundless Deployments Reference](/public-deployments)
+> Relevant links: [Sepolia Faucet](https://www.sepoliafaucet.io), [Sepolia Public RPCs](https://chainlist.org/chain/11155111), [Boundless Deployments Reference](/public-deployments)
 
 ### 2. Upload Program Executable to IPFS
 
 The ELF binary, also known as the image, of the program should be accessible to provers. This is done by uploading the ELF to a compatible storage provider. The supported options are listed in `boundless_market::BuiltInStorageProvider` (see [`BuiltInStorageProvider`](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L46)).
 
-The recommended storage provider is IPFS, specifically through [Pinata](https://pinata.cloud/) (the free tier should be sufficient for most Boundless use cases). To use Pinata, fetch the required JWT credential and set it to the `PINATA_JWT` environment variable in the `.env` file.
+The recommended storage provider is IPFS, specifically through [Pinata](https://pinata.cloud) (the free tier should be sufficient for most Boundless use cases). To use Pinata, fetch the required JWT credential and set it to the `PINATA_JWT` environment variable in the `.env` file.
 
 With the `PINATA_JWT` set, the executable can be uploaded to IPFS with the `upload_image` method:
 
@@ -57,7 +57,7 @@ With the `PINATA_JWT` set, the executable can be uploaded to IPFS with the `uplo
 let image_url = boundless_client.upload_image(ELF).await?;
 ```
 
-### 3. Upload the Input of your program to IPFS
+### 3. Upload the Input of Your Program to IPFS
 
 To execute and run proving, the prover requires the inputs of the program. Similar to the program executable, the program inputs are uploaded to a compatible storage provider. The supported options are listed in `boundless_market::BuiltInStorageProvider` (see [`BuiltInStorageProvider`](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L46)).
 
@@ -69,9 +69,9 @@ With the `PINATA_JWT` set, the inputs can be uploaded to IPFS with the `upload_i
 let image_url = boundless_client.upload_image(ELF).await?;
 ```
 
-> Relevant links: [BuiltInStorageProvider](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L46), [Pinata](https://pinata.cloud/), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload_image for PinataStorageProvider](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L213)
+> Relevant links: [BuiltInStorageProvider](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L46), [Pinata](https://pinata.cloud), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload\_image for PinataStorageProvider](https://github.com/boundless-xyz/boundless/blob/8b6c70d1596c113f7eb0eb137b8932e62065cf0a/crates/boundless-market/src/storage.rs#L213)
 
-### 4. Execute the program to estimate cycles and to get the journal
+### 4. Execute the Program to Estimate Cycles and to Get the Journal
 
 Before sending a proof request, developers should execute the program. This achieves a few separate goals:
 
@@ -151,7 +151,7 @@ This will send the request onchain in a transaction. Using `boundless_client.sub
 
 The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
 
-### 7. Wait for the Request to be Fulfilled
+### 7. Wait for the Request to Be Fulfilled
 
 Once fulfilled, the journal and seal are returned. The journal contains the public outputs of the guest program, and the seal.
 
@@ -167,7 +167,7 @@ let (_journal, seal) = boundless_client
 
 > Relevant links: [Seal](https://dev.risczero.com/terminology#seal), [Journal](https://dev.risczero.com/terminology#journal)
 
-## Requesting a proof via the Market CLI
+## Requesting a Proof via the Market CLI
 
 In some circumstances, submitting a proof request via the command line can be advantageous, such as the early testing.
 
