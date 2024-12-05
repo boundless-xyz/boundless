@@ -7,7 +7,10 @@ use async_stream::stream;
 use boundless_market::order_stream_client::Order;
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgListener, PgPool, PgPoolOptions};
+use sqlx::{
+    postgres::{PgListener, PgPool, PgPoolOptions},
+    types::chrono::{DateTime, Utc},
+};
 use std::pin::Pin;
 use thiserror::Error as ThisError;
 
@@ -44,6 +47,7 @@ pub struct DbOrder {
     pub id: i64,
     #[sqlx(rename = "order_data", json)]
     pub order: Order,
+    pub created_at: DateTime<Utc>,
 }
 
 pub struct OrderDb {
@@ -124,7 +128,7 @@ impl OrderDb {
         }
 
         let res = sqlx::query(
-            "UPDATE brokers SET connections = connections + 1 WHERE addr = $1 AND connections < $2",
+            "UPDATE brokers SET connections = connections + 1, updated_at = NOW() WHERE addr = $1 AND connections < $2",
         )
         .bind(addr.as_slice())
         .bind(MAX_BROKER_CONNECTIONS)
@@ -142,11 +146,28 @@ impl OrderDb {
 
     /// Disconnects a broker, decreasing connection count
     pub async fn disconnect_broker(&self, addr: Address) -> Result<(), OrderDbErr> {
-        let res = sqlx::query("UPDATE brokers SET connections = connections - 1 WHERE addr = $1")
+        let res = sqlx::query(
+            "UPDATE brokers SET connections = connections - 1, updated_at = NOW() WHERE addr = $1",
+        )
+        .bind(addr.as_slice())
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(OrderDbErr::NoRows("disconnect broker"));
+        }
+
+        Ok(())
+    }
+
+    /// Mark the broker as updated by setting the update_at time
+    ///
+    /// Useful for any heartbeats or tracking liveness
+    pub async fn broker_update(&self, addr: Address) -> Result<(), OrderDbErr> {
+        let res = sqlx::query("UPDATE brokers SET updated_at = NOW() WHERE addr = $1")
             .bind(addr.as_slice())
             .execute(&self.pool)
             .await?;
-
         if res.rows_affected() == 0 {
             return Err(OrderDbErr::NoRows("disconnect broker"));
         }
@@ -194,19 +215,23 @@ impl OrderDb {
     /// all listeners of the new order.
     pub async fn add_order(&self, order: Order) -> Result<i64, OrderDbErr> {
         let mut txn = self.pool.begin().await?;
-        let id_res: Option<i64> =
-            sqlx::query_scalar("INSERT INTO orders (order_data) VALUES ($1) RETURNING id")
-                .bind(sqlx::types::Json(order.clone()))
-                .fetch_optional(&mut *txn)
-                .await?;
+        let row_res: Option<(i64, DateTime<Utc>)> = sqlx::query_as(
+            "INSERT INTO orders (order_data, created_at) VALUES ($1, NOW()) RETURNING id, created_at",
+        )
+        .bind(sqlx::types::Json(order.clone()))
+        .fetch_optional(&mut *txn)
+        .await?;
 
-        let Some(id) = id_res else {
+        let Some(row) = row_res else {
             return Err(OrderDbErr::NoRows("new order"));
         };
 
+        let id = row.0;
+        let created_at = row.1;
+
         sqlx::query("SELECT pg_notify($1, $2::text)")
             .bind(ORDER_CHANNEL)
-            .bind(sqlx::types::Json(DbOrder { id, order }))
+            .bind(sqlx::types::Json(DbOrder { id, created_at, order }))
             .execute(&mut *txn)
             .await?;
 
@@ -254,7 +279,6 @@ impl OrderDb {
 
         Ok(Box::pin(stream! {
             while let Some(elm) = listener.try_recv().await? {
-                println!("{}", elm.payload());
                 let order: DbOrder = serde_json::from_str(elm.payload())?;
                 yield Ok(order);
             }
@@ -456,5 +480,23 @@ mod tests {
         let order_id = db.add_order(order).await.unwrap();
         let db_order = task.await.unwrap().unwrap();
         assert_eq!(db_order.id, order_id);
+    }
+
+    #[sqlx::test]
+    async fn broker_update(pool: PgPool) {
+        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
+        let addr = Address::ZERO;
+
+        db.add_broker(addr).await.unwrap();
+        db.broker_update(addr).await.unwrap();
+
+        let db_nonce: Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>> =
+            sqlx::query_scalar("SELECT updated_at FROM brokers WHERE addr = $1")
+                .bind(addr.as_slice())
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+
+        assert!(db_nonce.is_some());
     }
 }

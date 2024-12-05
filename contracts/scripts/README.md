@@ -185,9 +185,11 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
 ### Upgrade the market contract
 
-1. If changed, upload the new `assessor` elf and update its imageID and url in the `deployment.toml` file (optional)
+1. Git clone and forge build the last deployment, then copy the `contracts/out/build-info` folder into `contracts/reference-contract/build-info-reference`
 
-2. Dry run the upgrade of the market implementation and proxy:
+2. If changed, upload the new `assessor` elf and update its imageID and url in the `deployment.toml` file (optional)
+
+3. Dry run the upgrade of the market implementation and proxy:
 
    ```zsh
    BOUNDLESS_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
@@ -201,18 +203,18 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > Also check the chain ID to ensure you are deploying to the chain you expect.
    > And check the Assessor info to make sure they match what you expect.
 
-3. Send the upgrade transactions for the market contract by running the command again with `--broadcast`.
+4. Send the upgrade transactions for the market contract by running the command again with `--broadcast`.
 
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
 
-4. Load the upgraded BoundlessMarket (proxy) address into the environment:
+5. Load the upgraded BoundlessMarket (proxy) address into the environment:
 
    ```zsh
    export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].market" contracts/deployment.toml | tee /dev/stderr)
    ```
 
-5. Test the deployment.
+6. Test the deployment.
 
    ```bash
    cast call --rpc-url ${RPC_URL:?} \

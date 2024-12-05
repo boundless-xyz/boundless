@@ -894,7 +894,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "assessor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -2330,7 +2330,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3765,9 +3765,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-binfmt"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b955226bf6eb5c253033d53b1df0e1dcde70a6fcb99b2a5675af3bd382bcc761"
+checksum = "901fb75d62d70320adc7adae2abad354a3b7565603115dfb3134465227846475"
 dependencies = [
  "anyhow",
  "borsh",
@@ -3780,9 +3780,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-build"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ca637f7e7fa674adcc9c054b4cbb8db9b72cd7ffc83c3946daa362506a7c123"
+checksum = "f99fb40aeeaf59dddd6b6c3a177c95e8b3c7f0fb6de7d25a0687d12398323292"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -3810,9 +3810,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd7691a27b9f1f605c9c456cb7f9e5136e2fe52d9d3a59dd96f12c28ef47e358"
+checksum = "d8b0736401dd72a60a775e675bd0adba2e0e0e2ce2b73b63fda2899d9d7889b0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3825,9 +3825,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cbc12e1239b0140c6123f0e3f558a6a27260d09840c986e671b4f26afc73109"
+checksum = "6b6d7eb9ae600c2df004bf8849db2df870fd56bd5911a2ad756fb8701350b3c6"
 dependencies = [
  "anyhow",
  "metal",
@@ -3841,9 +3841,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-core"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2532188911aad4c2302029f8df217137881fec213c71a8776581ba6f2d6bfbbe"
+checksum = "733491635d50b742d1f30a923aa3b83d62f35cef724bbf402dfc02e6f10f587a"
 dependencies = [
  "bytemuck",
  "rand_core",
@@ -3864,9 +3864,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b0a96017f756c512d7d7409a46a15f12fe98b90a3f56d117d3e4148bf28a891"
+checksum = "d5babc69b0db6906a6ff4011641109ca2ba06636096356b32208b0dfb26b3809"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -3885,9 +3885,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkp"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3fb399c51a971357aa83826d8b3476a8730b38a7f061a1fd1fbde61ad8062c1"
+checksum = "21eadc5099bf0d8ecaed718810dc5deaf237ae39a2fcb66e542e8f9660132617"
 dependencies = [
  "anyhow",
  "blake2",
@@ -3909,9 +3909,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39d05fc65302f675d6211aa34be0d750ae4bfc4c93982b9f60748f15dc91478f"
+checksum = "2b619085d02d57dcafc41eb74714682797ed666621ced1814c55bbe7ae7762ba"
 dependencies = [
  "anyhow",
  "bincode",
@@ -3942,9 +3942,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm-platform"
-version = "1.2.0-rc.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d447ce26b96637d7822ced6f82d65c2e72741f5258fecb6a59640b21f39f8dcc"
+checksum = "26bbcc486222a0086d36244ae1f388cac1318270bca2dd23d77af2005d679edf"
 dependencies = [
  "bytemuck",
  "getrandom",
