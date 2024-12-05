@@ -663,11 +663,11 @@ mod tests {
             tx_timeout: None,
             command: Command::SubmitRequest {
                 storage_config: Some(StorageProviderConfig::dev_mode()),
-                yaml_request: "../../request.yaml".to_string(),
+                yaml_request: "../../request.yaml".to_string().into(),
                 id: None,
                 wait: false,
                 offchain: None,
-                preflight: false,
+                no_preflight: false,
             },
         };
 
