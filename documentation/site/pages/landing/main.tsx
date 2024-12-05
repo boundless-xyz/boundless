@@ -1,7 +1,7 @@
 export default function Main() {
   return (
-    <div className="fixed inset-0 bg-[url('/bg-light.jpg')] bg-background bg-center bg-cover bg-no-repeat p-8 pt-[60px] dark:bg-[url('/bg-dark.jpg')]">
-      <div className="relative z-10 flex animate-fade-in flex-col items-center justify-center py-24">
+    <div className="fixed inset-0 bg-[url('/bg-light.jpg')] bg-background bg-center bg-cover bg-no-repeat p-8 pt-[60px]">
+      <div className="relative z-10 flex animate-fade-in flex-col items-center justify-center pt-16 pb-24">
         <h1 className="mb-4 text-center font-bold text-5xl">
           Build <span className="font-normal font-serif">where you are,</span> with the power of ZK.
         </h1>

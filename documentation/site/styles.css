@@ -155,6 +155,10 @@ body {
   @apply bg-transparent;
 }
 
+[data-layout="landing"] .vocs_DesktopTopNav_hideCompact {
+  @apply hidden;
+}
+
 :where(html:not(.dark)) .vocs_Sidebar_sectionTitle {
   @apply font-bold;
 }
