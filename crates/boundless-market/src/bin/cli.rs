@@ -42,7 +42,6 @@ use boundless_market::{
     storage::{StorageProvider, StorageProviderConfig},
 };
 
-// TODO(victor): Update corresponding docs
 // TODO(victor): Make it possible to specify global args (e.g. RPC URL) before or after the
 // command.
 #[derive(Subcommand, Clone, Debug)]
