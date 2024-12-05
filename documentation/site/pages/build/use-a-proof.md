@@ -7,7 +7,7 @@ description: After receiving the Boundless proof, you are ready to use it in you
 
 > Prerequisite Reading: [Request a Proof](/build/request-a-proof), [Proof Lifecycle](/introduction/proof-lifecycle)
 
-After [requesting a proof](/build/request-a-proof), the next step is to use that proof in the application's workflow. The exact way proofs are used will vary depending on the architecture of the application. However, there is a common pattern; once a proof is received from the Boundless market, the next step will be to verify that proof onchain.
+After [requesting a proof](/build/request-a-proof), the next step is to use that proof in the application's workflow. The exact way proofs are used will vary depending on the architecture of the application. However, there is a common pattern; once a proof is received from the Boundless market, the next step will be to verify that proof on-chain.
 
 @TODO--PICTURE\_GOES\_HERE
 

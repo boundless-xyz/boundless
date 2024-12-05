@@ -16,7 +16,7 @@ With Boundless, developers can create new applications or enhance existing ones 
 
 ## Core Services
 
-Core Services are the engine powering the most performant, reliable and cost-efficient proof delivery to your protocol onchain. Boundless abstracts away the complexities of launching and maintaining a ZK application, providing a seamless experience while ensuring access to top-tier ZK infrastructure. These services include:
+Core Services are the engine powering the most performant, reliable and cost-efficient proof delivery to your protocol on-chain. Boundless abstracts away the complexities of launching and maintaining a ZK application, providing a seamless experience while ensuring access to top-tier ZK infrastructure. These services include:
 
 ### Proving
 
@@ -24,7 +24,7 @@ Proof any program through a decentralized proof marketplace. Competitive proving
 
 ### Aggregation
 
-Reduce onchain verification costs by up to 95% through proof aggregation. Multiple proofs are combined before settlement, dramatically lowering costs while maintaining security.
+Reduce on-chain verification costs by up to 95% through proof aggregation. Multiple proofs are combined before settlement, dramatically lowering costs while maintaining security.
 
 ### Settlement
 
@@ -32,7 +32,7 @@ Developing, deploying, and maintaining market and verifier contracts across mult
 
 ## Extensions
 
-Boundless Extensions are purpose-built tools that plug ZK capabilities directly into your existing stack. These integration tools accelerate development and expand functionality, whether you’re building rollups, enhancing existing applications, or exploring new possibilities. Extensions are organized by common use cases:
+Boundless Extensions are purpose-built tools that plug ZK capabilities directly into your existing stack. These integration tools accelerate development and expand functionality, whether you're building rollups, enhancing existing applications, or exploring new possibilities. Extensions are organized by common use cases:
 
 - [**For Rollups**](#for-rollups): Extensions that make deploying a rollup easier within Boundless, such as a full rollup stack, integrations for existing rollup ecosystems and alt-DA support.
 - [**For EVM Developers**](#for-evm-developers): Make EVM application development easier with Solidity execution in the zkVM and additional abstractions through 3rd parties.
@@ -57,9 +57,9 @@ Fast-track your ZK rollup development with a pre-built type-1 zkEVM.
 
 #### [Steel](https://risczero.com/steel)
 
-Steel is a production-ready smart contract execution prover designed to bring boundless runtime to all EVM apps. Using execution proofs, Steel enables EVM apps to run offchain, while preserving onchain security. With Steel, you can prove correct smart contract execution without re-execution, allowing blockchain developers unbounded computation over on-chain data.
+Steel is a production-ready smart contract execution prover designed to bring boundless runtime to all EVM apps. Using execution proofs, Steel enables EVM apps to run off-chain, while preserving on-chain security. With Steel, you can prove correct smart contract execution without re-execution, allowing blockchain developers unbounded computation over on-chain data.
 
-[Visit Steel’s Getting Started guide](https://github.com/risc0/risc0-ethereum/tree/main/steel#getting-started-with-steel).
+[Visit Steel's Getting Started guide](https://github.com/risc0/risc0-ethereum/tree/main/steel#getting-started-with-steel).
 
 #### [Vlayer](https://book.vlayer.xyz)
 

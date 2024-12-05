@@ -23,12 +23,12 @@ For some more intermediate and advanced reading on the zkVM, please refer to:
 - [The RISC Zero STARK Protocol](https://dev.risczero.com/proof-system/proof-system-sequence-diagram)
 
 :::tip[Tip]
-If you have any technical questions about the zkVM, please join [RISC Zero’s Discord](https://discord.com/invite/risczero) and ask away. 👋
+If you have any technical questions about the zkVM, please join [RISC Zero's Discord](https://discord.com/invite/risczero) and ask away. 👋
 :::
 
 ## Boundless Foundry Template
 
-The Boundless Foundry Template builds on [RISC Zero’s Foundry Template](https://github.com/risc0/risc0-foundry-template) to incorporate Boundless with a simple example app. It consists of three main parts:
+The Boundless Foundry Template builds on [RISC Zero's Foundry Template](https://github.com/risc0/risc0-foundry-template) to incorporate Boundless with a simple example app. It consists of three main parts:
 
 - the zkVM program, [`is-even`](#is-even)
 - the application smart contract, [`EvenNumber.sol`](#evennumbersol)
@@ -46,7 +46,7 @@ The example app executes the following steps:
 
 The zkVM program for this example app is a simple program that takes an input number, checks if it is even and if so, outputs the number to the public outputs of the computation (known as the [journal](https://dev.risczero.com/terminology#journal)).
 
-The entire program is only \~20 lines, so let’s run through it:
+The entire program is only \~20 lines, so let's run through it:
 
 ### `is-even`
 

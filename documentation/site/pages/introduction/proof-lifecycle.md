@@ -11,7 +11,7 @@ description: The lifecycle of a proof on Boundless.
 Please refer to the [Boundless Terminology](/terminology) page, and the [zkVM Terminology](https://dev.risczero.com/terminology) page for any unfamiliar terms.
 :::
 
-On this page, the entirety of a proof’s lifetime in the Boundless Market is covered; starting from a proof request to bid submission and lock in by a prover, through to proof submission and finally to proof verification.
+On this page, the entirety of a proof's lifetime in the Boundless Market is covered; starting from a proof request to bid submission and lock in by a prover, through to proof submission and finally to proof verification.
 
 This overview is aimed at app developers i.e. requestors, and therefore for simplicity, it will abstract some complexity away from the specifics of provers. This will be covered in its entirety at a later stage for public access testnet.
 
@@ -42,13 +42,13 @@ With a zkVM program ready, the app developer will require some way to carry out 
 
 > For more zkVM documentation, please see Getting Started with the zkVM and @TODO: missing link here.
 
-### 2. The app developer (requestor) broadcasts a proof request to the Boundless market
+### 2. The App Developer (Requestor) Broadcasts a Proof Request to the Boundless Market
 
 The app developer will start the proving process by requesting a proof from the Boundless Market.
 
-Requests can be sent onchain, in a transaction to the market contract, or off-chain through the order-stream server depending on the user’s censorship-resistance requirements. When submitting a request off-chain, they should first deposit funds to the market to cover the maximum price in their offer.
+Requests can be sent on-chain, in a transaction to the market contract, or off-chain through the order-stream server depending on the user's censorship-resistance requirements. When submitting a request off-chain, they should first deposit funds to the market to cover the maximum price in their offer.
 
-The bid matching mechanism used by the market is a [reverse dutch auction](https://en.wikipedia.org/wiki/Reverse_auction#:~:text=as%20the%20buyers.-,Dutch%20reverse%20auctions,then%20gradually%20increases%20over%20time.). An application submits a proof request that contains parameters specifying the program to be proven, the input, and an offer.
+The bid matching mechanism used by the market is a [reverse dutch auction](https://en.wikipedia.org/wiki/Reverse_auction#Dutch_reverse_auctions). An application submits a proof request that contains parameters specifying the program to be proven, the input, and an offer.
 
 #### Offer Details
 
@@ -123,7 +123,7 @@ From the moment the request is broadcast to the start of bidding, the auction pr
 
 When the prover submits their bid, the auction ends and they “lock-in” the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
 
-However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application’s requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g. higher than the total supply of ETH).
+However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g. higher than the total supply of ETH).
 
 An unlocked request can be directly fulfilled, without first being locked. When this happens, the prover will be paid according to the auction price at that moment.
 
@@ -134,25 +134,25 @@ Provers will calculate the minimum price at which they are willing to prove a re
 - Timeout length, determining how long they have to complete the proof.
 - Input and program size, determining bandwidth costs to download the request.
 
-It is also worth noting that the prover’s software will download the ELF binary, from the request’s image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.
+It is also worth noting that the prover's software will download the ELF binary, from the request's image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.
 
 _If the program fails to execute (e.g. the guest panics) the prover will not bid._
 
-### 4. The prover submits an aggregated proof, and upon successful verification, the reward is released to the prover.
+### 4. The Prover Submits an Aggregated Proof, and Upon Successful Verification, the Reward Is Released to the Prover
 
-To be paid the request reward, and for their lock-in stake to be returned, the prover must submit the proof prior to the offer’s expiration.
+To be paid the request reward, and for their lock-in stake to be returned, the prover must submit the proof prior to the offer's expiration.
 
 #### Provers Batch Proof Requests
 
-The proof submitted by the prover is an aggregated proof, which proves a batch of program executions. Why is Boundless designed like this? The direct goal of aggregation is to amortize the cost of expensive proof verification onchain, both for the requestor and the prover.
+The proof submitted by the prover is an aggregated proof, which proves a batch of program executions. Why is Boundless designed like this? The direct goal of aggregation is to amortize the cost of expensive proof verification on-chain, both for the requestor and the prover.
 
-Let’s start with an assumption: the prover has locked themselves into a number of individual proof requests. A naive implementation would be to have the prover generate a proof for each proof request, send each proof onchain and pay gas for each verification. This would work, but it would cause a lot of needless expense; the prover has to send each individual proof onchain to the market contract. This will rack up expensive gas costs, affecting the efficiency of the market.
+Let's start with an assumption: the prover has locked themselves into a number of individual proof requests. A naive implementation would be to have the prover generate a proof for each proof request, send each proof on-chain and pay gas for each verification. This would work, but it would cause a lot of needless expense; the prover has to send each individual proof on-chain to the market contract. This will rack up expensive gas costs, affecting the efficiency of the market.
 
-Starting with the provers, a clear solution is to batch the proof requests together. Instead of proving one request, sending that proof onchain, and moving onto the next request, the prover can work on multiple proof requests and prove each one without interruption, submitting one aggregated proof for the whole batch.
+Starting with the provers, a clear solution is to batch the proof requests together. Instead of proving one request, sending that proof on-chain, and moving onto the next request, the prover can work on multiple proof requests and prove each one without interruption, submitting one aggregated proof for the whole batch.
 
-#### Prover Submits the Requested Proof Onchain
+#### Prover Submits the Requested Proof On-Chain
 
-In order to fulfill a batch of requests, and receive payment, the prover provides an aggregated proof. This aggregated proof is constructed as a Merkle tree, where the leaves are the proofs for the individual requests in the batch. At the root is a single Groth16 proof that attests to the validity of all proofs in the batch. Each individual request has a Merkle inclusion proof linking it to the root. Once the root is verified, the result is cached and the Merkle inclusion proofs are cheap to verify onchain.
+In order to fulfill a batch of requests, and receive payment, the prover provides an aggregated proof. This aggregated proof is constructed as a Merkle tree, where the leaves are the proofs for the individual requests in the batch. At the root is a single Groth16 proof that attests to the validity of all proofs in the batch. Each individual request has a Merkle inclusion proof linking it to the root. Once the root is verified, the result is cached and the Merkle inclusion proofs are cheap to verify on-chain.
 
 When the prover submits the aggregated proof, the Market contract verifies it and pays the prover if all conditions are met. At the same time, the contract emits an event that signals to the requestor that their request is fulfilled, and provides the Merkle inclusion proof.
 
@@ -160,7 +160,7 @@ When the prover submits the aggregated proof, the Market contract verifies it an
 The requestor can use this Merkle inclusion proof as an effective representation of a verified execution, and use it as such in their application.
 :::
 
-### 5. The app developer retrieves their proof, to use in their application.
+### 5. The App Developer Retrieves Their Proof, to Use in Their Application
 
 When the prover fulfills their request, the requestor will (the app developer) will receive their proof.
 

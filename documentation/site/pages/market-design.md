@@ -9,13 +9,13 @@ description: Market contract, order matching, and more.
 
 Market operations such as the auction and settlement are implemented in a smart contract.
 
-### Request placement
+### Request Placement
 
 Request broadcast: Requestors will initiate an request by broadcasting a ProvingRequest to the provers. Requestors have a choice of two broadcast channels depending on their needs:
 
 Broadcast via EVM calldata. This has the highest possible assurance for data availability and censorship resistance.
 
-Broadcast via an offchain broadcast channel. This has the lowest cost and latency.
+Broadcast via an off-chain broadcast channel. This has the lowest cost and latency.
 
 Off-chain broadcast channel is not a requirement for the initial MVP deployment. It is however important to keep it in mind. Submitting a request cannot alter EVM state.
 
@@ -49,13 +49,13 @@ In order to settle the requesr and receive payment, the prover must submit a rec
 
 ### Aggregation and Verification Caching
 
-One of the most expensive parts of using a SNARK in a smart contract application is the verification cost. This cost is amortized across a batch of requests by recursively verifying a set of receipts, and constructing a Merkle tree over the claims for efficient inclusion proofs. Additionally, it is assumed that the requestor will use the receipt they receive to drive onchain functionality which will require them to verify the receipt as part of that application flow. In order to guarantee this is efficient, the market uses a set verifier that caches the root of the receipt claim Merkle tree, and the receipt used by the application is a Merkle inclusion path against that root.
+One of the most expensive parts of using a SNARK in a smart contract application is the verification cost. This cost is amortized across a batch of requests by recursively verifying a set of receipts, and constructing a Merkle tree over the claims for efficient inclusion proofs. Additionally, it is assumed that the requestor will use the receipt they receive to drive on-chain functionality which will require them to verify the receipt as part of that application flow. In order to guarantee this is efficient, the market uses a set verifier that caches the root of the receipt claim Merkle tree, and the receipt used by the application is a Merkle inclusion path against that root.
 
 ## Proof Aggregation
 
 Verification of SNARKs in the EVM is expensive. In the case of our Groth16 receipts, it costs around 250k gas, which makes it the largest single cost for more applications.
 
-In order to amortize this onchain verification cost, we use recursive verification to verify a set of receipts such that a single receipt attests to every claim in the set. In order to make inclusion proofs efficient, this process builds a binary Merkle tree of the receipt claims.
+In order to amortize this on-chain verification cost, we use recursive verification to verify a set of receipts such that a single receipt attests to every claim in the set. In order to make inclusion proofs efficient, this process builds a binary Merkle tree of the receipt claims.
 
 ### Set Verifier Contract
 
