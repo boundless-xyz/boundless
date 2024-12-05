@@ -59,10 +59,8 @@ def compare_bytecodes(artifact1_path, artifact2_path):
 
     # Compare the normalized bytecodes
     if normalized1 == normalized2:
-        print("The smart contracts are functionally equivalent.")
         return True
     else:
-        print("The smart contracts are NOT functionally equivalent.")
         return False
 
 def run_forge_build():
@@ -112,10 +110,10 @@ def check_bytecode_diffs(file_list, target_folder):
             continue
 
         if not compare_bytecodes(file_path, target_path):
-            print(f"Files differ: {file_path} != {target_path}")
+            print(f"NOT functionally equivalent: {file_path} != {target_path}")
             all_match = False
         else:
-            print(f"Files match: {file_path} == {target_path}")
+            print(f"functionally equivalent: {file_path} == {target_path}")
 
     if not all_match:
         raise RuntimeError("Differences detected between compiled contracts and artifacts.")
