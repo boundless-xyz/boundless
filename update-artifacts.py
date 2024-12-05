@@ -23,8 +23,8 @@ def load_bytecode_from_artifact(artifact_path):
         with open(artifact_path, 'r') as file:
             artifact = json.load(file)
 
-            # Extract the bytecode or deployedBytecode fields
-            bytecode = artifact.get("deployedBytecode") or artifact.get("bytecode")
+            # Extract the bytecode field
+            bytecode = artifact.get("bytecode")
             if not bytecode:
                 raise ValueError(f"Bytecode not found in {artifact_path}")
 
