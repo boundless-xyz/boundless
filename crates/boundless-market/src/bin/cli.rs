@@ -3,7 +3,12 @@
 // All rights reserved.
 #[cfg(feature = "cli")]
 use std::{
-    borrow::Cow, fs::File, io::BufReader, num::ParseIntError, path::PathBuf, time::Duration,
+    borrow::Cow,
+    fs::File,
+    io::BufReader,
+    num::ParseIntError,
+    path::{Path, PathBuf},
+    time::Duration,
 };
 
 use alloy::{
@@ -38,6 +43,8 @@ use boundless_market::{
 };
 
 // TODO(victor): Update corresponding docs
+// TODO(victor): Make it possible to specify global args (e.g. RPC URL) before or after the
+// command.
 #[derive(Subcommand, Clone, Debug)]
 enum Command {
     /// Deposit funds into the market
@@ -66,7 +73,7 @@ enum Command {
         #[clap(flatten)]
         storage_config: StorageProviderConfig,
         /// Path to a YAML file containing the request
-        yaml_request: String,
+        yaml_request: PathBuf,
         /// Optional identifier for the request
         id: Option<u32>,
         /// Wait until the request is fulfilled
@@ -76,9 +83,9 @@ enum Command {
         #[clap(short, long)]
         offchain: Option<Url>,
         /// Use the RISC Zero zkvm executor to run the program
-        /// without submitting the request
-        #[clap(long, default_value = "false")]
-        dry_run: bool,
+        /// before submitting the request
+        #[clap(long, default_value = "true")]
+        preflight: bool,
     },
     /// Slash a prover for a given request
     Slash {
@@ -105,11 +112,24 @@ enum Command {
         /// The block number at which the request expires
         expires_at: Option<u64>,
     },
-    /// Execute a submitted proof request using the RISC Zero zkVM executor
+    /// Execute a proof request using the RISC Zero zkVM executor.
     Execute {
-        /// The proof request identifier
-        request_id: U256,
-        /// The tx hash of the request submission
+        /// Path to a YAML file containing the request.
+        ///
+        /// If provided, the request will be loaded from the given file path.
+        #[arg(long, conflicts_with_all = ["request_id", "tx_hash"])]
+        request_path: Option<PathBuf>,
+
+        /// The proof request identifier.
+        ///
+        /// If provided, the request will be fetched from the blockchain.
+        #[arg(long, conflicts_with = "request_path")]
+        request_id: Option<U256>,
+
+        /// The tx hash of the request submission.
+        ///
+        /// If provided along with request-id, uses the transaction hash to find the request.
+        #[arg(long, conflicts_with = "request_path", requires = "request_id")]
         tx_hash: Option<B256>,
     },
 }
@@ -120,7 +140,7 @@ struct SubmitOfferArgs {
     #[clap(flatten)]
     storage_config: StorageProviderConfig,
     /// Path to a YAML file containing the offer
-    yaml_offer: String,
+    yaml_offer: PathBuf,
     /// Optional identifier for the request
     id: Option<u32>,
     /// Wait until the request is fulfilled
@@ -130,9 +150,9 @@ struct SubmitOfferArgs {
     #[clap(short, long)]
     offchain: Option<Url>,
     /// Use the RISC Zero zkvm executor to run the program
-    /// without submitting the request
+    /// before submitting the request
     #[clap(long, default_value = "false")]
-    dry_run: bool,
+    preflight: bool,
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
@@ -259,7 +279,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
 
             request_id = submit_offer(client, &offer_args).await?;
         }
-        Command::SubmitRequest { storage_config, yaml_request, id, wait, offchain, dry_run } => {
+        Command::SubmitRequest { storage_config, yaml_request, id, wait, offchain, preflight } => {
             let id = match id {
                 Some(id) => id,
                 None => boundless_market.index_from_rand().await?,
@@ -275,7 +295,8 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .build()
                 .await?;
 
-            request_id = submit_request(id, yaml_request, client, wait, offchain, dry_run).await?;
+            request_id =
+                submit_request(id, yaml_request, client, wait, offchain, preflight).await?;
         }
         Command::Slash { request_id } => {
             boundless_market.slash(request_id).await?;
@@ -304,8 +325,16 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             let status = boundless_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
         }
-        Command::Execute { request_id, tx_hash } => {
-            let (request, _) = boundless_market.get_submitted_request(request_id, tx_hash).await?;
+        Command::Execute { request_id, request_path, tx_hash } => {
+            let request: ProofRequest = if let Some(file_path) = request_path {
+                let file = File::open(file_path).context("failed to open request file")?;
+                let reader = BufReader::new(file);
+                serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
+            } else if let Some(request_id) = request_id {
+                boundless_market.get_submitted_request(request_id, tx_hash).await?.0
+            } else {
+                bail!("execute requires either a request file path or request ID")
+            };
             let session_info = execute(&request).await?;
             let journal = session_info.journal.bytes;
             if !request.requirements.predicate.eval(&journal) {
@@ -328,6 +357,7 @@ where
     P: Provider<T, Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
+    // TODO(victor): Execute the request before sending it.
     // Read the YAML offer file
     let file = File::open(&args.yaml_offer)?;
     let reader = BufReader::new(file);
@@ -407,14 +437,14 @@ where
 
     tracing::debug!("Request: {}", serde_json::to_string_pretty(&request)?);
 
-    if args.dry_run {
+    if args.preflight {
+        tracing::info!("Running request preflight");
         let session_info = execute(&request).await?;
         let journal = session_info.journal.bytes;
         if !request.requirements.predicate.eval(&journal) {
             bail!("Predicate evaluation failed");
         }
-        tracing::info!("Dry-run succeeded.");
-        return Ok(None);
+        tracing::debug!("Preflight succeeded");
     }
 
     let request_id = if args.offchain.is_some() {
@@ -443,19 +473,20 @@ where
 
 async fn submit_request<T, P, S>(
     id: u32,
-    request_path: String,
+    request_path: impl AsRef<Path>,
     client: Client<T, P, S>,
     wait: bool,
     offchain: Option<Url>,
-    dry_run: bool,
+    preflight: bool,
 ) -> Result<Option<U256>>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
+    // TODO(victor): Execute the request before sending it.
     // Read the YAML request file
-    let file = File::open(request_path).context("failed to open request file")?;
+    let file = File::open(request_path.as_ref()).context("failed to open request file")?;
     let reader = BufReader::new(file);
     let mut request_yaml: ProofRequest =
         serde_yaml::from_reader(reader).context("failed to parse request from YAML")?;
@@ -486,13 +517,14 @@ where
         request.id = request_yaml.id;
     }
 
-    if dry_run {
+    if preflight {
+        tracing::info!("Running request preflight");
         let session_info = execute(&request).await?;
         let journal = session_info.journal.bytes;
         if !request.requirements.predicate.eval(&journal) {
             bail!("Predicate evaluation failed");
         }
-        tracing::info!("Dry-run succeeded.");
+        tracing::debug!("Preflight succeeded");
         return Ok(None);
     }
 
@@ -616,7 +648,7 @@ mod tests {
                 id: None,
                 wait: false,
                 offchain: None,
-                dry_run: false,
+                preflight: false,
             },
         };
 
