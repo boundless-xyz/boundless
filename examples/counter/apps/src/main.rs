@@ -14,6 +14,7 @@ use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    input::InputBuilder,
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -119,8 +120,8 @@ async fn run(
     // accepts only unique proofs. Using the same input twice would result in the same proof.
     let timestamp = format! {"{:?}", SystemTime::now()};
 
-    // Upload the input to the storage provider.
-    let input = timestamp.as_bytes();
+    // Encode the input and upload it to the storage provider.
+    let input = InputBuilder::new().write_slice(&timestamp.as_bytes()).build();
     let input_url = boundless_client.upload_input(&input).await?;
     tracing::info!("Uploaded input to {}", input_url);
 

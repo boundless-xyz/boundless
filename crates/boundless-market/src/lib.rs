@@ -13,6 +13,8 @@ pub use alloy;
 pub mod client;
 pub mod contracts;
 #[cfg(not(target_os = "zkvm"))]
+pub mod input;
+#[cfg(not(target_os = "zkvm"))]
 pub mod order_stream_client;
 #[cfg(not(target_os = "zkvm"))]
 pub mod storage;

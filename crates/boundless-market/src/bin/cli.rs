@@ -39,6 +39,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, Input, InputType, Offer, Predicate,
         PredicateType, ProofRequest, Requirements,
     },
+    input::InputBuilder,
     storage::{StorageProvider, StorageProviderConfig},
 };
 
@@ -395,11 +396,8 @@ where
         (None, Some(input_file)) => std::fs::read(input_file)?,
         _ => bail!("exactly one of input or input-file args must be provided"),
     };
-    let encoded_input = if args.encode_input {
-        bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?)
-    } else {
-        input
-    };
+    let encoded_input =
+        if args.encode_input { InputBuilder::new().write(&input)?.build() } else { input };
 
     // Resolve the predicate from the command line arguments.
     let predicate: Predicate = match (&args.reqs.journal_digest, &args.reqs.journal_prefix) {
@@ -665,11 +663,11 @@ mod tests {
             tx_timeout: None,
             command: Command::SubmitRequest {
                 storage_config: Some(StorageProviderConfig::dev_mode()),
-                yaml_request: "../../request.yaml".to_string(),
+                yaml_request: "../../request.yaml".to_string().into(),
                 id: None,
                 wait: false,
                 offchain: None,
-                preflight: false,
+                no_preflight: false,
             },
         };
 
