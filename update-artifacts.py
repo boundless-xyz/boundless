@@ -1,47 +1,69 @@
 import json
+import re
 import os
 import shutil
-import filecmp
 import subprocess
 import sys
-from deepdiff import DeepDiff  # Install with: pip install deepdiff
 
-def compare_field(file1, file2, field) -> bool:
-    """Compare a specific field between two JSON files."""
+def normalize_bytecode(bytecode):
+    """
+    Normalize bytecode by removing metadata and auxiliary sections.
+    """
+    if not isinstance(bytecode, str):
+        raise ValueError(f"Invalid bytecode: expected string, got {type(bytecode)}")
+
+    # Remove metadata (last 43 bytes of the runtime bytecode if present)
+    return re.sub(r"a165627a7a72305820[a-fA-F0-9]{64}0029$", "", bytecode)
+
+def load_bytecode_from_artifact(artifact_path):
+    """
+    Load bytecode from the artifact JSON file.
+    """
     try:
-        # Load JSON files
-        with open(file1, 'r') as f1, open(file2, 'r') as f2:
-            json1 = json.load(f1)
-            json2 = json.load(f2)
+        with open(artifact_path, 'r') as file:
+            artifact = json.load(file)
 
-        # Extract the specified field
-        value1 = json1
-        value2 = json2
+            # Extract the bytecode or deployedBytecode fields
+            bytecode = artifact.get("deployedBytecode") or artifact.get("bytecode")
+            if not bytecode:
+                raise ValueError(f"Bytecode not found in {artifact_path}")
 
-        # Traverse the JSON to find the specified field
-        for key in field.split('.'):
-            value1 = value1.get(key) if isinstance(value1, dict) else None
-            value2 = value2.get(key) if isinstance(value2, dict) else None
+            # Handle cases where the bytecode field might contain additional metadata
+            if isinstance(bytecode, dict):
+                bytecode = bytecode.get("object")
+                if not bytecode:
+                    raise ValueError(f"Invalid bytecode format in {artifact_path}")
 
-        if value1 is None or value2 is None:
-            print(f"Field '{field}' not found in one or both files.")
-            return
-
-        # Compare the extracted values
-        differences = DeepDiff(value1, value2, verbose_level=2)
-        if differences:
-            print(f"Differences in field '{field}':")
-            print(json.dumps(differences, indent=4))
-            return False
-        else:
-            return True
-
-    except FileNotFoundError as e:
-        print(f"Error: {e}")
+            return bytecode
+    except FileNotFoundError:
+        print(f"Error: Artifact file not found: {artifact_path}")
+        sys.exit(1)
     except json.JSONDecodeError as e:
-        print(f"Error parsing JSON: {e}")
+        print(f"Error: Failed to parse JSON in {artifact_path}: {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error while loading bytecode: {e}")
+        sys.exit(1)
+
+def compare_bytecodes(artifact1_path, artifact2_path):
+    """
+    Compare bytecodes from two artifact JSON files.
+    """
+    # Load bytecodes from artifacts
+    bytecode1 = load_bytecode_from_artifact(artifact1_path)
+    bytecode2 = load_bytecode_from_artifact(artifact2_path)
+
+    # Normalize the bytecodes
+    normalized1 = normalize_bytecode(bytecode1)
+    normalized2 = normalize_bytecode(bytecode2)
+
+    # Compare the normalized bytecodes
+    if normalized1 == normalized2:
+        print("The smart contracts are functionally equivalent.")
+        return True
+    else:
+        print("The smart contracts are NOT functionally equivalent.")
+        return False
 
 def run_forge_build():
     """Run `forge build` command."""
@@ -89,7 +111,7 @@ def check_bytecode_diffs(file_list, target_folder):
             all_match = False
             continue
 
-        if not compare_field(file_path, target_path, "bytecode"):
+        if not compare_bytecodes(file_path, target_path):
             print(f"Files differ: {file_path} != {target_path}")
             all_match = False
         else:
