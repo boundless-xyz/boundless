@@ -9,11 +9,21 @@ def get_bytecode(artifact):
     """Extract bytecode from Forge artifact structure"""
     return artifact.get('bytecode', {}).get('object', '')
 
+# This function removes metadata that the Solidity compiler adds to bytecode
 def normalize_bytecode(bytecode: str) -> str:
     """Remove metadata and constructor data"""
     bytecode = bytecode.replace('0x', '')
+    # Removes IPFS metadata:
+    # 64697066735822 = "ipfs" in hex
+    # 64736f6c6343 = Solidity compiler version marker
+    # 0033 = metadata terminator
     bytecode = re.sub(r'64697066735822[0-9a-f]+64736f6c6343[0-9a-f]+0033$', '', bytecode)
+    # Removes older Solidity metadata format:
+    # a165627a7a723058 = metadata marker
+    # [0-9a-f]{64} = 32-byte hash
+    # 0029 = old terminator
     bytecode = re.sub(r'a165627a7a72305820[0-9a-f]{64}0029$', '', bytecode)
+    # Removes any remaining basic metadata terminators
     bytecode = re.sub(r'0033$', '', bytecode)
     return bytecode
 
