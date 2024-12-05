@@ -1,8 +1,11 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - "v*.*.*"
   pull_request:
-    branches: ["release-*"]
+    *branches: ["release-*"]
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +15,7 @@ concurrency:
 permissions:
   id-token: write
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -40,7 +43,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0-rc.2'
+          risczero-version: '1.2.0'
           toolchain-version: 'r0.1.81.0'
 
       - name: forge build
@@ -58,7 +61,7 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
         
-  upload-assessor-elf:
+  assessor-elf:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     steps:
       - name: checkout code
@@ -85,7 +88,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0-rc.2'
+          risczero-version: '1.2.0'
           toolchain-version: 'r0.1.81.0'
 
       - name: forge build
@@ -98,13 +101,11 @@ jobs:
           RISC0_USE_DOCKER: 1
 
       - name: image ID check
-        continue-on-error: true
         id: image_id_check
         run: bash image-id-check.sh
 
       - name: upload to Pinata
         id: pinata_upload
-        if: ${{ steps.image_id_check.outcome == 'failure' }}
         run: |
           response=$(curl -H "Authorization: Bearer ${{ secrets.PINATA_JWT }}" --request POST \
           --url 'https://api.pinata.cloud/pinning/pinFileToIPFS?=&=' \
@@ -114,13 +115,3 @@ jobs:
           echo "Response: $response"
           id=$(echo "$response" | jq -r '.IpfsHash')
           echo "::set-output name=pinata_id::$id"
-
-      - name: Post PR Comment
-        if: ${{ github.event_name == 'pull_request' }} && ${{ steps.image_id_check.outcome == 'failure' }}
-        run: |
-          id=${{ steps.pinata_upload.outputs.pinata_id }}
-          curl -s -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Content-Type: application/json" \
-              -X POST \
-              -d '{"body": "Assessor ELF pinned to IPFS - https://gateway.pinata.cloud/ipfs/'"$id"'"}' \
-              "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
