@@ -32,7 +32,7 @@ This overview is aimed at app developers i.e. requestors, and therefore for simp
 
 ### 1. The App Developer Writes a Program for the zkVM
 
-> see Build A Program, and Getting Started with the zkVM.  @TODO: missing links here
+> see [Build A Program](/build/build-a-program), and [Getting Started with the zkVM](https://dev.risczero.com/api/zkvm/quickstart).
 
 The app developer begins their Boundless journey by writing an application for the zkVM in Rust. The zkVM provides a zero-knowledge proof of the correct execution of this program. A proof of execution is a receipt; it contains the output― the journal and the cryptographic proof - the seal. The seal is the cryptographic proof. In [zkVM terminology](https://dev.risczero.com/terminology#seal), the seal usually refers to a zk-STARK or SNARK. In Boundless, the seal is a Merkle inclusion proof into an aggregated proof.
 
@@ -40,7 +40,7 @@ With a zkVM program ready, the app developer will require some way to carry out 
 
 > To read more about the specifics of the proofs returned from the Boundless market, please see [Use a Proof](/build/use-a-proof).
 
-> For more zkVM documentation, please see Getting Started with the zkVM and @TODO: missing link here.
+> For more zkVM documentation, please see [Getting Started with the zkVM](https://dev.risczero.com/api/zkvm/quickstart).
 
 ### 2. The App Developer (Requestor) Broadcasts a Proof Request to the Boundless Market
 
@@ -72,7 +72,7 @@ For example, an offer might specify:
 - Timeout: 100 blocks
 - Lock-in stake: 0.5 Ether
 
-For more details, please see Request a Proof #Offers and Rewards.  @TODO: figure out this link
+For more details, please see [Pricing a Request](/build/request-a-proof#pricing-a-request).
 
 #### BoundlessMarket.sol - `submitRequest`
 
@@ -170,7 +170,7 @@ let (_journal, seal) = boundless_client
    .await?;
 ```
 
-The journal is the public output of the program, and the seal is the cryptographic proof. Since Boundless uses aggregated proofs, the seal will be a Merkle inclusion proof, but verification works the same as for Groth16: the application contract sends the seal to the verifier contract.  We recommend using the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier), which will allow your application to seamlessly use both Groth16 and Merkle inclusion proofs. Below is an example from the Boundless Foundry Template:
+The journal is the public output of the program, and the seal is the cryptographic proof. Since Boundless uses aggregated proofs, the seal will be a Merkle inclusion proof, but verification works the same as for Groth16: the application contract sends the seal to the verifier contract. We recommend using the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier), which will allow your application to seamlessly use both Groth16 and Merkle inclusion proofs. Below is an example from the Boundless Foundry Template:
 
 ```rust
 /// @notice Set the even number stored on the contract. Requires a RISC Zero proof that the number is even.

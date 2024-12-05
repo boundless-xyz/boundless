@@ -11,7 +11,7 @@ After [requesting a proof](/build/request-a-proof), the next step is to use that
 
 @TODO--PICTURE\_GOES\_HERE
 
-It is recommended that the application contract calls the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier) for verification. This allows handling many types of proofs, and proof system versions seamlessly. In Boundless, the seal, which is often a zk-STARK or SNARK,  will usually be Merkle inclusion proof into an aggregated proof. These Merkle inclusion proofs are cheap to verify, and reuse a cached verification result from a batch of proofs verified with a single SNARK.
+It is recommended that the application contract calls the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier) for verification. This allows handling many types of proofs, and proof system versions seamlessly. In Boundless, the seal, which is often a zk-STARK or SNARK, will usually be Merkle inclusion proof into an aggregated proof. These Merkle inclusion proofs are cheap to verify, and reuse a cached verification result from a batch of proofs verified with a single SNARK.
 
 ## Proof Verification
 
