@@ -5,69 +5,32 @@ import shutil
 import subprocess
 import sys
 
-def normalize_bytecode(bytecode):
-    """
-    Normalize bytecode by removing metadata and auxiliary sections.
-    """
-    if not isinstance(bytecode, str):
-        raise ValueError(f"Invalid bytecode: expected string, got {type(bytecode)}")
+def get_bytecode(artifact):
+    """Extract bytecode from Forge artifact structure"""
+    return artifact.get('bytecode', {}).get('object', '')
 
-    # Remove metadata (last 43 bytes of the runtime bytecode if present)
-    # Solidity appends this as a swarm hash or metadata hash
-    bytecode = re.sub(r"a165627a7a72305820[a-fA-F0-9]{64}0029$", "", bytecode)
-
-    # Remove auxiliary metadata sections (e.g., ipfs hash, compiler version, etc.)
-    bytecode = re.sub(r"(?<=6080604052).+80$", "", bytecode)  # Example heuristic for normalization
-
+def normalize_bytecode(bytecode: str) -> str:
+    """Remove metadata and constructor data"""
+    bytecode = bytecode.replace('0x', '')
+    bytecode = re.sub(r'64697066735822[0-9a-f]+64736f6c6343[0-9a-f]+0033$', '', bytecode)
+    bytecode = re.sub(r'a165627a7a72305820[0-9a-f]{64}0029$', '', bytecode)
+    bytecode = re.sub(r'0033$', '', bytecode)
     return bytecode
 
-def load_bytecode_from_artifact(artifact_path):
-    """
-    Load bytecode from the artifact JSON file.
-    """
-    try:
-        with open(artifact_path, 'r') as file:
-            artifact = json.load(file)
+def compare_contracts(path1, path2) -> bool:
+    with open(path1) as f1, open(path2) as f2:
+        artifact1 = json.load(f1)
+        artifact2 = json.load(f2)
 
-            # Extract the bytecode field
-            bytecode = artifact.get("bytecode")
-            if not bytecode:
-                raise ValueError(f"Bytecode not found in {artifact_path}")
+    bytecode1 = get_bytecode(artifact1)
+    bytecode2 = get_bytecode(artifact2)
+    
+    norm1 = normalize_bytecode(bytecode1)
+    norm2 = normalize_bytecode(bytecode2)
 
-            # Handle cases where the bytecode field might contain additional metadata
-            if isinstance(bytecode, dict):
-                bytecode = bytecode.get("object")
-                if not bytecode:
-                    raise ValueError(f"Invalid bytecode format in {artifact_path}")
-
-            return bytecode
-    except FileNotFoundError:
-        print(f"Error: Artifact file not found: {artifact_path}")
-        sys.exit(1)
-    except json.JSONDecodeError as e:
-        print(f"Error: Failed to parse JSON in {artifact_path}: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Unexpected error while loading bytecode: {e}")
-        sys.exit(1)
-
-def compare_bytecodes(artifact1_path, artifact2_path):
-    """
-    Compare bytecodes from two artifact JSON files.
-    """
-    # Load bytecodes from artifacts
-    bytecode1 = load_bytecode_from_artifact(artifact1_path)
-    bytecode2 = load_bytecode_from_artifact(artifact2_path)
-
-    # Normalize the bytecodes
-    normalized1 = normalize_bytecode(bytecode1)
-    normalized2 = normalize_bytecode(bytecode2)
-
-    # Compare the normalized bytecodes
-    if normalized1 == normalized2:
-        return True
-    else:
+    if norm1 != norm2:
         return False
+    return True
 
 def run_forge_build():
     """Run `forge build` command."""
@@ -115,11 +78,11 @@ def check_bytecode_diffs(file_list, target_folder):
             all_match = False
             continue
 
-        if not compare_bytecodes(file_path, target_path):
+        if not compare_contracts(file_path, target_path):
             print(f"NOT functionally equivalent: {file_path} != {target_path}")
             all_match = False
         else:
-            print(f"functionally equivalent: {file_path} == {target_path}")
+            print(f"Functionally equivalent: {file_path} == {target_path}")
 
     if not all_match:
         raise RuntimeError("Differences detected between compiled contracts and artifacts.")
