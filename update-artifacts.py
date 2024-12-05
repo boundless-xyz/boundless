@@ -13,7 +13,13 @@ def normalize_bytecode(bytecode):
         raise ValueError(f"Invalid bytecode: expected string, got {type(bytecode)}")
 
     # Remove metadata (last 43 bytes of the runtime bytecode if present)
-    return re.sub(r"a165627a7a72305820[a-fA-F0-9]{64}0029$", "", bytecode)
+    # Solidity appends this as a swarm hash or metadata hash
+    bytecode = re.sub(r"a165627a7a72305820[a-fA-F0-9]{64}0029$", "", bytecode)
+
+    # Remove auxiliary metadata sections (e.g., ipfs hash, compiler version, etc.)
+    bytecode = re.sub(r"(?<=6080604052).+80$", "", bytecode)  # Example heuristic for normalization
+
+    return bytecode
 
 def load_bytecode_from_artifact(artifact_path):
     """
