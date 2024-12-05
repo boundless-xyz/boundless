@@ -15,7 +15,7 @@ On this page, the entirety of a proof's lifetime in the Boundless Market is cove
 
 This overview is aimed at app developers i.e. requestors, and therefore for simplicity, it will abstract some complexity away from the specifics of provers. This will be covered in its entirety at a later stage for public access testnet.
 
-@TODO--PICTURE\_GOES\_HERE
+![Proof Lifecycle](/proof-lifecycle.png)
 
 > Figure 1: A process diagram following the lifecycle of a proof chronologically in the Boundless Market.
 
@@ -121,7 +121,7 @@ After a proof request is broadcast, a reverse Dutch auction runs according to th
 
 From the moment the request is broadcast to the start of bidding, the auction price is the minimum specified in the offer. During the ramp-up period, the price is increased linearly up to the maximum price. After the ramp-up period the price stays at the max price until the request expires. At any time, a prover can submit a bid, accepting the current price and winning the auction. Because the price only increases, the first bid is the best price for the requestor.
 
-When the prover submits their bid, the auction ends and they “lock-in” the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
+When the prover submits their bid, the auction ends and they "lock-in" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
 
 However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g. higher than the total supply of ETH).
 

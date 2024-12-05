@@ -12,7 +12,7 @@ Boundless is the first universal ZK protocol that transforms how developers buil
 
 With Boundless, developers can create new applications or enhance existing ones with unlimited compute. Keep your preferred languages and tools, deploy to any chain, and scale automatically, all while Boundless handles the underlying infrastructure.
 
-@TODO--PICTURE\_GOES\_HERE
+![Boundless Protocol](/protocol.png)
 
 ## Core Services
 

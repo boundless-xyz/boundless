@@ -115,6 +115,10 @@ body {
   @apply bg-inherit;
 }
 
+.vocs_Content img {
+  @apply rounded-md;
+}
+
 .vocs_Logo {
   @apply object-contain;
 }

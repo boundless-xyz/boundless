@@ -42,7 +42,7 @@ The example app executes the following steps:
 3. Retrieves the proof from Boundless.
 4. Sends the proof to the application contract.
 
-@TODO--PICTURE\_GOES\_HERE
+![Boundless Foundry Template](/boundless-foundry-template.png)
 
 The zkVM program for this example app is a simple program that takes an input number, checks if it is even and if so, outputs the number to the public outputs of the computation (known as the [journal](https://dev.risczero.com/terminology#journal)).
 

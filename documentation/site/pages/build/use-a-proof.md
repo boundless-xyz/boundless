@@ -9,7 +9,7 @@ description: After receiving the Boundless proof, you are ready to use it in you
 
 After [requesting a proof](/build/request-a-proof), the next step is to use that proof in the application's workflow. The exact way proofs are used will vary depending on the architecture of the application. However, there is a common pattern; once a proof is received from the Boundless market, the next step will be to verify that proof on-chain.
 
-@TODO--PICTURE\_GOES\_HERE
+<!-- @TODO--PICTURE\_GOES\_HERE -->
 
 It is recommended that the application contract calls the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier) for verification. This allows handling many types of proofs, and proof system versions seamlessly. In Boundless, the seal, which is often a zk-STARK or SNARK, will usually be Merkle inclusion proof into an aggregated proof. These Merkle inclusion proofs are cheap to verify, and reuse a cached verification result from a batch of proofs verified with a single SNARK.
 

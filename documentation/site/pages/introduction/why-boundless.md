@@ -7,11 +7,11 @@ description: A story of re-execution - ZK execution vs Blockchain Execution
 
 A story of re-execution: ZK execution vs Blockchain Execution
 
-Traditionally, blockchains rely on a “global re-execution” model, where every node redundantly processes every transaction to achieve consensus on the network's state. While this model is secure and transparent, it creates a fundamental constraint: the network is limited by the slowest node. This means the collective computational capacity of all nodes is underutilized. The result is that blockchains can only handle simple computations, with anything complex becoming too expensive or hitting gas limits.
+Traditionally, blockchains rely on a "global re-execution" model, where every node redundantly processes every transaction to achieve consensus on the network's state. While this model is secure and transparent, it creates a fundamental constraint: the network is limited by the slowest node. This means the collective computational capacity of all nodes is underutilized. The result is that blockchains can only handle simple computations, with anything complex becoming too expensive or hitting gas limits.
 
-@TODO--PICTURE\_GOES\_HERE
+![Execution Model](/execution-model.png)
 
-**The Solution: Decoupling Execution from Consensus.**
+## The Solution: Decoupling Execution From Consensus
 
 Boundless transforms this model using zero-knowledge proofs. Instead of being limited by the slowest node, the network can harness the total collective capacity of all nodes. Each node generates execution proofs that any blockchain can verify without re-execution. The underlying networks maintain their security and consensus while eliminating redundant computation.
 
