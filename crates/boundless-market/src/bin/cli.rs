@@ -21,7 +21,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::Transport,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use guest_util::ECHO_ELF;
 use hex::FromHex;
@@ -82,10 +82,10 @@ enum Command {
         /// Submit the request offchain via the provided order stream service url
         #[clap(short, long)]
         offchain: Option<Url>,
-        /// Use the RISC Zero zkvm executor to run the program
-        /// before submitting the request
-        #[clap(long, default_value = "true")]
-        preflight: bool,
+        /// Preflight uses the RISC Zero zkvm executor to run the program
+        /// before submitting the request. Set no-preflight to skip.
+        #[clap(long, default_value = "false")]
+        no_preflight: bool,
     },
     /// Slash a prover for a given request
     Slash {
@@ -149,10 +149,10 @@ struct SubmitOfferArgs {
     /// Submit the request offchain via the provided order stream service url
     #[clap(short, long)]
     offchain: Option<Url>,
-    /// Use the RISC Zero zkvm executor to run the program
-    /// before submitting the request
+    /// Preflight uses the RISC Zero zkvm executor to run the program
+    /// before submitting the request. Set no-preflight to skip.
     #[clap(long, default_value = "false")]
-    preflight: bool,
+    no_preflight: bool,
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
@@ -279,7 +279,14 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
 
             request_id = submit_offer(client, &offer_args).await?;
         }
-        Command::SubmitRequest { storage_config, yaml_request, id, wait, offchain, preflight } => {
+        Command::SubmitRequest {
+            storage_config,
+            yaml_request,
+            id,
+            wait,
+            offchain,
+            no_preflight,
+        } => {
             let id = match id {
                 Some(id) => id,
                 None => boundless_market.index_from_rand().await?,
@@ -296,7 +303,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .await?;
 
             request_id =
-                submit_request(id, yaml_request, client, wait, offchain, preflight).await?;
+                submit_request(id, yaml_request, client, wait, offchain, !no_preflight).await?;
         }
         Command::Slash { request_id } => {
             boundless_market.slash(request_id).await?;
@@ -437,13 +444,14 @@ where
 
     tracing::debug!("Request: {}", serde_json::to_string_pretty(&request)?);
 
-    if args.preflight {
+    if !args.no_preflight {
         tracing::info!("Running request preflight");
         let session_info = execute(&request).await?;
         let journal = session_info.journal.bytes;
-        if !request.requirements.predicate.eval(&journal) {
-            bail!("Predicate evaluation failed");
-        }
+        ensure!(
+            request.requirements.predicate.eval(&journal),
+            "Predicate evaluation failed; journal does not match requirements"
+        );
         tracing::debug!("Preflight succeeded");
     }
 
@@ -506,7 +514,7 @@ where
     let mut request = ProofRequest::new(
         id,
         &client.signer.address(),
-        request_yaml.requirements,
+        request_yaml.requirements.clone(),
         &request_yaml.imageUrl,
         request_yaml.input,
         request_yaml.offer,
@@ -521,11 +529,21 @@ where
         tracing::info!("Running request preflight");
         let session_info = execute(&request).await?;
         let journal = session_info.journal.bytes;
-        if !request.requirements.predicate.eval(&journal) {
-            bail!("Predicate evaluation failed");
+        if let Some(claim) = session_info.receipt_claim {
+            ensure!(
+                claim.pre.digest().as_bytes() == request_yaml.requirements.imageId.as_slice(),
+                "image ID in requirements does not match the given ELF: {} != {}",
+                claim.pre.digest(),
+                request_yaml.requirements.imageId
+            );
+        } else {
+            tracing::debug!("cannot check image id; session info doesn't have receipt claim");
         }
+        ensure!(
+            request.requirements.predicate.eval(&journal),
+            "Predicate evaluation failed; journal does not match requirements"
+        );
         tracing::debug!("Preflight succeeded");
-        return Ok(None);
     }
 
     let request_id = if offchain.is_some() {
