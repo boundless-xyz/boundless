@@ -32,9 +32,6 @@ fn copy_artifacts() {
             fs::copy(target_path, dest_path.join(format!("{contract}.json"))).unwrap();
         }
     }
-
-    fs::copy(src_path.join("BoundlessMarket.json"), dest_path.join("BoundlessMarket.json"))
-        .unwrap();
 }
 
 // NOTE: if alloy ever fixes https://github.com/alloy-rs/core/issues/688 this build script
