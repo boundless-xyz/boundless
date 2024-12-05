@@ -107,10 +107,11 @@ jobs:
       - name: upload to Pinata
         id: pinata_upload
         run: |
+          commit_hash=$(git rev-parse HEAD)
           response=$(curl -H "Authorization: Bearer ${{ secrets.PINATA_JWT }}" --request POST \
           --url 'https://api.pinata.cloud/pinning/pinFileToIPFS?=&=' \
           --header 'Content-Type: multipart/form-data' \
-          --form 'pinataMetadata={  "name": "assessor-guest"}' \
+          --form "pinataMetadata={ \"name\": \"assessor-guest-${commit_hash}\" }" \
           --form file=@target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest)
           echo "Response: $response"
           id=$(echo "$response" | jq -r '.IpfsHash')
