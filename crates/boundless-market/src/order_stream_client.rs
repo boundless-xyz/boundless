@@ -8,7 +8,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use async_stream::stream;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures_util::{SinkExt, Stream, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,9 @@ pub struct OrderData {
     pub id: i64,
     /// Order data
     pub order: Order,
+    /// Time the order was submitted
+    #[schema(value_type = String)]
+    pub created_at: DateTime<Utc>,
 }
 
 /// Nonce object for authentication to order-stream websocket
