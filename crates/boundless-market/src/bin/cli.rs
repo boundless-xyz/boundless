@@ -21,7 +21,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::Transport,
 };
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use guest_util::ECHO_ELF;
 use hex::FromHex;
@@ -79,9 +79,12 @@ enum Command {
         /// Wait until the request is fulfilled
         #[clap(short, long, default_value = "false")]
         wait: bool,
-        /// Submit the request offchain via the provided order stream service url
-        #[clap(short, long)]
-        offchain: Option<Url>,
+        /// Submit the request offchain via the provided order stream service url.
+        #[clap(short, long, requires = "order_stream_url")]
+        offchain: bool,
+        /// Offchain order stream service URL to submit offchain requests to.
+        #[clap(long, env)]
+        order_stream_url: Option<Url>,
         /// Preflight uses the RISC Zero zkvm executor to run the program
         /// before submitting the request. Set no-preflight to skip.
         #[clap(long, default_value = "false")]
@@ -146,9 +149,12 @@ struct SubmitOfferArgs {
     /// Wait until the request is fulfilled
     #[clap(short, long, default_value = "false")]
     wait: bool,
-    /// Submit the request offchain via the provided order stream service url
-    #[clap(short, long)]
-    offchain: Option<Url>,
+    /// Submit the request offchain via the provided order stream service url.
+    #[clap(short, long, requires = "order_stream_url")]
+    offchain: bool,
+    /// Offchain order stream service URL to submit offchain requests to.
+    #[clap(long, env, default_value = "https://order-stream.beboundless.xyz")]
+    order_stream_url: Option<Url>,
     /// Preflight uses the RISC Zero zkvm executor to run the program
     /// before submitting the request. Set no-preflight to skip.
     #[clap(long, default_value = "false")]
@@ -266,13 +272,22 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Balance of {addr}: {}", format_ether(balance));
         }
         Command::SubmitOffer(offer_args) => {
+            let order_stream_url = offer_args
+                .offchain
+                .then_some(
+                    offer_args
+                        .order_stream_url
+                        .clone()
+                        .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
+                )
+                .transpose()?;
             let client = ClientBuilder::default()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
                 .with_set_verifier_address(args.set_verifier_address)
-                .with_storage_provider_config(offer_args.clone().storage_config)
-                .with_order_stream_url(offer_args.clone().offchain)
+                .with_storage_provider_config(offer_args.storage_config.clone())
+                .with_order_stream_url(order_stream_url)
                 .with_timeout(args.tx_timeout)
                 .build()
                 .await?;
@@ -285,18 +300,25 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             id,
             wait,
             offchain,
+            order_stream_url,
             no_preflight,
         } => {
             let id = match id {
                 Some(id) => id,
                 None => boundless_market.index_from_rand().await?,
             };
+            let order_stream_url = offchain
+                .then_some(
+                    order_stream_url
+                        .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
+                )
+                .transpose()?;
             let client = ClientBuilder::default()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
                 .with_set_verifier_address(args.set_verifier_address)
-                .with_order_stream_url(offchain.clone())
+                .with_order_stream_url(order_stream_url.clone())
                 .with_storage_provider_config(storage_config)
                 .with_timeout(args.tx_timeout)
                 .build()
@@ -454,7 +476,7 @@ where
         tracing::debug!("Preflight succeeded");
     }
 
-    let request_id = if args.offchain.is_some() {
+    let request_id = if args.offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -483,7 +505,7 @@ async fn submit_request<T, P, S>(
     request_path: impl AsRef<Path>,
     client: Client<T, P, S>,
     wait: bool,
-    offchain: Option<Url>,
+    offchain: bool,
     preflight: bool,
 ) -> Result<Option<U256>>
 where
@@ -547,7 +569,7 @@ where
         tracing::debug!("Preflight succeeded");
     }
 
-    let request_id = if offchain.is_some() {
+    let request_id = if offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -666,7 +688,8 @@ mod tests {
                 yaml_request: "../../request.yaml".to_string().into(),
                 id: None,
                 wait: false,
-                offchain: None,
+                offchain: false,
+                order_stream_url: None,
                 no_preflight: false,
             },
         };
