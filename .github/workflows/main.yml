@@ -95,6 +95,9 @@ jobs:
         run: forge build
         working-directory: contracts
 
+      - name: contracts artifacts check
+        run: python update-artifacts.py check
+
       - name: cargo check
         run: cargo check
 

@@ -514,25 +514,25 @@ pub mod test_utils {
     alloy::sol!(
         #![sol(rpc)]
         MockVerifier,
-        "../../contracts/out/RiscZeroMockVerifier.sol/RiscZeroMockVerifier.json"
+        "src/contracts/artifacts/RiscZeroMockVerifier.json"
     );
 
     alloy::sol!(
         #![sol(rpc)]
         SetVerifier,
-        "../../contracts/out/RiscZeroSetVerifier.sol/RiscZeroSetVerifier.json"
+        "src/contracts/artifacts/RiscZeroSetVerifier.json"
     );
 
     alloy::sol!(
         #![sol(rpc)]
         BoundlessMarket,
-        "../../contracts/out/BoundlessMarket.sol/BoundlessMarket.json"
+        "src/contracts/artifacts/BoundlessMarket.json"
     );
 
     alloy::sol!(
         #![sol(rpc)]
         ERC1967Proxy,
-        "../../contracts/out/ERC1967Proxy.sol/ERC1967Proxy.json"
+        "src/contracts/artifacts/ERC1967Proxy.json"
     );
 
     // Note: I was completely unable to solve this with generics or trait objects
