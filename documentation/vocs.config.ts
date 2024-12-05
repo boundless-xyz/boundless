@@ -44,10 +44,6 @@ const SIDEBAR_CONFIG = [
     collapsed: false,
     items: [
       {
-        text: "FAQ",
-        link: "/faq",
-      },
-      {
         text: "Market Design",
         link: "/market-design",
       },
@@ -62,10 +58,6 @@ const SIDEBAR_CONFIG = [
       {
         text: "Public Deployments",
         link: "/public-deployments",
-      },
-      {
-        text: "RISC Zero's zkVM",
-        link: "/risc-zero-zkvm",
       },
       {
         text: "Smart Contracts",
