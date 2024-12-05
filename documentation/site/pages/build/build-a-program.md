@@ -5,12 +5,12 @@ description: This page covers the Boundless Foundry Template program as a quick 
 
 # Build a Program
 
-At its core, Boundless allows app developers to receive zero-knowledge (ZK) proofs for their programs. Before [requesting a proof](/build/request-a-proof), developers should have a program that compiles and executes successfully. This page covers the [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) program as a quick start.
+At its core, Boundless allows app developers to receive zero-knowledge (ZK) proofs for their programs. Before [requesting a proof](/build/request-a-proof), developers should have a program that compiles and executes successfully. This page covers the Boundless Foundry Template as a quick start.
 
-If you want to read more about the zkVM as a beginner, it is highly recommended to read the following pages on the [zkVM dev docs](https://dev.risczero.com/api):
+If you want to read more about the zkVM, it is highly recommended to read the following pages on the [zkVM dev docs](https://dev.risczero.com/api):
 
 - [Introduction](https://dev.risczero.com/api)
-- [What is a zkVM program?](https://dev.risczero.com/api/zkvm)
+- [What is a zkVM Program?](https://dev.risczero.com/api/zkvm)
 - zkVM
   - [Installation](https://dev.risczero.com/api/zkvm/install)
   - [Quick Start](https://dev.risczero.com/api/zkvm/quickstart)
@@ -18,27 +18,37 @@ If you want to read more about the zkVM as a beginner, it is highly recommended 
 
 For some more intermediate and advanced reading on the zkVM, please refer to:
 
-- [Optimizing your zkVM program](https://dev.risczero.com/api/zkvm/profiling)
+- [Optimizing your zkVM Program](https://dev.risczero.com/api/zkvm/profiling)
 - [zkVM Technical Specification](https://dev.risczero.com/api/zkvm/zkvm-specification)
 - [The RISC Zero STARK Protocol](https://dev.risczero.com/proof-system/proof-system-sequence-diagram)
 
-:::tip
-If you have any technical questions about the zkVM, please join [RISC Zero's Discord](https://discord.com/invite/risczero) and ask away. 🗣️
+:::tip[Tip]
+If you have any technical questions about the zkVM, please join [RISC Zero’s Discord](https://discord.com/invite/risczero) and ask away. 👋
 :::
 
 ## Boundless Foundry Template
 
-The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) builds on [RISC Zero's Foundry Template](https://github.com/risc0/risc0-foundry-template) to incorporate Boundless with a simple example app. It consists of three main parts:
+The Boundless Foundry Template builds on [RISC Zero’s Foundry Template](https://github.com/risc0/risc0-foundry-template) to incorporate Boundless with a simple example app. It consists of three main parts:
 
-1. The zkVM program, [`is-even`](#guestsis-evensrcmainrs)
-2. The application smart contract, [`EvenNumber.sol`](#contractssrcevennumbersol)
-3. The application backend, [`app`](#appssrcmainrs)
+- the zkVM program, [`is-even`](#is-even)
+- the application smart contract, [`EvenNumber.sol`](#evennumbersol)
+- the application backend, [`app`](#appssrcmainrs)
+- [`guests/is-even/src/main.rs`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/guests/is-even/src/main.rs)
 
-### [`guests/is-even/src/main.rs`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/guests/is-even/src/main.rs)
+The example app executes the following steps:
+
+1. Uploads the guest program and creates the proof request.
+2. Sends the proof request to Boundless.
+3. Retrieves the proof from Boundless.
+4. Sends the proof to the application contract.
+
+@TODO--PICTURE\_GOES\_HERE
 
 The zkVM program for this example app is a simple program that takes an input number, checks if it is even and if so, outputs the number to the public outputs of the computation (known as the [journal](https://dev.risczero.com/terminology#journal)).
 
-The entire program is only \~20 lines, so let's run through it:
+The entire program is only \~20 lines, so let’s run through it:
+
+### `is-even`
 
 ```rust
 use std::io::Read;
@@ -93,7 +103,7 @@ fn main() {
 
 Finally, if the number is even, the assert will pass and the number can be committed to the [journal](https://dev.risczero.com/terminology#journal).
 
-### [`contracts/src/EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
+### [`EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
 
 The `EvenNumber` smart contract holds a `uint256` variable called `number`. This number is guaranteed to be even, however the smart contract itself never checks the number's parity directly. It verifies a ZK proof of a program that has checked if the number is even. This is done in the `set` function:
 
@@ -144,3 +154,7 @@ The app is run as a CLI, with the arguments:
 - `even_number_address`: Deployed `EvenNumber` contract address.
 - `set_verifier_address`: Deployed `SetVerifier` contract address.
 - `proof_market_address`: Deployed `ProofMarket` contract address.
+
+For the relevant contract address, please see the [Public Deployments](/public-deployments) page.
+
+For a detailed walkthrough of this app file, please refer to [Request A Proof](/build/request-a-proof), where every step of this program is explained in detail.

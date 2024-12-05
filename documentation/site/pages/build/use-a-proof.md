@@ -1,9 +1,9 @@
 ---
-title: Use a Proof in Your App
+title: Use a Proof
 description: After receiving the Boundless proof, you are ready to use it in your app to access verifiable compute directly.
 ---
 
-# Use a Proof in Your App
+# Use a Proof
 
 > Prerequisite Reading: [Request A Proof](/build/request-a-proof), [Proof Lifecycle](/introduction/proof-lifecycle)
 

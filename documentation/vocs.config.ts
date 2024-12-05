@@ -30,16 +30,12 @@ const SIDEBAR_CONFIG = [
         link: "/build/build-a-program",
       },
       {
-        text: "Extensions",
-        link: "/build/extensions",
-      },
-      {
         text: "Request a Proof",
         link: "/build/request-a-proof",
       },
       {
-        text: "Use a Proof in Your App",
-        link: "/build/use-a-proof-in-your-app",
+        text: "Use a Proof",
+        link: "/build/use-a-proof",
       },
     ],
   },
