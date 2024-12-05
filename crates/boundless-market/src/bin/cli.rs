@@ -379,7 +379,9 @@ where
             .get_block_number()
             .await
             .context("Failed to get block number")?;
-        offer = Offer { biddingStart: latest_block, ..offer };
+        // NOTE: Adding a bit of a delay to bidding start lets provers see and evaluate the request
+        // before the price starts to ramp up. 3 is an arbirary value.
+        offer = Offer { biddingStart: latest_block + 3, ..offer };
     }
 
     // Resolve the ELF and input from command line arguments.
@@ -507,7 +509,9 @@ where
             .get_block_number()
             .await
             .context("Failed to get block number")?;
-        request_yaml.offer = Offer { biddingStart: latest_block, ..request_yaml.offer };
+        // NOTE: Adding a bit of a delay to bidding start lets provers see and evaluate the request
+        // before the price starts to ramp up. 3 is an arbirary value.
+        request_yaml.offer = Offer { biddingStart: latest_block + 3, ..request_yaml.offer };
     }
 
     let mut request = ProofRequest::new(
