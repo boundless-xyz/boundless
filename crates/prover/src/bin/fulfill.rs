@@ -163,12 +163,11 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             // If the request is not locked in, we need to "price" which checks the requirements
             // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
             // and empty if the request is locked.
-            let requests_to_price: Vec<ProofRequest> = boundless_market
-                .is_locked_in(request_id)
-                .await?
-                .then_some(order.request)
-                .into_iter()
-                .collect();
+            let requests_to_price: Vec<ProofRequest> =
+                (!boundless_market.is_locked_in(request_id).await?)
+                    .then_some(order.request)
+                    .into_iter()
+                    .collect();
 
             match boundless_market
                 .price_and_fulfill_batch(
