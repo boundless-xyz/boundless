@@ -1,17 +1,18 @@
 ---
 title: Why Boundless?
-description: How Boundless redefines blockchain execution with ZK-powered verifiable computing.
+description: A story of re-execution - ZK execution vs Blockchain Execution
 ---
 
 # Why Boundless?
 
 A story of re-execution: ZK execution vs Blockchain Execution
-Traditional blockchains rely on a "global re-execution" model, where every node redundantly processes every transaction to achieve consensus on the network's state. This model, while secure and transparent, places strict limits on computation because each node must repeat the same operations. The result is capped throughput and high costs, which constrain high-demand applications and make complex on-chain computations unsustainable.
+
+Traditionally, blockchains rely on a “global re-execution” model, where every node redundantly processes every transaction to achieve consensus on the network’s state. While this model is secure and transparent, it creates a fundamental constraint: the network is limited by the slowest node. This means the collective computational capacity of all nodes is underutilized. The result is that blockchains can only handle simple computations, with anything complex becoming too expensive or hitting gas limits.
 
 @TODO--PICTURE\_GOES\_HERE
 
-Boundless redefines blockchain execution with ZK-powered verifiable computing to break through these limitations. Rather than requiring every node to re-execute transactions, Boundless enables a single node to handle the computation and generate a zero-knowledge proof verifying its correctness. This proof is then verified by the network, ensuring consensus with minimal re-execution. This decoupling of execution from verification, drastically reduces the computation each node must perform.
+**The Solution: Decoupling Execution from Consensus.**
 
-@TODO--PICTURE\_GOES\_HERE
+Boundless transforms this model using zero-knowledge proofs. Instead of being limited by the slowest node, the network can harness the total collective capacity of all nodes. Each node generates execution proofs that any blockchain can verify without re-execution. The underlying networks maintain their security and consensus while eliminating redundant computation.
 
-Boundless enables "abundant compute" on any blockchain by leveraging a decentralized proof market to handle complex computations and generate succinct, reusable proofs. These proofs, verified on-chain, act as building blocks for innovation while driving efficiency through aggregation as demand grows. With each new prover on the market adding capacity and each new application amplifying benefits, the network strengthens and scales, creating a self-reinforcing system of increasing computational power and efficiency.
+Boundless enables abundant compute on any blockchain by leveraging a decentralized market to handle complex computations and generate succinct, reusable proofs. These proofs, verified onchain, act as building blocks for innovation while driving efficiency through aggregation as demand grows. With each new prover on the market adding capacity and each new application amplifying benefits, the network strengthens and scales, creating a self-reinforcing system of increasing computational power and efficiency.
