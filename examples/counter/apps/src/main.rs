@@ -24,6 +24,7 @@ use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    input::InputBuilder,
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -57,7 +58,7 @@ struct Args {
     order_stream_url: Option<Url>,
     /// Storage provider to use
     #[clap(flatten)]
-    storage_config: StorageProviderConfig,
+    storage_config: Option<StorageProviderConfig>,
     /// Private key used to interact with the Counter contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -91,7 +92,7 @@ async fn main() -> Result<()> {
         args.private_key,
         args.rpc_url,
         args.order_stream_url,
-        &args.storage_config,
+        args.storage_config,
         args.boundless_market_address,
         args.set_verifier_address,
         args.counter_address,
@@ -105,7 +106,7 @@ async fn run(
     private_key: PrivateKeySigner,
     rpc_url: Url,
     order_stream_url: Option<Url>,
-    storage_config: &StorageProviderConfig,
+    storage_config: Option<StorageProviderConfig>,
     boundless_market_address: Address,
     set_verifier_address: Address,
     counter_address: Address,
@@ -116,7 +117,7 @@ async fn run(
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)
         .with_order_stream_url(order_stream_url)
-        .with_storage_provider_config(storage_config)
+        .with_storage_provider_config(storage_config.clone())
         .with_private_key(private_key)
         .build()
         .await?;
@@ -129,8 +130,8 @@ async fn run(
     // accepts only unique proofs. Using the same input twice would result in the same proof.
     let timestamp = format! {"{:?}", SystemTime::now()};
 
-    // Upload the input to the storage provider.
-    let input = timestamp.as_bytes();
+    // Encode the input and upload it to the storage provider.
+    let input = InputBuilder::new().write_slice(&timestamp.as_bytes()).build();
     let input_url = boundless_client.upload_input(&input).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
@@ -288,7 +289,7 @@ mod tests {
                 ctx.customer_signer,
                 anvil.endpoint_url(),
                 None,
-                &StorageProviderConfig::dev_mode(),
+                Some(StorageProviderConfig::dev_mode()),
                 ctx.boundless_market_addr,
                 ctx.set_verifier_addr,
                 counter_address,

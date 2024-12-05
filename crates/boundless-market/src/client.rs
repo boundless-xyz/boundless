@@ -121,10 +121,12 @@ impl ClientBuilder {
             self.boundless_market_addr.context("Boundless market address not set")?,
             self.set_verifier_addr.context("Set verifier address not set")?,
             self.order_stream_url,
-            storage_provider_from_config(
-                &self.storage_config.context("Storage Provider Config not set")?,
-            )
-            .await?,
+            Some(
+                storage_provider_from_config(
+                    &self.storage_config.context("Storage Provider Config not set")?,
+                )
+                .await?,
+            ),
         )
         .await?;
         if let Some(timeout) = self.tx_timeout {
@@ -160,8 +162,11 @@ impl ClientBuilder {
     }
 
     /// Set the storage provider config
-    pub fn with_storage_provider_config(self, storage_config: &StorageProviderConfig) -> Self {
-        Self { storage_config: Some(storage_config.clone()), ..self }
+    pub fn with_storage_provider_config(
+        self,
+        storage_config: Option<StorageProviderConfig>,
+    ) -> Self {
+        Self { storage_config, ..self }
     }
 
     /// Set the transaction timeout in seconds
@@ -181,7 +186,7 @@ pub struct Client<T, P, S> {
     pub boundless_market: BoundlessMarketService<T, P>,
     pub set_verifier: SetVerifierService<T, P>,
     pub signer: LocalSigner<SigningKey>,
-    pub storage_provider: S,
+    pub storage_provider: Option<S>,
     pub offchain_client: Option<OrderStreamClient>,
     pub bidding_start_offset: u64,
 }
@@ -197,22 +202,15 @@ where
         boundless_market: BoundlessMarketService<T, P>,
         set_verifier: SetVerifierService<T, P>,
         signer: LocalSigner<SigningKey>,
-        storage_provider: S,
-        offchain_client: Option<OrderStreamClient>,
-        tx_timeout: Option<std::time::Duration>,
     ) -> Self {
-        let mut boundless_market = boundless_market.clone();
-        let mut set_verifier = set_verifier.clone();
-        if let Some(timeout) = tx_timeout {
-            boundless_market = boundless_market.with_timeout(timeout);
-            set_verifier = set_verifier.with_timeout(timeout);
-        }
+        let boundless_market = boundless_market.clone();
+        let set_verifier = set_verifier.clone();
         Self {
             boundless_market,
             set_verifier,
-            signer,
-            storage_provider,
-            offchain_client,
+            signer: signer.clone(),
+            storage_provider: None,
+            offchain_client: None,
             bidding_start_offset: BIDDING_START_OFFSET,
         }
     }
@@ -244,7 +242,7 @@ where
 
     /// Set the storage provider
     pub fn with_storage_provider(self, storage_provider: S) -> Self {
-        Self { storage_provider, ..self }
+        Self { storage_provider: Some(storage_provider), ..self }
     }
 
     /// Set the offchain client
@@ -254,14 +252,11 @@ where
 
     /// Set the transaction timeout
     pub fn with_timeout(self, tx_timeout: std::time::Duration) -> Self {
-        Self::new(
-            self.boundless_market,
-            self.set_verifier,
-            self.signer,
-            self.storage_provider,
-            self.offchain_client,
-            Some(tx_timeout),
-        )
+        Self {
+            boundless_market: self.boundless_market.with_timeout(tx_timeout),
+            set_verifier: self.set_verifier.with_timeout(tx_timeout),
+            ..self
+        }
     }
 
     /// Set the bidding start offset
@@ -273,6 +268,8 @@ where
     pub async fn upload_image(&self, elf: &[u8]) -> Result<String, ClientError> {
         Ok(self
             .storage_provider
+            .as_ref()
+            .context("Storage provider not set")?
             .upload_image(elf)
             .await
             .map_err(|_| anyhow!("Failed to upload image"))?)
@@ -282,6 +279,8 @@ where
     pub async fn upload_input(&self, input: &[u8]) -> Result<String, ClientError> {
         Ok(self
             .storage_provider
+            .as_ref()
+            .context("Storage provider not set")?
             .upload_input(input)
             .await
             .map_err(|_| anyhow!("Failed to upload input"))?)
@@ -322,9 +321,10 @@ where
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
     {
-        let offchain_client = self.offchain_client.as_ref().ok_or_else(|| {
-            anyhow!("Order stream client not available. Please provide an order stream URL")
-        })?;
+        let offchain_client = self
+            .offchain_client
+            .as_ref()
+            .context("Order stream client not available. Please provide an order stream URL")?;
         let mut request = request.clone();
 
         if request.id == U256::ZERO {
@@ -404,7 +404,10 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
-        let storage_provider = storage_provider_from_env().await?;
+        let storage_provider = match storage_provider_from_env().await {
+            Ok(provider) => Some(provider),
+            Err(_) => None,
+        };
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
@@ -436,7 +439,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         boundless_market_address: Address,
         set_verifier_address: Address,
         order_stream_url: Option<Url>,
-        storage_provider: BuiltinStorageProvider,
+        storage_provider: Option<BuiltinStorageProvider>,
     ) -> Result<Self, ClientError> {
         let caller = private_key.address();
         let signer = private_key.clone();

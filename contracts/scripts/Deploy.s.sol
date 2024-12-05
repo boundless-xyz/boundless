@@ -20,7 +20,7 @@ import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {ControlID, RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
-import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 
@@ -101,10 +101,13 @@ contract Deploy is Script, RiscZeroCheats {
         }
 
         // Deploy the Boundless market
-        address newImplementation = address(new BoundlessMarket(verifier, assessorImageId));
+        bytes32 salt = bytes32(0);
+        address newImplementation = address(new BoundlessMarket{salt: salt}(verifier, assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
-        boundlessMarketAddress = UnsafeUpgrades.deployUUPSProxy(
-            newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
+        boundlessMarketAddress = address(
+            new ERC1967Proxy{salt: salt}(
+                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
+            )
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
 

@@ -46,7 +46,7 @@ struct MainArgs {
     order_stream_url: Option<Url>,
     // Storage provider to use.
     #[clap(flatten)]
-    storage_config: StorageProviderConfig,
+    storage_config: Option<StorageProviderConfig>,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -136,7 +136,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url.clone())
-        .with_storage_provider_config(&args.storage_config)
+        .with_storage_provider_config(args.storage_config.clone())
         .with_private_key(args.private_key.clone())
         .with_bidding_start_offset(args.bidding_start_offset)
         .build()
@@ -232,7 +232,7 @@ mod tests {
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             order_stream_url: None,
-            storage_config: StorageProviderConfig::dev_mode(),
+            storage_config: Some(StorageProviderConfig::dev_mode()),
             private_key: ctx.customer_signer,
             set_verifier_address: ctx.set_verifier_addr,
             boundless_market_address: ctx.boundless_market_addr,

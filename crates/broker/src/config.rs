@@ -37,6 +37,10 @@ pub struct MarketConf {
     ///
     /// UNUSED CURRENTLY
     pub assumption_price: Option<String>,
+    /// Optional max cycles (in mcycles)
+    ///
+    /// Orders over this max_cycles will be skipped after preflight
+    pub max_mcycle_limit: Option<u64>,
     /// Peak single proof performance in kHz
     ///
     /// Used for sanity checking bids to prevent slashing
@@ -72,6 +76,7 @@ impl Default for MarketConf {
         Self {
             mcycle_price: "0.1".to_string(),
             assumption_price: None,
+            max_mcycle_limit: None,
             peak_prove_khz: None,
             min_deadline: 150, // ~300 seconds aka 5 mins
             lookback_blocks: 100,
@@ -352,6 +357,7 @@ max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
 lockin_priority_gas = 100
+max_mcycle_limit = 10
 
 [prover]
 status_poll_ms = 1000
@@ -431,6 +437,7 @@ error = ?"#;
             assert_eq!(config.market.peak_prove_khz, Some(500));
             assert_eq!(config.market.min_deadline, 150);
             assert_eq!(config.market.lookback_blocks, 100);
+            assert_eq!(config.market.max_mcycle_limit, None);
             assert_eq!(config.prover.status_poll_ms, 1000);
         }
 
@@ -448,6 +455,7 @@ error = ?"#;
             assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
             assert_eq!(config.market.lockin_priority_gas, Some(100));
             assert_eq!(config.market.max_fetch_retries, Some(10));
+            assert_eq!(config.market.max_mcycle_limit, Some(10));
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
