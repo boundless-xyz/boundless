@@ -155,6 +155,6 @@ The app is run as a CLI, with the arguments:
 - `set_verifier_address`: Deployed `SetVerifier` contract address.
 - `proof_market_address`: Deployed `ProofMarket` contract address.
 
-For the relevant contract address, please see the [Public Deployments](/public-deployments) page.
+For the relevant contract address, please see the [Deployments](/deployments) page.
 
 For a detailed walkthrough of this app file, please refer to [Request A Proof](/build/request-a-proof), where every step of this program is explained in detail.
