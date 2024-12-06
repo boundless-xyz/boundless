@@ -248,7 +248,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                         tracing::warn!("Failed to send Ping: {err:?}");
                         break;
                     }
-                    tracing::debug!("Send Ping");
+                    tracing::trace!("Send Ping: {address}");
                     ping_data = Some(random_bytes);
                 }
                 ws_msg = recver_ws.next() => {
@@ -257,7 +257,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                     // connection.
                     match ws_msg {
                         Some(Ok(Message::Pong(data))) => {
-                            tracing::debug!("Got Pong");
+                            tracing::trace!("Got Pong: {address}");
                             if let Some(send_data) = ping_data.as_ref() {
                                 if *send_data != data {
                                     tracing::error!("Invalid ping data from client {address}, closing conn");
