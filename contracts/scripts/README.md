@@ -69,8 +69,6 @@ export CHAIN_KEY="xxx-testnet"
 
 Set your RPC URL, public and private key.
 
-TODO: Remove this section?
-
 ```bash
 export RPC_URL=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].rpc-url" contracts/deployment_secrets.toml | tee /dev/stderr)
 export ADMIN_ADDRESS=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].admin" contracts/deployment.toml | tee /dev/stderr)
