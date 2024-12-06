@@ -56,8 +56,8 @@ const SIDEBAR_CONFIG = [
         link: "/optimize-proving-times",
       },
       {
-        text: "Public Deployments",
-        link: "/public-deployments",
+        text: "Deployments",
+        link: "/deployments",
       },
       {
         text: "Smart Contracts",
