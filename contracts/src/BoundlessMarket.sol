@@ -134,7 +134,7 @@ contract BoundlessMarket is
     using SafeCast for uint256;
     using TransientPriceLib for TransientPrice;
 
-    /// @dev The version of the contract.
+    /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
 
     // Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
