@@ -37,7 +37,7 @@ jobs:
         run: exit 1
 
   rust:
-    runs-on: [self-hosted, prod, Linux, X64, cpu]
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
     services:
       postgres:
         image: postgres:latest
