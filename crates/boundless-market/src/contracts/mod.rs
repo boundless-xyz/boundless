@@ -537,7 +537,7 @@ pub mod test_utils {
     const SET_VERIFIER_BYTECODE: &str = include_str!("./artifacts/RiscZeroSetVerifier.hex");
     alloy::sol! {
         #![sol(rpc)]
-        contract RiscZeroSetVerifier {
+        contract SetVerifier {
             constructor(address verifier, bytes32 imageId, string memory imageUrl) {}
         }
     }
@@ -586,7 +586,11 @@ pub mod test_utils {
         pub set_verifier: SetVerifierService<BoxTransport, ProviderWallet>,
     }
 
-    pub async fn deploy_verifier(deployer_provider: Arc<ProviderWallet>) -> Result<Address> {
+    pub async fn deploy_mock_verifier<T, P>(deployer_provider: P) -> Result<Address>
+    where
+        T: Transport + Clone,
+        P: Provider<T, Ethereum> + 'static + Clone,
+    {
         alloy::contract::RawCallBuilder::new_raw_deploy(
             deployer_provider,
             [
@@ -601,15 +605,19 @@ pub mod test_utils {
         .context("failed to deploy RiscZeroMockVerifier")
     }
 
-    pub async fn deploy_set_verifier(
-        deployer_provider: Arc<ProviderWallet>,
+    pub async fn deploy_set_verifier<T, P>(
+        deployer_provider: P,
         verifier_address: Address,
-    ) -> Result<Address> {
+    ) -> Result<Address>
+    where
+        T: Transport + Clone,
+        P: Provider<T, Ethereum> + 'static + Clone,
+    {
         alloy::contract::RawCallBuilder::new_raw_deploy(
             deployer_provider,
             [
                 hex::decode(SET_VERIFIER_BYTECODE).unwrap(),
-                RiscZeroSetVerifier::constructorCall {
+                SetVerifier::constructorCall {
                     verifier: verifier_address,
                     imageId: <[u8; 32]>::from(Digest::from(SET_BUILDER_ID)).into(),
                     imageUrl: String::new(),
@@ -701,7 +709,7 @@ pub mod test_utils {
             );
 
             // Deploy contracts
-            let verifier = deploy_verifier(Arc::clone(&deployer_provider)).await?;
+            let verifier = deploy_mock_verifier(Arc::clone(&deployer_provider)).await?;
             let set_verifier =
                 deploy_set_verifier(Arc::clone(&deployer_provider), verifier).await?;
             let boundless_market = deploy_boundless_market(
