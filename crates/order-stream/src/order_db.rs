@@ -470,11 +470,16 @@ mod tests {
         let db = Arc::new(OrderDb::from_pool(pool).await.unwrap());
 
         let db_copy = db.clone();
+        // Channel to signal stream is ready
+        let (tx, rx) = tokio::sync::oneshot::channel();
         let task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
             let mut new_orders = db_copy.order_stream().await.unwrap();
+            tx.send(()).unwrap(); // Signal stream is ready
             let order = new_orders.next().await.unwrap().unwrap();
             Ok(order)
         });
+
+        rx.await.unwrap(); // Wait for stream setup
 
         let order = create_order();
         let order_id = db.add_order(order).await.unwrap();
