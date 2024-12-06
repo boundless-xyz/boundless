@@ -159,6 +159,14 @@ body {
   @apply hidden;
 }
 
+.dark [data-layout="landing"] .vocs_DesktopTopNav_icon {
+  @apply text-[#646464];
+}
+
+.dark [data-layout="landing"] .vocs_DesktopTopNav_section {
+  @apply text-neutral-900;
+}
+
 :where(html:not(.dark)) .vocs_Sidebar_sectionTitle {
   @apply font-bold;
 }

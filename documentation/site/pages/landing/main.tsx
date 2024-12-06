@@ -2,12 +2,12 @@ export default function Main() {
   return (
     <div className="fixed inset-0 bg-[url('/bg-light.jpg')] bg-background bg-center bg-cover bg-no-repeat p-8 pt-[60px]">
       <div className="relative z-10 flex animate-fade-in flex-col items-center justify-center pt-16 pb-24">
-        <h1 className="mb-4 text-center font-bold text-5xl">
+        <h1 className="mb-4 text-center font-bold text-5xl text-neutral-900">
           Build <span className="font-normal font-serif">where you are,</span> with the power of ZK.
         </h1>
 
         <img
-          className="pointer-events-none my-8 animate-flickerAndFloat opacity-90 drop-shadow-[0_20px_50px_rgba(0,0,0,0.25)] dark:drop-shadow-[0_20px_50px_rgba(255,255,255,0.1)]"
+          className="pointer-events-none my-8 animate-flickerAndFloat opacity-85"
           src="/cubes.png"
           width={300}
           height={300}
