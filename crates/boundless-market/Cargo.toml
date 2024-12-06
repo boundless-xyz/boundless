@@ -1,5 +1,6 @@
 [package]
 name = "boundless-market"
+description = "SDK for the Boundless Market, part of the universal ZK protocol"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }
