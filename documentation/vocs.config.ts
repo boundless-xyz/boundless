@@ -153,5 +153,5 @@ export default defineConfig({
     text: "Edit on GitHub",
   },
   ogImageUrl:
-    "https://vocs.dev/api/og?logo=https://boundless-documentation.vercel.app/logo-dark.png&title=%title&description=%description",
+    "https://vocs.dev/api/og?logo=https://docs.beboundless.xyz/logo-dark.png&title=%title&description=%description",
 });
