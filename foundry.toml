@@ -16,6 +16,10 @@ build_info = true
 extra_output = ["storageLayout"]
 gas_reports = ["BoundlessMarket"]
 solc_version = "0.8.26"
+# Do not append metadata hash to bytecode. We do not currently use it, and omitting it results in
+# more stable build artifacts, which is important since we check the bytecode into git.
+# For information about Solidity metadata, see https://docs.soliditylang.org/en/latest/metadata.html
+bytecode_hash = "none"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 

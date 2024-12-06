@@ -1,12 +1,11 @@
 name: Release
 
 on:
-  merge_group:
   push:
     tags:
       - "v*.*.*"
   pull_request:
-    branches: ["release-*"]
+    *branches: ["release-*"]
   workflow_dispatch:
 
 concurrency:
@@ -28,8 +27,6 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          # Full history is required by license-check.py
-          fetch-depth: 0
           submodules: recursive
 
       - name: install foundry
@@ -64,7 +61,7 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
         
-  image-id-check:
+  assessor-elf:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     steps:
       - name: checkout code
@@ -98,14 +95,24 @@ jobs:
         run: forge build
         working-directory: contracts
 
-      # This step currently fails due to some issues with importing the set-builder
-      # from risc0-ethereum and building it with docker. Nonetheless, the build of the
-      # assessor guest should be successful. 
       - name: cargo build
-        run: cargo build
-        continue-on-error: true
+        run: cargo build --manifest-path crates/guest/assessor/Cargo.toml
         env:
           RISC0_USE_DOCKER: 1
 
       - name: image ID check
+        id: image_id_check
         run: bash image-id-check.sh
+
+      - name: upload to Pinata
+        id: pinata_upload
+        run: |
+          commit_hash=$(git rev-parse HEAD)
+          response=$(curl -H "Authorization: Bearer ${{ secrets.PINATA_JWT }}" --request POST \
+          --url 'https://api.pinata.cloud/pinning/pinFileToIPFS?=&=' \
+          --header 'Content-Type: multipart/form-data' \
+          --form "pinataMetadata={ \"name\": \"assessor-guest-${commit_hash}\" }" \
+          --form file=@target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest)
+          echo "Response: $response"
+          id=$(echo "$response" | jq -r '.IpfsHash')
+          echo "::set-output name=pinata_id::$id"
