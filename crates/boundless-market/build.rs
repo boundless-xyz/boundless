@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::{env, fs, path::Path};
+use std::{env, fs, fs::File, io::Write, path::Path};
 
 fn insert_derives(contents: &mut String, find_str: &str, insert_str: &str) {
     let mut cur_pos = 0;
@@ -15,9 +15,9 @@ fn insert_derives(contents: &mut String, find_str: &str, insert_str: &str) {
     }
 }
 
-// NOTE: if alloy ever fixes https://github.com/alloy-rs/core/issues/688 this build script
+// NOTE: if alloy ever fixes https://github.com/alloy-rs/core/issues/688 this function
 // can be deleted and we should be able to just use the alloy::sol! macro
-fn main() {
+fn rewrite_solidity_interface_files() {
     println!("cargo::rerun-if-env-changed=CARGO_MANIFEST_DIR");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let sol_iface_path = Path::new(&manifest_dir)
@@ -61,5 +61,57 @@ fn main() {
         ),
     )
     .unwrap();
+}
+
+fn copy_artifacts() {
+    let target_contracts =
+        ["BoundlessMarket", "RiscZeroMockVerifier", "RiscZeroSetVerifier", "ERC1967Proxy"];
+
+    println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let dest_path = Path::new(&manifest_dir).join("src/contracts/artifacts");
+    fs::create_dir_all(&dest_path).unwrap();
+
+    let src_path =
+        Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("out");
+
+    for contract in target_contracts {
+        let source_path = src_path.join(format!("{contract}.sol/{contract}.json"));
+        // Tell cargo to rerun if this contract changes
+        println!("cargo:rerun-if-changed={}", source_path.display());
+
+        if source_path.exists() {
+            // Read and parse the JSON file
+            let json_content = fs::read_to_string(&source_path).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&json_content).unwrap();
+
+            // Extract the bytecode, removing "0x" prefix if present
+            let bytecode = json["bytecode"]["object"]
+                .as_str()
+                .ok_or(format!(
+                    "failed to extract bytecode from {}",
+                    source_path.as_os_str().to_string_lossy()
+                ))
+                .unwrap()
+                .trim_start_matches("0x");
+
+            // Write to new file with .hex extension
+            let dest_file = dest_path.join(format!("{contract}.hex"));
+            let mut file = File::create(dest_file).unwrap();
+            file.write_all(bytecode.as_bytes()).unwrap();
+        }
+    }
+}
+
+fn main() {
     println!("cargo::rerun-if-changed=build.rs");
+
+    rewrite_solidity_interface_files();
+
+    println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+
+    if target_os != "zkvm" {
+        copy_artifacts();
+    }
 }

@@ -93,10 +93,14 @@ jobs:
 
       - name: forge build
         run: forge build
-        working-directory: contracts
 
       - name: cargo check
-        run: cargo check
+        run: cargo check --all-targets
+
+        # build script for boundless-market copies Solidity build artifacts.
+        # check that these are not modified, which would indicate they need to be updated.
+      - name: check for changes to files in git index
+        run: git diff --exit-code
 
       - name: Install sqlx-cli
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3

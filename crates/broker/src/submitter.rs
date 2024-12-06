@@ -359,14 +359,14 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{FixedBytes, B256, U256},
+        primitives::{B256, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
         sol_types::SolValue,
     };
     use assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
-        test_utils::{deploy_boundless_market, MockVerifier, SetVerifier},
+        test_utils::{deploy_boundless_market, deploy_mock_verifier, deploy_set_verifier},
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
@@ -398,23 +398,12 @@ mod tests {
                 .on_http(anvil.endpoint().parse().unwrap()),
         );
 
-        let verifier = MockVerifier::deploy(&provider, FixedBytes::ZERO).await.unwrap();
-        let set_verifier = SetVerifier::deploy(
-            &provider,
-            *verifier.address(),
-            FixedBytes::from_slice(&Digest::from(SET_BUILDER_ID).as_bytes()),
-            String::new(),
-        )
-        .await
-        .unwrap();
-        let market_address = deploy_boundless_market(
-            &signer,
-            provider.clone(),
-            *set_verifier.address(),
-            Some(prover_addr),
-        )
-        .await
-        .unwrap();
+        let verifier = deploy_mock_verifier(provider.clone()).await.unwrap();
+        let set_verifier = deploy_set_verifier(provider.clone(), verifier).await.unwrap();
+        let market_address =
+            deploy_boundless_market(&signer, provider.clone(), set_verifier, Some(prover_addr))
+                .await
+                .unwrap();
 
         let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
         market.deposit(U256::from(10000000000u64)).await.unwrap();
@@ -606,7 +595,7 @@ mod tests {
             config,
             prover.clone(),
             provider.clone(),
-            *set_verifier.address(),
+            set_verifier,
             market_address,
             set_builder_id,
         )

@@ -94,7 +94,8 @@ pub struct EventQueryConfig {
 
 impl Default for EventQueryConfig {
     fn default() -> Self {
-        Self { max_iterations: 100, block_range: 100 }
+        // Default values chosen based on the docs and pricing of requests on common RPC providers.
+        Self { max_iterations: 100, block_range: 1000 }
     }
 }
 
@@ -277,7 +278,7 @@ where
         signer: &(impl Signer + SignerSync),
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
-        tracing::debug!("calling submitRequest({:?})", request);
+        tracing::debug!("calling submitRequest({:x?})", request);
         let chain_id = self.get_chain_id().await.context("failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)
@@ -337,7 +338,7 @@ where
             return Err(MarketError::Error(anyhow!("request is already locked-in")));
         }
 
-        tracing::debug!("Calling lockin({:?}, {:?})", request, client_sig);
+        tracing::debug!("Calling lockin({:x?}, {:x?})", request, client_sig);
 
         let mut call = self.instance.lockin(request.clone(), client_sig.clone()).from(self.caller);
 
@@ -394,7 +395,12 @@ where
             return Err(MarketError::Error(anyhow!("request is already locked-in")));
         }
 
-        tracing::debug!("Calling lockinWithSig({:?}, {:?}, {:?})", request, client_sig, prover_sig);
+        tracing::debug!(
+            "Calling lockinWithSig({:x?}, {:x?}, {:x?})",
+            request,
+            client_sig,
+            prover_sig
+        );
 
         let call = self
             .instance
@@ -429,7 +435,7 @@ where
         &self,
         request_id: U256,
     ) -> Result<IBoundlessMarket::ProverSlashed, MarketError> {
-        tracing::debug!("Calling slash({:?})", request_id);
+        tracing::debug!("Calling slash({:x?})", request_id);
         let call = self.instance.slash(request_id).from(self.caller);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -462,7 +468,7 @@ where
         assessor_seal: &Bytes,
         prover_address: Address,
     ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
-        tracing::debug!("Calling fulfill({:?},{:?})", fulfillment, assessor_seal);
+        tracing::debug!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_seal);
         let call = self
             .instance
             .fulfill(fulfillment.clone(), assessor_seal.clone(), prover_address)
@@ -477,7 +483,7 @@ where
             .context("failed to confirm tx")?;
 
         tracing::info!(
-            "Submitted proof for request {}: {}",
+            "Submitted proof for request {:x}: {:x}",
             fulfillment.id,
             receipt.transaction_hash
         );
@@ -514,12 +520,12 @@ where
         prover_address: Address,
     ) -> Result<Vec<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
-        tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_seal:x})");
+        tracing::debug!("Calling fulfillBatch({fulfillments:x?}, {assessor_seal:x})");
         let call = self
             .instance
             .fulfillBatch(fulfillments, assessor_seal, prover_address)
             .from(self.caller);
-        tracing::debug!("Calldata: {}", call.calldata());
+        tracing::debug!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -636,7 +642,7 @@ where
 
     /// Checks if a request is locked in.
     pub async fn is_locked_in(&self, request_id: U256) -> Result<bool, MarketError> {
-        tracing::debug!("Calling requestIsLocked({})", request_id);
+        tracing::debug!("Calling requestIsLocked({:x})", request_id);
         let res = self.instance.requestIsLocked(request_id).call().await?;
 
         Ok(res._0)
@@ -644,7 +650,7 @@ where
 
     /// Checks if a request is fulfilled.
     pub async fn is_fulfilled(&self, request_id: U256) -> Result<bool, MarketError> {
-        tracing::debug!("Calling requestIsFulfilled({})", request_id);
+        tracing::debug!("Calling requestIsFulfilled({:x})", request_id);
         let res = self.instance.requestIsFulfilled(request_id).call().await?;
 
         Ok(res._0)
@@ -853,7 +859,7 @@ where
                 }
                 _ => {
                     tracing::info!(
-                        "Request {} status: {:?}. Retrying in {:?}",
+                        "Request {:x} status: {:?}. Retrying in {:?}",
                         request_id,
                         status,
                         retry_interval
