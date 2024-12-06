@@ -278,7 +278,7 @@ impl Input {
     /// let input = Input::inline(InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().build());
     /// ```
     ///
-    /// See [`InputBuilder`] for more details on how to write input data.
+    /// See [`InputBuilder`][crate::input::InputBuilder] for more details on how to write input data.
     pub fn inline(data: impl Into<Bytes>) -> Self {
         Self { inputType: InputType::Inline, data: data.into() }
     }

@@ -97,6 +97,9 @@ jobs:
       - name: cargo check
         run: cargo check --all-targets
 
+      - name: cargo doc
+        run: cargo doc
+
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
       - name: check for changes to files in git index
@@ -193,6 +196,24 @@ jobs:
       - name: forge test
         run: forge test -vvv
         working-directory: contracts
+
+  # Run as a separate job because we need to install a different set of tools.
+  # In particular, it uses nightly Rust and _does not_ install Forge or cargo risczero.
+  docs-rs:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    steps:
+      # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
+      - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: risc0/risc0/.github/actions/rustup@release-1.2
+        with:
+          # Building with docs.rs config requires the nightly toolchain.
+          toolchain: nightly-2024-09-04
+      - run: cargo +nightly-2024-09-04 doc -p boundless-market --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
   examples:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
