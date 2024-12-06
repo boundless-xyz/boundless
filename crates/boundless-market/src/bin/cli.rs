@@ -476,7 +476,7 @@ where
         tracing::debug!("Preflight succeeded");
     }
 
-    let request_id = if args.offchain {
+    let (request_id, expires_at) = if args.offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -489,7 +489,7 @@ where
     if args.wait {
         let (journal, seal) = client
             .boundless_market
-            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), request.expires_at())
+            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
         tracing::info!(
             "Journal: {} - Seal: {}",
@@ -569,7 +569,7 @@ where
         tracing::debug!("Preflight succeeded");
     }
 
-    let request_id = if offchain {
+    let (request_id, expires_at) = if offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -582,7 +582,7 @@ where
     if wait {
         let (journal, seal) = client
             .boundless_market
-            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), request.expires_at())
+            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
         tracing::info!(
             "Journal: {} - Seal: {}",

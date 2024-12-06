@@ -280,7 +280,7 @@ where
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request(&self, request: &ProofRequest) -> Result<U256, ClientError>
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
     {
@@ -300,14 +300,19 @@ where
 
         request.validate()?;
 
-        Ok(self.boundless_market.submit_request(&request, &self.signer.clone()).await?)
+        let request_id =
+            self.boundless_market.submit_request(&request, &self.signer.clone()).await?;
+        Ok((request_id, request.expires_at()))
     }
 
     /// Submit a proof request offchain via the order stream service.
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request_offchain(&self, request: &ProofRequest) -> Result<U256, ClientError>
+    pub async fn submit_request_offchain(
+        &self,
+        request: &ProofRequest,
+    ) -> Result<(U256, u64), ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
     {
@@ -340,7 +345,7 @@ where
 
         let order = offchain_client.submit_request(&request).await?;
 
-        Ok(U256::from(order.request.id))
+        Ok((order.request.id, request.expires_at()))
     }
 
     /// Wait for a request to be fulfilled.
