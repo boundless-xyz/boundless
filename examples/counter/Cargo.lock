@@ -1454,7 +1454,6 @@ dependencies = [
  "clap",
  "dotenvy",
  "futures-util",
- "guest-util",
  "hex",
  "rand",
  "reqwest",

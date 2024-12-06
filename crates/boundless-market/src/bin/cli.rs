@@ -23,7 +23,6 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use clap::{Args, Parser, Subcommand};
-use guest_util::ECHO_ELF;
 use hex::FromHex;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
 use risc0_zkvm::{
@@ -166,10 +165,8 @@ struct SubmitOfferArgs {
     #[clap(long)]
     inline_input: bool,
     /// Elf file to use as the guest image, given as a path.
-    ///
-    /// If unspecified, defaults to the included echo guest.
     #[clap(long)]
-    elf: Option<PathBuf>,
+    elf: PathBuf,
 
     #[command(flatten)]
     input: SubmitOfferInput,
@@ -408,11 +405,7 @@ where
     }
 
     // Resolve the ELF and input from command line arguments.
-    let elf: Cow<'static, [u8]> = args
-        .elf
-        .as_ref()
-        .map(|path| std::fs::read(path).map(Into::into))
-        .unwrap_or(Ok(ECHO_ELF.into()))?;
+    let elf: Cow<'static, [u8]> = std::fs::read(&args.elf).map(Into::into)?;
     let input: Vec<u8> = match (&args.input.input, &args.input.input_file) {
         (Some(input), None) => input.as_bytes().to_vec(),
         (None, Some(input_file)) => std::fs::read(input_file)?,
