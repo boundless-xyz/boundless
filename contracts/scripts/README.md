@@ -69,9 +69,11 @@ export CHAIN_KEY="xxx-testnet"
 
 Set your RPC URL, public and private key.
 
+TODO: Remove this section?
+
 ```bash
 export RPC_URL=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].rpc-url" contracts/deployment_secrets.toml | tee /dev/stderr)
-export ADMIN_PUBLIC_KEY=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].admin" contracts/deployment.toml | tee /dev/stderr)
+export ADMIN_ADDRESS=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].admin" contracts/deployment.toml | tee /dev/stderr)
 ```
 
 > [!TIP]
@@ -127,25 +129,24 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
 1. Make available for download the `assessor` elf and set its image ID and url in the `deployment.toml` file.
 
-   To generate a deterministic image ID run:
+   To generate a deterministic image ID run (from the repo root folder):
 
    ```zsh
-   RISC0_USE_DOCKER=true cargo build
+   cargo risczero build --manifest-path aggregation/guest/set-builder/Cargo.toml
    ```
 
-   > [!NOTE]
-   > This will populate the image ID in the `contracts/src/AssessorImageID.sol`.
-   > You can then upload the file located in `target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest`
-   > to some HTTP server and get back a download URL.
-   > Finally copy over these values in the `deployment.toml` file.
+   This will output the image ID and file location.
+   Upload the ELF to some public HTTP location (such as Pinata), and get back a download URL.
+   Record these values in `deployment.toml` as `assessor-image-id` and `assessor-guest-url`.
 
    > [!TIP]
    > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
+   > You can combine this with curl to check the image ID of an ELF hosted at a URL `r0vm --id --elf <(curl $ELF_URL)`.
 
 2. Dry run deployment of the market implementation and proxy:
 
    ```zsh
-   BOUNDLESS_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
+   BOUNDLESS_MARKET_OWNER=${ADMIN_ADDRESS:?} \
    bash contracts/scripts/manage DeployBoundlessMarket
    ```
 
@@ -155,9 +156,6 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > Note that it should not be the `TimelockController`.
    > Also check the chain ID to ensure you are deploying to the chain you expect.
    > And check the Assessor info to make sure they match what you expect.
-
-   > [!TIP]
-   > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
 
 3. Send deployment transactions for the market contract by running the command again with `--broadcast`.
 
@@ -173,6 +171,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    ```
 
 5. Test the deployment.
+    <!-- TODO: Provide instructions on how to use the deployment test for this -->
 
    ```bash
    cast call --rpc-url ${RPC_URL:?} \
@@ -192,7 +191,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 3. Dry run the upgrade of the market implementation and proxy:
 
    ```zsh
-   BOUNDLESS_MARKET_OWNER=${ADMIN_PUBLIC_KEY:?} \
+   BOUNDLESS_MARKET_OWNER=${ADMIN_ADDRESS:?} \
    bash contracts/scripts/manage UpgradeBoundlessMarket
    ```
 
