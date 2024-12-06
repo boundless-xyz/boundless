@@ -3435,7 +3435,7 @@ version = "0.4.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum",
+ "risc0-build-ethereum 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3444,7 +3444,7 @@ version = "0.1.0"
 source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#19a0da06c841a913d5902572b25fd02eb6479cfd"
 dependencies = [
  "risc0-build",
- "risc0-build-ethereum",
+ "risc0-build-ethereum 1.2.0 (git+https://github.com/risc0/risc0-ethereum?branch=release-1.2)",
 ]
 
 [[package]]
@@ -3453,7 +3453,7 @@ version = "0.4.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum",
+ "risc0-build-ethereum 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -5633,7 +5633,8 @@ dependencies = [
 [[package]]
 name = "risc0-aggregation"
 version = "0.1.0"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#19a0da06c841a913d5902572b25fd02eb6479cfd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeb7fd908d49b361b63349e8ff81b006db071c5b3ada8fdb4744454538c05408"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -5677,6 +5678,18 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "risc0-build-ethereum"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a95cbf40f6fb6c5e905295fb8f6270f4fe71275b24f204ee42de0516918acce"
+dependencies = [
+ "anyhow",
+ "hex",
+ "risc0-build",
+ "risc0-zkp",
 ]
 
 [[package]]
@@ -5806,7 +5819,8 @@ dependencies = [
 [[package]]
 name = "risc0-ethereum-contracts"
 version = "1.2.0"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#19a0da06c841a913d5902572b25fd02eb6479cfd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08f4076772c0ce926e414f9e7c53b799b2d4e25cacdbff0d98a61d45f2576229"
 dependencies = [
  "alloy",
  "anyhow",
