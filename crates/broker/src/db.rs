@@ -1013,6 +1013,7 @@ mod tests {
         let mut order = create_order();
         order.path = Some(vec![Digest::default()]);
         order.proof_id = Some("test".to_string());
+        order.lock_price = Some(U256::from(10));
         db.add_order(id, order.clone()).await.unwrap();
 
         let submit_order = db.get_submission_order(id).await.unwrap();
@@ -1020,6 +1021,7 @@ mod tests {
         assert_eq!(submit_order.1, order.proof_id.unwrap());
         assert_eq!(submit_order.2, order.request.requirements.imageId);
         assert_eq!(submit_order.3, order.path.unwrap());
+        assert_eq!(submit_order.4, order.lock_price.unwrap());
     }
 
     #[sqlx::test]

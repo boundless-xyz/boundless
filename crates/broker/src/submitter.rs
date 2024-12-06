@@ -586,7 +586,7 @@ mod tests {
             expire_block: Some(100),
             path: Some(vec![assessor_output.root()]),
             client_sig: client_sig.into(),
-            lock_price: None,
+            lock_price: Some(U256::ZERO),
             error_msg: None,
         };
         let order_id = U256::from(order.request.id);
