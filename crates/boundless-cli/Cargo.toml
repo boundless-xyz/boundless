@@ -1,0 +1,42 @@
+[package]
+name = "boundless-cli"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[dependencies]
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+anyhow = { workspace = true }
+boundless-assessor = { workspace = true }
+boundless-market = { workspace = true }
+bytemuck = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+hex = { workspace = true }
+libc = "0.2.159"
+reqwest = { workspace = true }
+risc0-aggregation = { workspace = true }
+risc0-ethereum-contracts = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["std", "default"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
+
+[[bin]]
+name = "boundless-cli"
+
+[[bin]]
+name = "boundless-ffi"
+
+[dev-dependencies]
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
+guest-util = { workspace = true }
+tracing-test = { workspace = true }
+

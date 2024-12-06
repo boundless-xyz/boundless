@@ -1,7 +1,7 @@
 // Copyright (c) 2024 RISC Zero, Inc.
 //
 // All rights reserved.
-#[cfg(feature = "cli")]
+
 use std::{
     borrow::Cow,
     fs::File,
@@ -15,13 +15,14 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
-        Address, Bytes, B256, U256,
+        Address, Bytes, PrimitiveSignature, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::Transport,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
+use boundless_cli::{DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
@@ -35,10 +36,11 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements,
+        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
+        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
     input::InputBuilder,
+    order_stream_client::Order,
     storage::{StorageProvider, StorageProviderConfig},
 };
 
@@ -133,6 +135,19 @@ enum Command {
         /// If provided along with request-id, uses the transaction hash to find the request.
         #[arg(long, conflicts_with = "request_path", requires = "request_id")]
         tx_hash: Option<B256>,
+    },
+    /// Fulfill a proof request using the RISC Zero zkVM default prover
+    Fulfill {
+        /// The proof request identifier
+        #[arg(long)]
+        request_id: U256,
+        /// The tx hash of the request submission
+        #[arg(long)]
+        tx_hash: Option<B256>,
+        /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
+        /// request is locked to another prover).
+        #[arg(long, default_value = "false")]
+        require_payment: bool,
     },
 }
 
@@ -368,6 +383,67 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             }
             tracing::info!("Execution succeeded.");
             tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
+        }
+        Command::Fulfill { request_id, tx_hash, require_payment } => {
+            let (_, market_url) = boundless_market.image_info().await?;
+            tracing::debug!("Fetching Assessor ELF from {}", market_url);
+            let assessor_elf = fetch_url(&market_url).await?;
+            let domain = boundless_market.eip712_domain().await?;
+
+            let mut set_verifier =
+                SetVerifierService::new(args.set_verifier_address, provider.clone(), caller);
+            if let Some(tx_timeout) = args.tx_timeout {
+                set_verifier = set_verifier.with_timeout(tx_timeout);
+            }
+            let (_, set_builder_url) = set_verifier.image_info().await?;
+            tracing::debug!("Fetching SetBuilder ELF from {}", set_builder_url);
+            let set_builder_elf = fetch_url(&set_builder_url).await?;
+
+            let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
+
+            let (request, sig) =
+                boundless_market.get_submitted_request(request_id, tx_hash).await?;
+            tracing::debug!("Fulfilling request {:?}", request);
+            request.verify_signature(
+                &sig,
+                args.boundless_market_address,
+                boundless_market.get_chain_id().await?,
+            )?;
+            let order = Order { request, signature: PrimitiveSignature::try_from(sig.as_ref())? };
+
+            let (fill, root_receipt, _, assessor_receipt) =
+                prover.fulfill(order.clone(), require_payment).await?;
+            let order_fulfilled =
+                OrderFulfilled::new(fill, root_receipt, assessor_receipt, caller)?;
+            set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
+
+            // If the request is not locked in, we need to "price" which checks the requirements
+            // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
+            // and empty if the request is locked.
+            let requests_to_price: Vec<ProofRequest> =
+                (!boundless_market.is_locked_in(request_id).await?)
+                    .then_some(order.request)
+                    .into_iter()
+                    .collect();
+
+            match boundless_market
+                .price_and_fulfill_batch(
+                    requests_to_price,
+                    vec![sig],
+                    order_fulfilled.fills,
+                    order_fulfilled.assessorSeal,
+                    caller,
+                    None,
+                )
+                .await
+            {
+                Ok(_) => {
+                    tracing::info!("Fulfilled request 0x{:x}", request_id);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to fulfill request 0x{:x}: {}", request_id, e);
+                }
+            }
         }
     };
 

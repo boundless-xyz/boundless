@@ -67,7 +67,6 @@ pub enum BuiltinStorageProviderError {
     NoProvider,
 }
 
-#[cfg(feature = "cli")]
 #[derive(Clone, Debug, ValueEnum)]
 #[non_exhaustive]
 pub enum StorageProviderType {
@@ -76,7 +75,6 @@ pub enum StorageProviderType {
     File,
 }
 
-#[cfg(feature = "cli")]
 #[derive(Clone, Debug, Parser)]
 pub struct StorageProviderConfig {
     /// Storage provider to use [possible values: s3, pinata, file]
@@ -123,7 +121,6 @@ pub struct StorageProviderConfig {
     pub file_path: Option<PathBuf>,
 }
 
-#[cfg(feature = "cli")]
 impl StorageProviderConfig {
     pub fn dev_mode() -> Self {
         Self {
@@ -258,7 +255,6 @@ impl PinataStorageProvider {
         Ok(Self { pinata_jwt: jwt, pinata_api_url: api_url, ipfs_gateway_url: gateway_url, client })
     }
 
-    #[cfg(feature = "cli")]
     pub async fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, PinataStorageProviderError> {
@@ -418,7 +414,6 @@ impl S3StorageProvider {
         Ok(Self { s3_bucket: bucket, client })
     }
 
-    #[cfg(feature = "cli")]
     pub async fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, S3StorageProviderError> {
@@ -523,7 +518,6 @@ impl TempFileStorageProvider {
         Ok(Self { temp_dir: Arc::new(tempfile::tempdir_in(path)?) })
     }
 
-    #[cfg(feature = "cli")]
     pub fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, TempFileStorageProviderError> {
@@ -566,7 +560,6 @@ impl StorageProvider for TempFileStorageProvider {
     }
 }
 
-#[cfg(feature = "cli")]
 pub async fn storage_provider_from_config(
     config: &StorageProviderConfig,
 ) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {

@@ -4,11 +4,12 @@ members = [
     "crates/api",
     "crates/assessor",
     "crates/bento-client",
+    "crates/boundless-cli",
     "crates/boundless-market",
     "crates/broker",
-    "crates/fulfiller",
     "crates/guest/assessor",
     "crates/guest/util",
+    "crates/order-generator",
     "crates/order-stream",
     "crates/taskdb",
     "crates/workflow",
@@ -25,7 +26,7 @@ repository = "https://github.com/boundless-xyz/boundless/"
 async-stream = "0.3"
 bento-client = { path = "crates/bento-client" }
 boundless-assessor = { version = "0.4.0", path = "crates/assessor" }
-boundless-fulfiller = { version = "0.4.0", path = "crates/fulfiller" }
+boundless-cli = { version = "0.4.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.4.0", path = "crates/boundless-market" }
 guest-assessor = { version = "0.4.0", path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }

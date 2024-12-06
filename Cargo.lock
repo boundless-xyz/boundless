@@ -1909,7 +1909,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "boundless-fulfiller"
+name = "boundless-cli"
 version = "0.4.0"
 dependencies = [
  "alloy",
@@ -1929,9 +1929,12 @@ dependencies = [
  "risc0-ethereum-contracts",
  "risc0-zkvm",
  "serde",
+ "serde_json",
+ "serde_yaml",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.19",
+ "tracing-test",
  "url",
 ]
 
@@ -1950,7 +1953,6 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
- "dotenvy",
  "futures-util",
  "guest-assessor",
  "guest-set-builder",
@@ -1963,7 +1965,6 @@ dependencies = [
  "risc0-zkvm",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2",
  "siwe",
  "tempfile",
@@ -1976,6 +1977,30 @@ dependencies = [
  "tracing-test",
  "url",
  "utoipa",
+]
+
+[[package]]
+name = "boundless-order-generator"
+version = "0.4.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "boundless-market",
+ "bytemuck",
+ "clap",
+ "dotenvy",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "hex",
+ "reqwest",
+ "risc0-zkvm",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "tracing-test",
+ "url",
 ]
 
 [[package]]

@@ -5,6 +5,7 @@ version = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
+publish = false
 
 [build-dependencies]
 hex = { workspace = true }
@@ -13,3 +14,6 @@ risc0-build-ethereum = { workspace = true }
 
 [package.metadata.risc0]
 methods = ["assessor-guest"]
+
+[package.metadata.release]
+release = false

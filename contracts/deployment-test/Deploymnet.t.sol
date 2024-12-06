@@ -142,10 +142,9 @@ contract DeploymentTest is Test {
         argv[i++] = "--manifest-path";
         argv[i++] = "Cargo.toml";
         argv[i++] = "--bin";
-        argv[i++] = "fulfill";
+        argv[i++] = "boundless-ffi";
         argv[i++] = "-q";
         argv[i++] = "--";
-        argv[i++] = "print";
         argv[i++] = "--set-builder-url";
         argv[i++] = setBuilderUrl;
         argv[i++] = "--assessor-url";
