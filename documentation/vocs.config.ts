@@ -44,10 +44,6 @@ const SIDEBAR_CONFIG = [
     collapsed: false,
     items: [
       {
-        text: "Optimize Proving Times",
-        link: "/optimize-proving-times",
-      },
-      {
         text: "Deployments",
         link: "/deployments",
       },

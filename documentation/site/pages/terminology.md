@@ -45,9 +45,7 @@ A request - sometimes called an order - placed on the Boundless Market to that i
 
 Also referred to as the Client in the context of contracts, the party submitting orders to the market proofs form the Boundless Market.
 
-[page-bento]: ./prover-manual/bento/README.md
 [page-boundless-market]: ./market/README.md
-[page-broker]: ./prover-manual/broker/README.md
 [page-deployments]: ./market/deployments.md
 [r0-page-dev-mode]: https://dev.risczero.com/api/next/generating-proofs/dev-mode
 [r0-term-clock-cycles]: https://dev.risczero.com/terminology#clock-cycles
