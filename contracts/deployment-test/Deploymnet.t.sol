@@ -135,13 +135,8 @@ contract DeploymentTest is Test {
         (, string memory setBuilderUrl) = setVerifier.imageInfo();
         (, string memory assessorUrl) = boundlessMarket.imageInfo();
 
-        string[] memory argv = new string[](22);
+        string[] memory argv = new string[](17);
         uint256 i = 0;
-        argv[i++] = "cargo";
-        argv[i++] = "run";
-        argv[i++] = "--manifest-path";
-        argv[i++] = "Cargo.toml";
-        argv[i++] = "--bin";
         argv[i++] = "boundless-ffi";
         argv[i++] = "-q";
         argv[i++] = "--";

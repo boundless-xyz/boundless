@@ -22,12 +22,14 @@ env:
 
 jobs:
   deployment:
-    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    runs-on: [self-hosted, prod, Linux, cuda]
     steps:
       - name: checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - uses: risc0/risc0/.github/actions/cuda@main
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -49,8 +51,8 @@ jobs:
       - name: forge build
         run: forge build
 
-      - name: cargo build
-        run: cargo build
+      - name: cargo install boundless-cli
+        run: cargo install boundless-cli --path crates/boundless-cli -Fcuda
 
       - name: forge test
         run: forge test -vvv --fork-url="$RPC_URL"

@@ -40,3 +40,8 @@ guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
 tracing-test = { workspace = true }
 
+[features]
+# Enables the prove feature on risc0-zkvm to build the prover directly into this CLI.
+prove = ["risc0-zkvm/prove"]
+# Enables the cuda feature on risc0-zkvm to build the prover directly into this CLI, with CUDA support.
+cuda = ["prove", "risc0-zkvm/cuda"]
