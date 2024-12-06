@@ -6,7 +6,7 @@ use alloy::{
     primitives::Address,
     sol_types::{SolStruct, SolValue},
 };
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
     merkle_path, GuestInput, GuestOutput, SetInclusionReceipt,
@@ -61,6 +61,7 @@ impl OrderFulfilled {
 /// Fetches the content of a URL.
 /// Supported URL schemes are `http`, `https`, and `file`.
 pub async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
+    tracing::debug!("Fetching URL: {}", url_str);
     let url = Url::parse(url_str)?;
 
     match url.scheme() {
@@ -220,7 +221,11 @@ impl DefaultProver {
         let order_elf = fetch_url(&request.imageUrl).await?;
         let order_input: Vec<u8> = match request.input.inputType {
             InputType::Inline => request.input.data.into(),
-            InputType::Url => fetch_url(&request.input.data.to_string()).await?.into(),
+            InputType::Url => fetch_url(
+                std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
+            )
+            .await?
+            .into(),
             _ => bail!("Unsupported input type"),
         };
         let order_receipt =

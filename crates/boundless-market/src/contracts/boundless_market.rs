@@ -32,13 +32,13 @@ pub enum MarketError {
     #[error("Transaction error: {0}")]
     TxnError(#[from] TxnErr),
 
-    #[error("Request is not fulfilled {0}")]
+    #[error("Request is not fulfilled 0x{0:x}")]
     RequestNotFulfilled(U256),
 
-    #[error("Request has expired {0}")]
+    #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
 
-    #[error("Proof not found {0}")]
+    #[error("Proof not found 0x{0:x}")]
     ProofNotFound(U256),
 
     #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
@@ -47,7 +47,7 @@ pub enum MarketError {
     #[error("Market error: {0}")]
     Error(#[from] anyhow::Error),
 
-    #[error("Timeout: {0}")]
+    #[error("Timeout: 0x{0:x}")]
     TimeoutReached(U256),
 }
 

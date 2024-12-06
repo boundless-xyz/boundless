@@ -132,6 +132,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                 boundless_market = boundless_market.with_timeout(Duration::from_secs(tx_timeout));
             }
             let (_, market_url) = boundless_market.image_info().await?;
+            tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
             let domain = boundless_market.eip712_domain().await?;
 
@@ -141,12 +142,14 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                 set_verifier = set_verifier.with_timeout(Duration::from_secs(tx_timeout));
             }
             let (_, set_builder_url) = set_verifier.image_info().await?;
+            tracing::debug!("Fetching SetBuilder ELF from {}", set_builder_url);
             let set_builder_elf = fetch_url(&set_builder_url).await?;
 
             let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
 
             let (request, sig) =
                 boundless_market.get_submitted_request(request_id, tx_hash).await?;
+            tracing::debug!("Fulfilling request {:?}", request);
             request.verify_signature(
                 &sig,
                 boundless_market_address,
