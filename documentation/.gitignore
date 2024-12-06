@@ -8,3 +8,5 @@ vocs.config.ts.*
 tsconfig.tsbuildinfo
 site/pages/smart-contracts
 site/pages/tmp
+
+site/public/link-previews.json
