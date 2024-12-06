@@ -135,7 +135,7 @@ contract DeploymentTest is Test {
         (, string memory setBuilderUrl) = setVerifier.imageInfo();
         (, string memory assessorUrl) = boundlessMarket.imageInfo();
 
-        string[] memory argv = new string[](23);
+        string[] memory argv = new string[](22);
         uint256 i = 0;
         argv[i++] = "cargo";
         argv[i++] = "run";
@@ -168,7 +168,7 @@ contract DeploymentTest is Test {
         emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
-        
+
         boundlessMarket.priceAndFulfillBatch(
             requests, clientSignatures, result.fills, result.assessorSeal, address(testProver)
         );
