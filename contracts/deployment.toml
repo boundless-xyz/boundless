@@ -36,6 +36,6 @@ boundless-market = "0x01e4130C977b39aaa28A744b8D3dEB23a5297654"
 boundless-market-version = "v0.4.0"
 
 # Guests info
-deployment-commit = "295bd3b04cc2d4d90665117d5ac9870a4413e91b"
-assessor-image-id = "0x30aa9e0240321bde6d4068e0841896b1fa4ee4769e8fe72d467483c63ca9fc54"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeifs7m6ribdlsvg4u2x3nytdn7flwolbhh5k4ue6fgbqfghqiscgjq"
+deployment-commit = "23c94fc92286d47209993c95eb88490747bdeeeb"
+assessor-image-id = "0x6f57df64581954508eac094e8810aea703bc6089b2173681efed56f143941523"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeihhbvoh4osr77sqf2zngfxzsr2weemfurr4yx6yfb64wc7dibbb4e"
