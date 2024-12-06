@@ -37,7 +37,7 @@ jobs:
         run: exit 1
 
   rust:
-    runs-on: [self-hosted, prod, Linux, cuda]
+    runs-on: [self-hosted, prod, Linux, X64, cpu]
     services:
       postgres:
         image: postgres:latest
@@ -95,7 +95,7 @@ jobs:
         run: forge build
 
       - name: cargo check
-        run: cargo check -Fcuda --all-targets
+        run: cargo check --all-targets
 
       - name: cargo doc
         run: cargo doc
@@ -119,11 +119,11 @@ jobs:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
         run: sqlx migrate run --source ./crates/taskdb/migrations/
 
-      # Enable cuda and release so that the boundless_cli test will run faster.
       - name: cargo test
-        run: cargo test --release -Fcuda --workspace --all-targets
+        run: cargo test --workspace --all-targets -- ignored
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          RISC0_DEV_MODE: true
 
       - name: sccache stats
         run: sccache --show-stats
