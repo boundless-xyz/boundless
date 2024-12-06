@@ -315,7 +315,7 @@ mod tests {
         (request, signature)
     }
 
-    #[ignore = "runs a proof and so is slow without RISC0_DEV_MODE=1"]
+    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     #[tokio::test]
     async fn test_fulfill() {
         let signer = PrivateKeySigner::random();
