@@ -15,28 +15,9 @@ fn insert_derives(contents: &mut String, find_str: &str, insert_str: &str) {
     }
 }
 
-fn copy_artifacts() {
-    let target_contracts =
-        ["BoundlessMarket", "RiscZeroMockVerifier", "RiscZeroSetVerifier", "ERC1967Proxy"];
-
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let dest_path = Path::new(&manifest_dir).join("src/contracts/artifacts");
-    fs::create_dir_all(&dest_path).unwrap();
-
-    let src_path =
-        Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("out");
-
-    for contract in target_contracts {
-        let target_path = src_path.join(format!("{contract}.sol/{contract}.json"));
-        if target_path.exists() {
-            fs::copy(target_path, dest_path.join(format!("{contract}.json"))).unwrap();
-        }
-    }
-}
-
-// NOTE: if alloy ever fixes https://github.com/alloy-rs/core/issues/688 this build script
+// NOTE: if alloy ever fixes https://github.com/alloy-rs/core/issues/688 this function
 // can be deleted and we should be able to just use the alloy::sol! macro
-fn main() {
+fn rewrite_solidity_interface_files() {
     println!("cargo::rerun-if-env-changed=CARGO_MANIFEST_DIR");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let sol_iface_path = Path::new(&manifest_dir)
@@ -61,8 +42,6 @@ fn main() {
         let iface_pos = sol_contents.find("interface IBoundlessMarket").unwrap();
         sol_contents.insert_str(iface_pos, "#[sol(rpc)]\n");
         alloy_import = "alloy";
-
-        copy_artifacts();
     }
 
     insert_derives(&mut sol_contents, "\nstruct ", "\n#[derive(Deserialize, Serialize)]");
@@ -82,5 +61,36 @@ fn main() {
         ),
     )
     .unwrap();
+}
+
+fn copy_artifacts() {
+    let target_contracts =
+        ["BoundlessMarket", "RiscZeroMockVerifier", "RiscZeroSetVerifier", "ERC1967Proxy"];
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let dest_path = Path::new(&manifest_dir).join("src/contracts/artifacts");
+    fs::create_dir_all(&dest_path).unwrap();
+
+    let src_path =
+        Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("out");
+
+    for contract in target_contracts {
+        let target_path = src_path.join(format!("{contract}.sol/{contract}.json"));
+        if target_path.exists() {
+            fs::copy(target_path, dest_path.join(format!("{contract}.json"))).unwrap();
+        }
+    }
+}
+
+fn main() {
+    println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+
     println!("cargo::rerun-if-changed=build.rs");
+    rewrite_solidity_interface_files();
+
+    //
+    if target_os != "zkvm" {
+        copy_artifacts();
+    }
 }
