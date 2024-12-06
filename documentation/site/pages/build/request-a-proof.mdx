@@ -101,25 +101,25 @@ A proof request consists of four essential components that specify which program
 
 ```rust showLineNumbers
 let request = ProofRequest::default()
-	.with_image_url(&image_url)
-	.with_input(Input::url(&input_url))
-	.with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
-	.with_offer(
-    	Offer::default()
-        	// The market uses a reverse Dutch auction mechanism to match requests with provers.
-        	// Each request has a price range that a prover can bid on. One way to set the price
-        	// is to choose a desired (min and max) price per million cycles and multiply it
-        	// by the number of cycles. Alternatively, you can use the `with_min_price` and
-        	// `with_max_price` methods to set the price directly.
-        	.with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-        	// NOTE: If your offer is not being accepted, try increasing the max price.
-        	.with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
-        	// The timeout is the maximum number of blocks the request can stay
-        	// unfulfilled in the market before it expires. If a prover locks in
-        	// the request and does not fulfill it before the timeout, the prover can be
-        	// slashed.
-        	.with_timeout(1000),
-	);
+  .with_image_url(&image_url)
+  .with_input(Input::url(&input_url))
+  .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
+  .with_offer(
+    Offer::default()
+      // The market uses a reverse Dutch auction mechanism to match requests with provers.
+      // Each request has a price range that a prover can bid on. One way to set the price
+      // is to choose a desired (min and max) price per million cycles and multiply it
+      // by the number of cycles. Alternatively, you can use the `with_min_price` and
+      // `with_max_price` methods to set the price directly.
+      .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
+      // NOTE: If your offer is not being accepted, try increasing the max price.
+      .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
+      // The timeout is the maximum number of blocks the request can stay
+      // unfulfilled in the market before it expires. If a prover locks in
+      // the request and does not fulfill it before the timeout, the prover can be
+      // slashed.
+      .with_timeout(1000),
+  );
 ```
 
 1. Program Image (`with_image_url`) (line #2)
@@ -157,12 +157,12 @@ Once fulfilled, the journal and seal are returned. The journal contains the publ
 
 ```rust
 let (_journal, seal) = boundless_client
-	.wait_for_request_fulfillment(
-    	request_id,
-    	Duration::from_secs(5), // check every 5 seconds
-    	request.expires_at(),
-	)
-	.await?;
+  .wait_for_request_fulfillment(
+    request_id,
+    Duration::from_secs(5), // check every 5 seconds
+    request.expires_at(),
+  )
+  .await?;
 ```
 
 > Relevant links: [Seal](https://dev.risczero.com/terminology#seal), [Journal](https://dev.risczero.com/terminology#journal)
@@ -197,10 +197,10 @@ id: 0 # if set to 0, gets overwritten by a random id
 # Specifies the requirements for the delivered proof, including the program that must be run,
 # and the constraints on the journal's value, which define the statement to be proven.
 requirements:
-	imageId: "722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4"
-	predicate:
-    	predicateType: PrefixMatch
-    	data: "57656420"
+  imageId: "722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4"
+  predicate:
+    predicateType: PrefixMatch
+    data: "57656420"
 
 # A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.
@@ -208,17 +208,17 @@ imageUrl: "https://dweb.link/ipfs/QmTx3vDKicYG5RxzMxrZEiCQJqhpgYNrSFABdVz9ri2m5P
 
 # Input to be provided to the zkVM guest execution.
 input:
-	inputType: Inline
-	data: "576564204a756c2020332031343a33373a31322050445420323032340a"
+  inputType: Inline
+  data: "576564204a756c2020332031343a33373a31322050445420323032340a"
 
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 offer:
-	minPrice: 100000000000000
-	maxPrice: 2000000000000000
-	biddingStart: 0 # if set to 0, gets overwritten by the current block height
-	rampUpPeriod: 100
-	timeout: 300 # 1 hour at 12s block times.
-	lockinStake: 100000000000000
+  minPrice: 100000000000000
+  maxPrice: 2000000000000000
+  biddingStart: 0 # if set to 0, gets overwritten by the current block height
+  rampUpPeriod: 100
+  timeout: 300 # 1 hour at 12s block times.
+  lockinStake: 100000000000000
 ```
 
 To submit a request, run the following from the boundless monorepo main directory:

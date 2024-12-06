@@ -86,21 +86,21 @@ The request parameters are passed through in the `ProofRequest` struct:
 
 ```solidity
 struct ProofRequest {
-	/// @notice Unique ID for this request, constructed from the client address and a 32-bit index.
-	/// Constructed as (address(client) << 32) | index.
-	/// @dev Note that the high-order 64 bits of this ID are currently unused and must set to zero.
-	/// In the future it may be used to encode a version number and/or other flags.
-	uint256 id;
-	/// Requirements of the delivered proof. Specifies the program that must be run, and constrains
-	/// value of the journal, specifying the statement that is requesting to be proven.
-	Requirements requirements;
-	/// A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
-	/// provers that are evaluating whether to bid on the request.
-	string imageUrl;
-	/// Input to be provided to the zkVM guest execution.
-	Input input;
-	/// Offer specifying how much the client is willing to pay to have this request fulfilled.
-	Offer offer;
+  /// @notice Unique ID for this request, constructed from the client address and a 32-bit index.
+  /// Constructed as (address(client) << 32) | index.
+  /// @dev Note that the high-order 64 bits of this ID are currently unused and must set to zero.
+  /// In the future it may be used to encode a version number and/or other flags.
+  uint256 id;
+  /// Requirements of the delivered proof. Specifies the program that must be run, and constrains
+  /// value of the journal, specifying the statement that is requesting to be proven.
+  Requirements requirements;
+  /// A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
+  /// provers that are evaluating whether to bid on the request.
+  string imageUrl;
+  /// Input to be provided to the zkVM guest execution.
+  Input input;
+  /// Offer specifying how much the client is willing to pay to have this request fulfilled.
+  Offer offer;
 }
 ```
 
