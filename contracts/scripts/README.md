@@ -169,7 +169,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    ```
 
 5. Test the deployment.
-    <!-- TODO: Provide instructions on how to use the deployment test for this -->
+   <!-- TODO: Provide instructions on how to use the deployment test for this -->
 
    ```bash
    cast call --rpc-url ${RPC_URL:?} \
