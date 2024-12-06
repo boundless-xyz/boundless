@@ -28,7 +28,7 @@ use boundless_market::{
 use clap::Parser;
 use url::Url;
 
-use boundless_prover::{fetch_url, DefaultProver, OrderFulfilled};
+use boundless_fulfiller::{fetch_url, DefaultProver, OrderFulfilled};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]

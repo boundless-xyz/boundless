@@ -1909,6 +1909,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-fulfiller"
+version = "0.4.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "boundless-assessor",
+ "boundless-market",
+ "bytemuck",
+ "clap",
+ "dotenvy",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "hex",
+ "libc",
+ "reqwest",
+ "risc0-aggregation",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "url",
+]
+
+[[package]]
 name = "boundless-market"
 version = "0.4.0"
 dependencies = [
@@ -1949,33 +1976,6 @@ dependencies = [
  "tracing-test",
  "url",
  "utoipa",
-]
-
-[[package]]
-name = "boundless-prover"
-version = "0.4.0"
-dependencies = [
- "alloy",
- "anyhow",
- "boundless-assessor",
- "boundless-market",
- "bytemuck",
- "clap",
- "dotenvy",
- "guest-assessor",
- "guest-set-builder",
- "guest-util",
- "hex",
- "libc",
- "reqwest",
- "risc0-aggregation",
- "risc0-ethereum-contracts",
- "risc0-zkvm",
- "serde",
- "tokio",
- "tracing",
- "tracing-subscriber 0.3.19",
- "url",
 ]
 
 [[package]]

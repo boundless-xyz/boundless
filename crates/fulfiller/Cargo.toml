@@ -1,5 +1,5 @@
 [package]
-name = "boundless-prover"
+name = "boundless-fulfiller"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }
