@@ -3,7 +3,12 @@
 // All rights reserved.
 #[cfg(feature = "cli")]
 use std::{
-    borrow::Cow, fs::File, io::BufReader, num::ParseIntError, path::PathBuf, time::Duration,
+    borrow::Cow,
+    fs::File,
+    io::BufReader,
+    num::ParseIntError,
+    path::{Path, PathBuf},
+    time::Duration,
 };
 
 use alloy::{
@@ -16,7 +21,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::Transport,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use guest_util::ECHO_ELF;
 use hex::FromHex;
@@ -38,7 +43,8 @@ use boundless_market::{
     storage::{StorageProvider, StorageProviderConfig},
 };
 
-// TODO(victor): Update corresponding docs
+// TODO(victor): Make it possible to specify global args (e.g. RPC URL) before or after the
+// command.
 #[derive(Subcommand, Clone, Debug)]
 enum Command {
     /// Deposit funds into the market
@@ -67,19 +73,22 @@ enum Command {
         #[clap(flatten)]
         storage_config: Option<StorageProviderConfig>,
         /// Path to a YAML file containing the request
-        yaml_request: String,
+        yaml_request: PathBuf,
         /// Optional identifier for the request
         id: Option<u32>,
         /// Wait until the request is fulfilled
         #[clap(short, long, default_value = "false")]
         wait: bool,
-        /// Submit the request offchain via the provided order stream service url
-        #[clap(short, long)]
-        offchain: Option<Url>,
-        /// Use the RISC Zero zkvm executor to run the program
-        /// without submitting the request
+        /// Submit the request offchain via the provided order stream service url.
+        #[clap(short, long, requires = "order_stream_url")]
+        offchain: bool,
+        /// Offchain order stream service URL to submit offchain requests to.
+        #[clap(long, env)]
+        order_stream_url: Option<Url>,
+        /// Preflight uses the RISC Zero zkvm executor to run the program
+        /// before submitting the request. Set no-preflight to skip.
         #[clap(long, default_value = "false")]
-        dry_run: bool,
+        no_preflight: bool,
     },
     /// Slash a prover for a given request
     Slash {
@@ -106,11 +115,24 @@ enum Command {
         /// The block number at which the request expires
         expires_at: Option<u64>,
     },
-    /// Execute a submitted proof request using the RISC Zero zkVM executor
+    /// Execute a proof request using the RISC Zero zkVM executor.
     Execute {
-        /// The proof request identifier
-        request_id: U256,
-        /// The tx hash of the request submission
+        /// Path to a YAML file containing the request.
+        ///
+        /// If provided, the request will be loaded from the given file path.
+        #[arg(long, conflicts_with_all = ["request_id", "tx_hash"])]
+        request_path: Option<PathBuf>,
+
+        /// The proof request identifier.
+        ///
+        /// If provided, the request will be fetched from the blockchain.
+        #[arg(long, conflicts_with = "request_path")]
+        request_id: Option<U256>,
+
+        /// The tx hash of the request submission.
+        ///
+        /// If provided along with request-id, uses the transaction hash to find the request.
+        #[arg(long, conflicts_with = "request_path", requires = "request_id")]
         tx_hash: Option<B256>,
     },
 }
@@ -121,19 +143,22 @@ struct SubmitOfferArgs {
     #[clap(flatten)]
     storage_config: Option<StorageProviderConfig>,
     /// Path to a YAML file containing the offer
-    yaml_offer: String,
+    yaml_offer: PathBuf,
     /// Optional identifier for the request
     id: Option<u32>,
     /// Wait until the request is fulfilled
     #[clap(short, long, default_value = "false")]
     wait: bool,
-    /// Submit the request offchain via the provided order stream service url
-    #[clap(short, long)]
-    offchain: Option<Url>,
-    /// Use the RISC Zero zkvm executor to run the program
-    /// without submitting the request
+    /// Submit the request offchain via the provided order stream service url.
+    #[clap(short, long, requires = "order_stream_url")]
+    offchain: bool,
+    /// Offchain order stream service URL to submit offchain requests to.
+    #[clap(long, env, default_value = "https://order-stream.beboundless.xyz")]
+    order_stream_url: Option<Url>,
+    /// Preflight uses the RISC Zero zkvm executor to run the program
+    /// before submitting the request. Set no-preflight to skip.
     #[clap(long, default_value = "false")]
-    dry_run: bool,
+    no_preflight: bool,
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
@@ -247,36 +272,60 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Balance of {addr}: {}", format_ether(balance));
         }
         Command::SubmitOffer(offer_args) => {
+            let order_stream_url = offer_args
+                .offchain
+                .then_some(
+                    offer_args
+                        .order_stream_url
+                        .clone()
+                        .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
+                )
+                .transpose()?;
             let client = ClientBuilder::default()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
                 .with_set_verifier_address(args.set_verifier_address)
-                .with_storage_provider_config(offer_args.clone().storage_config)
-                .with_order_stream_url(offer_args.clone().offchain)
+                .with_storage_provider_config(offer_args.storage_config.clone())
+                .with_order_stream_url(order_stream_url)
                 .with_timeout(args.tx_timeout)
                 .build()
                 .await?;
 
             request_id = submit_offer(client, &offer_args).await?;
         }
-        Command::SubmitRequest { storage_config, yaml_request, id, wait, offchain, dry_run } => {
+        Command::SubmitRequest {
+            storage_config,
+            yaml_request,
+            id,
+            wait,
+            offchain,
+            order_stream_url,
+            no_preflight,
+        } => {
             let id = match id {
                 Some(id) => id,
                 None => boundless_market.index_from_rand().await?,
             };
+            let order_stream_url = offchain
+                .then_some(
+                    order_stream_url
+                        .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
+                )
+                .transpose()?;
             let client = ClientBuilder::default()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
                 .with_set_verifier_address(args.set_verifier_address)
-                .with_order_stream_url(offchain.clone())
+                .with_order_stream_url(order_stream_url.clone())
                 .with_storage_provider_config(storage_config)
                 .with_timeout(args.tx_timeout)
                 .build()
                 .await?;
 
-            request_id = submit_request(id, yaml_request, client, wait, offchain, dry_run).await?;
+            request_id =
+                submit_request(id, yaml_request, client, wait, offchain, !no_preflight).await?;
         }
         Command::Slash { request_id } => {
             boundless_market.slash(request_id).await?;
@@ -305,8 +354,16 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             let status = boundless_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
         }
-        Command::Execute { request_id, tx_hash } => {
-            let (request, _) = boundless_market.get_submitted_request(request_id, tx_hash).await?;
+        Command::Execute { request_id, request_path, tx_hash } => {
+            let request: ProofRequest = if let Some(file_path) = request_path {
+                let file = File::open(file_path).context("failed to open request file")?;
+                let reader = BufReader::new(file);
+                serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
+            } else if let Some(request_id) = request_id {
+                boundless_market.get_submitted_request(request_id, tx_hash).await?.0
+            } else {
+                bail!("execute requires either a request file path or request ID")
+            };
             let session_info = execute(&request).await?;
             let journal = session_info.journal.bytes;
             if !request.requirements.predicate.eval(&journal) {
@@ -329,6 +386,7 @@ where
     P: Provider<T, Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
+    // TODO(victor): Execute the request before sending it.
     // Read the YAML offer file
     let file = File::open(&args.yaml_offer)?;
     let reader = BufReader::new(file);
@@ -344,7 +402,9 @@ where
             .get_block_number()
             .await
             .context("Failed to get block number")?;
-        offer = Offer { biddingStart: latest_block, ..offer };
+        // NOTE: Adding a bit of a delay to bidding start lets provers see and evaluate the request
+        // before the price starts to ramp up. 3 is an arbirary value.
+        offer = Offer { biddingStart: latest_block + 3, ..offer };
     }
 
     // Resolve the ELF and input from command line arguments.
@@ -405,17 +465,18 @@ where
 
     tracing::debug!("Request: {}", serde_json::to_string_pretty(&request)?);
 
-    if args.dry_run {
+    if !args.no_preflight {
+        tracing::info!("Running request preflight");
         let session_info = execute(&request).await?;
         let journal = session_info.journal.bytes;
-        if !request.requirements.predicate.eval(&journal) {
-            bail!("Predicate evaluation failed");
-        }
-        tracing::info!("Dry-run succeeded.");
-        return Ok(None);
+        ensure!(
+            request.requirements.predicate.eval(&journal),
+            "Predicate evaluation failed; journal does not match requirements"
+        );
+        tracing::debug!("Preflight succeeded");
     }
 
-    let request_id = if args.offchain.is_some() {
+    let request_id = if args.offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -441,19 +502,20 @@ where
 
 async fn submit_request<T, P, S>(
     id: u32,
-    request_path: String,
+    request_path: impl AsRef<Path>,
     client: Client<T, P, S>,
     wait: bool,
-    offchain: Option<Url>,
-    dry_run: bool,
+    offchain: bool,
+    preflight: bool,
 ) -> Result<Option<U256>>
 where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
+    // TODO(victor): Execute the request before sending it.
     // Read the YAML request file
-    let file = File::open(request_path).context("failed to open request file")?;
+    let file = File::open(request_path.as_ref()).context("failed to open request file")?;
     let reader = BufReader::new(file);
     let mut request_yaml: ProofRequest =
         serde_yaml::from_reader(reader).context("failed to parse request from YAML")?;
@@ -467,13 +529,15 @@ where
             .get_block_number()
             .await
             .context("Failed to get block number")?;
-        request_yaml.offer = Offer { biddingStart: latest_block, ..request_yaml.offer };
+        // NOTE: Adding a bit of a delay to bidding start lets provers see and evaluate the request
+        // before the price starts to ramp up. 3 is an arbirary value.
+        request_yaml.offer = Offer { biddingStart: latest_block + 3, ..request_yaml.offer };
     }
 
     let mut request = ProofRequest::new(
         id,
         &client.signer.address(),
-        request_yaml.requirements,
+        request_yaml.requirements.clone(),
         &request_yaml.imageUrl,
         request_yaml.input,
         request_yaml.offer,
@@ -484,17 +548,28 @@ where
         request.id = request_yaml.id;
     }
 
-    if dry_run {
+    if preflight {
+        tracing::info!("Running request preflight");
         let session_info = execute(&request).await?;
         let journal = session_info.journal.bytes;
-        if !request.requirements.predicate.eval(&journal) {
-            bail!("Predicate evaluation failed");
+        if let Some(claim) = session_info.receipt_claim {
+            ensure!(
+                claim.pre.digest().as_bytes() == request_yaml.requirements.imageId.as_slice(),
+                "image ID in requirements does not match the given ELF: {} != {}",
+                claim.pre.digest(),
+                request_yaml.requirements.imageId
+            );
+        } else {
+            tracing::debug!("cannot check image id; session info doesn't have receipt claim");
         }
-        tracing::info!("Dry-run succeeded.");
-        return Ok(None);
+        ensure!(
+            request.requirements.predicate.eval(&journal),
+            "Predicate evaluation failed; journal does not match requirements"
+        );
+        tracing::debug!("Preflight succeeded");
     }
 
-    let request_id = if offchain.is_some() {
+    let request_id = if offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -610,11 +685,12 @@ mod tests {
             tx_timeout: None,
             command: Command::SubmitRequest {
                 storage_config: Some(StorageProviderConfig::dev_mode()),
-                yaml_request: "../../request.yaml".to_string(),
+                yaml_request: "../../request.yaml".to_string().into(),
                 id: None,
                 wait: false,
-                offchain: None,
-                dry_run: false,
+                offchain: false,
+                order_stream_url: None,
+                no_preflight: false,
             },
         };
 
