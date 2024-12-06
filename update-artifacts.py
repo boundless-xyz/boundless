@@ -34,7 +34,7 @@ def compare_contracts(path1, path2) -> bool:
 
     bytecode1 = get_bytecode(artifact1)
     bytecode2 = get_bytecode(artifact2)
-    
+
     norm1 = normalize_bytecode(bytecode1)
     norm2 = normalize_bytecode(bytecode2)
 
@@ -56,7 +56,7 @@ def run_forge_build():
 
 def copy_files(file_list, target_folder):
     os.makedirs(target_folder, exist_ok=True)
-    
+
     for file_path in file_list:
         if not os.path.exists(file_path):
             print(f"Warning: {file_path} does not exist. Skipping.")
