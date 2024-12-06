@@ -36,7 +36,7 @@ const config = deepmerge(tailwindConfig, {
       animation: {
         float: "float 9s cubic-bezier(0.445, 0.05, 0.55, 0.95) infinite",
         flicker: "flicker 20s ease-in-out infinite",
-        flickerAndFloat: "flicker 20s ease-in-out infinite, float 7s cubic-bezier(0.445, 0.05, 0.55, 0.95) infinite",
+        flickerAndFloat: "float 7s cubic-bezier(0.445, 0.05, 0.55, 0.95) infinite, flicker 20s ease-in-out infinite",
       },
     },
   },

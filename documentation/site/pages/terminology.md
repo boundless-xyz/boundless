@@ -5,15 +5,9 @@ description: A list of terms used in the Boundless documentation.
 
 # Terminology
 
-## Assessor
-
-A [guest program][r0-term-guest-program] that will verify the application receipt through composition and check that it satisfies the given requirements. Using this method, the full request does not need to be provided as part of fulfillment, only the associated identifier.
-
 ## Aggregation
 
 In order to amortize the Boundless' on-chain verification cost, a recursive verification protocol is used to verify multiple independent [receipts][r0-term-receipt] such that a single receipt attests to every claim in a set of proofs. Further improving efficiency of inclusion proofs on-chain, this process builds a binary Merkle tree of the receipt claims.
-
-See `crates/aggregation-set/src/lib.rs` and `crates/guest/set-builder/set-builder-guest/src/main.rs` for details.
 
 ## Boundless Market
 
@@ -23,21 +17,9 @@ In the initial 0th version, the Market is facilitated on-chain where one is [dep
 
 See the [Market Section][page-boundless-market] for more details
 
-## Bento
-
-A cluster of services that coordinate to search for, bid on, and attempt to fulfil proof orders.
-
-See the [Bento Section][page-bento] for more details.
-
-## Broker
-
-The Broker monitors a [deployment][page-deployments] of the Boundless Market and, based on customizable criteria, bids on and locks-in on proof requests. Proof generation jobs are subsequently passed to an instance of Bento, and ultimately are the request(s) are fulfilled it on the Market.
-
-See the [Broker Section][page-broker] for more details.
-
 ## Preflight
 
-Running a proof request's execution only via Bento (essential using [RISC Zero's dev-mode][r0-page-dev-mode]) in order to calculate the required [cycles][r0-term-clock-cycles] for the proof order.
+Running a proof request's execution only (e.g. using [RISC Zero's dev-mode][r0-page-dev-mode]) in order to calculate the required [cycles][r0-term-clock-cycles] for the proof order.
 
 This allows one to:
 
@@ -49,16 +31,15 @@ Calculate - based on custom heuristics - the bid to lock-in on a market order fu
 
 The market participant that fulfills proof order.
 
-## Proof Order
+## Proof Request
 
-An order - also called a request - placed on the Boundless Market to that includes:
+A request - sometimes called an order - placed on the Boundless Market to that includes:
 
-A Unique ID for the request on the Market
-Proof Requirements for a this order to be fulfilled, including the [Image ID][r0-term-image-id]
-A URL where the [ELF Binary][r0-term-elf-binary] for the program with required Image ID's can be retrieved by the Prover
-[Guest Program][r0-term-guest-program] inputs
-An Offer specifying remuneration for successful order fulfillment
-See contracts/src/IProofMarket.sol for more details.
+- A Unique ID for the request on the Market
+- Proof Requirements for a this order to be fulfilled, including the [Image ID][r0-term-image-id]
+- A URL where the [ELF Binary][r0-term-elf-binary] for the program with required Image ID's can be retrieved by the Prover
+- [Guest Program][r0-term-guest-program] inputs
+- An Offer specifying remuneration for successful order fulfillment
 
 ## Requestor
 
