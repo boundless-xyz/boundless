@@ -71,7 +71,7 @@ pub trait BrokerDb {
     async fn get_submission_order(
         &self,
         id: U256,
-    ) -> Result<(ProofRequest, String, B256, Vec<Digest>), DbError>;
+    ) -> Result<(ProofRequest, String, B256, Vec<Digest>, U256), DbError>;
     async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
@@ -223,7 +223,7 @@ impl BrokerDb for SqliteDb {
     async fn get_submission_order(
         &self,
         id: U256,
-    ) -> Result<(ProofRequest, String, B256, Vec<Digest>), DbError> {
+    ) -> Result<(ProofRequest, String, B256, Vec<Digest>, U256), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             Ok((
@@ -231,6 +231,7 @@ impl BrokerDb for SqliteDb {
                 order.proof_id.ok_or(DbError::MissingElm("proof_id"))?,
                 order.request.requirements.imageId,
                 order.path.ok_or(DbError::MissingElm("path"))?,
+                order.lock_price.ok_or(DbError::MissingElm("lock_price"))?,
             ))
         } else {
             Err(DbError::OrderNotFound(id))
