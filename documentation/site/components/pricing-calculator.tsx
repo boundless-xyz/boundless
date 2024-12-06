@@ -11,7 +11,7 @@ type PricingInputs = {
 };
 
 function calculateSuggestion(cycles: number, minutes: number, blocksPerMinute: number) {
-  const basePrice = (cycles / 1_000_000) * 0.5;
+  const basePrice = (cycles / 1_000_000) * 0.0001;
   const biddingStartDelay = Math.ceil(cycles / (30 * 1_000_000)); // cycles / 30MHz in blocks
 
   return {
