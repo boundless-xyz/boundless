@@ -98,6 +98,24 @@ pub struct Args {
     /// Amount of ETH to pre-deposit into the contract for staking eg: 0.1 ETH
     #[clap(short, long)]
     pub deposit_amount: Option<String>,
+
+    /// RPC HTTP retry rate limit max retry
+    ///
+    /// From the `RetryBackoffLayer` of Alloy
+    #[clap(long, default_value_t = 10)]
+    pub rpc_retry_max: u32,
+
+    /// RPC HTTP retry backoff (in ms)
+    ///
+    /// From the `RetryBackoffLayer` of Alloy
+    #[clap(long, default_value_t = 1000)]
+    pub rpc_retry_backoff: u64,
+
+    /// RPC HTTP retry compute-unit per second
+    ///
+    /// From the `RetryBackoffLayer` of Alloy
+    #[clap(long, default_value_t = 100)]
+    pub rpc_retry_cu: u64,
 }
 
 /// Status of a order as it moves through the lifecycle
@@ -716,6 +734,9 @@ pub mod test_utils {
             bonsai_api_key: None,
             bonsai_api_url: None,
             deposit_amount: None,
+            rpc_retry_max: 0,
+            rpc_retry_backoff: 200,
+            rpc_retry_cu: 1000,
         };
         Broker::new(args, ctx.prover_provider.clone()).await
     }
