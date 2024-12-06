@@ -21,12 +21,9 @@ fn rewrite_solidity_interface_files() {
     println!("cargo::rerun-if-env-changed=CARGO_MANIFEST_DIR");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let sol_iface_path = Path::new(&manifest_dir)
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("contracts")
         .join("src")
+        .join("contracts")
+        .join("artifacts")
         .join("IBoundlessMarket.sol");
 
     println!("cargo::rerun-if-changed={}", sol_iface_path.to_string_lossy());
@@ -61,6 +58,29 @@ fn rewrite_solidity_interface_files() {
         ),
     )
     .unwrap();
+}
+
+fn copy_interfaces() {
+    let target_contracts = ["IBoundlessMarket"];
+
+    println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let dest_path = Path::new(&manifest_dir).join("src/contracts/artifacts");
+    fs::create_dir_all(&dest_path).unwrap();
+
+    let src_path =
+        Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("src");
+
+    for contract in target_contracts {
+        let source_path = src_path.join(format!("{contract}.sol"));
+        // Tell cargo to rerun if this contract changes
+        println!("cargo:rerun-if-changed={}", source_path.display());
+
+        if source_path.exists() {
+            // Copy the file to the destination
+            std::fs::copy(&source_path, dest_path.join(format!("{contract}.sol"))).unwrap();
+        }
+    }
 }
 
 fn copy_artifacts() {
@@ -106,6 +126,7 @@ fn copy_artifacts() {
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
 
+    copy_interfaces();
     rewrite_solidity_interface_files();
 
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
