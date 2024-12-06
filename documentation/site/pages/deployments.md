@@ -7,7 +7,7 @@ description: The Boundless Market's contracts are deployed only on Sepolia so fa
 
 ## Contracts
 
-The Boundless Market's contracts are deployed only on [Sepolia](#sepolia) so far, with more to be determined.
+The Boundless Market's contracts are deployed only on Ethereum Sepolia so far, with more to be determined.
 
 :::warning[Sepolia Testnet]
 There is no versioning presently, and these addresses may change at any time!
