@@ -135,11 +135,9 @@ contract DeploymentTest is Test {
         (, string memory setBuilderUrl) = setVerifier.imageInfo();
         (, string memory assessorUrl) = boundlessMarket.imageInfo();
 
-        string[] memory argv = new string[](17);
+        string[] memory argv = new string[](15);
         uint256 i = 0;
         argv[i++] = "boundless-ffi";
-        argv[i++] = "-q";
-        argv[i++] = "--";
         argv[i++] = "--set-builder-url";
         argv[i++] = setBuilderUrl;
         argv[i++] = "--assessor-url";
