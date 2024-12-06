@@ -258,13 +258,18 @@ impl DefaultProver {
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_image_id };
 
-        let mut order_inclusion_receipt = SetInclusionReceipt::from_path(order_claim, order_path);
-        order_inclusion_receipt.verifier_parameters = verifier_parameters.digest();
+        let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+            order_claim,
+            order_path,
+            verifier_parameters.digest(),
+        );
         let order_seal = order_inclusion_receipt.abi_encode_seal()?;
 
-        let mut assessor_inclusion_receipt =
-            SetInclusionReceipt::from_path(assessor_claim, assessor_path);
-        assessor_inclusion_receipt.verifier_parameters = verifier_parameters.digest();
+        let assessor_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+            assessor_claim,
+            assessor_path,
+            verifier_parameters.digest(),
+        );
 
         let fulfillment = BoundlessFulfillment {
             id: request.id,
@@ -287,8 +292,8 @@ mod tests {
         eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
+    use guest_set_builder::SET_BUILDER_ELF;
     use guest_util::{ECHO_ID, ECHO_PATH};
-    use risc0_aggregation::SET_BUILDER_ELF;
     use risc0_zkvm::VerifierContext;
 
     fn setup_proving_request_and_signature(
@@ -328,21 +333,20 @@ mod tests {
         let (_, root_receipt, order_receipt, assessor_receipt) =
             prover.fulfill(order.clone(), false).await.unwrap();
 
+        let verifier_parameters =
+            SetInclusionReceiptVerifierParameters { image_id: prover.set_builder_image_id };
+
         order_receipt
             .with_root(root_receipt.clone())
             .verify_integrity_with_context(
                 &VerifierContext::default(),
-                SetInclusionReceiptVerifierParameters::default(),
+                verifier_parameters.clone(),
                 None,
             )
             .unwrap();
         assessor_receipt
             .with_root(root_receipt.clone())
-            .verify_integrity_with_context(
-                &VerifierContext::default(),
-                SetInclusionReceiptVerifierParameters::default(),
-                None,
-            )
+            .verify_integrity_with_context(&VerifierContext::default(), verifier_parameters, None)
             .unwrap();
     }
 }

@@ -162,11 +162,11 @@ where
             };
 
             tracing::debug!("Order path {order_id:x} - {order_path:x?}");
-            let mut set_inclusion_receipt = SetInclusionReceipt::from_path(
+            let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                 ReceiptClaim::ok(order_img_id.0, MaybePruned::Pruned(order_journal.digest())),
                 order_path,
+                inclusion_params.digest(),
             );
-            set_inclusion_receipt.verifier_parameters = inclusion_params.digest();
             let seal = match set_inclusion_receipt
                 .abi_encode_seal()
                 .context("ABI encode set inclusion receipt")
@@ -196,15 +196,15 @@ where
         }
 
         let orders_root = batch.orders_root.context("Batch missing orders root digest")?;
-        let mut assessor_seal = SetInclusionReceipt::from_path(
+        let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
             // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
             // should make an explicit way to encode an inclusion proof without the claim.
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
             vec![orders_root],
+            inclusion_params.digest(),
         );
-        assessor_seal.verifier_parameters = inclusion_params.digest();
         let assessor_seal =
             assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
 
@@ -371,8 +371,9 @@ mod tests {
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
+    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use risc0_aggregation::{GuestInput, GuestOutput, SET_BUILDER_ELF, SET_BUILDER_ID};
+    use risc0_aggregation::{GuestInput, GuestOutput};
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
@@ -399,11 +400,19 @@ mod tests {
         );
 
         let verifier = deploy_mock_verifier(provider.clone()).await.unwrap();
-        let set_verifier = deploy_set_verifier(provider.clone(), verifier).await.unwrap();
-        let market_address =
-            deploy_boundless_market(&signer, provider.clone(), set_verifier, Some(prover_addr))
+        let set_verifier =
+            deploy_set_verifier(provider.clone(), verifier, Digest::from(SET_BUILDER_ID))
                 .await
                 .unwrap();
+        let market_address = deploy_boundless_market(
+            &signer,
+            provider.clone(),
+            set_verifier,
+            Digest::from(ASSESSOR_GUEST_ID),
+            Some(prover_addr),
+        )
+        .await
+        .unwrap();
 
         let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
         market.deposit(U256::from(10000000000u64)).await.unwrap();

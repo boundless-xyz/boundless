@@ -546,8 +546,8 @@ mod tests {
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
+    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use risc0_aggregation::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use tracing_test::traced_test;
 
     #[tokio::test]

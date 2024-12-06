@@ -231,6 +231,8 @@ mod tests {
     };
     use boundless_market::contracts::test_utils::TestCtx;
     use broker::test_utils::broker_from_test_ctx;
+    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_set_builder::SET_BUILDER_ID;
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
@@ -263,7 +265,10 @@ mod tests {
     async fn test_main() {
         // Setup anvil and deploy contracts
         let anvil = Anvil::new().spawn();
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
 
         // Start a broker

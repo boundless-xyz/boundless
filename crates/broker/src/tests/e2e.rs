@@ -16,9 +16,9 @@ use boundless_market::contracts::{
     test_utils::TestCtx, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
     Requirements,
 };
-use guest_assessor::ASSESSOR_GUEST_PATH;
+use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use guest_util::{ECHO_ELF, ECHO_ID};
-use risc0_aggregation::SET_BUILDER_PATH;
 use tokio::time::Duration;
 use tracing_test::traced_test;
 
@@ -29,7 +29,9 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = TestCtx::new(&anvil).await.unwrap();
+    let ctx = TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+        .await
+        .unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market.deposit(utils::parse_ether("2").unwrap()).await.unwrap();

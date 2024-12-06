@@ -20,6 +20,7 @@ risc0-build = { version = "1.2", features = ["docker"] }
 risc0-zkvm = { version = "1.2", default-features = false }
 
 # risc0-ethereum dependencies.
+guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
 risc0-aggregation =  { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
 risc0-build-ethereum = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
 risc0-ethereum-contracts = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }

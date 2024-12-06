@@ -55,15 +55,16 @@ postcard = { version = "1.0" }
 rand = { version = "0.8" }
 redis = { version = "0.25", features = ["tokio-comp"] }
 reqwest = "0.12"
-risc0-aggregation = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
+risc0-aggregation = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2", version = "0.1.0" }
 risc0-binfmt = "1.2"
 risc0-build = { version = "1.2", features = ["docker"] }
-risc0-build-ethereum = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
-risc0-ethereum-contracts = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
+risc0-build-ethereum = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2", version = "1.2.0" }
+risc0-ethereum-contracts = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2", version = "1.2.0" }
 risc0-zkvm = { version = "1.2", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
+guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", branch = "release-1.2" }
 sha2 = { version = "0.10" }
 sqlx = { version = "0.7", default-features = false }
 tempfile = "3.10"

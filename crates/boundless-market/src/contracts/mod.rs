@@ -275,7 +275,7 @@ impl Input {
     /// ```
     /// use boundless_market::{contracts::Input, input::InputBuilder};
     ///
-    /// let input = Input::inline(InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap());
+    /// let input = Input::inline(InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().build());
     /// ```
     ///
     /// See [`InputBuilder`] for more details on how to write input data.
@@ -513,8 +513,6 @@ pub mod test_utils {
         transports::{BoxTransport, Transport},
     };
     use anyhow::{Context, Result};
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use risc0_aggregation::SET_BUILDER_ID;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
 
@@ -608,6 +606,7 @@ pub mod test_utils {
     pub async fn deploy_set_verifier<T, P>(
         deployer_provider: P,
         verifier_address: Address,
+        set_builder_id: Digest,
     ) -> Result<Address>
     where
         T: Transport + Clone,
@@ -619,7 +618,7 @@ pub mod test_utils {
                 hex::decode(SET_VERIFIER_BYTECODE).unwrap(),
                 SetVerifier::constructorCall {
                     verifier: verifier_address,
-                    imageId: <[u8; 32]>::from(Digest::from(SET_BUILDER_ID)).into(),
+                    imageId: <[u8; 32]>::from(set_builder_id).into(),
                     imageUrl: String::new(),
                 }
                 .abi_encode(),
@@ -636,6 +635,7 @@ pub mod test_utils {
         deployer_signer: &PrivateKeySigner,
         deployer_provider: P,
         set_verifier: Address,
+        assessor_guest_id: Digest,
         allowed_prover: Option<Address>,
     ) -> Result<Address>
     where
@@ -650,7 +650,7 @@ pub mod test_utils {
                 hex::decode(BOUNDLESS_MARKET_BYTECODE).unwrap(),
                 BoundlessMarket::constructorCall {
                     verifier: set_verifier,
-                    assessorId: <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
+                    assessorId: <[u8; 32]>::from(assessor_guest_id).into(),
                 }
                 .abi_encode(),
             ]
@@ -697,7 +697,11 @@ pub mod test_utils {
     }
 
     impl TestCtx {
-        async fn deploy_contracts(anvil: &AnvilInstance) -> Result<(Address, Address, Address)> {
+        async fn deploy_contracts(
+            anvil: &AnvilInstance,
+            set_builder_id: Digest,
+            assessor_guest_id: Digest,
+        ) -> Result<(Address, Address, Address)> {
             let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
             let deployer_provider = Arc::new(
                 ProviderBuilder::new()
@@ -711,11 +715,13 @@ pub mod test_utils {
             // Deploy contracts
             let verifier = deploy_mock_verifier(Arc::clone(&deployer_provider)).await?;
             let set_verifier =
-                deploy_set_verifier(Arc::clone(&deployer_provider), verifier).await?;
+                deploy_set_verifier(Arc::clone(&deployer_provider), verifier, set_builder_id)
+                    .await?;
             let boundless_market = deploy_boundless_market(
                 &deployer_signer,
                 Arc::clone(&deployer_provider),
                 set_verifier,
+                assessor_guest_id,
                 None,
             )
             .await?;
@@ -727,9 +733,13 @@ pub mod test_utils {
             Ok((verifier, set_verifier, boundless_market))
         }
 
-        pub async fn new(anvil: &AnvilInstance) -> Result<Self> {
+        pub async fn new(
+            anvil: &AnvilInstance,
+            set_builder_id: Digest,
+            assessor_guest_id: Digest,
+        ) -> Result<Self> {
             let (verifier_addr, set_verifier_addr, boundless_market_addr) =
-                TestCtx::deploy_contracts(anvil).await.unwrap();
+                TestCtx::deploy_contracts(anvil, set_builder_id, assessor_guest_id).await.unwrap();
 
             let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
             let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
