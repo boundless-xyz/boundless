@@ -113,13 +113,13 @@ export default function PricingCalculator() {
                   <div className="flex justify-between">
                     <dt>Minimum Price:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.minPrice} /> ETH
+                      <NumberFlow value={suggestion.minPrice} /> Sepolia ETH
                     </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Maximum Price:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.maxPrice} /> ETH
+                      <NumberFlow value={suggestion.maxPrice} /> Sepolia ETH
                     </dd>
                   </div>
                   <div className="flex justify-between">
@@ -143,7 +143,7 @@ export default function PricingCalculator() {
                   <div className="flex justify-between">
                     <dt>Lock-in Stake:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.lockInStake} /> ETH
+                      <NumberFlow value={suggestion.lockInStake} /> Sepolia ETH
                     </dd>
                   </div>
                 </dl>
