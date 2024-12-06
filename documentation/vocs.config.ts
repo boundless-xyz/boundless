@@ -44,10 +44,6 @@ const SIDEBAR_CONFIG = [
     collapsed: false,
     items: [
       {
-        text: "Market Design",
-        link: "/market-design",
-      },
-      {
         text: "Market Matching Design",
         link: "/market-matching-design",
       },
