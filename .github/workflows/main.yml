@@ -103,7 +103,7 @@ jobs:
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
       - name: check for changes to files in git index
-        run: git diff --exit-code
+        run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
 
       - name: Install sqlx-cli
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
