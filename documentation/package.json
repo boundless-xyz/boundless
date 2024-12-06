@@ -13,7 +13,7 @@
     "preview": "vocs preview"
   },
   "dependencies": {
-    "@risc0/ui": "0.0.238",
+    "@risc0/ui": "0.0.240",
     "markdown-link-check": "3.13.6",
     "remark": "15.0.1",
     "remark-cli": "12.0.1",
