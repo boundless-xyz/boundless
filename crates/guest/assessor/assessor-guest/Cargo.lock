@@ -893,25 +893,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
-name = "assessor"
-version = "0.4.0"
-dependencies = [
- "alloy-primitives",
- "alloy-sol-types",
- "anyhow",
- "boundless-market",
- "postcard",
- "risc0-zkvm",
- "serde",
-]
-
-[[package]]
 name = "assessor-guest"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
- "assessor",
+ "boundless-assessor",
  "boundless-market",
  "postcard",
  "risc0-aggregation",
@@ -1410,6 +1397,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.89",
+]
+
+[[package]]
+name = "boundless-assessor"
+version = "0.4.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "anyhow",
+ "boundless-market",
+ "postcard",
+ "risc0-zkvm",
+ "serde",
 ]
 
 [[package]]

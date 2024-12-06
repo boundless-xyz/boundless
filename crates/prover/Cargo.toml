@@ -9,7 +9,7 @@ repository = { workspace = true }
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 anyhow = { workspace = true }
-assessor = { workspace = true }
+boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true }
@@ -27,7 +27,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 
 [[bin]]
-name = "fulfill"
+name = "boundless-fulfill"
 
 [dev-dependencies]
 guest-assessor = { workspace = true }

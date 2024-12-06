@@ -7,7 +7,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{bail, Context, Result};
-use assessor::{AssessorInput, Fulfillment};
+use boundless_assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
     merkle_path, GuestInput, GuestOutput, SetInclusionReceipt,
     SetInclusionReceiptVerifierParameters,

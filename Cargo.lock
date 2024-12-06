@@ -1070,23 +1070,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "assessor"
-version = "0.4.0"
-dependencies = [
- "alloy",
- "alloy-primitives",
- "alloy-sol-types",
- "anyhow",
- "boundless-market",
- "guest-assessor",
- "guest-util",
- "postcard",
- "risc0-zkvm",
- "serde",
- "test-log",
-]
-
-[[package]]
 name = "async-attributes"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1909,6 +1892,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-assessor"
+version = "0.4.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "alloy-sol-types",
+ "anyhow",
+ "boundless-market",
+ "guest-assessor",
+ "guest-util",
+ "postcard",
+ "risc0-zkvm",
+ "serde",
+ "test-log",
+]
+
+[[package]]
 name = "boundless-market"
 version = "0.4.0"
 dependencies = [
@@ -1957,7 +1957,7 @@ version = "0.4.0"
 dependencies = [
  "alloy",
  "anyhow",
- "assessor",
+ "boundless-assessor",
  "boundless-market",
  "bytemuck",
  "clap",
@@ -1985,11 +1985,11 @@ dependencies = [
  "alloy",
  "alloy-chains",
  "anyhow",
- "assessor",
  "async-channel 2.3.1",
  "async-trait",
  "bincode",
  "bonsai-sdk",
+ "boundless-assessor",
  "boundless-market",
  "broker",
  "bytemuck",

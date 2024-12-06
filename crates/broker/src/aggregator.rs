@@ -12,7 +12,7 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{Context, Result};
-use assessor::{AssessorInput, Fulfillment};
+use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::contracts::eip712_domain;
 use chrono::Utc;
 use risc0_aggregation::{GuestInput, GuestOutput};

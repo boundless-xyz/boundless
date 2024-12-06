@@ -364,7 +364,7 @@ mod tests {
         signers::local::PrivateKeySigner,
         sol_types::SolValue,
     };
-    use assessor::{AssessorInput, Fulfillment};
+    use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, deploy_mock_verifier, deploy_set_verifier},
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,

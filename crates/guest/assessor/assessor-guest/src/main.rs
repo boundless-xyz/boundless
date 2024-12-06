@@ -7,12 +7,12 @@
 
 extern crate alloc;
 
-use risc0_aggregation::merkle_root;
 use alloc::{vec, vec::Vec};
 use alloy_primitives::B256;
 use alloy_sol_types::SolValue;
-use assessor::AssessorInput;
+use boundless_assessor::AssessorInput;
 use boundless_market::contracts::AssessorJournal;
+use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
     sha::{Digest, Digestible},

@@ -1,5 +1,5 @@
 [package]
-name = "assessor"
+name = "boundless-assessor"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }

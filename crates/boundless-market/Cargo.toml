@@ -45,11 +45,11 @@ time = "0.3"
 utoipa = { workspace = true }
 
 [[bin]]
-name = "cli"
+name = "boundless-cli"
 required-features = ["cli"]
 
 [[bin]]
-name = "order-generator"
+name = "boundless-order-generator"
 required-features = ["cli"]
 
 [dev-dependencies]

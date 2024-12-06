@@ -22,11 +22,11 @@ homepage = "https://beboundless.xyz/"
 repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
-assessor = { path = "crates/assessor" }
 async-stream = "0.3"
 bento-client = { path = "crates/bento-client" }
-boundless-market = { path = "crates/boundless-market" }
-guest-assessor = { path = "crates/guest/assessor" }
+boundless-assessor = { version = "0.4.0", path = "crates/assessor" }
+boundless-market = { version = "0.4.0", path = "crates/boundless-market" }
+guest-assessor = { version = "0.4.0", path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
 taskdb = { path = "crates/taskdb" }
