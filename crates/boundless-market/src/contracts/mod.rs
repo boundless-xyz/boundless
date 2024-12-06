@@ -509,9 +509,10 @@ pub mod test_utils {
             Identity, Provider, ProviderBuilder, RootProvider,
         },
         signers::local::PrivateKeySigner,
+        sol_types::{SolCall, SolConstructor},
         transports::{BoxTransport, Transport},
     };
-    use anyhow::Result;
+    use anyhow::{Context, Result};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use risc0_aggregation::SET_BUILDER_ID;
     use risc0_zkvm::sha::Digest;
@@ -521,29 +522,42 @@ pub mod test_utils {
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService,
     };
 
-    alloy::sol!(
-        #![sol(rpc)]
-        MockVerifier,
-        "src/contracts/artifacts/RiscZeroMockVerifier.json"
-    );
+    // Bytecode for the contracts is copied from the contract build output by the build script. It
+    // is checked into git so that we can avoid issues with publishing to crates.io. We do not use
+    // the full JSON build out because it is less stable.
 
-    alloy::sol!(
-        #![sol(rpc)]
-        SetVerifier,
-        "src/contracts/artifacts/RiscZeroSetVerifier.json"
-    );
+    const MOCK_VERIFIER_BYTECODE: &str = include_str!("./artifacts/RiscZeroMockVerifier.hex");
+    alloy::sol! {
+        #[sol(rpc)]
+        contract MockVerifier {
+            constructor(bytes4 selector) {}
+        }
+    }
 
-    alloy::sol!(
+    const SET_VERIFIER_BYTECODE: &str = include_str!("./artifacts/RiscZeroSetVerifier.hex");
+    alloy::sol! {
         #![sol(rpc)]
-        BoundlessMarket,
-        "src/contracts/artifacts/BoundlessMarket.json"
-    );
+        contract RiscZeroSetVerifier {
+            constructor(address verifier, bytes32 imageId, string memory imageUrl) {}
+        }
+    }
 
-    alloy::sol!(
+    const BOUNDLESS_MARKET_BYTECODE: &str = include_str!("./artifacts/BoundlessMarket.hex");
+    alloy::sol! {
         #![sol(rpc)]
-        ERC1967Proxy,
-        "src/contracts/artifacts/ERC1967Proxy.json"
-    );
+        contract BoundlessMarket {
+            constructor(address verifier, bytes32 assessorId) {}
+            function initialize(address initialOwner, string calldata imageUrl) {}
+        }
+    }
+
+    const ERC1967_PROXY_BYTECODE: &str = include_str!("./artifacts/ERC1967Proxy.hex");
+    alloy::sol! {
+        #![sol(rpc)]
+        contract ERC1967Proxy {
+            constructor(address implementation, bytes memory data) payable {}
+        }
+    }
 
     // Note: I was completely unable to solve this with generics or trait objects
     type ProviderWallet = FillProvider<
@@ -573,22 +587,41 @@ pub mod test_utils {
     }
 
     pub async fn deploy_verifier(deployer_provider: Arc<ProviderWallet>) -> Result<Address> {
-        let verifier = MockVerifier::deploy(&deployer_provider, FixedBytes::ZERO).await?;
-        Ok(*verifier.address())
+        alloy::contract::RawCallBuilder::new_raw_deploy(
+            deployer_provider,
+            [
+                hex::decode(MOCK_VERIFIER_BYTECODE).unwrap(),
+                MockVerifier::constructorCall { selector: FixedBytes::ZERO }.abi_encode(),
+            ]
+            .concat()
+            .into(),
+        )
+        .deploy()
+        .await
+        .context("failed to deploy RiscZeroMockVerifier")
     }
 
     pub async fn deploy_set_verifier(
         deployer_provider: Arc<ProviderWallet>,
         verifier_address: Address,
     ) -> Result<Address> {
-        let set_verifier = SetVerifier::deploy(
-            &deployer_provider,
-            verifier_address,
-            <[u8; 32]>::from(Digest::from(SET_BUILDER_ID)).into(),
-            String::new(),
+        alloy::contract::RawCallBuilder::new_raw_deploy(
+            deployer_provider,
+            [
+                hex::decode(SET_VERIFIER_BYTECODE).unwrap(),
+                RiscZeroSetVerifier::constructorCall {
+                    verifier: verifier_address,
+                    imageId: <[u8; 32]>::from(Digest::from(SET_BUILDER_ID)).into(),
+                    imageUrl: String::new(),
+                }
+                .abi_encode(),
+            ]
+            .concat()
+            .into(),
         )
-        .await?;
-        Ok(*set_verifier.address())
+        .deploy()
+        .await
+        .context("failed to deploy RiscZeroSetVerifier")
     }
 
     pub async fn deploy_boundless_market<T, P>(
@@ -602,23 +635,45 @@ pub mod test_utils {
         P: Provider<T, Ethereum> + 'static + Clone,
     {
         let deployer_address = deployer_signer.address();
-        let boundless_market = BoundlessMarket::deploy(
+
+        let boundless_market = alloy::contract::RawCallBuilder::new_raw_deploy(
             &deployer_provider,
-            set_verifier,
-            <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
+            [
+                hex::decode(BOUNDLESS_MARKET_BYTECODE).unwrap(),
+                BoundlessMarket::constructorCall {
+                    verifier: set_verifier,
+                    assessorId: <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)).into(),
+                }
+                .abi_encode(),
+            ]
+            .concat()
+            .into(),
         )
-        .await?;
+        .deploy()
+        .await
+        .context("failed to deploy BoundlessMarket implementation")?;
 
-        // Combine the function selector with the encoded parameters
-        let data = BoundlessMarket::new(Address::default(), &deployer_provider)
-            .initialize(deployer_address, String::new())
-            .calldata()
-            .clone();
-
-        let proxy =
-            ERC1967Proxy::deploy_builder(&deployer_provider, *boundless_market.address(), data)
-                .deploy()
-                .await?;
+        let proxy = alloy::contract::RawCallBuilder::new_raw_deploy(
+            &deployer_provider,
+            [
+                hex::decode(ERC1967_PROXY_BYTECODE).unwrap(),
+                ERC1967Proxy::constructorCall {
+                    implementation: boundless_market,
+                    data: BoundlessMarket::initializeCall {
+                        initialOwner: deployer_address,
+                        imageUrl: "".to_string(),
+                    }
+                    .abi_encode()
+                    .into(),
+                }
+                .abi_encode(),
+            ]
+            .concat()
+            .into(),
+        )
+        .deploy()
+        .await
+        .context("failed to deploy BoundlessMarket proxy")?;
 
         if let Some(prover) = allowed_prover {
             BoundlessMarketService::new(
@@ -666,7 +721,7 @@ pub mod test_utils {
 
         pub async fn new(anvil: &AnvilInstance) -> Result<Self> {
             let (verifier_addr, set_verifier_addr, boundless_market_addr) =
-                TestCtx::deploy_contracts(&anvil).await.unwrap();
+                TestCtx::deploy_contracts(anvil).await.unwrap();
 
             let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
             let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
