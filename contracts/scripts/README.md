@@ -132,7 +132,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    To generate a deterministic image ID run (from the repo root folder):
 
    ```zsh
-   cargo risczero build --manifest-path aggregation/guest/set-builder/Cargo.toml
+   cargo risczero build --manifest-path crates/guest/assessor/assessor-guest/Cargo.toml
    ```
 
    This will output the image ID and file location.
