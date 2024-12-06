@@ -2,7 +2,11 @@
 //
 // All rights reserved.
 
-use alloy::providers::{network::EthereumWallet, ProviderBuilder, WalletProvider};
+use alloy::{
+    providers::{network::EthereumWallet, ProviderBuilder, WalletProvider},
+    rpc::client::RpcClient,
+    transports::layers::RetryBackoffLayer,
+};
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
@@ -19,11 +23,15 @@ async fn main() -> Result<()> {
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 
+    let retry_layer =
+        RetryBackoffLayer::new(args.rpc_retry_max, args.rpc_retry_backoff, args.rpc_retry_cu);
+    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
+
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()
         .wallet(wallet)
         .with_chain(NamedChain::Sepolia)
-        .on_http(args.rpc_url.clone());
+        .on_client(client);
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {

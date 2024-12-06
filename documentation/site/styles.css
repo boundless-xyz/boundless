@@ -95,6 +95,7 @@
   --font-replica: "Replica";
   --font-ubuntu-mono: "Ubuntu Mono";
   --removed-body-scroll-bar-size: 0px;
+  --vocs-fontWeight_semibold: 600;
 
   /* tailwind/shadcn overrides */
   --radius: 0.5rem;
@@ -112,6 +113,10 @@ body,
 
 body {
   @apply bg-inherit;
+}
+
+.vocs_Content img {
+  @apply rounded-md;
 }
 
 .vocs_Logo {
@@ -134,8 +139,32 @@ body {
   @apply !pt-40;
 }
 
+.vocs_Heading {
+  @apply font-normal;
+}
+
 .vocs_Sidebar_sectionTitle {
   @apply font-bold;
+}
+
+.vocs_ExternalLink {
+  @apply whitespace-pre;
+}
+
+[data-layout="landing"] .vocs_DocsLayout_gutterTop {
+  @apply bg-transparent;
+}
+
+[data-layout="landing"] .vocs_DesktopTopNav_hideCompact {
+  @apply hidden;
+}
+
+.dark [data-layout="landing"] .vocs_DesktopTopNav_icon {
+  @apply text-[#646464];
+}
+
+.dark [data-layout="landing"] .vocs_DesktopTopNav_section {
+  @apply text-neutral-900;
 }
 
 :where(html:not(.dark)) .vocs_Sidebar_sectionTitle {
@@ -163,3 +192,4 @@ body {
     @apply min-h-[calc(100dvh-48px)];
   }
 }
+

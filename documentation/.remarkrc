@@ -1,27 +1,28 @@
 {
-	"settings": {
-		"bullet": "-",
-		"emphasis": "_",
-		"rule": "-",
-		"resourceLink": true,
-		"tightDefinitions": true
-	},
-	"plugins": [
-		"remark-preset-lint-consistent",
-		"remark-preset-lint-recommended",
-		"remark-preset-lint-markdown-style-guide",
-		"remark-frontmatter",
-		"remark-gfm",
-		"remark-directive",
-		"remark-remove-url-trailing-slash",
-		"remark-math",
+  "settings": {
+    "bullet": "-",
+    "emphasis": "_",
+    "rule": "-",
+    "resourceLink": true,
+    "tightDefinitions": true
+  },
+  "plugins": [
+    "remark-preset-lint-consistent",
+    "remark-preset-lint-recommended",
+    "remark-preset-lint-markdown-style-guide",
+    "remark-frontmatter",
+    "remark-gfm",
+    "remark-directive",
+    "remark-remove-url-trailing-slash",
+    "remark-math",
     ["remark-lint-heading-case", ["warn", "title"]],
-		["remark-lint-no-shortcut-reference-link", false],
-		["remark-lint-maximum-line-length", false],
-		["remark-lint-list-item-spacing", false],
-		["remark-lint-list-item-indent", false],
-		["remark-lint-ordered-list-marker-value", false],
-		["remark-lint-maximum-heading-length", false],
-		["remark-lint-emphasis-marker", "_"]
-	]
+    ["remark-lint-no-shortcut-reference-link", false],
+    ["remark-lint-maximum-line-length", false],
+    ["remark-lint-list-item-spacing", false],
+    ["remark-lint-list-item-indent", false],
+    ["remark-lint-ordered-list-marker-value", false],
+    ["remark-lint-maximum-heading-length", false],
+    ["remark-lint-no-file-name-mixed-case", false],
+    ["remark-lint-emphasis-marker", "_"]
+  ]
 }

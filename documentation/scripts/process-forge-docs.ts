@@ -44,7 +44,7 @@ async function getAllMdFiles(dir: string) {
 }
 
 function createIndex(files: string[]) {
-  let indexContent = `# Smart Contracts Documentation
+  let indexContent = `# Smart Contracts
 
 Welcome to the smart contracts documentation for Boundless. This section contains detailed documentation for all our smart contracts, including [interfaces](#interfaces), [libraries](#libraries), and [core contracts](#core-contracts).
 

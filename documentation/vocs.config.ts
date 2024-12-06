@@ -1,105 +1,61 @@
-import VitePluginCssMediaSplitter from "css-media-splitter/vite-plugin";
 import biomePlugin from "vite-plugin-biome";
 import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
 
 const SIDEBAR_CONFIG = [
   {
-    text: "Market",
+    text: "✨ Introduction",
+    collapsed: false,
     items: [
       {
-        text: "Introduction",
-        link: "/market/introduction",
+        text: "Why Boundless?",
+        link: "/introduction/why-boundless",
       },
       {
-        text: "Boundless Market RFC",
-        link: "/market/boundless-market-rfc",
+        text: "What is Boundless?",
+        link: "/introduction/what-is-boundless",
       },
       {
-        text: "Market Matching Design",
-        link: "/market/market-matching-design",
-      },
-      {
-        text: "Local Development",
-        link: "/market/local-development",
-      },
-      {
-        text: "Public Deployments",
-        link: "/market/public-deployments",
+        text: "Proof Lifecycle",
+        link: "/introduction/proof-lifecycle",
       },
     ],
   },
   {
-    text: "Requestor Manual",
+    text: "🏋️ Build",
+    collapsed: false,
     items: [
       {
-        text: "Introduction",
-        link: "/requestor-manual/introduction",
+        text: "Build a Program",
+        link: "/build/build-a-program",
       },
       {
-        text: "Broadcasting Requests",
-        link: "/requestor-manual/broadcasting-requests",
+        text: "Request a Proof",
+        link: "/build/request-a-proof",
+      },
+      {
+        text: "Use a Proof",
+        link: "/build/use-a-proof",
       },
     ],
   },
   {
-    text: "Prover Manual",
+    text: "🧠 Advanced & References",
+    collapsed: false,
     items: [
       {
-        text: "Introduction",
-        link: "/prover-manual/introduction",
+        text: "Deployments",
+        link: "/deployments",
       },
       {
-        text: "Bento",
-        items: [
-          {
-            text: "Introduction",
-            link: "/prover-manual/bento/introduction",
-          },
-          {
-            text: "Running",
-            link: "/prover-manual/bento/running",
-          },
-          {
-            text: "Performance Tuning",
-            link: "/prover-manual/bento/performance-tuning",
-          },
-        ],
+        text: "Smart Contracts",
+        link: "/smart-contracts",
       },
       {
-        text: "Broker",
-        items: [
-          {
-            text: "Introduction",
-            link: "/prover-manual/broker/introduction",
-          },
-          {
-            text: "Configuration",
-            link: "/prover-manual/broker/configuration",
-          },
-          {
-            text: "Operation",
-            link: "/prover-manual/broker/operation",
-          },
-        ],
-      },
-      {
-        text: "Monitoring",
-        link: "/prover-manual/monitoring",
+        text: "Terminology",
+        link: "/terminology",
       },
     ],
-  },
-  {
-    text: "Smart Contracts Documentation",
-    link: "/smart-contracts",
-  },
-  {
-    text: "Reference",
-    link: "/reference",
-  },
-  {
-    text: "Glossary",
-    link: "/glossary",
   },
 ];
 
@@ -135,7 +91,7 @@ export default defineConfig({
     },
   },
   vite: {
-    plugins: [generateSitemap(), VitePluginCssMediaSplitter(), biomePlugin()],
+    plugins: [generateSitemap(), biomePlugin()],
   },
   sidebar: SIDEBAR_CONFIG,
   topNav: [
@@ -161,14 +117,14 @@ export default defineConfig({
     },
   ],
   rootDir: "site",
-  title: "Boundless Docs",
+  title: "Boundless Documentation",
   logoUrl: {
     light: "/logo.png",
     dark: "/logo-dark.png",
   },
   theme: {
     accentColor: {
-      light: "#474444", // Forest - primary accent
+      light: "#537263", // Forest - primary accent
       dark: "#AED8C4", // Leaf - lighter accent for dark mode
     },
     variables: {
@@ -188,8 +144,8 @@ export default defineConfig({
     },
   },
   iconUrl: {
-    light: "/favicon.png",
-    dark: "/favicon-dark.png",
+    light: "/favicon.svg",
+    dark: "/favicon-dark.svg",
   },
   // banner: "Read the [Boundless Blog Article](https://risczero.com/blog/boundless-the-verifiable-compute-layer)",
   editLink: {
@@ -197,5 +153,5 @@ export default defineConfig({
     text: "Edit on GitHub",
   },
   ogImageUrl:
-    "https://vocs.dev/api/og?logo=https://boundless-documentation.vercel.app/logo-dark.png&title=%title&description=%description",
+    "https://vocs.dev/api/og?logo=https://docs.beboundless.xyz/logo-dark.png&title=%title&description=%description",
 });

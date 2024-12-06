@@ -325,7 +325,7 @@ pub fn order_stream(
                 }
                 // Reply to Ping's inline
                 Ok(tungstenite::Message::Ping(data)) => {
-                    tracing::debug!("Responding to ping");
+                    tracing::trace!("Responding to ping");
                     socket.send(tungstenite::Message::Pong(data)).await?;
                 }
                 Ok(other) => {

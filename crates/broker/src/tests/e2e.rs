@@ -68,6 +68,9 @@ async fn simple_e2e() {
         bonsai_api_key: None,
         bonsai_api_url: None,
         deposit_amount: None,
+        rpc_retry_max: 0,
+        rpc_retry_backoff: 200,
+        rpc_retry_cu: 1000,
     };
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
     let broker_task = tokio::spawn(async move {
