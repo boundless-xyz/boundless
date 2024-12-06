@@ -31,5 +31,6 @@ name = "fulfill"
 
 [dev-dependencies]
 guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
 

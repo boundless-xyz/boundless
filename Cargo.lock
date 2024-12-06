@@ -1926,6 +1926,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "guest-assessor",
+ "guest-set-builder",
  "guest-util",
  "hex",
  "rand",
@@ -1962,6 +1963,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "guest-assessor",
+ "guest-set-builder",
  "guest-util",
  "hex",
  "libc",
@@ -1996,6 +1998,7 @@ dependencies = [
  "futures",
  "futures-util",
  "guest-assessor",
+ "guest-set-builder",
  "guest-util",
  "hex",
  "http 1.2.0",
@@ -3436,6 +3439,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "guest-set-builder"
+version = "0.1.0"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#19a0da06c841a913d5902572b25fd02eb6479cfd"
+dependencies = [
+ "risc0-build",
+ "risc0-build-ethereum",
+]
+
+[[package]]
 name = "guest-util"
 version = "0.4.0"
 dependencies = [
@@ -4821,9 +4833,12 @@ dependencies = [
  "boundless-market",
  "clap",
  "futures-util",
+ "guest-assessor",
+ "guest-set-builder",
  "hex",
  "rand",
  "reqwest",
+ "risc0-zkvm",
  "serde",
  "serde_json",
  "sqlx",

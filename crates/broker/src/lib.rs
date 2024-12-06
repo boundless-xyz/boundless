@@ -663,9 +663,8 @@ pub mod test_utils {
     };
     use anyhow::Result;
     use boundless_market::contracts::test_utils::TestCtx;
-    use risc0_aggregation::SET_BUILDER_PATH;
-
     use guest_assessor::ASSESSOR_GUEST_PATH;
+    use guest_set_builder::SET_BUILDER_PATH;
 
     use tempfile::NamedTempFile;
 

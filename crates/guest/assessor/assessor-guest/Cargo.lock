@@ -1428,7 +1428,6 @@ dependencies = [
  "clap",
  "dotenvy",
  "futures-util",
- "guest-assessor",
  "guest-util",
  "hex",
  "rand",
@@ -2308,15 +2307,6 @@ dependencies = [
  "ff 0.13.0",
  "rand_core",
  "subtle",
-]
-
-[[package]]
-name = "guest-assessor"
-version = "0.4.0"
-dependencies = [
- "hex",
- "risc0-build",
- "risc0-build-ethereum",
 ]
 
 [[package]]

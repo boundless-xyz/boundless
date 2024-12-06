@@ -26,7 +26,6 @@ bytemuck = { workspace = true }
 clap = { workspace = true, optional = true }
 dotenvy = { workspace = true, optional = true }
 futures-util = { workspace = true }
-guest-assessor = { workspace = true }
 guest-util = { workspace = true, optional = true }
 hex = { workspace = true }
 rand = { workspace = true }
@@ -56,6 +55,8 @@ required-features = ["cli"]
 
 [dev-dependencies]
 boundless-market = { path = ".", features = ["test-utils"] }
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
 tracing-test = { workspace = true }
 

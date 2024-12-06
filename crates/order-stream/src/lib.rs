@@ -321,7 +321,10 @@ mod tests {
         order_stream_client::Client,
     };
     use futures_util::StreamExt;
+    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_set_builder::SET_BUILDER_ID;
     use reqwest::Url;
+    use risc0_zkvm::sha::Digest;
     use sqlx::PgPool;
     use std::{
         future::IntoFuture,
@@ -352,7 +355,10 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
 

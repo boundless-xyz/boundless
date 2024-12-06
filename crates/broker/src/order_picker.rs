@@ -439,6 +439,7 @@ mod tests {
         ProofRequest, Requirements,
     };
     use chrono::Utc;
+    use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_util::{ECHO_ELF, ECHO_ID};
     use httpmock::prelude::*;
     use risc0_zkvm::sha::Digest;
@@ -465,6 +466,7 @@ mod tests {
             &signer,
             provider.clone(),
             Address::ZERO,
+            Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
         .await
@@ -564,6 +566,7 @@ mod tests {
             &signer,
             provider.clone(),
             Address::ZERO,
+            Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
         .await
@@ -664,6 +667,7 @@ mod tests {
             &signer,
             provider.clone(),
             Address::ZERO,
+            Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
         .await
@@ -754,6 +758,7 @@ mod tests {
             &signer,
             provider.clone(),
             Address::ZERO,
+            Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
         .await

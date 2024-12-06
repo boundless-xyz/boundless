@@ -28,3 +28,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
+
+[dev-dependencies]
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
+risc0-zkvm = { workspace = true }
