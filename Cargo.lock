@@ -99,9 +99,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-chains"
-version = "0.1.47"
+version = "0.1.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18c5c520273946ecf715c0010b4e3503d7eba9893cd9ce6b7fff5654c4a3c470"
+checksum = "a0161082e0edd9013d23083465cc04b20e44b7a15646d36ba7b0cdb7cd6fe18f"
 dependencies = [
  "alloy-primitives",
  "num_enum",
@@ -1362,9 +1362,9 @@ dependencies = [
 
 [[package]]
 name = "aws-runtime"
-version = "1.4.3"
+version = "1.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a10d5c055aa540164d9561a0e2e74ad30f0dcf7393c3a92f6733ddf9c5762468"
+checksum = "b5ac934720fbb46206292d2c75b57e67acfc56fe7dfd34fb9a02334af08409ea"
 dependencies = [
  "aws-credential-types",
  "aws-sigv4",
@@ -1388,9 +1388,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.64.0"
+version = "1.65.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35fe5e7f71b1cc6274e905d3bcc7daf94099ac2d4cba83447ffb959b5b27b3c1"
+checksum = "d3ba2c5c0f2618937ce3d4a5ad574b86775576fa24006bcb3128c6e2cbf3c34e"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1422,9 +1422,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sigv4"
-version = "1.2.5"
+version = "1.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5619742a0d8f253be760bfbb8e8e8368c69e3587e4637af5754e488a611499b1"
+checksum = "7d3820e0c08d0737872ff3c7c1f21ebbb6693d832312d6152bf18ef50a5471c2"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-eventstream",
@@ -1515,18 +1515,18 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-json"
-version = "0.60.7"
+version = "0.61.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4683df9469ef09468dad3473d129960119a0d3593617542b7d52086c8486f2d6"
+checksum = "ee4e69cc50921eb913c6b662f8d909131bb3e6ad6cb6090d3a39b66fc5c52095"
 dependencies = [
  "aws-smithy-types",
 ]
 
 [[package]]
 name = "aws-smithy-runtime"
-version = "1.7.3"
+version = "1.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be28bd063fa91fd871d131fc8b68d7cd4c5fa0869bea68daca50dcb1cbd76be2"
+checksum = "9f20685047ca9d6f17b994a07f629c813f08b5bce65523e47124879e60103d45"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-http",
@@ -2196,9 +2196,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.22"
+version = "4.5.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69371e34337c4c984bbe322360c2547210bf632eb2814bbe78a6e87a2935bd2b"
+checksum = "3135e7ec2ef7b10c6ed8950f0f792ed96ee093fa088608f1c76e569722700c84"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -2206,9 +2206,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.22"
+version = "4.5.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e24c1b4099818523236a8ca881d2b45db98dadfb4625cf6608c12069fcbbde1"
+checksum = "30582fc632330df2bd26877bde0c1f4470d57c582bbc070376afcd04d8cb4838"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2230,9 +2230,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "0.7.3"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afb84c814227b90d6895e01398aee0d8033c00e7466aca416fb6a8e0eb19d8a7"
+checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 
 [[package]]
 name = "cobs"
@@ -3436,15 +3436,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "guest-set-builder"
-version = "0.1.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#abd97bca9533d70302b41f67020f7fd1e41d9cf7"
-dependencies = [
- "risc0-build",
- "risc0-build-ethereum",
-]
-
-[[package]]
 name = "guest-util"
 version = "0.4.0"
 dependencies = [
@@ -3803,7 +3794,7 @@ dependencies = [
  "rustls 0.23.19",
  "rustls-pki-types",
  "tokio",
- "tokio-rustls 0.26.0",
+ "tokio-rustls 0.26.1",
  "tower-service",
  "webpki-roots 0.26.7",
 ]
@@ -5576,7 +5567,7 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-native-tls",
- "tokio-rustls 0.26.0",
+ "tokio-rustls 0.26.1",
  "tokio-util",
  "tower-service",
  "url",
@@ -5626,12 +5617,11 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.1.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#abd97bca9533d70302b41f67020f7fd1e41d9cf7"
+version = "0.1.0"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#19a0da06c841a913d5902572b25fd02eb6479cfd"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
- "guest-set-builder",
  "hex",
  "risc0-binfmt",
  "risc0-zkp",
@@ -5676,8 +5666,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-build-ethereum"
-version = "1.2.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#abd97bca9533d70302b41f67020f7fd1e41d9cf7"
+version = "1.2.0"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#19a0da06c841a913d5902572b25fd02eb6479cfd"
 dependencies = [
  "anyhow",
  "hex",
@@ -5800,8 +5790,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-ethereum-contracts"
-version = "1.2.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#abd97bca9533d70302b41f67020f7fd1e41d9cf7"
+version = "1.2.0"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#19a0da06c841a913d5902572b25fd02eb6479cfd"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7295,12 +7285,11 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
-version = "0.26.0"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c7bc40d0e5a97695bb96e27995cd3a08538541b0a846f65bba7a359f36700d4"
+checksum = "5f6d0975eaace0cf0fcadee4e4aaa5da15b5c079146f2cffb67c113be122bf37"
 dependencies = [
  "rustls 0.23.19",
- "rustls-pki-types",
  "tokio",
 ]
 
@@ -7327,16 +7316,16 @@ dependencies = [
  "rustls 0.23.19",
  "rustls-pki-types",
  "tokio",
- "tokio-rustls 0.26.0",
+ "tokio-rustls 0.26.1",
  "tungstenite",
  "webpki-roots 0.26.7",
 ]
 
 [[package]]
 name = "tokio-util"
-version = "0.7.12"
+version = "0.7.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61e7c3654c13bcd040d4a03abee2c75b1d14a37b423cf5a813ceae1cc903ec6a"
+checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
 dependencies = [
  "bytes",
  "futures-core",
