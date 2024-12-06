@@ -113,37 +113,70 @@ export default function PricingCalculator() {
                   <div className="flex justify-between">
                     <dt>Minimum Price:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.minPrice} /> Sepolia ETH
+                      <NumberFlow
+                        className="font-mono"
+                        format={{
+                          minimumFractionDigits: 8,
+                        }}
+                        value={suggestion.minPrice}
+                        suffix=" Sepolia ETH"
+                      />
                     </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Maximum Price:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.maxPrice} /> Sepolia ETH
+                      <NumberFlow
+                        format={{
+                          minimumFractionDigits: 8,
+                        }}
+                        className="font-mono"
+                        value={suggestion.maxPrice}
+                        suffix=" Sepolia ETH"
+                      />
                     </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Bidding Start Delay:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.biddingStartDelay} /> blocks
+                      <NumberFlow
+                        className="font-mono"
+                        value={suggestion.biddingStartDelay}
+                        suffix={suggestion.biddingStartDelay === 1 ? " block" : " blocks"}
+                      />
                     </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Ramp-up Period:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.rampUpBlocks} /> blocks
+                      <NumberFlow
+                        className="font-mono"
+                        value={suggestion.rampUpBlocks}
+                        suffix={suggestion.rampUpBlocks === 1 ? " block" : " blocks"}
+                      />
                     </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Timeout:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.timeoutBlocks} /> blocks
+                      <NumberFlow
+                        className="font-mono"
+                        value={suggestion.timeoutBlocks}
+                        suffix={suggestion.timeoutBlocks === 1 ? " block" : " blocks"}
+                      />
                     </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Lock-in Stake:</dt>
                     <dd>
-                      <NumberFlow value={suggestion.lockInStake} /> Sepolia ETH
+                      <NumberFlow
+                        format={{
+                          minimumFractionDigits: 8,
+                        }}
+                        className="font-mono"
+                        value={suggestion.lockInStake}
+                        suffix=" Sepolia ETH"
+                      />
                     </dd>
                   </div>
                 </dl>

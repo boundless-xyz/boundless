@@ -10,7 +10,7 @@ export default function Main() {
           className="pointer-events-none my-8 animate-flickerAndFloat opacity-85"
           src="/cubes.png"
           width={300}
-          height={300}
+          height={350}
           alt="cubes"
         />
 
