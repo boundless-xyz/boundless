@@ -6,7 +6,7 @@ use alloy::{
     primitives::Address,
     sol_types::{SolStruct, SolValue},
 };
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
     merkle_path, GuestInput, GuestOutput, SetInclusionReceipt,
@@ -61,6 +61,7 @@ impl OrderFulfilled {
 /// Fetches the content of a URL.
 /// Supported URL schemes are `http`, `https`, and `file`.
 pub async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
+    tracing::debug!("Fetching URL: {}", url_str);
     let url = Url::parse(url_str)?;
 
     match url.scheme() {
@@ -220,7 +221,11 @@ impl DefaultProver {
         let order_elf = fetch_url(&request.imageUrl).await?;
         let order_input: Vec<u8> = match request.input.inputType {
             InputType::Inline => request.input.data.into(),
-            InputType::Url => fetch_url(&request.input.data.to_string()).await?.into(),
+            InputType::Url => fetch_url(
+                std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
+            )
+            .await?
+            .into(),
             _ => bail!("Unsupported input type"),
         };
         let order_receipt =
@@ -253,13 +258,18 @@ impl DefaultProver {
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_image_id };
 
-        let mut order_inclusion_receipt = SetInclusionReceipt::from_path(order_claim, order_path);
-        order_inclusion_receipt.verifier_parameters = verifier_parameters.digest();
+        let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+            order_claim,
+            order_path,
+            verifier_parameters.digest(),
+        );
         let order_seal = order_inclusion_receipt.abi_encode_seal()?;
 
-        let mut assessor_inclusion_receipt =
-            SetInclusionReceipt::from_path(assessor_claim, assessor_path);
-        assessor_inclusion_receipt.verifier_parameters = verifier_parameters.digest();
+        let assessor_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+            assessor_claim,
+            assessor_path,
+            verifier_parameters.digest(),
+        );
 
         let fulfillment = BoundlessFulfillment {
             id: request.id,
@@ -282,8 +292,8 @@ mod tests {
         eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
+    use guest_set_builder::SET_BUILDER_ELF;
     use guest_util::{ECHO_ID, ECHO_PATH};
-    use risc0_aggregation::SET_BUILDER_ELF;
     use risc0_zkvm::VerifierContext;
 
     fn setup_proving_request_and_signature(
@@ -323,21 +333,20 @@ mod tests {
         let (_, root_receipt, order_receipt, assessor_receipt) =
             prover.fulfill(order.clone(), false).await.unwrap();
 
+        let verifier_parameters =
+            SetInclusionReceiptVerifierParameters { image_id: prover.set_builder_image_id };
+
         order_receipt
             .with_root(root_receipt.clone())
             .verify_integrity_with_context(
                 &VerifierContext::default(),
-                SetInclusionReceiptVerifierParameters::default(),
+                verifier_parameters.clone(),
                 None,
             )
             .unwrap();
         assessor_receipt
             .with_root(root_receipt.clone())
-            .verify_integrity_with_context(
-                &VerifierContext::default(),
-                SetInclusionReceiptVerifierParameters::default(),
-                None,
-            )
+            .verify_integrity_with_context(&VerifierContext::default(), verifier_parameters, None)
             .unwrap();
     }
 }

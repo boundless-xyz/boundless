@@ -26,8 +26,6 @@ bytemuck = { workspace = true }
 clap = { workspace = true, optional = true }
 dotenvy = { workspace = true, optional = true }
 futures-util = { workspace = true }
-guest-assessor = { workspace = true }
-guest-util = { workspace = true, optional = true }
 hex = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
@@ -56,6 +54,8 @@ required-features = ["cli"]
 
 [dev-dependencies]
 boundless-market = { path = ".", features = ["test-utils"] }
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
 tracing-test = { workspace = true }
 
@@ -63,6 +63,6 @@ tracing-test = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-cli = ["alloy/rpc-types", "dep:clap", "dep:dotenvy", "dep:guest-util", "dep:serde_yaml", "tokio/rt-multi-thread"]
+cli = ["alloy/rpc-types", "dep:clap", "dep:dotenvy", "dep:serde_yaml", "tokio/rt-multi-thread"]
 default = ["cli"]
 test-utils = []

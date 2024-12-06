@@ -23,7 +23,6 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use clap::{Args, Parser, Subcommand};
-use guest_util::ECHO_ELF;
 use hex::FromHex;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
 use risc0_zkvm::{
@@ -166,10 +165,8 @@ struct SubmitOfferArgs {
     #[clap(long)]
     inline_input: bool,
     /// Elf file to use as the guest image, given as a path.
-    ///
-    /// If unspecified, defaults to the included echo guest.
     #[clap(long)]
-    elf: Option<PathBuf>,
+    elf: PathBuf,
 
     #[command(flatten)]
     input: SubmitOfferInput,
@@ -408,11 +405,7 @@ where
     }
 
     // Resolve the ELF and input from command line arguments.
-    let elf: Cow<'static, [u8]> = args
-        .elf
-        .as_ref()
-        .map(|path| std::fs::read(path).map(Into::into))
-        .unwrap_or(Ok(ECHO_ELF.into()))?;
+    let elf: Cow<'static, [u8]> = std::fs::read(&args.elf).map(Into::into)?;
     let input: Vec<u8> = match (&args.input.input, &args.input.input_file) {
         (Some(input), None) => input.as_bytes().to_vec(),
         (None, Some(input_file)) => std::fs::read(input_file)?,
@@ -476,7 +469,7 @@ where
         tracing::debug!("Preflight succeeded");
     }
 
-    let request_id = if args.offchain {
+    let (request_id, expires_at) = if args.offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -489,7 +482,7 @@ where
     if args.wait {
         let (journal, seal) = client
             .boundless_market
-            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), request.expires_at())
+            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
         tracing::info!(
             "Journal: {} - Seal: {}",
@@ -569,7 +562,7 @@ where
         tracing::debug!("Preflight succeeded");
     }
 
-    let request_id = if offchain {
+    let (request_id, expires_at) = if offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request(&request).await?
@@ -582,7 +575,7 @@ where
     if wait {
         let (journal, seal) = client
             .boundless_market
-            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), request.expires_at())
+            .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
         tracing::info!(
             "Journal: {} - Seal: {}",
@@ -636,6 +629,9 @@ mod tests {
 
     use alloy::node_bindings::Anvil;
     use boundless_market::contracts::test_utils::TestCtx;
+    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_set_builder::SET_BUILDER_ID;
+    use risc0_zkvm::sha::Digest;
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
@@ -645,7 +641,10 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -674,7 +673,10 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
         ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
 
         let mut args = MainArgs {

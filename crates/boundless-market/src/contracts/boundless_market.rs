@@ -32,13 +32,13 @@ pub enum MarketError {
     #[error("Transaction error: {0}")]
     TxnError(#[from] TxnErr),
 
-    #[error("Request is not fulfilled {0}")]
+    #[error("Request is not fulfilled 0x{0:x}")]
     RequestNotFulfilled(U256),
 
-    #[error("Request has expired {0}")]
+    #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
 
-    #[error("Proof not found {0}")]
+    #[error("Proof not found 0x{0:x}")]
     ProofNotFound(U256),
 
     #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
@@ -47,7 +47,7 @@ pub enum MarketError {
     #[error("Market error: {0}")]
     Error(#[from] anyhow::Error),
 
-    #[error("Timeout: {0}")]
+    #[error("Timeout: 0x{0:x}")]
     TimeoutReached(U256),
 }
 
@@ -1004,8 +1004,11 @@ mod tests {
         sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_set_builder::SET_BUILDER_ID;
     use guest_util::ECHO_ID;
-    use risc0_aggregation::{merkle_root, GuestOutput, SetInclusionReceipt, SET_BUILDER_ID};
+    use risc0_aggregation::{
+        merkle_root, GuestOutput, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
+    };
     use risc0_ethereum_contracts::encode_seal;
     use risc0_zkvm::{
         sha::{Digest, Digestible},
@@ -1085,9 +1088,12 @@ mod tests {
         );
         let set_verifier_seal = encode_seal(&set_builder_receipt).unwrap();
 
-        let set_inclusion_seal = SetInclusionReceipt::from_path(
+        let verifier_parameters =
+            SetInclusionReceiptVerifierParameters { image_id: Digest::from(SET_BUILDER_ID) };
+        let set_inclusion_seal = SetInclusionReceipt::from_path_with_verifier_params(
             ReceiptClaim::ok(ECHO_ID, MaybePruned::Pruned(app_journal.digest())),
             vec![assessor_claim_digest],
+            verifier_parameters.digest(),
         )
         .abi_encode_seal()
         .unwrap();
@@ -1101,9 +1107,10 @@ mod tests {
             requirePayment: true,
         };
 
-        let assessor_seal = SetInclusionReceipt::from_path(
+        let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
             vec![app_claim_digest],
+            verifier_parameters.digest(),
         )
         .abi_encode_seal()
         .unwrap();
@@ -1164,7 +1171,10 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         // Deposit prover balances
         ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
@@ -1189,7 +1199,10 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         let request = new_request(1, &ctx).await;
 
@@ -1209,7 +1222,10 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1270,7 +1286,10 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1334,7 +1353,10 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1390,7 +1412,10 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",

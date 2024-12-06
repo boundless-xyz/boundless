@@ -18,7 +18,6 @@ use boundless_market::{
     storage::StorageProviderConfig,
 };
 use clap::{Args, Parser};
-use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible, ExecutorEnv};
 use url::Url;
 
@@ -132,12 +131,15 @@ async fn run(args: &MainArgs) -> Result<()> {
         .build()
         .await?;
 
-    let (elf, image_id) = if let Some(elf) = args.elf.clone() {
-        let elf = std::fs::read(elf)?;
-        (elf.clone(), <[u32; 8]>::from(compute_image_id(&elf)?))
-    } else {
-        (ECHO_ELF.to_vec(), ECHO_ID)
+    let elf = match &args.elf {
+        Some(path) => std::fs::read(path)?,
+        None => {
+            // A build of the echo guest, which simply commits the bytes it reads from inputs.
+            let url = "https://dweb.link/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy";
+            fetch_http(&Url::parse(url)?).await?
+        }
     };
+    let image_id = compute_image_id(&elf)?;
 
     let image_url = boundless_client.upload_image(&elf).await?;
     tracing::info!("Uploaded image to {}", image_url);
@@ -188,7 +190,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                     .with_timeout(args.timeout),
             );
 
-        let request_id = if let Some(_) = args.order_stream_url {
+        let (request_id, _) = if let Some(_) = args.order_stream_url {
             boundless_client.submit_request_offchain(&request).await?
         } else {
             boundless_client.submit_request(&request).await?
@@ -203,12 +205,25 @@ async fn run(args: &MainArgs) -> Result<()> {
     Ok(())
 }
 
+async fn fetch_http(url: &Url) -> Result<Vec<u8>> {
+    let response = reqwest::get(url.as_str()).await?;
+    let status = response.status();
+    if !status.is_success() {
+        bail!("HTTP request failed with status: {}", status);
+    }
+
+    Ok(response.bytes().await?.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
     use boundless_market::contracts::{test_utils::TestCtx, IBoundlessMarket};
+    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_set_builder::SET_BUILDER_ID;
+    use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
     use super::*;
@@ -217,7 +232,10 @@ mod tests {
     #[traced_test]
     async fn test_main() {
         let anvil = Anvil::new().spawn();
-        let ctx = TestCtx::new(&anvil).await.unwrap();
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),

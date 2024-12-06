@@ -268,6 +268,8 @@ mod tests {
         boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
         InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
+    use guest_assessor::ASSESSOR_GUEST_ID;
+    use risc0_zkvm::sha::Digest;
 
     #[tokio::test]
     async fn find_orders() {
@@ -282,6 +284,7 @@ mod tests {
             &signer,
             provider.clone(),
             Address::ZERO,
+            Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
         .await

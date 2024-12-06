@@ -23,6 +23,7 @@ futures = "0.3"
 futures-util = { workspace = true }
 # TEMP:
 guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
 http = "1.1"
 notify = "6.1"
 reqwest = { workspace = true }

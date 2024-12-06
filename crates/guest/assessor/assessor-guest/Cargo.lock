@@ -1428,8 +1428,6 @@ dependencies = [
  "clap",
  "dotenvy",
  "futures-util",
- "guest-assessor",
- "guest-util",
  "hex",
  "rand",
  "reqwest",
@@ -2308,33 +2306,6 @@ dependencies = [
  "ff 0.13.0",
  "rand_core",
  "subtle",
-]
-
-[[package]]
-name = "guest-assessor"
-version = "0.4.0"
-dependencies = [
- "hex",
- "risc0-build",
- "risc0-build-ethereum",
-]
-
-[[package]]
-name = "guest-set-builder"
-version = "0.1.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#cfa7ee7b8491c63a79bf42dc26455204f66ab0ac"
-dependencies = [
- "risc0-build",
- "risc0-build-ethereum",
-]
-
-[[package]]
-name = "guest-util"
-version = "0.4.0"
-dependencies = [
- "hex",
- "risc0-build",
- "risc0-build-ethereum",
 ]
 
 [[package]]
@@ -3749,12 +3720,12 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.1.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#cfa7ee7b8491c63a79bf42dc26455204f66ab0ac"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeb7fd908d49b361b63349e8ff81b006db071c5b3ada8fdb4744454538c05408"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
- "guest-set-builder",
  "hex",
  "risc0-binfmt",
  "risc0-zkp",
@@ -3795,17 +3766,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
-]
-
-[[package]]
-name = "risc0-build-ethereum"
-version = "1.2.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#cfa7ee7b8491c63a79bf42dc26455204f66ab0ac"
-dependencies = [
- "anyhow",
- "hex",
- "risc0-build",
- "risc0-zkp",
 ]
 
 [[package]]
@@ -3851,8 +3811,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-ethereum-contracts"
-version = "1.2.0-rc.1"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#cfa7ee7b8491c63a79bf42dc26455204f66ab0ac"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08f4076772c0ce926e414f9e7c53b799b2d4e25cacdbff0d98a61d45f2576229"
 dependencies = [
  "alloy",
  "anyhow",
