@@ -287,7 +287,7 @@ where
         let mut request = request.clone();
 
         if request.id == U256::ZERO {
-            request.id = self.boundless_market.request_id_from_nonce().await?;
+            request.id = self.boundless_market.request_id_from_rand().await?;
         };
         if request.offer.biddingStart == 0 {
             request.offer.biddingStart = self

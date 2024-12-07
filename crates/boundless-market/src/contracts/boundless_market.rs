@@ -38,8 +38,11 @@ pub enum MarketError {
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
 
-    #[error("Proof not found 0x{0:x}")]
+    #[error("Proof not found for request in events logs 0x{0:x}")]
     ProofNotFound(U256),
+
+    #[error("Request not found in event logs 0x{0:x}")]
+    RequestNotFound(U256),
 
     #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
     LockRevert(B256),
@@ -797,7 +800,7 @@ where
         }
 
         // Return error if no logs are found after all iterations
-        Err(MarketError::ProofNotFound(request_id))
+        Err(MarketError::RequestNotFound(request_id))
     }
 
     /// Returns journal and seal if the request is fulfilled.
