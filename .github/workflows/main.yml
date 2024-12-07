@@ -28,6 +28,9 @@ jobs:
       - foundry
       - examples
       - docker
+      - rust-pkg-check
+      - docs-rs
+
     runs-on: ubuntu-latest
     steps:
       - name: Check all job status
@@ -128,7 +131,7 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
-  rust_pkg_check:
+  rust-pkg-check:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     steps:
       - name: checkout code
