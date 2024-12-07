@@ -128,6 +128,39 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
+  rust_pkg_check:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required by license-check.py
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: install foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-1.2
+        with:
+          toolchain: '1.81'
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '1.2.0'
+          toolchain-version: 'r0.1.81.0'
+
+      - name: check order-stream
+        run: cargo check -p order-stream --bin order_stream
+
+      - name: check broker
+        run: cargo check -p broker --bin broker
+
   link-check:
     runs-on: ubuntu-latest
     steps:
