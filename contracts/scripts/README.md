@@ -79,6 +79,7 @@ export ADMIN_ADDRESS=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].admin" contracts/
 
 Example RPC URLs:
 
+- `https://ethereum-sepolia-rpc.publicnode.com`
 - `https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY`
 - `https://sepolia.infura.io/v3/YOUR_API_KEY`
 
@@ -93,9 +94,6 @@ Set your public key, your Etherscan API key, and the necessary parameters for Fi
 > [!NOTE]
 > Fireblocks only supports RSA for API request signing.
 > `FIREBLOCKS_API_PRIVATE_KEY_PATH` can be the key itself, rather than a path.
-
-> [!NOTE]
-> When this guide says "public key", it's equivalent to "address".
 
 ```bash
 export FIREBLOCKS_API_KEY="..."
@@ -134,12 +132,19 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    ```
 
    This will output the image ID and file location.
-   Upload the ELF to some public HTTP location (such as Pinata), and get back a download URL.
-   Record these values in `deployment.toml` as `assessor-image-id` and `assessor-guest-url`.
+
+   1. Upload the ELF to some public HTTP location (such as Pinata), and get back a download URL.
+   2. Record these values in `deployment.toml` as `assessor-image-id` and `assessor-guest-url`.
+
+   <br/>
 
    > [!TIP]
    > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
-   > You can combine this with curl to check the image ID of an ELF hosted at a URL `r0vm --id --elf <(curl $ELF_URL)`.
+   > You can combine this with curl to check the image ID of an ELF hosted at a URL.
+   >
+   > ```
+   > r0vm --id --elf <(curl $ELF_URL)
+   > ```
 
 2. Dry run deployment of the market implementation and proxy:
 
@@ -162,29 +167,17 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
 4. Add the BoundlessMarket (proxy) address of the newly deployed contract to the `deployment.toml` file.
 
-   Load the deployed BoundlessMarket (proxy) address into the environment:
-
-   ```zsh
-   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].boundless-market" contracts/deployment.toml | tee /dev/stderr)
-   ```
-
 5. Test the deployment.
-   <!-- TODO: Provide instructions on how to use the deployment test for this -->
 
    ```bash
-   cast call --rpc-url ${RPC_URL:?} \
-       ${BOUNDLESS_MARKET:?} \
-       'imageInfo()(bytes32,string)'
+   FOUNDRY_PROFILE=deployment-test forge test --fork-url $RPC_URL
    ```
-
-   > [!IMPORTANT]
-   > Make sure the Assessor info to make sure they match what you expect.
 
 ### Upgrade the market contract
 
 1. Git clone and forge build the last deployment, then copy the `contracts/out/build-info` folder into `contracts/reference-contract/build-info-reference`
 
-2. If changed, upload the new `assessor` elf and update its imageID and url in the `deployment.toml` file (optional)
+2. If changed, upload the new `assessor` elf and update its image ID and url in the `deployment.toml` file (optional)
 
 3. Dry run the upgrade of the market implementation and proxy:
 
@@ -214,9 +207,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 6. Test the deployment.
 
    ```bash
-   cast call --rpc-url ${RPC_URL:?} \
-       ${BOUNDLESS_MARKET:?} \
-       'imageInfo()(bytes32,string)'
+   FOUNDRY_PROFILE=deployment-test forge test --fork-url $RPC_URL
    ```
 
    > [!IMPORTANT]
@@ -224,4 +215,3 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
 [yq-install]: https://github.com/mikefarah/yq?tab=readme-ov-file#install
 [alloy-chains]: https://github.com/alloy-rs/chains/blob/main/src/named.rs
-[finish-the-update]: https://github.com/risc0/risc0-ethereum/tree/main/contracts/script#finish-the-update

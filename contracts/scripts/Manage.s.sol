@@ -73,7 +73,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         );
         vm.stopBroadcast();
 
-        console2.log("Deployed BoundlessMarket (proxy) contract at", marketAddress);
+        console2.log("Deployed BoundlessMarket proxy contract at %s", marketAddress);
     }
 }
 
@@ -92,26 +92,29 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
         address marketAddress = deploymentConfig.boundlessMarket;
-        require(marketAddress != address(0), "BoundlessMarket (proxy) address must be set in config");
-        console2.log("Using BoundlessMarket (proxy) at address", marketAddress);
+        require(marketAddress != address(0), "BoundlessMarket proxy address must be set in config");
+        console2.log("Using BoundlessMarket proxy at address", marketAddress);
 
         // Get the current assessor image ID and guest URL
         BoundlessMarket market = BoundlessMarket(marketAddress);
-        (bytes32 imageID, string memory guestUrl) = market.imageInfo();
+        (bytes32 currentImageID, string memory currentGuestUrl) = market.imageInfo();
 
         // Use the same verifier as the existing implementation.
         IRiscZeroVerifier verifier = market.VERIFIER();
+        // Use the assessor image ID recorded in deployment.toml
         bytes32 assessorImageId = deploymentConfig.assessorImageId;
 
         UpgradeOptions memory opts;
         opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(verifier, assessorImageId);
-        opts.referenceContract = "build-info-reference:ProofMarket";
+        opts.referenceContract = "build-info-reference:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/reference-contract/build-info-reference";
 
         vm.startBroadcast(deployerAddress());
         // Upgrade the proxy contract and update assessor image info if needed
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl;
-        if (assessorImageId != imageID || keccak256(bytes(assessorGuestUrl)) == keccak256(bytes(guestUrl))) {
+        if (
+            assessorImageId != currentImageID || keccak256(bytes(assessorGuestUrl)) != keccak256(bytes(currentGuestUrl))
+        ) {
             Upgrades.upgradeProxy(
                 marketAddress,
                 "BoundlessMarket.sol:BoundlessMarket",
@@ -124,6 +127,6 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         }
         vm.stopBroadcast();
 
-        console2.log("Upgraded BoundlessMarket (proxy) contract at", marketAddress);
+        console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
     }
 }
