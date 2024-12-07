@@ -153,7 +153,7 @@ The app is run as a CLI, with the arguments:
 - `wallet_private_key`: The address used for on-chain interactions (i.e. requesting a proof, sending the proof to the `EvenNumber` contract for verification).
 - `even_number_address`: Deployed `EvenNumber` contract address.
 - `set_verifier_address`: Deployed `SetVerifier` contract address.
-- `proof_market_address`: Deployed `ProofMarket` contract address.
+- `boundless_market_address`: Deployed `BoundlessMarket` contract address.
 
 For the relevant contract address, please see the [Deployments](/deployments) page.
 
