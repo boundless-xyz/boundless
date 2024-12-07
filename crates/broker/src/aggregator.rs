@@ -112,7 +112,11 @@ where
             .prove_and_monitor_stark(&self.set_builder_guest_id.to_string(), &input_id, assumptions)
             .await
             .with_context(|| format!("Failed to prove {job_type}"))?;
-        tracing::info!("completed proving of {job_type} cycles: {}", proof_res.stats.total_cycles);
+        tracing::info!(
+            "completed proving of {job_type} cycles: {} time: {}",
+            proof_res.stats.total_cycles,
+            proof_res.elapsed_time
+        );
 
         let journal = self
             .prover
@@ -206,6 +210,7 @@ where
             })
         }
 
+        let order_count = fills.len();
         let input = AssessorInput {
             fills,
             domain: eip712_domain(self.market_addr, self.chain_id),
@@ -225,7 +230,12 @@ where
             .await
             .with_context(|| format!("Failed to prove assesor stark"))?;
 
-        tracing::info!("Assessor proof completed, cycles {}", proof_res.stats.total_cycles);
+        tracing::info!(
+            "Assessor proof completed, count: {} cycles: {} time: {}",
+            order_count,
+            proof_res.stats.total_cycles,
+            proof_res.elapsed_time
+        );
 
         Ok(proof_res.id)
     }

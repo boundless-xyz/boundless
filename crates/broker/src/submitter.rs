@@ -2,11 +2,11 @@
 //
 // All rights reserved.
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{Address, B256, U256},
+    primitives::{utils::format_ether, Address, B256, U256},
     providers::{Provider, WalletProvider},
     sol_types::SolStruct,
     transports::Transport,
@@ -115,10 +115,12 @@ where
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
 
         let mut fulfillments = vec![];
+        let mut order_prices = HashMap::new();
+
         for order_id in batch.orders.iter() {
             tracing::info!("Submitting order {order_id:x}");
 
-            let (order_request, order_proof_id, order_img_id, order_path) = match self
+            let (order_request, order_proof_id, order_img_id, order_path, lock_price) = match self
                 .db
                 .get_submission_order(*order_id)
                 .await
@@ -137,6 +139,8 @@ where
                     continue;
                 }
             };
+
+            order_prices.insert(order_id, lock_price);
 
             let order_journal = match self.prover.get_journal(&order_proof_id).await {
                 Ok(res) => res,
@@ -288,7 +292,12 @@ where
                 );
                 continue;
             }
-            tracing::info!("✨ Completed order {:x} ✨", fulfillment.id);
+            let lock_price = order_prices.get(&fulfillment.id).unwrap_or(&U256::ZERO);
+            tracing::info!(
+                "✨ Completed order: {:x} fee: {} ✨",
+                fulfillment.id,
+                format_ether(*lock_price)
+            );
         }
 
         Ok(())
@@ -313,7 +322,10 @@ where
                     // TODO: Handle error here? / record it?
                     return Err(SupervisorErr::Fault(db_err.into()));
                 }
-                tracing::info!("Completed batch {batch_id}");
+                tracing::info!(
+                    "Completed batch: {batch_id} total_fees: {}",
+                    format_ether(batch.fees)
+                );
             }
             Err(err) => {
                 tracing::error!("Submission of batch {batch_id} failed: {err:?}");
@@ -574,7 +586,7 @@ mod tests {
             expire_block: Some(100),
             path: Some(vec![assessor_output.root()]),
             client_sig: client_sig.into(),
-            lock_price: None,
+            lock_price: Some(U256::ZERO),
             error_msg: None,
         };
         let order_id = U256::from(order.request.id);

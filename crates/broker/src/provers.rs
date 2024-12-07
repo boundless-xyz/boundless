@@ -5,6 +5,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 use async_trait::async_trait;
@@ -50,6 +51,7 @@ pub enum ProverError {
 pub struct ProofResult {
     pub id: String,
     pub stats: ExecutorResp,
+    pub elapsed_time: f64,
 }
 
 /// Encode inputs for Prover::upload_slice()
@@ -180,6 +182,7 @@ impl Prover for Bonsai {
                             user_cycles: stats.cycles,
                             total_cycles: stats.total_cycles,
                         },
+                        elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
                     });
                 }
                 _ => {
@@ -240,6 +243,7 @@ impl Prover for Bonsai {
                             user_cycles: stats.cycles,
                             total_cycles: stats.total_cycles,
                         },
+                        elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
                     });
                 }
                 _ => {
@@ -357,9 +361,11 @@ impl MockProver {
                 .clone();
             env.add_assumption(assumption_receipt.1.clone());
         }
+        let start = Instant::now();
         let env = env.build().map_err(|_| {
             ProverError::BonsaiErr(SdkErr::InternalServerErr("failed to build env".into()))
         })?;
+        let elapsed = Instant::now() - start;
 
         let image_id = compute_image_id(&image).unwrap();
         let session = default_executor().execute(env, &image).unwrap();
@@ -383,6 +389,7 @@ impl MockProver {
                 user_cycles: cycles,
                 total_cycles: cycles,
             },
+            elapsed_time: elapsed.as_secs_f32().into(),
         };
 
         self.starks.lock().unwrap().insert(id.clone(), (proof_res.clone(), receipt.clone()));
