@@ -124,7 +124,7 @@ export default defineConfig({
   },
   theme: {
     accentColor: {
-      light: "#537263", // Forest - primary accent
+      light: "#537263", // Forest - primary accent for light mode
       dark: "#AED8C4", // Leaf - lighter accent for dark mode
     },
     variables: {
