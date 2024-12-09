@@ -15,7 +15,9 @@ On this page, the entirety of a proof's lifetime in the Boundless Market is cove
 
 This overview is aimed at app developers i.e. requestors, and therefore for simplicity, it will abstract some complexity away from the specifics of provers. This will be covered in its entirety at a later stage for public access testnet.
 
-![Proof Lifecycle](/proof-lifecycle.png)
+<a href="/proof-lifecycle.png" class="lightgallery">
+  <img src="/proof-lifecycle.png" alt="Proof Lifecycle" />
+</a>
 
 > Figure 1: A process diagram following the lifecycle of a proof chronologically in the Boundless Market.
 
@@ -54,23 +56,25 @@ The bid matching mechanism used by the market is a [reverse dutch auction](https
 
 An offer contains the following:
 
-- Price range
-  - Minimum price
-  - Maximum price
-- Bidding start (defined as a block number)
-- Length of ramp-up period (measured in blocks since the start of the bid)
-- Timeout (measured in blocks since the start of the bid)
-- Lock-in stake (the slashable amount if a prover fails to deliver a proof)
+| Parameter                    | Description                                                |
+| ---------------------------- | ---------------------------------------------------------- |
+| **Minimum price**            | The lowest price the requestor is willing to pay.          |
+| **Maximum price**            | The highest price the requestor is willing to pay.         |
+| **Bidding start**            | Defined as a block number.                                 |
+| **Length of ramp-up period** | Measured in blocks since the start of the bid.             |
+| **Timeout**                  | Measured in blocks since the start of the bid.             |
+| **Lock-in stake**            | The slashable amount if a prover fails to deliver a proof. |
 
 For example, an offer might specify:
 
-- Pricing range
-  - Minimum price: 0.001 Ether
-  - Maximum price: 0.002 Ether
-- Bidding start: (latest block number + 3)
-- Length of ramp-up period: 10 blocks
-- Timeout: 100 blocks
-- Lock-in stake: 0.5 Ether
+| Parameter                | Example Value           |
+| ------------------------ | ----------------------- |
+| Minimum price            | 0.001 Ether             |
+| Maximum price            | 0.002 Ether             |
+| Bidding start            | Latest block number + 3 |
+| Length of ramp-up period | 10 blocks               |
+| Timeout                  | 100 blocks              |
+| Lock-in stake            | 0.5 Ether               |
 
 For more details, please see [Pricing a Request](/build/request-a-proof#pricing-a-request).
 

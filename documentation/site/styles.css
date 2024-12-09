@@ -151,6 +151,10 @@ body {
   @apply whitespace-pre;
 }
 
+.lightgallery {
+  @apply block;
+}
+
 [data-layout="landing"] .vocs_DocsLayout_gutterTop {
   @apply bg-transparent;
 }

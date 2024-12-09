@@ -1,3 +1,4 @@
+import path from "node:path";
 import biomePlugin from "vite-plugin-biome";
 import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
@@ -14,6 +15,13 @@ const SIDEBAR_CONFIG = [
       {
         text: "What is Boundless?",
         link: "/introduction/what-is-boundless",
+        collapsed: false,
+        items: [
+          {
+            text: "Extensions",
+            link: "/introduction/extensions",
+          },
+        ],
       },
       {
         text: "Proof Lifecycle",
@@ -92,6 +100,17 @@ export default defineConfig({
   },
   vite: {
     plugins: [generateSitemap(), biomePlugin()],
+    resolve: {
+      alias: {
+        "lightgallery/fonts": path.resolve(__dirname, "node_modules/lightgallery/fonts"),
+        "lightgallery/images": path.resolve(__dirname, "node_modules/lightgallery/images"),
+      },
+    },
+    server: {
+      fs: {
+        allow: ["node_modules/lightgallery"],
+      },
+    },
   },
   sidebar: SIDEBAR_CONFIG,
   topNav: [
@@ -118,10 +137,10 @@ export default defineConfig({
   ],
   rootDir: "site",
   title: "Boundless Documentation",
-  logoUrl: {
+  /*logoUrl: {
     light: "/logo.png",
     dark: "/logo-dark.png",
-  },
+  },*/
   theme: {
     accentColor: {
       light: "#537263", // Forest - primary accent for light mode
