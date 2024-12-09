@@ -156,10 +156,14 @@ body {
 }
 
 [data-layout="landing"] .vocs_DocsLayout_gutterTop {
-  @apply bg-transparent;
+  @apply bg-transparent backdrop-blur-md;
 }
 
 [data-layout="landing"] .vocs_DesktopTopNav_hideCompact {
+  @apply hidden;
+}
+
+[data-layout="landing"] .vocs_Footer {
   @apply hidden;
 }
 
