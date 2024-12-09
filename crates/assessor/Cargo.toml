@@ -1,10 +1,12 @@
 [package]
 name = "boundless-assessor"
+description = "Assessor guest APIs, part of the Boundless Market"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
+license = "Apache-2.0"
 
 [dependencies]
 alloy-primitives = { workspace = true, features = ["k256"] }
