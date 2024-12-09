@@ -5,10 +5,26 @@ import os
 from pathlib import Path
 import subprocess
 
-HEADER = """
+ALL_RIGHT_RESERVED_HEADER = """
 // Copyright (c) {YEAR} RISC Zero, Inc.
 //
 // All rights reserved.
+""".strip().splitlines()
+
+APACHE_HEADER = """
+// Copyright {YEAR} RISC Zero, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 """.strip().splitlines()
 
 EXTENSIONS = [
@@ -25,9 +41,20 @@ SKIP_PATHS = [
     str(Path.cwd()) + "/contracts/src/UtilImageID.sol"
 ]
 
+APACHE_PATHS = [
+    str(Path.cwd()) + "/crates/boundless-market",
+    str(Path.cwd()) + "/crates/boundless-cli",
+    str(Path.cwd()) + "/crates/assessor",
+    str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol"
+]
 
-def check_header(expected_year, lines_actual):
-    for expected, actual in zip(HEADER, lines_actual):
+def check_header(file, expected_year, lines_actual):
+    if any(map(lambda path: file.is_relative_to(path), APACHE_PATHS)):
+        header = APACHE_HEADER
+    else:
+        header = ALL_RIGHT_RESERVED_HEADER
+
+    for expected, actual in zip(header, lines_actual):
         expected = expected.replace("{YEAR}", expected_year)
         if expected != actual:
             return (expected, actual)
@@ -39,7 +66,7 @@ def check_file(root, file):
     expected_year = subprocess.check_output(cmd, encoding="UTF-8").strip()
     rel_path = file.relative_to(root)
     lines = file.read_text().splitlines()
-    result = check_header(expected_year, lines)
+    result = check_header(file, expected_year, lines)
     if result:
         print(f"{rel_path}: invalid header!")
         print(f"  expected: {result[0]}")
