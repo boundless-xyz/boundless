@@ -23,6 +23,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmaM8vvRRF2WrnySNeryrKtb
 name = "Ethereum Sepolia"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
+version = "v0.4.1"
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
@@ -33,9 +34,7 @@ admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 verifier = "0xea6a0Ca4BfD0A6C43081D57672b3B6D43B69265F"
 set-verifier = "0xea6a0Ca4BfD0A6C43081D57672b3B6D43B69265F"
 boundless-market = "0x01e4130C977b39aaa28A744b8D3dEB23a5297654"
-boundless-market-version = "v0.4.0"
 
 # Guests info
-deployment-commit = "23c94fc92286d47209993c95eb88490747bdeeeb"
-assessor-image-id = "0x6f57df64581954508eac094e8810aea703bc6089b2173681efed56f143941523"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeihhbvoh4osr77sqf2zngfxzsr2weemfurr4yx6yfb64wc7dibbb4e"
+assessor-image-id = "0x96aea7457cd7a7baf3781b0e88ab9449071ff1ff4f089913ced8869e5abc27d4"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeicsw6wb2lqnt7ca5jph3g5ffdfsezcrwcohrzb5gaaggjeg7ycari"
