@@ -172,10 +172,10 @@ export default defineConfig({
     dark: "/favicon-dark.svg",
   },
   // banner: "Read the [Boundless Blog Article](https://risczero.com/blog/boundless-the-verifiable-compute-layer)",
-  editLink: {
+  /*editLink: {
     pattern: "https://github.com/boundless-xyz/boundless/edit/main/documentation/site/pages/:path",
     text: "Edit on GitHub",
-  },
+  },*/
   ogImageUrl:
     "https://vocs.dev/api/og?logo=https://docs.beboundless.xyz/logo-dark.png&title=%title&description=%description",
 });

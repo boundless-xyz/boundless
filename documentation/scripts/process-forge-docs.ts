@@ -10,6 +10,11 @@ function sanitizeFileName(name: string) {
   return `${sanitizedBase}.md`;
 }
 
+function removeGitHubLinks(content: string) {
+  // Matches lines containing Git Source links to GitHub
+  return content.replace(/\[Git Source\]\(https:\/\/github\.com[^\)]+\)\n?/g, "");
+}
+
 function fixInternalLinks(content: string) {
   return content.replace(/\[([^\]]+)\]\((\/[^)]+\/[^)]+\.sol\/[^)]+)\.md\)/g, (_, linkText, path) => {
     // Extract the final component of the path (e.g., "interface.IRiscZeroSetVerifier")
@@ -107,7 +112,7 @@ async function flattenFiles() {
     for (const file of files) {
       let content = await readFile(file, "utf-8");
 
-      // Fix internal links before saving
+      content = removeGitHubLinks(content);
       content = fixInternalLinks(content);
 
       const originalName = path.basename(file);
