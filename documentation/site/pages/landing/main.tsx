@@ -35,13 +35,13 @@ export default function Main() {
 
           <div className="flex justify-center gap-4">
             <a
-              className="flex h-14 w-fit items-center whitespace-pre rounded-[var(--vocs-borderRadius\_4)] rounded-lg border border-[var(--vocs-color\_borderAccent)] bg-[var(--vocs-color\_backgroundAccent)] px-4 font-medium text-[var(--vocs-color\_backgroundAccentText)] text-xl shadow-2xl transition-colors duration-100"
+              className="flex h-14 w-fit items-center whitespace-pre rounded-lg border border-[var(--vocs-color\_borderAccent)] bg-[var(--vocs-color\_backgroundAccent)] px-4 font-medium text-[var(--vocs-color\_backgroundAccentText)] text-xl shadow-2xl transition-colors duration-100"
               href="/build/build-a-program"
             >
               Quick Start
             </a>
             <a
-              className="flex h-14 w-fit items-center whitespace-pre rounded-[var(--vocs-borderRadius\_4)] rounded-lg bg-[var(--vocs-color\_background4)] px-4 font-medium text-[var(--vocs-color\_text)] text-xl shadow-2xl transition-colors duration-100"
+              className="flex h-14 w-fit items-center whitespace-pre rounded-lg bg-[var(--vocs-color\_background4)] px-4 font-medium text-[var(--vocs-color\_text)] text-xl shadow-2xl transition-colors duration-100"
               href="/introduction/why-boundless"
             >
               Why Boundless?

@@ -115,6 +115,7 @@ export default defineConfig({
   sidebar: SIDEBAR_CONFIG,
   topNav: [
     { text: "Indexer", link: "https://indexer.beboundless.xyz" },
+    { text: "Help", link: "https://t.me/+E9J7zgtyoTVlNzk1" },
     /*{
       text: process.env.LATEST_TAG || "Latest",
       items: [
@@ -130,6 +131,10 @@ export default defineConfig({
       icon: "github",
       link: "https://github.com/boundless-xyz",
     },*/
+    {
+      icon: "telegram",
+      link: "https://t.me/+E9J7zgtyoTVlNzk1",
+    },
     {
       icon: "x",
       link: "https://x.com/boundless_xyz",
