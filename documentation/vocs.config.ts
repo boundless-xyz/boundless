@@ -132,10 +132,6 @@ export default defineConfig({
       link: "https://github.com/boundless-xyz",
     },*/
     {
-      icon: "telegram",
-      link: "https://t.me/+E9J7zgtyoTVlNzk1",
-    },
-    {
       icon: "x",
       link: "https://x.com/boundless_xyz",
     },
