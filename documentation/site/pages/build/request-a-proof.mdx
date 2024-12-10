@@ -329,22 +329,17 @@ Use this interactive calculator to get suggested request parameters based on you
 If you submitted a request, and it is stuck in an "Unknown" / "Submitted" state, there may be something that is preventing the provers from picking up your request.
 
 - The guest may be panicking or otherwise failing to complete the job.
+  - Pre-flight your request locally before sending it.
+  - The `boundless-cli` does this by default, and the execution step in the Foundry template also accomplishes this.
+  - If your request is submitted onchain, you can use the following command to execute it locally. If it succeeds, this is not the issue.
 
-  Pre-flight your request locally before sending it.
-  The `boundless-cli` does this by default, and the execution step in the Foundry template also accomplishes this.
-
-  If your request is submitted onchain, you can use the following command to execute it locally.
-  If it succeeds, this is not the issue.
-
-  ```sh [Terminal]
-  RUST_LOG=info boundless-cli execute --request-id $REQUEST_ID
-  ```
+```sh [Terminal]
+RUST_LOG=info boundless-cli execute --request-id $REQUEST_ID
+```
 
 - The offer price may be too low for the size of the job.
-
-  Try increasing the max price and ramp-up period.
-  The auction mechanism will ensure that the price you pay is the lowest price any online prover is willing to pay.
-
+  - Try increasing the max price and ramp-up period.
+  - The auction mechanism will ensure that the price you pay is the lowest price any online prover is willing to pay.
 - The lock-in stake may be too high.
 - The timeout may be too short.
 - The bidding start block may be in the past, causing the request to immediately expire.

@@ -172,6 +172,5 @@ export default defineConfig({
     pattern: "https://github.com/boundless-xyz/boundless/edit/main/documentation/site/pages/:path",
     text: "Edit on GitHub",
   },*/
-  ogImageUrl:
-    "https://vocs.dev/api/og?logo=https://docs.beboundless.xyz/logo-dark.png&title=%title&description=%description",
+  ogImageUrl: "https://docs.beboundless.xyz/og.png",
 });
