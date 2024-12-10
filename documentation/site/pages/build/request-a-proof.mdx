@@ -52,7 +52,7 @@ For the latest deployment address, please see [Deployments](/deployments).
 The ELF binary, also known as the image, of the program should be accessible to provers.
 This is done by uploading the ELF to a public HTTP server.
 The `boundless-market` provides `StorageProvider` implementations to help upload these binaries.
-Built-in proivders are are listed in the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html).
+Built-in providers are listed in the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html).
 
 The recommended storage provider is IPFS, specifically through [Pinata](https://pinata.cloud) (the free tier should be sufficient for most Boundless use cases).
 To use Pinata, [fetch the required JWT credential](https://docs.pinata.cloud/account-management/api-keys) and set it to the `PINATA_JWT` environment variable in the `.env` file.
