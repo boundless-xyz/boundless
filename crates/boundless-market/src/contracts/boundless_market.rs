@@ -580,13 +580,13 @@ where
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-        let tx_hash = pending_tx
+        let tx_receipt = pending_tx
             .with_timeout(Some(self.timeout))
-            .watch()
+            .get_receipt()
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Submitted merkle root and proof for batch {}", tx_hash);
+        tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
         Ok(())
     }
@@ -642,13 +642,13 @@ where
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let tx_hash = pending_tx
+        let tx_receipt = pending_tx
             .with_timeout(Some(self.timeout))
-            .watch()
+            .get_receipt()
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Fulfilled proof for batch {}", tx_hash);
+        tracing::info!("Fulfilled proof for batch {}", tx_receipt.transaction_hash);
 
         Ok(())
     }
