@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.5.0"
+version = "0.4.1"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -1440,7 +1440,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.5.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -1476,7 +1476,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.5.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2533,7 +2533,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.5.0"
+version = "0.4.1"
 dependencies = [
  "hex",
  "risc0-build",
@@ -2551,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.5.0"
+version = "0.4.1"
 dependencies = [
  "hex",
  "risc0-build",
@@ -6393,7 +6393,7 @@ dependencies = [
 
 [[package]]
 name = "workflow-common"
-version = "0.5.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "aws-sdk-s3",

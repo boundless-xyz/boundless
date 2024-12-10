@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 homepage = "https://beboundless.xyz/"
 repository = "https://github.com/boundless-xyz/boundless/"
@@ -25,9 +25,9 @@ repository = "https://github.com/boundless-xyz/boundless/"
 [workspace.dependencies]
 async-stream = "0.3"
 bento-client = { path = "crates/bento-client" }
-boundless-assessor = { version = "0.4.1", path = "crates/assessor" }
-boundless-cli = { version = "0.4.1", path = "crates/boundless-cli" }
-boundless-market = { version = "0.4.1", path = "crates/boundless-market" }
+boundless-assessor = { version = "0.5.0", path = "crates/assessor" }
+boundless-cli = { version = "0.5.0", path = "crates/boundless-cli" }
+boundless-market = { version = "0.5.0", path = "crates/boundless-market" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
