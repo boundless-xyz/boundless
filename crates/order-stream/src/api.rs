@@ -72,7 +72,7 @@ pub(crate) async fn list_orders(
     let limit = i64::try_from(limit).map_err(|_| AppError::QueryParamErr("limit"))?;
     let offset = i64::try_from(paging.offset).map_err(|_| AppError::QueryParamErr("index"))?;
 
-    let results = state.db.list_orders(limit, offset).await.context("Failed to query DB")?;
+    let results = state.db.list_orders(offset, limit).await.context("Failed to query DB")?;
     Ok(Json(results))
 }
 
