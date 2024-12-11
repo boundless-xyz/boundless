@@ -3,6 +3,8 @@ title: Build a Program
 description: This page covers the Boundless Foundry Template program as a quick start.
 ---
 
+import { StripRustCodeComments } from "../../components/strip-rust-code-comments";
+
 # Build a Program
 
 At its core, Boundless allows app developers to receive zero-knowledge (ZK) proofs for their programs.
@@ -84,12 +86,13 @@ fn main() {
 
 First, the guest receive inputs from the host program, and then these input bytes are decoded and parsed:
 
+<StripRustCodeComments>
 ```rust no_run
-use std::io::Read; // [!code highlight]
-use alloy_primitives::U256;
-use alloy_sol_types::SolValue;
-use risc0_zkvm::guest::env;
-
+# use std::io::Read;
+# use alloy_primitives::U256;
+# use alloy_sol_types::SolValue;
+# use risc0_zkvm::guest::env;
+#
 fn main() {
     // Read the input data for this application. // [!code focus]
     let mut input_bytes = Vec::<u8>::new(); // [!code focus]
@@ -99,6 +102,7 @@ fn main() {
     let number = <U256>::abi_decode(&input_bytes, true).unwrap(); // [!code focus]
 }
 ```
+</StripRustCodeComments>
 
 To check if the number is even:
 
