@@ -15,7 +15,7 @@
     "preview": "vocs preview"
   },
   "dependencies": {
-    "@risc0/ui": "0.0.241",
+    "@risc0/ui": "0.0.242",
     "lightgallery": "2.8.2",
     "markdown-link-check": "3.13.6",
     "remark": "15.0.1",

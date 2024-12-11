@@ -198,13 +198,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
 
-5. Load the upgraded BoundlessMarket (proxy) address into the environment:
-
-   ```zsh
-   export BOUNDLESS_MARKET=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].market" contracts/deployment.toml | tee /dev/stderr)
-   ```
-
-6. Test the deployment.
+5. Test the deployment.
 
    ```bash
    FOUNDRY_PROFILE=deployment-test forge test --fork-url $RPC_URL

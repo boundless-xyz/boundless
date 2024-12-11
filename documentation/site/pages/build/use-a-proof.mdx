@@ -7,28 +7,33 @@ description: After receiving the Boundless proof, you are ready to use it in you
 
 > Prerequisite Reading: [Request a Proof](/build/request-a-proof), [Proof Lifecycle](/introduction/proof-lifecycle)
 
-After [requesting a proof](/build/request-a-proof), the next step is to use that proof in the application's workflow. The exact way proofs are used will vary depending on the architecture of the application. However, there is a common pattern; once a proof is received from the Boundless market, the next step will be to verify that proof on-chain.
+After [requesting a proof](/build/request-a-proof), the next step is to use that proof in the application's workflow.
+The exact way proofs are used will vary depending on the architecture of the application.
+However, there is a common pattern; once a proof is received from the Boundless market, the next step will be to verify that proof on-chain.
 
 <a href="/use-a-proof.png" class="lightgallery">
   <img src="/use-a-proof.png" alt="Use a Proof" />
 </a>
 
-It is recommended that the application contract calls the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier) for verification. This allows handling many types of proofs, and proof system versions seamlessly. In Boundless, the seal, which is often a zk-STARK or SNARK, will usually be Merkle inclusion proof into an aggregated proof. These Merkle inclusion proofs are cheap to verify, and reuse a cached verification result from a batch of proofs verified with a single SNARK.
+It is recommended that the application contract calls the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier) for verification.
+This allows handling many types of proofs, and proof system versions seamlessly.
+In Boundless, the seal, which is often a zk-STARK or SNARK, will usually be Merkle inclusion proof into an aggregated proof.
+These Merkle inclusion proofs are cheap to verify, and reuse a cached verification result from a batch of proofs verified with a single SNARK.
 
 ## Proof Verification
 
-The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol), walks through a simple application which, with an input number, _x_:
+The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template), walks through a simple application which, with an input number, _x_:
 
 1. Uses a simple guest program to check if _x_ is even.
 2. Requests, and receives, a proof of _x_ being even from the Boundless Market.
 3. Calls the `set` function on the `EvenNumber` smart contract with the arguments: _x_ and the seal (the proof bytes).
 4. The `set` function verifies the proof that _x_ is even; if the proof is valid, the `number` variable (in smart contract state) is set to equal _x_.
 
-Concretely, receiving the proof ([see code](https://github.com/boundless-xyz/boundless-foundry-template/blob/859248fd748f1c8ca88f9540de389c4d86bd959a/apps/src/main.rs#L149)) from the Boundless Market returns a journal and a seal:
+Concretely, receiving the proof ([see code](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/apps/src/main.rs)) from the Boundless Market returns a journal and a seal:
 
 ```rust
-let (_journal, seal) = boundless_client
-    .wait_for_request_fulfillment(request_id, Duration::from_secs(5), None)
+let (journal, seal) = boundless_client
+    .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
     .await?;
 ```
 
@@ -73,7 +78,8 @@ function set(uint256 x, bytes calldata seal) public {
 }
 ```
 
-Calling the [`set` function](https://github.com/boundless-xyz/boundless-foundry-template/blob/859248fd748f1c8ca88f9540de389c4d86bd959a/contracts/src/EvenNumber.sol#L34C1-L40C6) will verify the proof via the [RISC Zero verifier contract](https://dev.risczero.com/api/blockchain-integration/contracts/verifier). The `verify` call will revert if the proof is invalid, otherwise the number variable will be updated to x, which is now certainly even.
+Calling the [`set` function](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol) will verify the proof via the [RISC Zero verifier contract](https://dev.risczero.com/api/blockchain-integration/contracts/verifier).
+The `verify` call will revert if the proof is invalid, otherwise the number variable will be updated to x, which is now certainly even.
 
 Each application will have its own requirements and flows, but this is a common pattern and a good starting point for building your own application.
 
