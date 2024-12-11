@@ -47,7 +47,7 @@ pub struct DbOrder {
     pub id: i64,
     #[sqlx(rename = "order_data", json)]
     pub order: Order,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 pub struct OrderDb {
@@ -231,7 +231,7 @@ impl OrderDb {
 
         sqlx::query("SELECT pg_notify($1, $2::text)")
             .bind(ORDER_CHANNEL)
-            .bind(sqlx::types::Json(DbOrder { id, created_at, order }))
+            .bind(sqlx::types::Json(DbOrder { id, created_at: Some(created_at), order }))
             .execute(&mut *txn)
             .await?;
 
