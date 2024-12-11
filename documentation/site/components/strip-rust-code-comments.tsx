@@ -19,7 +19,6 @@ function hasHashPrefix(node: ReactNode): boolean {
 function shouldKeepLine(node: ReactNode): boolean {
   if (node && typeof node === "object" && "props" in node) {
     if (node.props.className?.includes("line")) {
-      // Check recursively if any children contain `#`
       return !hasHashPrefix(node.props.children);
     }
   }
@@ -27,22 +26,18 @@ function shouldKeepLine(node: ReactNode): boolean {
   return true;
 }
 
-function processNode(node: ReactNode): ReactNode {
+function processNode(node: ReactNode, index: number): ReactNode {
   if (Array.isArray(node)) {
-    return node.filter((child) => shouldKeepLine(child)).map((child) => processNode(child));
+    return node.filter((child) => shouldKeepLine(child)).map((child, i) => processNode(child, i));
   }
 
-  // If it's a React element
   if (node && typeof node === "object" && "props" in node) {
-    // Clone the element with processed children
-    return cloneElement(node, node.props, processNode(node.props.children));
+    return cloneElement(node, { ...node.props, key: index }, processNode(node.props.children, index));
   }
 
   return node;
 }
 
-// allows you to strip out comments from a Rust code block
-// any line prefixed with `#` will be stripped out
 export function StripRustCodeComments({ children }: PropsWithChildren) {
-  return <>{processNode(children)}</>;
+  return processNode(children, 0);
 }
