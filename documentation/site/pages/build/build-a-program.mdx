@@ -3,7 +3,7 @@ title: Build a Program
 description: This page covers the Boundless Foundry Template program as a quick start.
 ---
 
-import { StripRustCode } from "../../components/strip-rust-code";
+import { StripRustCodeComments } from "../../components/strip-rust-code-comments";
 
 # Build a Program
 
@@ -86,7 +86,7 @@ fn main() {
 
 First, the guest receive inputs from the host program, and then these input bytes are decoded and parsed:
 
-<StripRustCode>
+<StripRustCodeComments>
 ```rust no_run
 # use std::io::Read;
 # use alloy_primitives::U256;
@@ -102,7 +102,7 @@ fn main() {
     let number = <U256>::abi_decode(&input_bytes, true).unwrap(); // [!code focus]
 }
 ```
-</StripRustCode>
+</StripRustCodeComments>
 
 To check if the number is even:
 
