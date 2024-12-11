@@ -31,7 +31,7 @@ To facilitate communication with the Boundless market, developers can use the `C
 
 To instantiate a boundless client, you will need a wallet with sufficient funds on Sepolia, a working Sepolia RPC provider, and the proof market and set verifier contract addresses:
 
-```rust
+```rust ignore
 let boundless_client = ClientBuilder::default()
     .with_rpc_url(rpc_url)
     .with_boundless_market_address(boundless_market_address)
@@ -59,7 +59,7 @@ To use Pinata, [fetch the required JWT credential](https://docs.pinata.cloud/acc
 
 With the storage provider added to the `Client`, the executable can be uploaded with the `upload_image` method:
 
-```rust
+```rust ignore
 let image_url = boundless_client.upload_image(ELF).await?;
 ```
 
@@ -68,7 +68,7 @@ let image_url = boundless_client.upload_image(ELF).await?;
 To execute and run proving, the prover requires the inputs of the program.
 Similar to the program executable, the program inputs are uploaded to a public HTTP server, and the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html) can help with that.
 
-```rust
+```rust ignore
 let image_url = boundless_client.upload_input(&input_bytes).await?;
 ```
 
@@ -88,7 +88,7 @@ Before sending a proof request, developers should execute the program. This achi
 
 To execute the program and retrieve the cycle count (in MCycles), and journal:
 
-```rust
+```rust ignore
 let env = ExecutorEnv::builder().write_slice(&input_bytes).build()?;
 let session_info = default_executor().execute(env, ELF)?;
 let mcycles_count = session_info
@@ -106,7 +106,7 @@ let journal = session_info.journal;
 
 A proof request consists of four essential components that specify which program needs to be proven and under what conditions:
 
-```rust showLineNumbers
+```rust ignore showLineNumbers
 let request = ProofRequest::default()
   .with_image_url(&image_url)
   .with_input(Input::url(&input_url))
@@ -151,7 +151,7 @@ The offer details are specified with `.with_offer()`. This allows the requestor 
 
 Once the request is configured, it can submitted to the market:
 
-```rust
+```rust ignore
 let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 ```
 
@@ -165,7 +165,7 @@ The `submit_request` method returns a `request_id` which can be used to track th
 
 Once fulfilled, the journal and seal are returned. The journal contains the public outputs of the guest program, and the seal.
 
-```rust
+```rust ignore
 let (_journal, seal) = boundless_client
   .wait_for_request_fulfillment(
     request_id,

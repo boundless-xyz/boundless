@@ -13,7 +13,8 @@ members = [
     "crates/order-stream",
     "crates/taskdb",
     "crates/workflow",
-    "crates/workflow-common"
+    "crates/workflow-common",
+    "documentation/doc-test"
 ]
 
 [workspace.package]

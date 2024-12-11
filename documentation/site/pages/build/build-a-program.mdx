@@ -57,7 +57,7 @@ The entire program is only \~20 lines, so let's run through it:
 
 ### [`is-even`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
 
-```rust
+```rust no_run
 use std::io::Read;
 
 use alloy_primitives::U256;
@@ -84,7 +84,12 @@ fn main() {
 
 First, the guest receive inputs from the host program, and then these input bytes are decoded and parsed:
 
-```rust
+```rust no_run
+use std::io::Read; // [!code highlight]
+use alloy_primitives::U256;
+use alloy_sol_types::SolValue;
+use risc0_zkvm::guest::env;
+
 fn main() {
     // Read the input data for this application. // [!code focus]
     let mut input_bytes = Vec::<u8>::new(); // [!code focus]
@@ -92,7 +97,6 @@ fn main() {
 
     // Decode and parse the input // [!code focus]
     let number = <U256>::abi_decode(&input_bytes, true).unwrap(); // [!code focus]
-    ....
 }
 ```
 
@@ -110,7 +114,7 @@ fn main() {
 
 Finally, if the number is even, the assert will pass and the number can be committed to the [journal](https://dev.risczero.com/terminology#journal).
 
-```rust
+```rust ignore
 fn main() {
     ....
     // Commit the journal that will be received by the application contract. [!code focus]
