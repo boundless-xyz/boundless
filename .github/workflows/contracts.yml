@@ -38,7 +38,7 @@ jobs:
   gas-comparison:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     needs: contracts-changed
-    # if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
+    if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
     steps:
       - name: install npm
         uses: actions/setup-node@v4
