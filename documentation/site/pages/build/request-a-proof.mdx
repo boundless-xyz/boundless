@@ -44,14 +44,14 @@ To instantiate a boundless client, you will need a wallet with sufficient funds 
 # storage_config: Option<StorageProviderConfig>,
 # private_key: PrivateKeySigner) -> Result<(), Box<dyn std::error::Error>> {
 let boundless_client = ClientBuilder::default()
-    .with_rpc_url(rpc_url)
-    .with_boundless_market_address(boundless_market_address)
-    .with_set_verifier_address(set_verifier_address)
-    .with_order_stream_url(order_stream_url)
-    .with_storage_provider_config(storage_config.clone())
-    .with_private_key(private_key)
-    .build()
-    .await?;
+  .with_rpc_url(rpc_url)
+  .with_boundless_market_address(boundless_market_address)
+  .with_set_verifier_address(set_verifier_address)
+  .with_order_stream_url(order_stream_url)
+  .with_storage_provider_config(storage_config.clone())
+  .with_private_key(private_key)
+  .build()
+  .await?;
 # Ok(())
 # }
 ```
@@ -123,11 +123,11 @@ To execute the program and retrieve the cycle count (in MCycles), and journal:
 let env = ExecutorEnv::builder().write_slice(&input_bytes).build()?;
 let session_info = default_executor().execute(env, ELF)?;
 let mcycles_count = session_info
-    .segments
-    .iter()
-    .map(|segment| 1 << segment.po2)
-    .sum::<u64>()
-    .div_ceil(1_000_000);
+  .segments
+  .iter()
+  .map(|segment| 1 << segment.po2)
+  .sum::<u64>()
+  .div_ceil(1_000_000);
 let journal = session_info.journal;
 # Ok(())
 # }
@@ -153,25 +153,25 @@ A proof request consists of four essential components that specify which program
 # mcycles_count: u64,
 # journal: Vec<u8>) -> Result<ProofRequest> {
 let request = ProofRequest::default()
-    .with_image_url(&image_url)
-    .with_input(Input::url(&input_url))
-    .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
-    .with_offer(
-        Offer::default()
-            // The market uses a reverse Dutch auction mechanism to match requests with provers.
-            // Each request has a price range that a prover can bid on. One way to set the price
-            // is to choose a desired (min and max) price per million cycles and multiply it
-            // by the number of cycles. Alternatively, you can use the `with_min_price` and
-            // `with_max_price` methods to set the price directly.
-            .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-            // NOTE: If your offer is not being accepted, try increasing the max price.
-            .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
-            // The timeout is the maximum number of blocks the request can stay
-            // unfulfilled in the market before it expires. If a prover locks in
-            // the request and does not fulfill it before the timeout, the prover can be
-            // slashed.
-            .with_timeout(1000),
-    );
+  .with_image_url(&image_url)
+  .with_input(Input::url(&input_url))
+  .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
+  .with_offer(
+    Offer::default()
+      // The market uses a reverse Dutch auction mechanism to match requests with provers.
+      // Each request has a price range that a prover can bid on. One way to set the price
+      // is to choose a desired (min and max) price per million cycles and multiply it
+      // by the number of cycles. Alternatively, you can use the `with_min_price` and
+      // `with_max_price` methods to set the price directly.
+      .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
+      // NOTE: If your offer is not being accepted, try increasing the max price.
+      .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
+      // The timeout is the maximum number of blocks the request can stay
+      // unfulfilled in the market before it expires. If a prover locks in
+      // the request and does not fulfill it before the timeout, the prover can be
+      // slashed.
+      .with_timeout(1000),
+  );
 # Ok(request)
 # }
 ```
