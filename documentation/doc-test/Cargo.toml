@@ -11,10 +11,10 @@ publish = false
 release = false
 
 [dependencies]
-anyhow = "1.0"
 alloy = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
+anyhow = "1.0"
 boundless-market = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = false, features = ["std"] }
 tracing = { workspace = true }
