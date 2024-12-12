@@ -2805,10 +2805,12 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "boundless-market",
  "glob",
  "regex",
  "risc0-zkvm",
- "serde",
+ "tracing",
+ "url",
 ]
 
 [[package]]

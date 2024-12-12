@@ -31,7 +31,17 @@ To facilitate communication with the Boundless market, developers can use the `C
 
 To instantiate a boundless client, you will need a wallet with sufficient funds on Sepolia, a working Sepolia RPC provider, and the proof market and set verifier contract addresses:
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+# use boundless_market::{client::ClientBuilder, storage::StorageProviderConfig};
+# async fn create_boundless_client(
+# rpc_url: url::Url,
+# boundless_market_address: Address,
+# set_verifier_address: Address,
+# order_stream_url: Option<url::Url>,
+# storage_config: Option<StorageProviderConfig>,
+# private_key: PrivateKeySigner) -> Result<(), Box<dyn std::error::Error>> {
 let boundless_client = ClientBuilder::default()
     .with_rpc_url(rpc_url)
     .with_boundless_market_address(boundless_market_address)
@@ -41,7 +51,10 @@ let boundless_client = ClientBuilder::default()
     .with_private_key(private_key)
     .build()
     .await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 For the latest deployment address, please see [Deployments](/deployments).
 
@@ -59,18 +72,32 @@ To use Pinata, [fetch the required JWT credential](https://docs.pinata.cloud/acc
 
 With the storage provider added to the `Client`, the executable can be uploaded with the `upload_image` method:
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use boundless_market::client::ClientBuilder;
+# async fn upload_elf(ELF: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::default().build().await?;
 let image_url = boundless_client.upload_image(ELF).await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 ### 3. Upload the Input of Your Program to IPFS
 
 To execute and run proving, the prover requires the inputs of the program.
 Similar to the program executable, the program inputs are uploaded to a public HTTP server, and the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html) can help with that.
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use boundless_market::client::ClientBuilder;
+# async fn upload_elf(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::default().build().await?;
 let image_url = boundless_client.upload_input(&input_bytes).await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 Inputs can also be included directly into the request instead as in-line input.
 When submitting requests onchain, this will cost more gas if the inputs are large.
@@ -88,7 +115,10 @@ Before sending a proof request, developers should execute the program. This achi
 
 To execute the program and retrieve the cycle count (in MCycles), and journal:
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use risc0_zkvm::{default_executor, ExecutorEnv};
+# fn execute_program(input_bytes: Vec<u8>, ELF: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
 let env = ExecutorEnv::builder().write_slice(&input_bytes).build()?;
 let session_info = default_executor().execute(env, ELF)?;
 let mcycles_count = session_info
@@ -98,7 +128,10 @@ let mcycles_count = session_info
        .sum::<u64>()
        .div_ceil(1_000_000);
 let journal = session_info.journal;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 > Relevant links: [ExecutorEnvBuilder](https://docs.rs/risc0-zkvm/latest/risc0_zkvm/struct.ExecutorEnvBuilder.html)
 
@@ -106,28 +139,42 @@ let journal = session_info.journal;
 
 A proof request consists of four essential components that specify which program needs to be proven and under what conditions:
 
-```rust ignore showLineNumbers
+<StripRustCodeComments>
+```rust showLineNumbers
+# use anyhow::Result;
+# use alloy_primitives::utils::parse_ether;
+# use boundless_market::contracts::{Input, Offer, Predicate, ProofRequest, Requirements};
+# use risc0_zkvm::sha::{Digest, Digestible};
+# fn create_proof_request(
+# ECHO_ID: Digest,
+# image_url: &str,
+# input_url: String,
+# mcycles_count: u64,
+# journal: Vec<u8>) -> Result<ProofRequest> {
 let request = ProofRequest::default()
-  .with_image_url(&image_url)
-  .with_input(Input::url(&input_url))
-  .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
-  .with_offer(
-    Offer::default()
-      // The market uses a reverse Dutch auction mechanism to match requests with provers.
-      // Each request has a price range that a prover can bid on. One way to set the price
-      // is to choose a desired (min and max) price per million cycles and multiply it
-      // by the number of cycles. Alternatively, you can use the `with_min_price` and
-      // `with_max_price` methods to set the price directly.
-      .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-      // NOTE: If your offer is not being accepted, try increasing the max price.
-      .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
-      // The timeout is the maximum number of blocks the request can stay
-      // unfulfilled in the market before it expires. If a prover locks in
-      // the request and does not fulfill it before the timeout, the prover can be
-      // slashed.
-      .with_timeout(1000),
-  );
+.with_image_url(&image_url)
+.with_input(Input::url(&input_url))
+.with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
+.with_offer(
+  Offer::default()
+    // The market uses a reverse Dutch auction mechanism to match requests with provers.
+    // Each request has a price range that a prover can bid on. One way to set the price
+    // is to choose a desired (min and max) price per million cycles and multiply it
+    // by the number of cycles. Alternatively, you can use the `with_min_price` and
+    // `with_max_price` methods to set the price directly.
+    .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
+    // NOTE: If your offer is not being accepted, try increasing the max price.
+    .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
+    // The timeout is the maximum number of blocks the request can stay
+    // unfulfilled in the market before it expires. If a prover locks in
+    // the request and does not fulfill it before the timeout, the prover can be
+    // slashed.
+    .with_timeout(1000),
+);
+# Ok(request)
+# }
 ```
+</StripRustCodeComments>
 
 1. Program Image (`with_image_url`) (line #2)
 2. Program Input (`with_input`) (line #3)
@@ -151,9 +198,17 @@ The offer details are specified with `.with_offer()`. This allows the requestor 
 
 Once the request is configured, it can submitted to the market:
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use boundless_market::client::ClientBuilder;
+# use boundless_market::contracts::ProofRequest;
+# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::default().build().await?;
 let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 This will send the request onchain in a transaction.
 Using `boundless_client.submit_request_offchain`, you can send your request off-chain through the order-stream service.
@@ -165,7 +220,14 @@ The `submit_request` method returns a `request_id` which can be used to track th
 
 Once fulfilled, the journal and seal are returned. The journal contains the public outputs of the guest program, and the seal.
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use std::time::Duration;
+# use boundless_market::client::ClientBuilder;
+# use boundless_market::contracts::ProofRequest;
+# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::default().build().await?;
+# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 let (_journal, seal) = boundless_client
   .wait_for_request_fulfillment(
     request_id,
@@ -173,7 +235,10 @@ let (_journal, seal) = boundless_client
     expires_at,
   )
   .await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 > Relevant links: [Seal](https://dev.risczero.com/terminology#seal), [Journal](https://dev.risczero.com/terminology#journal)
 

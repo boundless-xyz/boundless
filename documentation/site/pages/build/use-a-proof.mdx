@@ -31,33 +31,113 @@ The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foun
 
 Concretely, receiving the proof ([see code](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/apps/src/main.rs)) from the Boundless Market returns a journal and a seal:
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use std::time::Duration;
+# use alloy_primitives::U256;
+# use anyhow::Result;
+# use boundless_market::client::ClientBuilder;
+# async fn wait_for_request_fulfillment(
+# request_id: U256,
+# expires_at: u64) -> Result<()> {
+# let boundless_client = ClientBuilder::default().build().await?;
 let (journal, seal) = boundless_client
     .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
     .await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 Using Alloys [sol! Macro](https://alloy.rs/examples/sol-macro/index.html), the rust types/bindings are generated for the [`EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol) contract.
 To create an `EvenNumber` contract instance:
 
-```rust ignore
-let even_number = IEvenNumberInstance::new(
+<StripRustCodeComments>
+```rust
+# use alloy_primitives::Address;
+# use anyhow::Result;
+# use boundless_market::client::ClientBuilder;
+# struct Args {
+#    even_number_address: Address,
+#    number: u64,
+# }
+# alloy::sol!(
+#    #[sol(rpc, all_derives)]
+#    interface IEvenNumber {
+#        function set(uint256 x, bytes calldata seal);
+#    }
+# );
+# async fn run(args: Args) -> Result<()> {
+# let boundless_client = ClientBuilder::default().build().await?;
+let even_number = IEvenNumber::new(
     args.even_number_address,
     boundless_client.provider().clone(),
 );
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 To call the `set` function on the `EvenNumber` contract, a “set number” transaction is created:
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use alloy_primitives::{Address, Bytes, U256};
+# use anyhow::Result;
+# use boundless_market::client::ClientBuilder;
+# struct Args {
+#    even_number_address: Address,
+#    number: u64,
+# }
+# alloy::sol!(
+#    #[sol(rpc, all_derives)]
+#    interface IEvenNumber {
+#        function set(uint256 x, bytes calldata seal);
+#    }
+# );
+# async fn run(args: Args) -> Result<()> {
+# let boundless_client = ClientBuilder::default().build().await?;
+# let even_number = IEvenNumber::new(
+#    args.even_number_address,
+#    boundless_client.provider().clone(),
+# );
+# let seal = Bytes::default();
 let set_number = even_number
     .set(U256::from(args.number), seal)
     .from(boundless_client.caller());
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 Finally, this transaction is broadcasted with:
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use std::time::Duration;
+# use alloy_primitives::{Address, Bytes, U256};
+# use anyhow::{Context, Result};
+# use boundless_market::client::ClientBuilder;
+# struct Args {
+#    even_number_address: Address,
+#    number: u64,
+# }
+# alloy::sol!(
+#    #[sol(rpc, all_derives)]
+#    interface IEvenNumber {
+#        function set(uint256 x, bytes calldata seal);
+#    }
+# );
+# async fn run(args: Args, TX_TIMEOUT: Duration) -> Result<()> {
+# let boundless_client = ClientBuilder::default().build().await?;
+# let even_number = IEvenNumber::new(
+#    args.even_number_address,
+#    boundless_client.provider().clone(),
+# );
+# let seal = Bytes::default();
+# let set_number = even_number
+#    .set(U256::from(args.number), seal)
+#    .from(boundless_client.caller());
 let pending_tx = set_number.send().await.context("failed to broadcast tx")?;
 let tx_hash = pending_tx
     .with_timeout(Some(TX_TIMEOUT))
@@ -65,7 +145,10 @@ let tx_hash = pending_tx
     .await
     .context("failed to confirm tx")?;
 tracing::info!("Tx {:?} confirmed", tx_hash);
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 Definition of the `set` function on [`EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol):
 

@@ -59,7 +59,7 @@ The entire program is only \~20 lines, so let's run through it:
 
 ### [`is-even`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
 
-```rust no_run
+```rust
 use std::io::Read;
 
 use alloy_primitives::U256;
@@ -87,12 +87,12 @@ fn main() {
 First, the guest receive inputs from the host program, and then these input bytes are decoded and parsed:
 
 <StripRustCodeComments>
-```rust no_run
+```rust
 # use std::io::Read;
 # use alloy_primitives::U256;
 # use alloy_sol_types::SolValue;
 # use risc0_zkvm::guest::env;
-#
+
 fn main() {
     // Read the input data for this application. // [!code focus]
     let mut input_bytes = Vec::<u8>::new(); // [!code focus]
@@ -100,14 +100,24 @@ fn main() {
 
     // Decode and parse the input // [!code focus]
     let number = <U256>::abi_decode(&input_bytes, true).unwrap(); // [!code focus]
+    ....
 }
 ```
 </StripRustCodeComments>
 
 To check if the number is even:
 
+<StripRustCodeComments>
 ```rust
+# use std::io::Read;
+# use alloy_primitives::U256;
+# use alloy_sol_types::SolValue;
+# use risc0_zkvm::guest::env;
+
 fn main() {
+#   let mut input_bytes = Vec::<u8>::new();
+#   env::stdin().read_to_end(&mut input_bytes).unwrap();
+#   let number = <U256>::abi_decode(&input_bytes, true).unwrap();
     ....
     // Run the computation. // [!code focus]
     // In this case, asserting that the provided number is even. // [!code focus]
@@ -115,11 +125,21 @@ fn main() {
     ....
 }
 ```
+</StripRustCodeComments>
 
 Finally, if the number is even, the assert will pass and the number can be committed to the [journal](https://dev.risczero.com/terminology#journal).
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use std::io::Read;
+# use alloy_primitives::U256;
+# use alloy_sol_types::SolValue;
+# use risc0_zkvm::guest::env;
+
 fn main() {
+#   let mut input_bytes = Vec::<u8>::new();
+#   env::stdin().read_to_end(&mut input_bytes).unwrap();
+#   let number = <U256>::abi_decode(&input_bytes, true).unwrap();
     ....
     // Commit the journal that will be received by the application contract. [!code focus]
     // Journal is encoded using Solidity ABI for easy decoding in the app contract. [!code focus]
@@ -127,6 +147,7 @@ fn main() {
     ....
 }
 ```
+</StripRustCodeComments>
 
 ### [`EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
 

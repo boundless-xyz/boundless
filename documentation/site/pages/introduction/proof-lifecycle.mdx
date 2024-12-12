@@ -168,15 +168,29 @@ The requestor can use this Merkle inclusion proof as an effective representation
 
 When the prover fulfills their request, the requestor will (the app developer) will receive their proof.
 
-```rust ignore
+<StripRustCodeComments>
+```rust
+# use std::time::Duration;
+# use boundless_market::client::ClientBuilder;
+# use boundless_market::contracts::ProofRequest;
+# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::default().build().await?;
+# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 let (_journal, seal) = boundless_client
-   .wait_for_request_fulfillment(request_id, Duration::from_secs(5), None)
-   .await?;
+  .wait_for_request_fulfillment(
+    request_id,
+    Duration::from_secs(5),
+    expires_at,
+  )
+  .await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 The journal is the public output of the program, and the seal is the cryptographic proof. Since Boundless uses aggregated proofs, the seal will be a Merkle inclusion proof, but verification works the same as for Groth16: the application contract sends the seal to the verifier contract. We recommend using the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier), which will allow your application to seamlessly use both Groth16 and Merkle inclusion proofs. Below is an example from the Boundless Foundry Template:
 
-```rust ignore
+```solidity
 /// @notice Set the even number stored on the contract. Requires a RISC Zero proof that the number is even.
 function set(uint256 x, bytes calldata seal) public {
     // Construct the expected journal data. Verify will fail if journal does not match.

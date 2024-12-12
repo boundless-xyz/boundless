@@ -2,6 +2,8 @@
 //
 // All rights reserved.
 
+use glob::glob;
+use regex::Regex;
 use std::{
     collections::HashMap,
     env,
@@ -10,18 +12,20 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use glob::glob;
-use regex::Regex;
-
 #[derive(Debug)]
 struct Level {
     nested: HashMap<String, Level>,
     files: Vec<PathBuf>,
 }
 
+#[derive(Debug)]
+struct RustSnippet {
+    content: String,
+    should_run: bool,
+}
+
 fn main() {
     let home = env::var("CARGO_MANIFEST_DIR").unwrap();
-
     let mut level = Level::new();
 
     for root_dir in ["documentation"] {
@@ -33,19 +37,17 @@ fn main() {
             let path = entry.unwrap();
             let path = Path::new(&path).canonicalize().unwrap();
             println!("cargo:rerun-if-changed={}", path.display());
-            let rel = path.strip_prefix(&base).unwrap();
 
+            let rel = path.strip_prefix(&base).unwrap();
             let mut parts = vec![];
             for part in rel {
                 parts.push(part.to_str().unwrap());
             }
-
             level.insert(path.clone(), &parts[..]);
         }
     }
 
     let out = format!("{}/doctests.rs", env::var("OUT_DIR").unwrap());
-
     fs::write(out, level.to_string()).unwrap();
 }
 
@@ -67,7 +69,6 @@ impl Level {
         if rel.iter().any(|part| part.starts_with('_')) {
             return;
         }
-
         if rel.len() == 1 {
             self.files.push(path);
         } else {
@@ -79,26 +80,13 @@ impl Level {
     fn write_into(&self, dst: &mut String, name: &str, level: usize) -> fmt::Result {
         self.write_space(dst, level);
         let name = name.replace(['-', '.'], "_");
-        writeln!(dst, "pub mod {name} {{",)?;
+        writeln!(dst, "#[allow(warnings, unused)]")?;
+        writeln!(dst, "pub mod {name} {{")?;
         self.write_inner(dst, level + 1)?;
         self.write_space(dst, level);
         writeln!(dst, "}}")?;
-
         Ok(())
     }
-
-    // fn sanitize_doc(&self, content: &str) -> String {
-    //     content
-    //         .split('\n')
-    //         .filter(|line| {
-    //             !line.starts_with('#') && !line.contains("@risc0/") && line.trim().len() > 0
-    //         })
-    //         .map(|line| line.replace(|c| c == '[' || c == ']' || c == '&' || c == '/', ""))
-    //         .collect::<Vec<_>>()
-    //         .join("\n")
-    //         .trim()
-    //         .to_string()
-    // }
 
     fn write_inner(&self, dst: &mut String, level: usize) -> fmt::Result {
         for (name, nested) in &self.nested {
@@ -106,48 +94,120 @@ impl Level {
         }
 
         self.write_space(dst, level);
-
         for file in &self.files {
             let stem = Path::new(file).file_stem().unwrap().to_str().unwrap().replace('-', "_");
             let content = fs::read_to_string(file).expect("Failed to read file");
-            let processed_content = self.remove_footnotes(&content);
-            let sanitized_content = processed_content; //self.sanitize_doc(&processed_content);
+            let rust_snippets = self.extract_rust_snippets(&content);
 
-            // Skip empty documents
-            if sanitized_content.trim().is_empty() {
+            if rust_snippets.is_empty() {
                 continue;
             }
 
-            self.write_space(dst, level);
-            writeln!(dst, "#[doc = r##\"{}\"##]", sanitized_content)?;
-            self.write_space(dst, level);
-            writeln!(dst, "pub fn {}_md() {{}}", stem)?;
-        }
+            let mut seen_snippets = Vec::new();
+            for snippet in rust_snippets {
+                if !seen_snippets.iter().any(|s: &RustSnippet| s.content == snippet.content) {
+                    seen_snippets.push(snippet);
+                }
+            }
 
+            for (i, snippet) in seen_snippets.iter().enumerate() {
+                self.write_space(dst, level);
+                writeln!(dst, "#[test]")?;
+                if !snippet.should_run {
+                    self.write_space(dst, level);
+                    writeln!(dst, "#[ignore]")?;
+                }
+                self.write_space(dst, level);
+                writeln!(dst, "fn {}_md_{}_test() {{", stem, i)?;
+                // Indent the code content
+                for line in snippet.content.lines() {
+                    self.write_space(dst, level + 1);
+                    writeln!(dst, "{}", line)?;
+                }
+                self.write_space(dst, level);
+                writeln!(dst, "}}")?;
+            }
+        }
         Ok(())
     }
 
-    fn remove_footnotes(&self, content: &str) -> String {
-        let patterns = [
-            (r"(?s)^---.*?---\s*", ""),
-            (r"```rust(?!\s* \s*(?:ignore|no_run))\b", "```rust ignore"),
-            (r"```solidity.*?```", ""),
-            (r"(?ms):::\w+(?:\[.*?\])?\n.*?\n:::", ""),
-            (r"<[^>]+>.*?</[^>]+>|<[^>]+/>", ""),
-            (r"(?m)^>\s.*$", ""),
-            (r"\n{3,}", "\n\n"),
-        ];
+    fn normalize_whitespace(&self, text: &str) -> String {
+        let lines: Vec<_> = text
+            .lines()
+            .filter(|line| !line.contains("....")) // Filter out lines containing ....
+            .collect();
 
-        patterns.iter().fold(content.to_string(), |acc, (pattern, replacement)| {
-            Regex::new(pattern)
-                .map(|re| re.replace_all(&acc, *replacement).to_string())
-                .unwrap_or(acc)
-        })
+        if lines.is_empty() {
+            return String::new();
+        }
+
+        let min_indent = lines
+            .iter()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.len() - line.trim_start().len())
+            .min()
+            .unwrap_or(0);
+
+        lines
+            .iter()
+            .map(|line| {
+                if line.trim().is_empty() {
+                    ""
+                } else {
+                    &line[min_indent.min(line.len() - line.trim_start().len())..]
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn process_code_block(&self, code: &str) -> String {
+        let mut processed_lines = Vec::new();
+        let normalized = self.normalize_whitespace(code);
+
+        for line in normalized.lines() {
+            let trimmed = line.trim_start();
+
+            if trimmed.starts_with("# ") {
+                let content = trimmed[2..].trim_start();
+                if !content.is_empty() {
+                    processed_lines.push(content.to_string());
+                }
+            } else if !trimmed.starts_with('#') {
+                let line = line.replace("// [!code focus]", "").trim_end().to_string();
+                let line = line.replace("showLineNumbers", "").trim_end().to_string();
+                if !line.trim().is_empty() {
+                    processed_lines.push(line);
+                }
+            }
+        }
+
+        processed_lines.join("\n")
+    }
+
+    fn extract_rust_snippets(&self, content: &str) -> Vec<RustSnippet> {
+        let re = Regex::new(r"```rust(?:\s+(ignore|no_run))?\s*((?:.|\n)*?)```").unwrap();
+        re.captures_iter(content)
+            .filter_map(|cap| {
+                let flag = cap.get(1).map(|m| m.as_str());
+                let code = cap.get(2)?.as_str().trim();
+
+                match flag {
+                    Some("ignore") => None,
+                    Some("no_run") => Some(RustSnippet {
+                        content: self.process_code_block(code),
+                        should_run: false,
+                    }),
+                    _ => Some(RustSnippet {
+                        content: self.process_code_block(code),
+                        should_run: true,
+                    }),
+                }
+            })
+            .collect()
     }
 
     fn write_space(&self, dst: &mut String, level: usize) {
-        for _ in 0..level {
-            dst.push_str("    ");
-        }
+        dst.push_str(&" ".repeat(level));
     }
 }
