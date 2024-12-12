@@ -10,7 +10,7 @@ publish = false
 [package.metadata.release]
 release = false
 
-[dependencies]
+[dev-dependencies]
 alloy = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
