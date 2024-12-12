@@ -80,7 +80,7 @@ impl Level {
     fn write_into(&self, dst: &mut String, name: &str, level: usize) -> fmt::Result {
         self.write_space(dst, level);
         let name = name.replace(['-', '.'], "_");
-        writeln!(dst, "#[allow(warnings, unused)]")?;
+        writeln!(dst, "#[allow(non_snake_case, unused)]")?;
         writeln!(dst, "pub mod {name} {{")?;
         self.write_inner(dst, level + 1)?;
         self.write_space(dst, level);
