@@ -332,7 +332,7 @@ mod tests {
         // let client_sig = boundless_market.eip721_signature(&request, &signer).await.unwrap();
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig =
-            request.sign_request(&signer, market_address, chain_id).unwrap().as_bytes();
+            request.sign_request(&signer, market_address, chain_id).await.unwrap().as_bytes();
 
         let order = Order {
             status: OrderStatus::Locking,
@@ -436,8 +436,12 @@ mod tests {
         tracing::info!("addr: {} ID: {:x}", signer.address(), order_id);
 
         let chain_id = provider.get_chain_id().await.unwrap();
-        let client_sig =
-            request.sign_request(&signer, market_address, chain_id).unwrap().as_bytes().into();
+        let client_sig = request
+            .sign_request(&signer, market_address, chain_id)
+            .await
+            .unwrap()
+            .as_bytes()
+            .into();
         let order = Order {
             status: OrderStatus::Locking,
             updated_at: Utc::now(),

@@ -20,7 +20,7 @@ use std::str::FromStr;
 use alloy::{
     contract::Error as ContractErr,
     primitives::{PrimitiveSignature, SignatureError},
-    signers::{Signature, SignerSync},
+    signers::{Signature, Signer},
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
@@ -212,15 +212,15 @@ impl ProofRequest {
 impl ProofRequest {
     /// Signs the request with the given signer and EIP-712 domain derived from the given
     /// contract address and chain ID.
-    pub fn sign_request(
+    pub async fn sign_request(
         &self,
-        signer: &impl SignerSync,
+        signer: &impl Signer,
         contract_addr: Address,
         chain_id: u64,
     ) -> Result<PrimitiveSignature, RequestError> {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
-        Ok(signer.sign_hash_sync(&hash)?)
+        Ok(signer.sign_hash(&hash).await?)
     }
 
     /// Verifies the request signature with the given signer and EIP-712 domain derived from
@@ -823,8 +823,8 @@ mod tests {
     use super::*;
     use alloy::signers::local::PrivateKeySigner;
 
-    fn create_order(
-        signer: &impl SignerSync,
+    async fn create_order(
+        signer: &impl Signer,
         signer_addr: Address,
         order_id: u32,
         contract_addr: Address,
@@ -853,13 +853,13 @@ mod tests {
             },
         };
 
-        let client_sig = req.sign_request(&signer, contract_addr, chain_id).unwrap();
+        let client_sig = req.sign_request(signer, contract_addr, chain_id).await.unwrap();
 
         (req, client_sig.as_bytes())
     }
 
-    #[test]
-    fn validate_sig() {
+    #[tokio::test]
+    async fn validate_sig() {
         let signer: PrivateKeySigner =
             "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
         let order_id: u32 = 1;
@@ -868,14 +868,14 @@ mod tests {
         let signer_addr = signer.address();
 
         let (req, client_sig) =
-            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id).await;
 
         req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "SignatureError")]
-    fn invalid_sig() {
+    async fn invalid_sig() {
         let signer: PrivateKeySigner =
             "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
         let order_id: u32 = 1;
@@ -884,7 +884,7 @@ mod tests {
         let signer_addr = signer.address();
 
         let (req, mut client_sig) =
-            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id).await;
 
         client_sig[0] = 1;
         req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();

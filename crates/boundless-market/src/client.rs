@@ -15,20 +15,16 @@
 use std::{env, str::FromStr, time::Duration};
 
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     primitives::{Address, Bytes, U256},
     providers::{
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
             WalletFiller,
         },
-        network::EthereumWallet,
         Identity, Provider, ProviderBuilder, RootProvider,
     },
-    signers::{
-        k256::ecdsa::SigningKey,
-        local::{LocalSigner, PrivateKeySigner},
-    },
+    signers::{local::PrivateKeySigner, Signer},
     transports::{http::Http, Transport},
 };
 use anyhow::{anyhow, Context, Result};
@@ -83,7 +79,7 @@ pub struct ClientBuilder {
     boundless_market_addr: Option<Address>,
     set_verifier_addr: Option<Address>,
     rpc_url: Option<Url>,
-    private_key: Option<PrivateKeySigner>,
+    wallet: Option<EthereumWallet>,
     order_stream_url: Option<Url>,
     storage_config: Option<StorageProviderConfig>,
     tx_timeout: Option<std::time::Duration>,
@@ -96,7 +92,7 @@ impl Default for ClientBuilder {
             boundless_market_addr: None,
             set_verifier_addr: None,
             rpc_url: None,
-            private_key: None,
+            wallet: None,
             order_stream_url: None,
             storage_config: None,
             tx_timeout: None,
@@ -116,17 +112,16 @@ impl ClientBuilder {
         self,
     ) -> Result<Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider>> {
         let mut client = Client::from_parts(
-            self.private_key.context("Private key not set")?,
+            self.wallet.context("Wallet not set")?,
             self.rpc_url.context("RPC URL not set")?,
             self.boundless_market_addr.context("Boundless market address not set")?,
             self.set_verifier_addr.context("Set verifier address not set")?,
             self.order_stream_url,
-            Some(
-                storage_provider_from_config(
-                    &self.storage_config.context("Storage Provider Config not set")?,
-                )
-                .await?,
-            ),
+            if let Some(storage_config) = self.storage_config {
+                Some(storage_provider_from_config(&storage_config).await?)
+            } else {
+                None
+            },
         )
         .await?;
         if let Some(timeout) = self.tx_timeout {
@@ -153,7 +148,12 @@ impl ClientBuilder {
 
     /// Set the private key
     pub fn with_private_key(self, private_key: PrivateKeySigner) -> Self {
-        Self { private_key: Some(private_key), ..self }
+        Self { wallet: Some(EthereumWallet::from(private_key)), ..self }
+    }
+
+    /// Set the wallet
+    pub fn with_wallet(self, wallet: EthereumWallet) -> Self {
+        Self { wallet: Some(wallet), ..self }
     }
 
     /// Set the order stream URL
@@ -185,7 +185,6 @@ impl ClientBuilder {
 pub struct Client<T, P, S> {
     pub boundless_market: BoundlessMarketService<T, P>,
     pub set_verifier: SetVerifierService<T, P>,
-    pub signer: LocalSigner<SigningKey>,
     pub storage_provider: Option<S>,
     pub offchain_client: Option<OrderStreamClient>,
     pub bidding_start_offset: u64,
@@ -201,14 +200,12 @@ where
     pub fn new(
         boundless_market: BoundlessMarketService<T, P>,
         set_verifier: SetVerifierService<T, P>,
-        signer: LocalSigner<SigningKey>,
     ) -> Self {
         let boundless_market = boundless_market.clone();
         let set_verifier = set_verifier.clone();
         Self {
             boundless_market,
             set_verifier,
-            signer: signer.clone(),
             storage_provider: None,
             offchain_client: None,
             bidding_start_offset: BIDDING_START_OFFSET,
@@ -222,7 +219,7 @@ where
 
     /// Get the caller address
     pub fn caller(&self) -> Address {
-        self.signer.address()
+        self.boundless_market.caller()
     }
 
     /// Set the Boundless market service
@@ -233,11 +230,6 @@ where
     /// Set the set verifier service
     pub fn with_set_verifier(self, set_verifier: SetVerifierService<T, P>) -> Self {
         Self { set_verifier, ..self }
-    }
-
-    /// Set the signer
-    pub fn with_signer(self, signer: LocalSigner<SigningKey>) -> Self {
-        Self { signer, ..self }
     }
 
     /// Set the storage provider
@@ -290,7 +282,11 @@ where
     ///
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
+    pub async fn submit_request(
+        &self,
+        request: &ProofRequest,
+        signer: &impl Signer,
+    ) -> Result<(U256, u64), ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
     {
@@ -310,8 +306,7 @@ where
 
         request.validate()?;
 
-        let request_id =
-            self.boundless_market.submit_request(&request, &self.signer.clone()).await?;
+        let request_id = self.boundless_market.submit_request(&request, signer).await?;
         Ok((request_id, request.expires_at()))
     }
 
@@ -322,6 +317,7 @@ where
     pub async fn submit_request_offchain(
         &self,
         request: &ProofRequest,
+        signer: &impl Signer,
     ) -> Result<(U256, u64), ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
@@ -353,7 +349,7 @@ where
             )));
         }
 
-        let order = offchain_client.submit_request(&request).await?;
+        let order = offchain_client.submit_request(&request, signer).await?;
 
         Ok((order.request.id, request.expires_at()))
     }
@@ -400,10 +396,11 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             Address::from_str(&set_verifier_address_str).context("Invalid SET_VERIFIER_ADDRESS")?;
 
         let caller = private_key.address();
-        let signer = private_key.clone();
         let wallet = EthereumWallet::from(private_key.clone());
-        let provider =
-            ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(wallet.clone())
+            .on_http(rpc_url);
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
@@ -420,7 +417,6 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let offchain_client = match order_stream_url {
             Ok(url) => Some(OrderStreamClient::new(
                 Url::parse(&url).context("Invalid ORDER_STREAM_URL")?,
-                signer.clone(),
                 boundless_market_address,
                 chain_id,
             )),
@@ -430,7 +426,6 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         Ok(Self {
             boundless_market,
             set_verifier,
-            signer,
             storage_provider,
             offchain_client,
             bidding_start_offset: BIDDING_START_OFFSET,
@@ -439,18 +434,19 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
 
     /// Create a new client from parts
     pub async fn from_parts(
-        private_key: PrivateKeySigner,
+        wallet: EthereumWallet,
         rpc_url: Url,
         boundless_market_address: Address,
         set_verifier_address: Address,
         order_stream_url: Option<Url>,
         storage_provider: Option<BuiltinStorageProvider>,
     ) -> Result<Self, ClientError> {
-        let caller = private_key.address();
-        let signer = private_key.clone();
-        let wallet = EthereumWallet::from(private_key.clone());
-        let provider =
-            ProviderBuilder::new().with_recommended_fillers().wallet(wallet).on_http(rpc_url);
+        let caller = wallet.default_signer().address();
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(wallet.clone())
+            .on_http(rpc_url);
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
@@ -458,7 +454,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         let offchain_client = if let Some(url) = order_stream_url {
-            Some(OrderStreamClient::new(url, signer.clone(), boundless_market_address, chain_id))
+            Some(OrderStreamClient::new(url, boundless_market_address, chain_id))
         } else {
             None
         };
@@ -466,7 +462,6 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         Ok(Self {
             boundless_market,
             set_verifier,
-            signer,
             storage_provider,
             offchain_client,
             bidding_start_offset: BIDDING_START_OFFSET,

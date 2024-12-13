@@ -306,7 +306,7 @@ mod tests {
     use guest_util::{ECHO_ID, ECHO_PATH};
     use risc0_zkvm::VerifierContext;
 
-    fn setup_proving_request_and_signature(
+    async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
     ) -> (ProofRequest, PrimitiveSignature) {
         let request = ProofRequest::new(
@@ -321,7 +321,7 @@ mod tests {
             Offer::default(),
         );
 
-        let signature = request.sign_request(signer, Address::ZERO, 1).unwrap();
+        let signature = request.sign_request(signer, Address::ZERO, 1).await.unwrap();
         (request, signature)
     }
 
@@ -329,7 +329,7 @@ mod tests {
     #[tokio::test]
     async fn test_fulfill() {
         let signer = PrivateKeySigner::random();
-        let (request, signature) = setup_proving_request_and_signature(&signer);
+        let (request, signature) = setup_proving_request_and_signature(&signer).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
         let prover = DefaultProver::new(

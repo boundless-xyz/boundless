@@ -28,7 +28,7 @@ use alloy::{
         Address, Bytes, PrimitiveSignature, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
+    signers::{local::PrivateKeySigner, Signer},
     transports::Transport,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
@@ -314,7 +314,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .build()
                 .await?;
 
-            request_id = submit_offer(client, &offer_args).await?;
+            request_id = submit_offer(client, &args.private_key, &offer_args).await?;
         }
         Command::SubmitRequest {
             storage_config,
@@ -346,8 +346,16 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .build()
                 .await?;
 
-            request_id =
-                submit_request(id, yaml_request, client, wait, offchain, !no_preflight).await?;
+            request_id = submit_request(
+                id,
+                yaml_request,
+                client,
+                &args.private_key,
+                wait,
+                offchain,
+                !no_preflight,
+            )
+            .await?;
         }
         Command::Slash { request_id } => {
             boundless_market.slash(request_id).await?;
@@ -462,6 +470,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
 
 async fn submit_offer<T, P, S>(
     client: Client<T, P, S>,
+    signer: &impl Signer,
     args: &SubmitOfferArgs,
 ) -> Result<Option<U256>>
 where
@@ -535,7 +544,7 @@ where
     // Construct the request from its individual parts.
     let request = ProofRequest::new(
         id,
-        &client.signer.address(),
+        &client.caller(),
         Requirements { imageId: image_id, predicate },
         &elf_url,
         requirements_input,
@@ -556,9 +565,9 @@ where
     }
 
     let (request_id, expires_at) = if args.offchain {
-        client.submit_request_offchain(&request).await?
+        client.submit_request_offchain(&request, signer).await?
     } else {
-        client.submit_request(&request).await?
+        client.submit_request(&request, signer).await?
     };
     tracing::info!(
         "Submitted request ID 0x{request_id:x}, bidding start at block number {}",
@@ -583,6 +592,7 @@ async fn submit_request<T, P, S>(
     id: u32,
     request_path: impl AsRef<Path>,
     client: Client<T, P, S>,
+    signer: &impl Signer,
     wait: bool,
     offchain: bool,
     preflight: bool,
@@ -615,7 +625,7 @@ where
 
     let mut request = ProofRequest::new(
         id,
-        &client.signer.address(),
+        &client.caller(),
         request_yaml.requirements.clone(),
         &request_yaml.imageUrl,
         request_yaml.input,
@@ -649,9 +659,9 @@ where
     }
 
     let (request_id, expires_at) = if offchain {
-        client.submit_request_offchain(&request).await?
+        client.submit_request_offchain(&request, signer).await?
     } else {
-        client.submit_request(&request).await?
+        client.submit_request(&request, signer).await?
     };
     tracing::info!(
         "Request ID 0x{request_id:x}, bidding start at block number {}",

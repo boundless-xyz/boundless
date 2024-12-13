@@ -435,20 +435,18 @@ where
         });
 
         let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client = self.args.order_stream_url.clone().map(|url| {
-            OrderStreamClient::new(
-                url,
-                self.args.private_key.clone(),
-                self.args.boundless_market_addr,
-                chain_id,
-            )
-        });
+        let client = self
+            .args
+            .order_stream_url
+            .clone()
+            .map(|url| OrderStreamClient::new(url, self.args.boundless_market_addr, chain_id));
         // spin up a supervisor for the offchain market monitor
         if let Some(client) = client {
             let offchain_market_monitor =
                 Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
                     self.db.clone(),
                     client.clone(),
+                    self.args.private_key.clone(),
                 ));
             supervisor_tasks.spawn(async move {
                 task::supervisor(1, offchain_market_monitor)

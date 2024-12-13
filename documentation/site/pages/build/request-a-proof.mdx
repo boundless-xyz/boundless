@@ -201,11 +201,12 @@ Once the request is configured, it can submitted to the market:
 
 <StripRustCodeComments>
 ```rust
+# use alloy::signers::Signer;
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
-# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# async fn submit_request(request: ProofRequest, signer: impl Signer) -> Result<(), Box<dyn std::error::Error>> {
 # let boundless_client = ClientBuilder::default().build().await?;
-let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+let (request_id, expires_at) = boundless_client.submit_request(&request, &signer).await?;
 # Ok(())
 # }
 ```
@@ -224,11 +225,12 @@ Once fulfilled, the journal and seal are returned. The journal contains the publ
 <StripRustCodeComments>
 ```rust
 # use std::time::Duration;
+# use alloy::signers::Signer;
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
-# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# async fn submit_request(request: ProofRequest, signer: impl Signer) -> Result<(), Box<dyn std::error::Error>> {
 # let boundless_client = ClientBuilder::default().build().await?;
-# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+# let (request_id, expires_at) = boundless_client.submit_request(&request, &signer).await?;
 let (_journal, seal) = boundless_client
   .wait_for_request_fulfillment(
     request_id,

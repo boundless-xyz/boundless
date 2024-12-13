@@ -481,6 +481,7 @@ mod tests {
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig = order_request
             .sign_request(&customer_signer, market_address, chain_id)
+            .await
             .unwrap()
             .as_bytes();
 
