@@ -41,6 +41,8 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ExecutorEnv, Journal, SessionInfo,
 };
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use boundless_market::{
@@ -247,8 +249,11 @@ struct MainArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(
+            EnvFilter::builder().with_default_directive(LevelFilter::INFO.into()).from_env_lossy(),
+        )
         .init();
 
     match dotenvy::dotenv() {
