@@ -33,7 +33,8 @@ use thiserror::Error;
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, RequestError, TxnErr,
+    TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -47,6 +48,12 @@ pub enum MarketError {
 
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
+
+    #[error("Request error {0}")]
+    RequestError(#[from] RequestError),
+
+    #[error("Request address does not match with signer {0} - {0}")]
+    AddressMismatch(Address, Address),
 
     #[error("Proof not found for request in events logs 0x{0:x}")]
     ProofNotFound(U256),
@@ -292,6 +299,10 @@ where
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
         tracing::debug!("calling submitRequest({:x?})", request);
+        let client_address = request.client_address()?;
+        if client_address != signer.address() {
+            return Err(MarketError::AddressMismatch(client_address, signer.address()));
+        };
         let chain_id = self.get_chain_id().await.context("failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)

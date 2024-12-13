@@ -295,6 +295,10 @@ where
         if request.id == U256::ZERO {
             request.id = self.boundless_market.request_id_from_rand().await?;
         };
+        let client_address = request.client_address()?;
+        if client_address != signer.address() {
+            return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
+        };
         if request.offer.biddingStart == 0 {
             request.offer.biddingStart = self
                 .provider()
@@ -330,6 +334,10 @@ where
 
         if request.id == U256::ZERO {
             request.id = self.boundless_market.request_id_from_rand().await?;
+        };
+        let client_address = request.client_address()?;
+        if client_address != signer.address() {
+            return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
         if request.offer.biddingStart == 0 {
             request.offer.biddingStart = self
