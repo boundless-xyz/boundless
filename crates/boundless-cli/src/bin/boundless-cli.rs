@@ -673,10 +673,14 @@ where
 }
 
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
-    let elf = fetch_url(&request.imageUrl.to_string()).await?;
+    let elf = fetch_url(&request.imageUrl).await?;
     let input = match request.input.inputType {
         InputType::Inline => request.input.data.clone(),
-        InputType::Url => fetch_url(&request.input.data.to_string()).await?.into(),
+        InputType::Url => {
+            fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
+                .await?
+                .into()
+        }
         _ => bail!("Unsupported input type"),
     };
     let env = ExecutorEnv::builder().write_slice(&input).build()?;
