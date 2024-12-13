@@ -108,7 +108,7 @@ async fn run(
         .with_set_verifier_address(set_verifier_address)
         .with_order_stream_url(order_stream_url)
         .with_storage_provider_config(storage_config.clone())
-        .with_private_key(private_key)
+        .with_private_key(private_key.clone())
         .build()
         .await?;
 
@@ -175,7 +175,7 @@ async fn run(
         );
 
     // Send the request and wait for it to be completed.
-    let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+    let (request_id, expires_at) = boundless_client.submit_request(&request, &private_key).await?;
     tracing::info!("Request {} submitted", request_id);
 
     // Wait for the request to be fulfilled by the market. The market will return the journal and
