@@ -60,9 +60,13 @@ fn rewrite_solidity_interface_files() {
     fs::write(
         dest_path,
         format!(
-            "{alloy_import}::sol! {{
+            "#[allow(missing_docs)]
+        pub mod boundless_market_contract {{
+            use serde::{{Deserialize, Serialize}};
+            {alloy_import}::sol! {{
             #![sol(all_derives)]
             {sol_contents}
+}}
 }}
         "
         ),

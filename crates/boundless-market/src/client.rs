@@ -68,12 +68,16 @@ type ProviderWallet = FillProvider<
 #[non_exhaustive]
 /// Client error
 pub enum ClientError {
+    /// Storage provider error
     #[error("Storage provider error {0}")]
     StorageProviderError(#[from] BuiltinStorageProviderError),
+    /// Market error
     #[error("Market error {0}")]
     MarketError(#[from] MarketError),
+    /// Request error
     #[error("RequestError {0}")]
     RequestError(#[from] RequestError),
+    /// General error
     #[error("Error {0}")]
     Error(#[from] anyhow::Error),
 }
@@ -181,13 +185,19 @@ impl ClientBuilder {
 }
 
 #[derive(Clone)]
-/// Client for interacting with the boundless market
+/// Client for interacting with the boundless market.
 pub struct Client<T, P, S> {
+    /// Boundless market service.
     pub boundless_market: BoundlessMarketService<T, P>,
+    /// Set verifier service.
     pub set_verifier: SetVerifierService<T, P>,
+    /// Signer used to sign requests.
     pub signer: LocalSigner<SigningKey>,
+    /// Storage provider to upload ELFs and inputs.
     pub storage_provider: Option<S>,
+    /// Order stream client to submit requests off-chain.
     pub offchain_client: Option<OrderStreamClient>,
+    /// Bidding start offset wrt the current block (in blocks).
     pub bidding_start_offset: u64,
 }
 

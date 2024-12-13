@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! The Boundless CLI is a command-line interface for interacting with the Boundless Market API.
+#![deny(missing_docs)]
+
 use alloy::{
     primitives::Address,
     sol_types::{SolStruct, SolValue},
@@ -37,11 +40,17 @@ use boundless_market::{
 
 alloy::sol!(
     #[sol(all_derives)]
+    /// The fulfillment of an order.
     struct OrderFulfilled {
+        /// The root of the set.
         bytes32 root;
+        /// The seal of the root.
         bytes seal;
+        /// The fulfillments of the order.
         BoundlessFulfillment[] fills;
+        /// The seal of the assessor.
         bytes assessorSeal;
+        /// The prover address.
         address prover;
     }
 );

@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Assessor is a guest that verifies the fulfillment of a request.
+#![deny(missing_docs)]
+
 use alloy_primitives::{Address, Signature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
@@ -24,14 +27,19 @@ use serde::{Deserialize, Serialize};
 /// into the Merkle tree of the aggregated set of proofs.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fulfillment {
+    /// The request that was fulfilled.
     pub request: ProofRequest,
+    /// The signature of the request.
     pub signature: Vec<u8>,
+    /// The journal of the request.
     pub journal: Vec<u8>,
+    /// Whether the fulfillment requires payment.
     pub require_payment: bool,
 }
 
 impl Fulfillment {
     // TODO: Change this to use a thiserror error type.
+    /// Verifies the signature of the request.
     pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32]> {
         let hash = self.request.eip712_signing_hash(domain);
         let signature = Signature::try_from(self.signature.as_slice())?;
@@ -45,12 +53,14 @@ impl Fulfillment {
         }
         Ok(hash.into())
     }
+    /// Evaluates the requirements of the request.
     pub fn evaluate_requirements(&self) -> Result<()> {
         if !self.request.requirements.predicate.eval(&self.journal) {
             bail!("Predicate evaluation failed");
         }
         Ok(())
     }
+    /// Returns a [ReceiptClaim] for the request.
     pub fn receipt_claim(&self) -> ReceiptClaim {
         let image_id = Digest::from_bytes(self.request.requirements.imageId.0);
         ReceiptClaim::ok(image_id, self.journal.clone())
@@ -60,17 +70,18 @@ impl Fulfillment {
 /// Input of the Assessor guest.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AssessorInput {
-    // List of fulfillments that the prover has completed.
+    /// List of fulfillments that the prover has completed.
     pub fills: Vec<Fulfillment>,
-    // The smart contract address for the market that will be posted to.
-    // This smart contract address is used solely to construct the EIP-712 Domain
-    // and complete signature checks on the requests.
+    /// The smart contract address for the market that will be posted to.
+    /// This smart contract address is used solely to construct the EIP-712 Domain
+    /// and complete signature checks on the requests.
     pub domain: EIP721DomainSaltless,
-    // The address of the prover.
+    /// The address of the prover.
     pub prover_address: Address,
 }
 
 impl AssessorInput {
+    /// Serializes the AssessorInput to a Vec<u8> using postcard.
     pub fn to_vec(&self) -> Vec<u8> {
         let bytes = postcard::to_allocvec(self).unwrap();
         let length = bytes.len() as u32;
