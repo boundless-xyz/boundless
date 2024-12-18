@@ -128,7 +128,14 @@ async fn process_task(
                 }))
                 .context("Failed to serialize resolve req")?;
 
-                let prereqs = serde_json::json!([format!("{}", tree_task.depends_on[0])]);
+                let mut prereqs = vec![format!("{}", tree_task.depends_on[0])];
+                // If we have keccak / coproc work, include it into the prereq's
+                if keccak_counter > 0 {
+                    for i in 0..keccak_counter {
+                        prereqs.push(format!("keccak_{}", i));
+                    }
+                }
+                let prereqs = serde_json::json!(prereqs);
                 let task_id = "resolve";
 
                 taskdb::create_task(

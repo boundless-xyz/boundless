@@ -102,7 +102,9 @@ services:
       RUST_LOG: ${RUST_LOG}
       RUST_BACKTRACE: 1
       RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2}
-      JOIN_STREAM: ${JOIN_STREAM}
+      # Enable / disable along with gpu_*_agent*
+      # JOIN_STREAM: 1
+      # COPROC_STREAM: 1
 
     entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE}
 

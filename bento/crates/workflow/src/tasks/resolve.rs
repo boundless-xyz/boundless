@@ -39,13 +39,13 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                     let assumption_claim = assumption.as_value()?.claim.to_string();
                     let assumption_key = format!("{receipts_key}:{assumption_claim}");
                     let assumption_bytes: Vec<u8> =
-                        conn.get::<_, Vec<u8>>(&assumption_key)
-                            .await
-                            .context("corroborating receipt not found: key {assumption_key}")?;
-                    let assumption_receipt: SuccinctReceipt<Unknown> = deserialize_obj(
-                        &assumption_bytes,
-                    )
-                    .context("could not deserialize assumption receipt: {assumption_key}")?;
+                        conn.get::<_, Vec<u8>>(&assumption_key).await.with_context(|| {
+                            format!("corroborating receipt not found: key {assumption_key}")
+                        })?;
+                    let assumption_receipt: SuccinctReceipt<Unknown> =
+                        deserialize_obj(&assumption_bytes).with_context(|| {
+                            format!("could not deserialize assumption receipt: {assumption_key}")
+                        })?;
 
                     // Resolve
                     conditional_receipt = agent
