@@ -29,7 +29,7 @@ use workflow_common::{
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
     },
     CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, KeccakReq, ProveReq, ResolveReq,
-    SnarkReq, AUX_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_WORK_TYPE,
+    SnarkReq, AUX_WORK_TYPE, COPROC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_WORK_TYPE,
 };
 // use tempfile::NamedTempFile;
 use tokio::task::{JoinHandle, JoinSet};
@@ -135,7 +135,7 @@ async fn process_task(
                     pool,
                     job_id,
                     task_id,
-                    prove_stream,
+                    join_stream,
                     &task_def,
                     &prereqs,
                     args.resolve_retries,
@@ -354,12 +354,25 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let prove_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, PROVE_WORK_TYPE)
         .await
         .context("Failed to get GPU Prove stream")?
-        .with_context(|| format!("Customer {} missing gpu stream", request.user_id))?;
+        .with_context(|| format!("Customer {} missing gpu prove stream", request.user_id))?;
 
-    let join_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
-        .await
-        .context("Failed to get GPU Join stream")?
-        .with_context(|| format!("Customer {} missing gpu stream", request.user_id))?;
+    let join_stream = if std::env::var("JOIN_STREAM").is_ok() {
+        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+            .await
+            .context("Failed to get GPU Join stream")?
+            .with_context(|| format!("Customer {} missing gpu join stream", request.user_id))?
+    } else {
+        prove_stream
+    };
+
+    let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
+        taskdb::get_stream(&agent.db_pool, &request.user_id, COPROC_WORK_TYPE)
+            .await
+            .context("Failed to get GPU Coproc stream")?
+            .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?
+    } else {
+        prove_stream
+    };
 
     let snark_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, SNARK_WORK_TYPE)
         .await
@@ -409,20 +422,20 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 control_root: keccak_req.control_root,
                 po2: keccak_req.po2,
             }))
-            .expect("Failed to serialize join task-type");
+            .expect("Failed to serialize coproc (keccak) task-type");
 
             taskdb::create_task(
                 &coproc_pool,
                 &job_id_ref,
                 &task_name,
-                &prove_stream,
+                &coproc_stream,
                 &task_def,
                 &prereqs,
                 prove_retires,
                 prove_timeout,
             )
             .await
-            .expect("create_task failure during segment creation");
+            .expect("create_task failure during coproc task creation");
 
             keccak_count.store(keccak_count_tmp + 1, Ordering::Relaxed);
         }

@@ -16,6 +16,9 @@ pub const EXEC_WORK_TYPE: &str = "exec";
 /// prove+lift worker stream identifier
 pub const PROVE_WORK_TYPE: &str = "prove";
 
+/// keccak/coproc worker stream identifier
+pub const COPROC_WORK_TYPE: &str = "coproc";
+
 /// join worker stream identifier
 pub const JOIN_WORK_TYPE: &str = "join";
 

@@ -102,6 +102,7 @@ services:
       RUST_LOG: ${RUST_LOG}
       RUST_BACKTRACE: 1
       RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2}
+      JOIN_STREAM: ${JOIN_STREAM}
 
     entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE}
 
@@ -177,11 +178,18 @@ services:
   #             capabilities: [gpu]
 
 
-  gpu_join_agent0:
-    <<: *gpu
-    mem_limit: 2G
-    cpu_count: 2
-    entrypoint: /app/agent -t join
+  # gpu_join_agent0:
+  #   <<: *gpu
+  #   mem_limit: 2G
+  #   cpu_count: 2
+  #   entrypoint: /app/agent -t join
+
+  # gpu_coproc_agent0:
+  #   <<: *gpu
+  #   mem_limit: 2G
+  #   cpu_count: 2
+  #   entrypoint: /app/agent -t coproc
+
 
   snark_agent:
     image: agent
