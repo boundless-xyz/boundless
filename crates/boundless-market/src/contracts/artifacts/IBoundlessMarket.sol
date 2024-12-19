@@ -67,7 +67,7 @@ struct Offer {
     uint256 maxPrice;
     /// Block number at which bidding starts.
     uint64 biddingStart;
-    /// Length of the "ramp-up period," measured in blocks.
+    /// Length of the "ramp-up period," measured in blocks since bidding start.
     /// Once bidding starts, the price begins to "ramp-up." During this time,
     /// the price rises each block until it reaches maxPrice.
     uint32 rampUpPeriod;

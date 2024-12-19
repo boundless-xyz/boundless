@@ -164,8 +164,8 @@ export default defineConfig({
     },
   },
   iconUrl: {
-    light: "/favicon.svg",
-    dark: "/favicon-dark.svg",
+    light: "/favicon.ico",
+    dark: "/favicon.ico",
   },
   // banner: "Read the [Boundless Blog Article](https://risczero.com/blog/boundless-the-verifiable-compute-layer)",
   /*editLink: {
