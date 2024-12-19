@@ -64,7 +64,7 @@ pub enum BuiltinStorageProvider {
     S3(S3StorageProvider),
     /// Pinata storage provider.
     Pinata(PinataStorageProvider),
-    /// Temporary file storage provider.
+    /// Temporary file storage provider, used for local testing.
     File(TempFileStorageProvider),
 }
 

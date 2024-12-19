@@ -13,6 +13,7 @@
 // limitations under the License.
 
 //! The Boundless CLI is a command-line interface for interacting with the Boundless Market API.
+
 #![deny(missing_docs)]
 
 use alloy::{

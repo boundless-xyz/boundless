@@ -47,7 +47,7 @@ pub enum MarketError {
     #[error("Request is not fulfilled 0x{0:x}")]
     RequestNotFulfilled(U256),
 
-    /// Request not locked.
+    /// Request has expired.
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
 
@@ -63,7 +63,7 @@ pub enum MarketError {
     #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
     LockRevert(B256),
 
-    /// Market error.
+    /// General market error.
     #[error("Market error: {0}")]
     Error(#[from] anyhow::Error),
 
@@ -572,7 +572,7 @@ where
         Ok(logs)
     }
 
-    /// Combined function to submit a new merkle root to the set-verifier and call fulfillBatch.
+    /// Combined function to submit a new merkle root to the set-verifier and call `fulfillBatch`.
     /// Useful to reduce the transaction count for fulfillments
     pub async fn submit_merkle_and_fulfill(
         &self,

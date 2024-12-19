@@ -13,6 +13,7 @@
 // limitations under the License.
 
 //! Assessor is a guest that verifies the fulfillment of a request.
+
 #![deny(missing_docs)]
 
 use alloy_primitives::{Address, Signature};
@@ -29,11 +30,13 @@ use serde::{Deserialize, Serialize};
 pub struct Fulfillment {
     /// The request that was fulfilled.
     pub request: ProofRequest,
-    /// The signature of the request.
+    /// The EIP-712 signature over the request.
     pub signature: Vec<u8>,
     /// The journal of the request.
     pub journal: Vec<u8>,
     /// Whether the fulfillment requires payment.
+    ///
+    /// When set to true, the fulfill transaction will revert if the payment conditions are not met (e.g. the request is locked to a different prover address)
     pub require_payment: bool,
 }
 
@@ -60,7 +63,7 @@ impl Fulfillment {
         }
         Ok(())
     }
-    /// Returns a [ReceiptClaim] for the request.
+    /// Returns a [ReceiptClaim] for the fulfillment.
     pub fn receipt_claim(&self) -> ReceiptClaim {
         let image_id = Digest::from_bytes(self.request.requirements.imageId.0);
         ReceiptClaim::ok(image_id, self.journal.clone())
@@ -72,7 +75,9 @@ impl Fulfillment {
 pub struct AssessorInput {
     /// List of fulfillments that the prover has completed.
     pub fills: Vec<Fulfillment>,
-    /// The smart contract address for the market that will be posted to.
+    /// EIP-712 domain checking the signature of the request.
+    ///
+    /// The EIP-712 domain contains the chain ID and smart contract address.
     /// This smart contract address is used solely to construct the EIP-712 Domain
     /// and complete signature checks on the requests.
     pub domain: EIP721DomainSaltless,
