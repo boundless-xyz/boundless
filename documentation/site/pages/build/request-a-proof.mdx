@@ -94,7 +94,7 @@ Similar to the program executable, the program inputs are uploaded to a public H
 # use boundless_market::client::ClientBuilder;
 # async fn upload_elf(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
 # let boundless_client = ClientBuilder::default().build().await?;
-let image_url = boundless_client.upload_input(&input_bytes).await?;
+let input_url = boundless_client.upload_input(&input_bytes).await?;
 # Ok(())
 # }
 ```
