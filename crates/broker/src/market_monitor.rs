@@ -240,7 +240,10 @@ where
 
             Self::find_open_orders(lookback_blocks, market_addr, provider.clone(), db.clone())
                 .await
-                .map_err(SupervisorErr::Fault)?;
+                .map_err(|err| {
+                    tracing::error!("Monitor failed to find open orders on startup: {err:?}");
+                    SupervisorErr::Recover(err)
+                })?;
 
             Self::monitor_orders(market_addr, provider, db).await.map_err(|err| {
                 tracing::error!("Monitor for new blocks failed, restarting: {err:?}");
