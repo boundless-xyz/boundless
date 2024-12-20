@@ -43,8 +43,8 @@ const SIDEBAR_CONFIG = [
         collapsed: false,
         items: [
           {
-            text: "Pricing Calculator",
-            link: "/build/pricing-calculator",
+            text: "Pricing a Request",
+            link: "/build/pricing-a-request",
           },
           {
             text: "Troubleshooting",
