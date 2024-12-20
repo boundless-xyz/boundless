@@ -383,30 +383,3 @@ Continuing with the example offer given above, the price is constant (0.001 Ethe
 on block 11 it jumps to 0.0012 Ether; on 12 it jumps to 0.0014 Ether; on 15 it reaches 0.002 Ether (its maximum), and remains at that value until the offer expires.
 
 When a prover locks-in a request, they are agreeing to be paid the reward offered by this function at the time of their bid.
-
-## 📟 Pricing Calculator
-
-Use this interactive calculator to get suggested request parameters based on your program's complexity and desired proof time:
-
-<PricingCalculator />
-
-## Troubleshooting a Request
-
-If you submitted a request, and it is stuck in an "Unknown" / "Submitted" state, there may be something that is preventing the provers from picking up your request.
-
-- The guest may be panicking or otherwise failing to complete the job.
-  - Pre-flight your request locally before sending it.
-  - The `boundless-cli` does this by default, and the execution step in the Foundry template also accomplishes this.
-  - If your request is submitted onchain, you can use the following command to execute it locally. If it succeeds, this is not the issue.
-
-```sh [Terminal]
-RUST_LOG=info boundless-cli execute --request-id $REQUEST_ID
-```
-
-- The offer price may be too low for the size of the job.
-  - Try increasing the max price and ramp-up period.
-  - The auction mechanism will ensure that the price you pay is the lowest price any online prover is willing to pay.
-- The lock-in stake may be too high.
-- The timeout may be too short.
-- The bidding start block may be in the past, causing the request to immediately expire.
-- The ELF or input URLs may not be accessible to the prover.
