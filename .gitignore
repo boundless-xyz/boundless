@@ -41,3 +41,6 @@ contracts/test/UtilElf.sol
 .lycheecache
 # Ignore sccache install location created in CI
 sccache-v0.*
+
+# Ignore generated docs
+/docs
