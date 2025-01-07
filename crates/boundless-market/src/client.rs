@@ -24,7 +24,11 @@ use alloy::{
         },
         Identity, Provider, ProviderBuilder, RootProvider,
     },
-    signers::{local::PrivateKeySigner, Signer},
+    signers::{
+        k256::ecdsa::SigningKey,
+        local::{LocalSigner, PrivateKeySigner},
+        Signer,
+    },
     transports::{http::Http, Transport},
 };
 use anyhow::{anyhow, Context, Result};
@@ -273,7 +277,7 @@ where
     }
 
     /// Set the local signer
-    pub fn with_local_signer(self, local_signer: PrivateKeySigner) -> Self {
+    pub fn with_local_signer(self, local_signer: LocalSigner<SigningKey>) -> Self {
         Self { local_signer: Some(local_signer), ..self }
     }
 
