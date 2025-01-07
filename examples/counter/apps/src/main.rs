@@ -108,7 +108,7 @@ async fn run(
         .with_set_verifier_address(set_verifier_address)
         .with_order_stream_url(order_stream_url)
         .with_storage_provider_config(storage_config.clone())
-        .with_private_key(private_key.clone())
+        .with_private_key(private_key)
         .build()
         .await?;
 
