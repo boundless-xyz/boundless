@@ -41,6 +41,8 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ExecutorEnv, Journal, SessionInfo,
 };
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use boundless_market::{
@@ -247,8 +249,11 @@ struct MainArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(
+            EnvFilter::builder().with_default_directive(LevelFilter::INFO.into()).from_env_lossy(),
+        )
         .init();
 
     match dotenvy::dotenv() {
@@ -683,10 +688,14 @@ where
 }
 
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
-    let elf = fetch_url(&request.imageUrl.to_string()).await?;
+    let elf = fetch_url(&request.imageUrl).await?;
     let input = match request.input.inputType {
         InputType::Inline => request.input.data.clone(),
-        InputType::Url => fetch_url(&request.input.data.to_string()).await?.into(),
+        InputType::Url => {
+            fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
+                .await?
+                .into()
+        }
         _ => bail!("Unsupported input type"),
     };
     let env = ExecutorEnv::builder().write_slice(&input).build()?;

@@ -40,33 +40,43 @@ use super::{
 /// Boundless market errors.
 #[derive(Error, Debug)]
 pub enum MarketError {
+    /// Transaction error.
     #[error("Transaction error: {0}")]
     TxnError(#[from] TxnErr),
 
+    /// Request not fulfilled.
     #[error("Request is not fulfilled 0x{0:x}")]
     RequestNotFulfilled(U256),
 
+    /// Request has expired.
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
 
+    /// Request not fulfilled.
     #[error("Request error {0}")]
     RequestError(#[from] RequestError),
 
+    /// Request address does not match with signer.
     #[error("Request address does not match with signer {0} - {0}")]
     AddressMismatch(Address, Address),
 
+    /// Proof not found.
     #[error("Proof not found for request in events logs 0x{0:x}")]
     ProofNotFound(U256),
 
+    /// Request not found.
     #[error("Request not found in event logs 0x{0:x}")]
     RequestNotFound(U256),
 
+    /// Lockin reverted, possibly outbid.
     #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
     LockRevert(B256),
 
+    /// General market error.
     #[error("Market error: {0}")]
     Error(#[from] anyhow::Error),
 
+    /// Timeout reached.
     #[error("Timeout: 0x{0:x}")]
     TimeoutReached(U256),
 }
@@ -576,6 +586,8 @@ where
         Ok(logs)
     }
 
+    /// Combined function to submit a new merkle root to the set-verifier and call `fulfillBatch`.
+    /// Useful to reduce the transaction count for fulfillments
     pub async fn submit_merkle_and_fulfill(
         &self,
         root: B256,
@@ -603,6 +615,9 @@ where
         Ok(())
     }
 
+    /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     pub async fn price_and_fulfill_batch(
         &self,
         requests: Vec<ProofRequest>,

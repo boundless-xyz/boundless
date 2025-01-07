@@ -35,10 +35,15 @@ use utoipa::ToSchema;
 
 use crate::contracts::{ProofRequest, RequestError};
 
+/// Order stream submission API path.
 pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
+/// Order stream order list API path.
 pub const ORDER_LIST_PATH: &str = "/api/orders";
+/// Order stream nonce API path.
 pub const AUTH_GET_NONCE: &str = "/api/nonce/";
+/// Order stream health check API path.
 pub const HEALTH_CHECK: &str = "/api/health";
+/// Order stream websocket path.
 pub const ORDER_WS_PATH: &str = "/ws/orders";
 
 /// Error body for API responses
@@ -50,6 +55,7 @@ pub struct ErrMsg {
     pub msg: String,
 }
 impl ErrMsg {
+    /// Create a new error message.
     pub fn new(r#type: &str, msg: &str) -> Self {
         Self { r#type: r#type.into(), msg: msg.into() }
     }
@@ -65,8 +71,10 @@ impl std::fmt::Display for ErrMsg {
 #[non_exhaustive]
 pub enum OrderError {
     #[error("invalid signature: {0}")]
+    /// Invalid signature error.
     InvalidSignature(SignerErr),
     #[error("request error: {0}")]
+    /// Request error.
     RequestError(#[from] RequestError),
 }
 

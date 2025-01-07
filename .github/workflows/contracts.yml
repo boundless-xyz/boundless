@@ -94,6 +94,23 @@ jobs:
           echo "" >> gas-comparison.md
           cat gas-comparison.md
 
+      - name: Delete previous gas comparison comments
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          
+          # Get all comments on the PR
+          COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/comments")
+          
+          # Find and delete comments that contain our gas comparison header
+          echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("# Gas Cost Comparison")) | .id' | while read -r comment_id; do
+            if [ ! -z "$comment_id" ]; then
+              curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                -X DELETE \
+                "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+            fi
+          done
+
       - name: Post Comment on Pull Request
         run: |
           COMMENT_BODY=$(cat gas-comparison.md)

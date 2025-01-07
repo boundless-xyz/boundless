@@ -44,6 +44,7 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // boundless_market.rs is a copy of IBoundlessMarket.sol with alloy derive statements added.
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market.rs"));
+pub use boundless_market_contract::*;
 
 /// Status of a proof request
 #[derive(Debug, PartialEq)]
@@ -63,14 +64,20 @@ pub enum ProofStatus {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+/// EIP-712 domain separator without the salt field.
 pub struct EIP721DomainSaltless {
+    /// The name of the domain.
     pub name: Cow<'static, str>,
+    /// The protocol version.
     pub version: Cow<'static, str>,
+    /// The chain ID.
     pub chain_id: u64,
+    /// The address of the verifying contract.
     pub verifying_contract: Address,
 }
 
 impl EIP721DomainSaltless {
+    /// Returns the EIP-712 domain with the salt field set to zero.
     pub fn alloy_struct(&self) -> Eip712Domain {
         eip712_domain! {
             name: self.name.clone(),
@@ -88,24 +95,42 @@ pub(crate) fn request_id(addr: &Address, id: u32) -> U256 {
 
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
+/// Errors that can occur when creating a proof request.
 pub enum RequestError {
+    /// The request ID is malformed.
     #[error("malformed request ID")]
     MalformedRequestId,
+
+    /// The signature is invalid.
     #[cfg(not(target_os = "zkvm"))]
     #[error("signature error: {0}")]
     SignatureError(#[from] alloy::signers::Error),
+
+    /// The image URL is empty.
     #[error("image URL must not be empty")]
     EmptyImageUrl,
+
+    /// The image URL is malformed.
     #[error("malformed image URL: {0}")]
     MalformedImageUrl(#[from] url::ParseError),
+
+    /// The image ID is zero.
     #[error("image ID must not be ZERO")]
     ImageIdIsZero,
+
+    /// The offer timeout is zero.
     #[error("offer timeout must be greater than 0")]
     OfferTimeoutIsZero,
+
+    /// The offer max price is zero.
     #[error("offer maxPrice must be greater than 0")]
     OfferMaxPriceIsZero,
+
+    /// The offer max price is less than the min price.
     #[error("offer maxPrice must be greater than or equal to minPrice")]
     OfferMaxPriceIsLessThanMin,
+
+    /// The offer bidding start is zero.
     #[error("offer biddingStart must be greater than 0")]
     OfferBiddingStartIsZero,
 }
@@ -401,28 +426,37 @@ impl Predicate {
 }
 
 #[cfg(not(target_os = "zkvm"))]
+/// The Boundless market module.
 pub mod boundless_market;
 #[cfg(not(target_os = "zkvm"))]
+/// The Set Verifier module.
 pub mod set_verifier;
 
 #[cfg(not(target_os = "zkvm"))]
 #[derive(Error, Debug)]
+/// Errors that can occur when interacting with the contracts.
 pub enum TxnErr {
+    /// Error from the SetVerifier contract.
     #[error("SetVerifier error: {0:?}")]
     SetVerifierErr(IRiscZeroSetVerifierErrors),
 
+    /// Error from the BoundlessMarket contract.
     #[error("BoundlessMarket Err: {0:?}")]
     BoundlessMarketErr(IBoundlessMarket::IBoundlessMarketErrors),
 
+    /// Missing data while decoding the error response from the contract.
     #[error("decoding err, missing data, code: {0} msg: {1}")]
     MissingData(i64, String),
 
+    /// Error decoding the error response from the contract.
     #[error("decoding err: bytes decoding")]
     BytesDecode,
 
+    /// Error from the contract.
     #[error("contract error: {0}")]
     ContractErr(ContractErr),
 
+    /// ABI decoder error.
     #[error("abi decoder error: {0} - {1}")]
     DecodeErr(DecoderErr, Bytes),
 }
@@ -486,7 +520,7 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
 
 #[cfg(not(target_os = "zkvm"))]
 impl IBoundlessMarketErrors {
-    pub fn decode_error(err: ContractErr) -> TxnErr {
+    pub(crate) fn decode_error(err: ContractErr) -> TxnErr {
         match decode_contract_err(err) {
             Ok(res) => TxnErr::BoundlessMarketErr(res),
             Err(decode_err) => decode_err,
@@ -495,6 +529,7 @@ impl IBoundlessMarketErrors {
 }
 
 #[cfg(not(target_os = "zkvm"))]
+/// The EIP-712 domain separator for the Boundless Market contract.
 pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
     EIP721DomainSaltless {
         name: "IBoundlessMarket".into(),
@@ -505,6 +540,8 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
 }
 
 #[cfg(feature = "test-utils")]
+#[allow(missing_docs)]
+/// Module for testing utilities.
 pub mod test_utils {
     use alloy::{
         network::{Ethereum, EthereumWallet},
