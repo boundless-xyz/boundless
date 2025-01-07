@@ -209,7 +209,7 @@ contract Client {
         return ProofRequest({
             id: BoundlessMarketLib.requestId(wallet.addr, idx),
             requirements: defaultRequirements(),
-            imageUrl: "https://dweb.link/ipfs/QmTx3vDKicYG5RxzMxrZEiCQJqhpgYNrSFABdVz9ri2m5P",
+            imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy",
             input: Input({
                 inputType: InputType.Inline,
                 data: hex"1d000000570000006500000064000000200000004a000000750000006c0000002000000020000000330000002000000031000000340000003a00000033000000370000003a00000031000000320000002000000050000000440000005400000020000000320000003000000032000000340000000a000000"
