@@ -52,7 +52,7 @@ pub enum MarketError {
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
 
-    /// Request not fulfilled.
+    /// Request malformed.
     #[error("Request error {0}")]
     RequestError(#[from] RequestError),
 

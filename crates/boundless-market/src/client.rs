@@ -204,13 +204,13 @@ pub struct Client<T, P, S> {
     pub boundless_market: BoundlessMarketService<T, P>,
     /// Set verifier service.
     pub set_verifier: SetVerifierService<T, P>,
-    /// Storage provider for uploading images and inputs.
+    /// Storage provider to upload ELFs and inputs.
     pub storage_provider: Option<S>,
     /// Order stream client to submit requests off-chain.
     pub offchain_client: Option<OrderStreamClient>,
     /// Local signer for signing requests.
     pub local_signer: Option<LocalSigner<SigningKey>>,
-    /// Bidding start offset in blocks.
+    /// Bidding start offset wrt the current block (in blocks).
     pub bidding_start_offset: u64,
 }
 
