@@ -218,7 +218,7 @@ Off-chain requests will not cost any gas, but does require you to deposit funds 
 The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
 
 #### Submit a Request with a Generic Signer.
-The previous step assumes that the *boundless_client* has a private key signer. If you wish to use a generic signer, you can use the following code:
+The previous step assumes that the *boundless_client* has a private key signer. If you wish to use a different signer that implements the [alloy::signers::Signer] trait, you can use the following code:
 
 <StripRustCodeComments>
 ```rust
