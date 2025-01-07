@@ -565,9 +565,9 @@ where
     }
 
     let (request_id, expires_at) = if args.offchain {
-        client.submit_request_offchain(&request, signer).await?
+        client.submit_request_offchain_with_signer(&request, signer).await?
     } else {
-        client.submit_request(&request, signer).await?
+        client.submit_request_with_signer(&request, signer).await?
     };
     tracing::info!(
         "Submitted request ID 0x{request_id:x}, bidding start at block number {}",
@@ -659,9 +659,9 @@ where
     }
 
     let (request_id, expires_at) = if offchain {
-        client.submit_request_offchain(&request, signer).await?
+        client.submit_request_offchain_with_signer(&request, signer).await?
     } else {
-        client.submit_request(&request, signer).await?
+        client.submit_request_with_signer(&request, signer).await?
     };
     tracing::info!(
         "Request ID 0x{request_id:x}, bidding start at block number {}",

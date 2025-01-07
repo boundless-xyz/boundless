@@ -191,9 +191,9 @@ async fn run(args: &MainArgs) -> Result<()> {
             );
 
         let (request_id, _) = if let Some(_) = args.order_stream_url {
-            boundless_client.submit_request_offchain(&request, &args.private_key).await?
+            boundless_client.submit_request_offchain(&request).await?
         } else {
-            boundless_client.submit_request(&request, &args.private_key).await?
+            boundless_client.submit_request(&request).await?
         };
 
         tracing::info!("Request 0x{request_id:x} submitted");

@@ -175,7 +175,7 @@ async fn run(
         );
 
     // Send the request and wait for it to be completed.
-    let (request_id, expires_at) = boundless_client.submit_request(&request, &private_key).await?;
+    let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
     tracing::info!("Request {} submitted", request_id);
 
     // Wait for the request to be fulfilled by the market. The market will return the journal and

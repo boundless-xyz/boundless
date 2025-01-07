@@ -80,6 +80,7 @@ pub struct ClientBuilder {
     set_verifier_addr: Option<Address>,
     rpc_url: Option<Url>,
     wallet: Option<EthereumWallet>,
+    local_signer: Option<PrivateKeySigner>,
     order_stream_url: Option<Url>,
     storage_config: Option<StorageProviderConfig>,
     tx_timeout: Option<std::time::Duration>,
@@ -93,6 +94,7 @@ impl Default for ClientBuilder {
             set_verifier_addr: None,
             rpc_url: None,
             wallet: None,
+            local_signer: None,
             order_stream_url: None,
             storage_config: None,
             tx_timeout: None,
@@ -127,6 +129,9 @@ impl ClientBuilder {
         if let Some(timeout) = self.tx_timeout {
             client = client.with_timeout(timeout);
         }
+        if let Some(local_signer) = self.local_signer {
+            client = client.with_local_signer(local_signer);
+        }
         client = client.with_bidding_start_offset(self.bidding_start_offset);
         Ok(client)
     }
@@ -148,7 +153,11 @@ impl ClientBuilder {
 
     /// Set the private key
     pub fn with_private_key(self, private_key: PrivateKeySigner) -> Self {
-        Self { wallet: Some(EthereumWallet::from(private_key)), ..self }
+        Self {
+            wallet: Some(EthereumWallet::from(private_key.clone())),
+            local_signer: Some(private_key),
+            ..self
+        }
     }
 
     /// Set the wallet
@@ -187,6 +196,7 @@ pub struct Client<T, P, S> {
     pub set_verifier: SetVerifierService<T, P>,
     pub storage_provider: Option<S>,
     pub offchain_client: Option<OrderStreamClient>,
+    pub local_signer: Option<PrivateKeySigner>,
     pub bidding_start_offset: u64,
 }
 
@@ -208,6 +218,7 @@ where
             set_verifier,
             storage_provider: None,
             offchain_client: None,
+            local_signer: None,
             bidding_start_offset: BIDDING_START_OFFSET,
         }
     }
@@ -251,6 +262,11 @@ where
         }
     }
 
+    /// Set the local signer
+    pub fn with_local_signer(self, local_signer: PrivateKeySigner) -> Self {
+        Self { local_signer: Some(local_signer), ..self }
+    }
+
     /// Set the bidding start offset
     pub fn with_bidding_start_offset(self, bidding_start_offset: u64) -> Self {
         Self { bidding_start_offset, ..self }
@@ -280,9 +296,23 @@ where
 
     /// Submit a proof request.
     ///
+    /// Requires a local signer to be set to sign the request.
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request(
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
+    where
+        <S as StorageProvider>::Error: std::fmt::Debug,
+    {
+        let signer = self.local_signer.as_ref().context("Local signer not set")?;
+        self.submit_request_with_signer(request, signer).await
+    }
+
+    /// Submit a proof request.
+    ///
+    /// Accepts a signer to sign the request.
+    /// If the request ID is not set, a random ID will be generated.
+    /// If the bidding start is not set, the current block number will be used.
+    pub async fn submit_request_with_signer(
         &self,
         request: &ProofRequest,
         signer: &impl Signer,
@@ -316,9 +346,10 @@ where
 
     /// Submit a proof request offchain via the order stream service.
     ///
+    /// Accepts a signer to sign the request.
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current block number will be used.
-    pub async fn submit_request_offchain(
+    pub async fn submit_request_offchain_with_signer(
         &self,
         request: &ProofRequest,
         signer: &impl Signer,
@@ -360,6 +391,22 @@ where
         let order = offchain_client.submit_request(&request, signer).await?;
 
         Ok((order.request.id, request.expires_at()))
+    }
+
+    /// Submit a proof request offchain via the order stream service.
+    ///
+    /// Requires a local signer to be set to sign the request.
+    /// If the request ID is not set, a random ID will be generated.
+    /// If the bidding start is not set, the current block number will be used.
+    pub async fn submit_request_offchain(
+        &self,
+        request: &ProofRequest,
+    ) -> Result<(U256, u64), ClientError>
+    where
+        <S as StorageProvider>::Error: std::fmt::Debug,
+    {
+        let signer = self.local_signer.as_ref().context("Local signer not set")?;
+        self.submit_request_offchain_with_signer(request, signer).await
     }
 
     /// Wait for a request to be fulfilled.
@@ -436,6 +483,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             set_verifier,
             storage_provider,
             offchain_client,
+            local_signer: Some(private_key),
             bidding_start_offset: BIDDING_START_OFFSET,
         })
     }
@@ -472,6 +520,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             set_verifier,
             storage_provider,
             offchain_client,
+            local_signer: None,
             bidding_start_offset: BIDDING_START_OFFSET,
         })
     }
