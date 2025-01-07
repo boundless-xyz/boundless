@@ -393,7 +393,6 @@ contract BoundlessMarket is
         // Record the price in transient storage, such that the order can be filled in this same transaction.
         // NOTE: Since transient storage is cleared at the end of the transaction, we know that this
         // price will not become stale, and the request cannot expire, while this price is recorded.
-        // TODO(#165): Also record a requirements checksum here when solving #165.
         uint256 packed = TransientPrice({valid: true, price: price}).pack();
         assembly {
             tstore(requestDigest, packed)
@@ -402,7 +401,6 @@ contract BoundlessMarket is
 
     /// Verify the application and assessor receipts, ensuring that the provided fulfillment
     /// satisfies the request.
-    // TODO(#165) Return or check the request checksum here.
     function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
         // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
