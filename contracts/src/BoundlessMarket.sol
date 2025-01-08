@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -17,6 +17,7 @@ import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket, ProofRequest, Offer, Fulfillment, AssessorJournal} from "./IBoundlessMarket.sol";
 import {BoundlessMarketLib} from "./BoundlessMarketLib.sol";
+import {HitPoints} from "./HitPoints.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
 
@@ -180,6 +181,8 @@ contract BoundlessMarket is
     /// when the fee rate is set to a non-zero value.
     uint256 internal marketBalance;
 
+    address public HP_CONTRACT;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, bytes32 assessorId) {
         VERIFIER = verifier;
@@ -188,15 +191,20 @@ contract BoundlessMarket is
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, string calldata _imageUrl) external initializer {
+    function initialize(address initialOwner, string calldata _imageUrl, address hpContract) external initializer {
         __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
         imageUrl = _imageUrl;
+        HP_CONTRACT = hpContract;
     }
 
     function setImageUrl(string calldata _imageUrl) external onlyOwner {
         imageUrl = _imageUrl;
+    }
+
+    function setHpContract(address hpContract) external onlyOwner {
+        HP_CONTRACT = hpContract;
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
@@ -354,19 +362,22 @@ contract BoundlessMarket is
 
         (uint96 price, uint64 deadline) = _validateRequestForLockin(request, client, idx);
 
-        // Deduct funds from the client and prover accounts.
+        // Check that the prover has enough HP balance to lock in the request.
+
+        // Deduct funds from the client account.
         Account storage clientAccount = accounts[client];
         if (clientAccount.balance < price) {
             revert InsufficientBalance(client);
         }
-        Account storage proverAccount = accounts[prover];
-        if (proverAccount.balance < request.offer.lockinStake) {
+        // Deduct funds from the prover HP account.
+        (uint256 available,) = HitPoints(HP_CONTRACT).balanceOf(prover);
+        if (available < request.offer.lockinStake) {
             revert InsufficientBalance(prover);
         }
         unchecked {
             clientAccount.balance -= price;
-            proverAccount.balance -= request.offer.lockinStake.toUint96();
         }
+        HitPoints(HP_CONTRACT).lock(prover, request.offer.lockinStake);
 
         // Record the lock for the request and emit an event.
         requestLocks[request.id] = RequestLock({
@@ -547,13 +558,14 @@ contract BoundlessMarket is
         // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
         requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
 
-        uint96 valueToProver = lock.price + lock.stake;
+        uint96 valueToProver = lock.price;
         if (MARKET_FEE_NUMERATOR > 0) {
             uint256 fee = uint256(lock.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
             valueToProver -= fee.toUint96();
             marketBalance += fee;
         }
         accounts[lock.prover].balance += valueToProver;
+        HitPoints(HP_CONTRACT).unlock(lock.prover, lock.stake);
     }
 
     function _fulfillVerifiedUnlocked(
@@ -630,17 +642,15 @@ contract BoundlessMarket is
         // Calculate the portion of stake that should be burned vs sent to the client.
         // NOTE: If the burn fraction is not properly set, this can overflow.
         // The maximum feasible stake multiplied by the numerator must be less than 2^256.
-        uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_FRACTION_NUMERATOR / SLASHING_BURN_FRACTION_DENOMINATOR;
-        uint256 transferValue = uint256(lock.stake) - burnValue;
+        // uint256 burnValue = uint256(lock.stake);
 
-        // Return the price to the client, plus the transfer value. Then burn the burn value.
-        accounts[client].balance += lock.price + transferValue.toUint96();
-        (bool sent,) = payable(address(0)).call{value: uint256(burnValue)}("");
-        if (!sent) {
-            revert TransferFailed();
-        }
+        // Return the price to the client.
+        accounts[client].balance += lock.price;
 
-        emit ProverSlashed(requestId, burnValue, transferValue);
+        // Deduct HP from the prover.
+        HitPoints(HP_CONTRACT).burn(lock.prover, lock.stake);
+
+        emit ProverSlashed(requestId, uint256(lock.stake), 0);
     }
 
     function imageInfo() external view returns (bytes32, string memory) {

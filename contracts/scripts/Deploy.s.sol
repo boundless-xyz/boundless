@@ -13,6 +13,7 @@ import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
+import {HitPoints} from "../src/HitPoints.sol";
 
 contract Deploy is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
@@ -21,6 +22,7 @@ contract Deploy is Script, RiscZeroCheats {
     IRiscZeroVerifier verifier;
     address boundlessMarketAddress;
     bytes32 assessorImageId;
+    address hitPoints;
 
     function run() external {
         string memory assessorGuestUrl = "";
@@ -84,19 +86,29 @@ contract Deploy is Script, RiscZeroCheats {
             verifier = IRiscZeroVerifier(setVerifier);
         }
 
+        bytes32 salt = bytes32(0);
+
         if (address(verifier) == address(0)) {
             revert("verifier must be specified in deployment.toml");
         } else {
             console2.log("Using IRiscZeroVerifier deployed at", address(verifier));
         }
 
+        if (deploymentConfig.hitPoints == address(0)) {
+            // Deploy the HitPoints contract
+            hitPoints = address(new HitPoints(boundlessMarketOwner));
+        } else {
+            hitPoints = deploymentConfig.hitPoints;
+            console2.log("Using HitPoints deployed at", hitPoints);
+        }
+
         // Deploy the Boundless market
-        bytes32 salt = bytes32(0);
         address newImplementation = address(new BoundlessMarket{salt: salt}(verifier, assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(
-                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
+                newImplementation,
+                abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl, hitPoints))
             )
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
