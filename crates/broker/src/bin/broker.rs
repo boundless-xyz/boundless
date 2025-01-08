@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
 
     let retry_layer =
         RetryBackoffLayer::new(args.rpc_retry_max, args.rpc_retry_backoff, args.rpc_retry_cu);
-    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
+    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone()).boxed();
 
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()
