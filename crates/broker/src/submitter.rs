@@ -378,7 +378,9 @@ mod tests {
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
-        test_utils::{deploy_boundless_market, deploy_mock_verifier, deploy_set_verifier},
+        test_utils::{
+            deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
+        },
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
@@ -416,10 +418,12 @@ mod tests {
             deploy_set_verifier(provider.clone(), verifier, Digest::from(SET_BUILDER_ID))
                 .await
                 .unwrap();
+        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
         let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
             set_verifier,
+            hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
             Some(prover_addr),
         )

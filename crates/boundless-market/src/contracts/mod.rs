@@ -720,7 +720,7 @@ pub mod test_utils {
         .context("failed to deploy RiscZeroSetVerifier")
     }
 
-    pub async fn deploy_hit_pointsr<T, P>(
+    pub async fn deploy_hit_points<T, P>(
         deployer_signer: &PrivateKeySigner,
         deployer_provider: P,
     ) -> Result<Address>
@@ -797,10 +797,16 @@ pub mod test_utils {
         .await
         .context("failed to deploy BoundlessMarket proxy")?;
 
-        if let Some(prover) = allowed_prover {
-            HitPointsService::new(hit_points, deployer_provider.clone(), deployer_signer.address())
-                .mint(prover, U256::from(100))
-                .await?;
+        if hit_points != Address::ZERO {
+            let hit_points_service = HitPointsService::new(
+                hit_points,
+                deployer_provider.clone(),
+                deployer_signer.address(),
+            );
+            hit_points_service.authorize(proxy).await?;
+            if let Some(prover) = allowed_prover {
+                hit_points_service.mint(prover, U256::from(100)).await?;
+            }
         }
 
         Ok(proxy)
@@ -828,7 +834,7 @@ pub mod test_utils {
                 deploy_set_verifier(Arc::clone(&deployer_provider), verifier, set_builder_id)
                     .await?;
             let hit_points =
-                deploy_hit_pointsr(&deployer_signer, Arc::clone(&deployer_provider)).await?;
+                deploy_hit_points(&deployer_signer, Arc::clone(&deployer_provider)).await?;
             let boundless_market = deploy_boundless_market(
                 &deployer_signer,
                 Arc::clone(&deployer_provider),

@@ -86,8 +86,6 @@ contract Deploy is Script, RiscZeroCheats {
             verifier = IRiscZeroVerifier(setVerifier);
         }
 
-        bytes32 salt = bytes32(0);
-
         if (address(verifier) == address(0)) {
             revert("verifier must be specified in deployment.toml");
         } else {
@@ -103,6 +101,7 @@ contract Deploy is Script, RiscZeroCheats {
         }
 
         // Deploy the Boundless market
+        bytes32 salt = bytes32(0);
         address newImplementation = address(new BoundlessMarket{salt: salt}(verifier, assessorImageId));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
@@ -112,6 +111,8 @@ contract Deploy is Script, RiscZeroCheats {
             )
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
+
+        HitPoints(hitPoints).authorize(boundlessMarketAddress);
 
         vm.stopBroadcast();
     }
