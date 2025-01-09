@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use crate::chain_monitor::ChainMonitorService;
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -50,6 +51,7 @@ pub struct OrderPicker<P> {
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
+    chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     market: BoundlessMarketService<BoxTransport, Arc<P>>,
 }
@@ -65,13 +67,14 @@ where
         block_time: u64,
         market_addr: Address,
         provider: Arc<P>,
+        chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
-        Self { db, config, prover, block_time, provider, market }
+        Self { db, config, prover, chain_monitor, block_time, provider, market }
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<(), PriceOrderErr> {
@@ -82,8 +85,7 @@ where
             (config.market.min_deadline, config.market.allow_client_addresses.clone())
         };
 
-        let current_block =
-            self.provider.get_block_number().await.context("Failed to get current block")?;
+        let current_block = self.chain_monitor.current_block_number().await?;
 
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
@@ -488,7 +490,18 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
+        let picker = OrderPicker::new(
+            db.clone(),
+            config,
+            prover,
+            2,
+            market_address,
+            provider.clone(),
+            chain_monitor,
+        );
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {
@@ -590,7 +603,19 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
+
+        let picker = OrderPicker::new(
+            db.clone(),
+            config,
+            prover,
+            2,
+            market_address,
+            provider,
+            chain_monitor,
+        );
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {
@@ -693,7 +718,18 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
+        let picker = OrderPicker::new(
+            db.clone(),
+            config,
+            prover,
+            2,
+            market_address,
+            provider,
+            chain_monitor,
+        );
 
         let order_id = U256::from(boundless_market.request_id_from_nonce().await.unwrap());
         let min_price = 200000000000u64;
@@ -786,7 +822,18 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let picker = OrderPicker::new(db.clone(), config, prover, 2, market_address, provider);
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
+        let picker = OrderPicker::new(
+            db.clone(),
+            config,
+            prover,
+            2,
+            market_address,
+            provider,
+            chain_monitor,
+        );
 
         let server = MockServer::start();
         let get_mock = server.mock(|when, then| {

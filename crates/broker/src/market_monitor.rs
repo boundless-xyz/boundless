@@ -346,6 +346,7 @@ mod tests {
         let config = ConfigLock::default();
         let chain_monitor =
             Arc::new(ChainMonitorService::new(provider.clone(), config).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let orders =
@@ -373,6 +374,7 @@ mod tests {
         let config = ConfigLock::default();
         let chain_monitor =
             Arc::new(ChainMonitorService::new(provider.clone(), config).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let market_monitor = MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor);
 

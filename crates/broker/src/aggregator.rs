@@ -646,7 +646,7 @@ mod tests {
 
         let chain_monitor =
             Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
-
+        let _handle = tokio::spawn(chain_monitor.spawn());
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),

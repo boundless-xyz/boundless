@@ -420,7 +420,9 @@ where
 
         let cloned_chain_monitor = chain_monitor.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, cloned_chain_monitor).await.context("Failed to start chain monitor")?;
+            task::supervisor(1, cloned_chain_monitor)
+                .await
+                .context("Failed to start chain monitor")?;
             Ok(())
         });
 
@@ -507,6 +509,7 @@ where
             block_times,
             self.args.boundless_market_addr,
             self.provider.clone(),
+            chain_monitor.clone(),
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
@@ -516,6 +519,7 @@ where
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
             self.provider.clone(),
+            chain_monitor.clone(),
             self.config_watcher.config.clone(),
             block_times,
             self.args.boundless_market_addr,
@@ -569,8 +573,6 @@ where
             task::supervisor(1, aggregator).await.context("Failed to start aggregator service")?;
             Ok(())
         });
-
-
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),
