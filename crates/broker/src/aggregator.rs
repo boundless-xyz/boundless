@@ -1002,10 +1002,6 @@ mod tests {
         db.add_order(order_id, order.clone()).await.unwrap();
 
         provider.anvil_mine(Some(U256::from(51)), Some(U256::from(2))).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(
-            config.lock_all().unwrap().prover.status_poll_ms,
-        ))
-        .await;
 
         aggregator.aggregate_proofs().await.unwrap();
 
