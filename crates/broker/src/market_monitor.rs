@@ -51,7 +51,7 @@ where
 
     /// Queries chain history to sample for the median block time
     pub async fn get_block_time(&self) -> Result<u64> {
-        let current_block = self.chain_monitor.current_block_number();
+        let current_block = self.chain_monitor.current_block_number().await?;
 
         let mut timestamps = vec![];
         let sample_start = current_block - std::cmp::min(current_block, BLOCK_TIME_SAMPLE_SIZE);
@@ -80,7 +80,7 @@ where
         db: DbObj,
         chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Result<u64> {
-        let current_block = chain_monitor.current_block_number();
+        let current_block = chain_monitor.current_block_number().await?;
 
         let start_block = current_block.saturating_sub(lookback_blocks);
 

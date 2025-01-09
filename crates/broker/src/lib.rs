@@ -418,6 +418,12 @@ where
             .context("Failed to initialize chain monitor")?,
         );
 
+        let cloned_chain_monitor = chain_monitor.clone();
+        supervisor_tasks.spawn(async move {
+            task::supervisor(1, cloned_chain_monitor).await.context("Failed to start chain monitor")?;
+            Ok(())
+        });
+
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
@@ -544,7 +550,7 @@ where
             aggregator::AggregatorService::new(
                 self.db.clone(),
                 self.provider.clone(),
-                chain_monitor,
+                chain_monitor.clone(),
                 set_builder_img_data.0,
                 set_builder_img_data.1,
                 assessor_img_data.0,
@@ -563,6 +569,8 @@ where
             task::supervisor(1, aggregator).await.context("Failed to start aggregator service")?;
             Ok(())
         });
+
+
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),

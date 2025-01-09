@@ -426,7 +426,7 @@ where
                 let config = self.config.lock_all().context("Failed to lock config")?;
                 config.batcher.block_deadline_buffer_secs
             };
-            let block_number = self.chain_monitor.current_block_number();
+            let block_number = self.chain_monitor.current_block_number().await?;
 
             let Some(block_deadline) = batch.block_deadline else {
                 tracing::warn!("batch does not yet have a block_deadline");
