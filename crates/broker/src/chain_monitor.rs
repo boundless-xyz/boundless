@@ -91,3 +91,51 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy::{
+        network::EthereumWallet,
+        node_bindings::Anvil,
+        primitives::U256,
+        providers::{ext::AnvilApi, ProviderBuilder},
+        signers::local::PrivateKeySigner,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn chain_monitor_smoke_test() {
+        // Using an unknown chain ID to use default 2s polling time.
+        let anvil = Anvil::new().chain_id(888833888).spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer))
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
+
+        let block = chain_monitor.current_block_number().await.unwrap();
+        assert_eq!(block, 0);
+
+        const NUM_BLOCKS: u64 = 10;
+
+        provider.anvil_mine(Some(U256::from(NUM_BLOCKS)), Some(U256::from(2))).await.unwrap();
+
+        // Block should still be 0 until the next polling interval.
+        let block = chain_monitor.current_block_number().await.unwrap();
+        assert_eq!(block, 0);
+
+        // Update next update time to now, to allow querying the block number from chain.
+        *chain_monitor.next_update.write().await = Instant::now();
+
+        let block = chain_monitor.current_block_number().await.unwrap();
+        assert_eq!(block, NUM_BLOCKS);
+    }
+}
