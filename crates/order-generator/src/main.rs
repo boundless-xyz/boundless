@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -135,7 +135,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         Some(path) => std::fs::read(path)?,
         None => {
             // A build of the echo guest, which simply commits the bytes it reads from inputs.
-            let url = "https://dweb.link/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy";
+            let url = "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy";
             fetch_http(&Url::parse(url)?).await?
         }
     };

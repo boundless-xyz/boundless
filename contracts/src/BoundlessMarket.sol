@@ -384,7 +384,6 @@ contract BoundlessMarket is
         // Record the price in transient storage, such that the order can be filled in this same transaction.
         // NOTE: Since transient storage is cleared at the end of the transaction, we know that this
         // price will not become stale, and the request cannot expire, while this price is recorded.
-        // TODO(#165): Also record a requirements checksum here when solving #165.
         uint256 packed = TransientPrice({valid: true, price: price}).pack();
         assembly {
             tstore(requestDigest, packed)
@@ -393,7 +392,6 @@ contract BoundlessMarket is
 
     /// Verify the application and assessor receipts, ensuring that the provided fulfillment
     /// satisfies the request.
-    // TODO(#165) Return or check the request checksum here.
     function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
         // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
@@ -417,7 +415,7 @@ contract BoundlessMarket is
         public
         view
     {
-        // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
+        // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
@@ -439,9 +437,6 @@ contract BoundlessMarket is
         verifyDelivery(fill, assessorSeal, prover);
         _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
 
-        // TODO(victor): Potentially this should be (re)combined with RequestFulfilled. It would make
-        // the logic to watch for a proof a bit more complex, but the gas usage a little less (by
-        // about 1000 gas per fulfill based on benchmarks)
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
 
@@ -644,7 +639,7 @@ contract BoundlessMarket is
         bytes calldata assessorSeal,
         address prover
     ) external {
-        // TODO(victor): This will break when we change VERIFIER to point to the router.
+        // TODO(#243): This will break when we change VERIFIER to point to the router.
         IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
         setVerifier.submitMerkleRoot(root, seal);
         fulfillBatch(fills, assessorSeal, prover);

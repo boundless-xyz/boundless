@@ -1,15 +1,15 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     network::Ethereum,
     primitives::{utils, Address, U256},
     providers::Provider,
     sol_types::SolValue,
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
@@ -27,7 +27,7 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct AggregatorService<T, P> {
+pub struct AggregatorService<P> {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
@@ -38,13 +38,11 @@ pub struct AggregatorService<T, P> {
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
-    _phantom_t: PhantomData<T>,
 }
 
-impl<T, P> AggregatorService<T, P>
+impl<P> AggregatorService<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
     pub async fn new(
         db: DbObj,
@@ -82,7 +80,6 @@ where
             market_addr,
             prover_addr,
             chain_id,
-            _phantom_t: Default::default(),
         })
     }
 
@@ -510,10 +507,9 @@ where
     }
 }
 
-impl<T, P> RetryTask for AggregatorService<T, P>
+impl<P> RetryTask for AggregatorService<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let mut self_clone = self.clone();
@@ -623,7 +619,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -789,7 +787,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -895,7 +895,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
