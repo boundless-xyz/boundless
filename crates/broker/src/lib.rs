@@ -31,6 +31,7 @@ use tokio::task::JoinSet;
 use url::Url;
 
 pub(crate) mod aggregator;
+pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
 pub(crate) mod market_monitor;
@@ -408,12 +409,22 @@ where
             config.market.lookback_blocks
         };
 
+        let chain_monitor = Arc::new(
+            chain_monitor::ChainMonitorService::new(
+                self.provider.clone(),
+                self.config_watcher.config.clone(),
+            )
+            .await
+            .context("Failed to initialize chain monitor")?,
+        );
+
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
             self.args.boundless_market_addr,
             self.provider.clone(),
             self.db.clone(),
+            chain_monitor.clone(),
         ));
 
         let block_times =
@@ -533,6 +544,7 @@ where
             aggregator::AggregatorService::new(
                 self.db.clone(),
                 self.provider.clone(),
+                chain_monitor,
                 set_builder_img_data.0,
                 set_builder_img_data.1,
                 assessor_img_data.0,
