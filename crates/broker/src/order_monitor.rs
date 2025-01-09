@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -12,7 +12,7 @@ use alloy::{
     network::Ethereum,
     primitives::{Address, U256},
     providers::{Provider, WalletProvider},
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
@@ -38,18 +38,17 @@ pub enum LockOrderErr {
 }
 
 #[derive(Clone)]
-pub struct OrderMonitor<T, P> {
+pub struct OrderMonitor<P> {
     db: DbObj,
     provider: Arc<P>,
     block_time: u64,
     config: ConfigLock,
-    market: BoundlessMarketService<T, Arc<P>>,
+    market: BoundlessMarketService<BoxTransport, Arc<P>>,
 }
 
-impl<T, P> OrderMonitor<T, P>
+impl<P> OrderMonitor<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
 {
     pub fn new(
         db: DbObj,
@@ -231,10 +230,9 @@ where
     }
 }
 
-impl<T, P> RetryTask for OrderMonitor<T, P>
+impl<P> RetryTask for OrderMonitor<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let monitor_clone = self.clone();
@@ -275,7 +273,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
 
         let market_address = deploy_boundless_market(
@@ -385,7 +385,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
 
         let market_address = deploy_boundless_market(

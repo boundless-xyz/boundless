@@ -1,8 +1,8 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     network::Ethereum,
@@ -10,7 +10,7 @@ use alloy::{
     providers::Provider,
     rpc::types::Filter,
     sol_types::SolEvent,
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
@@ -26,21 +26,19 @@ use crate::{
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
 
-pub struct MarketMonitor<T, P> {
+pub struct MarketMonitor<P> {
     lookback_blocks: u64,
     market_addr: Address,
     provider: Arc<P>,
     db: DbObj,
-    _phantom_t: PhantomData<T>,
 }
 
-impl<T, P> MarketMonitor<T, P>
+impl<P> MarketMonitor<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
     pub fn new(lookback_blocks: u64, market_addr: Address, provider: Arc<P>, db: DbObj) -> Self {
-        Self { lookback_blocks, market_addr, provider, db, _phantom_t: Default::default() }
+        Self { lookback_blocks, market_addr, provider, db }
     }
 
     /// Queries chain history to sample for the median block time
@@ -224,10 +222,9 @@ where
     }
 }
 
-impl<T, P> RetryTask for MarketMonitor<T, P>
+impl<P> RetryTask for MarketMonitor<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let lookback_blocks = self.lookback_blocks;
@@ -281,7 +278,9 @@ mod tests {
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
             .wallet(EthereumWallet::from(signer.clone()))
-            .on_http(anvil.endpoint().parse().unwrap());
+            .on_builtin(&anvil.endpoint())
+            .await
+            .unwrap();
 
         let market_address = deploy_boundless_market(
             &signer,
@@ -342,7 +341,9 @@ mod tests {
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
             .wallet(EthereumWallet::from(signer))
-            .on_http(anvil.endpoint().parse().unwrap());
+            .on_builtin(&anvil.endpoint())
+            .await
+            .unwrap();
 
         provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
 

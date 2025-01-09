@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -9,7 +9,7 @@ use alloy::{
     primitives::{utils::format_ether, Address, B256, U256},
     providers::{Provider, WalletProvider},
     sol_types::SolStruct,
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::{
@@ -32,20 +32,19 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct Submitter<T, P> {
+pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
-    market: BoundlessMarketService<T, Arc<P>>,
-    set_verifier: SetVerifierService<T, Arc<P>>,
+    market: BoundlessMarketService<BoxTransport, Arc<P>>,
+    set_verifier: SetVerifierService<BoxTransport, Arc<P>>,
     set_builder_img_id: Digest,
     prover_address: Address,
     config: ConfigLock,
 }
 
-impl<T, P> Submitter<T, P>
+impl<P> Submitter<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -340,10 +339,9 @@ where
     }
 }
 
-impl<T, P> RetryTask for Submitter<T, P>
+impl<P> RetryTask for Submitter<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let obj_clone = self.clone();
@@ -401,14 +399,18 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
 
         let customer_provider = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
 
         let verifier = deploy_mock_verifier(provider.clone()).await.unwrap();

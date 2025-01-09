@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -9,7 +9,7 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
@@ -310,18 +310,16 @@ struct Batch {
     pub peaks: Vec<Node>,
 }
 
-pub struct Broker<T, P> {
+pub struct Broker<P> {
     args: Args,
     provider: Arc<P>,
     db: DbObj,
     config_watcher: ConfigWatcher,
-    _phantom_t: std::marker::PhantomData<T>,
 }
 
-impl<T, P> Broker<T, P>
+impl<P> Broker<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
 {
     pub async fn new(args: Args, provider: P) -> Result<Self> {
         let config_watcher =
@@ -330,13 +328,7 @@ where
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
 
-        Ok(Self {
-            args,
-            db,
-            provider: Arc::new(provider),
-            config_watcher,
-            _phantom_t: Default::default(),
-        })
+        Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
     }
 
     async fn get_assessor_image(&self) -> Result<(Digest, Vec<u8>)> {
@@ -694,7 +686,6 @@ pub mod test_utils {
         rpc_url: Url,
     ) -> Result<
         Broker<
-            BoxTransport,
             FillProvider<
                 JoinFill<
                     JoinFill<

@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -11,7 +11,7 @@ use alloy::{
         Address, U256,
     },
     providers::{Provider, WalletProvider},
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
@@ -45,19 +45,18 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct OrderPicker<T, P> {
+pub struct OrderPicker<P> {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
     block_time: u64,
-    market: BoundlessMarketService<T, Arc<P>>,
+    market: BoundlessMarketService<BoxTransport, Arc<P>>,
 }
 
-impl<T, P> OrderPicker<T, P>
+impl<P> OrderPicker<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
 {
     pub fn new(
         db: DbObj,
@@ -366,10 +365,9 @@ where
     }
 }
 
-impl<T, P> RetryTask for OrderPicker<T, P>
+impl<P> RetryTask for OrderPicker<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
 {
     fn spawn(&self) -> RetryRes {
         let picker_copy = self.clone();
@@ -457,7 +455,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
@@ -557,7 +557,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
@@ -658,7 +660,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
@@ -750,7 +754,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
 
         provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
