@@ -475,7 +475,8 @@ contract BoundlessMarket is
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
     function _fulfillVerified(uint256 id, bytes32 requestDigest, address assessorProver, bool requirePayment)
-        internal returns (uint96 stake)
+        internal
+        returns (uint96 stake)
     {
         address client = BoundlessMarketLib.requestFrom(id);
         uint32 idx = BoundlessMarketLib.requestIndex(id);
