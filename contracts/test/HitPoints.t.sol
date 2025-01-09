@@ -1,4 +1,7 @@
-// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
+
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";

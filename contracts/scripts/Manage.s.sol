@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -75,6 +75,9 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
             )
         );
         vm.stopBroadcast();
+
+        // Add the market address in the authorized list of the hit-points contract
+        HitPoints(hitPoints).authorize(marketAddress);
 
         console2.log("Deployed BoundlessMarket proxy contract at %s", marketAddress);
     }
