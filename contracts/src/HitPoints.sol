@@ -30,7 +30,9 @@ contract HitPoints is IHitPoints, Ownable {
 
     /// @notice Creates a new HitPoints contract
     /// @param initialOwner The address that will own the contract
-    constructor(address initialOwner) Ownable(initialOwner) {}
+    constructor(address initialOwner) Ownable(initialOwner) {
+        isAuthorized[initialOwner] = true;
+    }
 
     /// @notice Modifier to restrict function access to authorized addresses
     /// @dev Throws UnauthorizedCaller if caller is not authorized
@@ -54,7 +56,7 @@ contract HitPoints is IHitPoints, Ownable {
     /// @notice Creates new tokens and assigns them to an account
     /// @param account The address that will receive the minted tokens
     /// @param amount The amount of tokens to mint
-    function mint(address account, uint256 amount) external onlyOwner {
+    function mint(address account, uint256 amount) external onlyAuthorized {
         unchecked {
             _balances[account].available += amount.toUint128();
             _totalSupply += amount.toUint128();

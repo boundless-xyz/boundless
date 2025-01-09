@@ -51,9 +51,9 @@ contract HitPointsTest is Test {
         assertEq(token.totalSupply(), uint256(100), "Invalid total supply after mint");
     }
 
-    function testMintRevertNotOwner() public {
+    function testMintRevertNotAuthorized() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user));
+        vm.expectRevert(abi.encodeWithSignature("UnauthorizedCaller()"));
         token.mint(user, 100);
     }
 
