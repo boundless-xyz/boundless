@@ -45,18 +45,20 @@ devnet-up: check-deps
 	{ \
 		SET_VERIFIER_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
 		BOUNDLESS_MARKET_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
+		HIT_POINTS_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
 		echo "Contract deployed at addresses:"; \
 		echo "SET_VERIFIER_ADDRESS=$$SET_VERIFIER_ADDRESS"; \
 		echo "BOUNDLESS_MARKET_ADDRESS=$$BOUNDLESS_MARKET_ADDRESS"; \
+		echo "HIT_POINTS_ADDRESS=$$HIT_POINTS_ADDRESS"; \
 		echo "Updating .env file..."; \
 		sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$$SET_VERIFIER_ADDRESS/" .env && \
 		sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$$BOUNDLESS_MARKET_ADDRESS/" .env && \
 		rm .env.bak; \
 		echo ".env file updated successfully."; \
-		echo "Registering prover address to allowed list."; \
+		echo "Minting HP for prover address."; \
         cast send --private-key $(DEPLOYER_PRIVATE_KEY) \
             --rpc-url http://localhost:$(ANVIL_PORT) \
-            $$BOUNDLESS_MARKET_ADDRESS "addProverToAppnetAllowlist(address)" $(ADMIN_ADDRESS); \
+            $$HIT_POINTS_ADDRESS "mint(address, uint256)" ($(ADMIN_ADDRESS), 100); \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \
 			--private-key $(PRIVATE_KEY) \

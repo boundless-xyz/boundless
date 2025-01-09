@@ -197,12 +197,11 @@ contract BoundlessMarketTest is Test {
         );
         boundlessMarket = BoundlessMarket(proxy);
 
+        hitPoints.authorize(OWNER_WALLET.addr);
         hitPoints.authorize(proxy);
         vm.stopPrank();
 
         testProver = createClientContract("PROVER");
-        vm.prank(OWNER_WALLET.addr);
-        boundlessMarket.addProverToAppnetAllowlist(address(testProver));
 
         vm.prank(OWNER_WALLET.addr);
         hitPoints.mint(address(testProver), DEFAULT_BALANCE);
@@ -520,13 +519,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Bad signature is over the wrong request.
         bytes memory badProverSignature = testProver.sign(client.request(2));
 
-        // NOTE: Error is "ProverNotInAppnetLockinAllowList" because we will recover _some_ address.
-        // It should be completed random and never correspond to a real account.
+        // NOTE: Error is "InsufficientBalance" because we will recover _some_ address.
+        // It should be random and never correspond to a real account.
         // TODO: This address will need to change anytime we change the ProofRequest struct or
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.ProverNotInAppnetLockinAllowList.selector,
+                IBoundlessMarket.InsufficientBalance.selector,
                 address(0x0F34d88fC95E5b27063a97f5ad37BBA958399192)
             )
         );
@@ -682,61 +681,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return _testLockinInvalidRequest2(false);
     }
 
-    function _testLockinAppnetAllowlist(bool withSig) private returns (Client, ProofRequest memory) {
-        Client client = getClient(1);
-        ProofRequest memory request = client.request(1);
-        bytes memory clientSignature = client.sign(request);
-        bytes memory proverSignature = testProver.sign(request);
-
-        // Start by removing the prover from the allow-list.
-        vm.prank(OWNER_WALLET.addr);
-        boundlessMarket.removeProverFromAppnetAllowlist(address(testProver));
-
-        // Expect the event to be emitted
-        vm.expectRevert(
-            abi.encodeWithSelector(IBoundlessMarket.ProverNotInAppnetLockinAllowList.selector, address(testProver))
-        );
-        if (withSig) {
-            boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
-        } else {
-            vm.prank(address(testProver));
-            boundlessMarket.lockin(request, clientSignature);
-        }
-
-        // Add them back and run it again.
-        vm.prank(OWNER_WALLET.addr);
-        boundlessMarket.addProverToAppnetAllowlist(address(testProver));
-
-        // Expect the event to be emitted
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestLockedin(request.id, address(testProver));
-        if (withSig) {
-            boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
-        } else {
-            vm.prank(address(testProver));
-            boundlessMarket.lockin(request, clientSignature);
-        }
-
-        // Ensure the balances are correct
-        client.expectBalanceChange(-1 ether);
-        testProver.expectHPBalanceChange(-1 ether);
-
-        // Verify the lockin
-        assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
-
-        expectMarketBalanceUnchanged();
-
-        return (client, request);
-    }
-
-    function testLockinAppnetAllowlist() public returns (Client, ProofRequest memory) {
-        return _testLockinAppnetAllowlist(true);
-    }
-
-    function testLockinWithSigAppnetAllowlist() public returns (Client, ProofRequest memory) {
-        return _testLockinAppnetAllowlist(false);
-    }
-
     enum LockinMethod {
         Lockin,
         LockinWithSig,
@@ -805,11 +749,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfill(1, LockinMethod.None);
     }
 
-    /// Fulfill without lockin should still work even if the prover if not in the allow-list.
-    function testFulfillWithoutLockinNotInAppnetAllowlist() public {
-        // Start by removing the prover from the allow-list.
+    /// Fulfill without lockin should still work even if the prover does not have HP.
+    function testFulfillWithoutLockinNoHP() public {
         vm.prank(OWNER_WALLET.addr);
-        boundlessMarket.removeProverFromAppnetAllowlist(address(testProver));
+        hitPoints.lock(address(testProver), DEFAULT_BALANCE);
 
         _testFulfill(1, LockinMethod.None);
     }

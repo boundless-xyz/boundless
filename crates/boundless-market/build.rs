@@ -75,7 +75,7 @@ fn rewrite_solidity_interface_files() {
 }
 
 fn copy_interfaces() {
-    let target_contracts = ["IBoundlessMarket"];
+    let target_contracts = ["IBoundlessMarket", "IHitPoints"];
 
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -98,8 +98,13 @@ fn copy_interfaces() {
 }
 
 fn copy_artifacts() {
-    let target_contracts =
-        ["BoundlessMarket", "RiscZeroMockVerifier", "RiscZeroSetVerifier", "ERC1967Proxy"];
+    let target_contracts = [
+        "BoundlessMarket",
+        "RiscZeroMockVerifier",
+        "RiscZeroSetVerifier",
+        "ERC1967Proxy",
+        "HitPoints",
+    ];
 
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
