@@ -17,6 +17,7 @@ import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
+import {HitPoints} from "../src/HitPoints.sol";
 
 /// @notice Base contract for the scripts below, providing common context and functions.
 contract RiscZeroManagementScript is Script {
