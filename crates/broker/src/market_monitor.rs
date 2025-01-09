@@ -270,7 +270,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::ConfigLock, db::SqliteDb};
+    use crate::db::SqliteDb;
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -343,9 +343,7 @@ mod tests {
 
         // tx_receipt.inner.logs().into_iter().map(|log| Ok((decode_log(&log)?, log))).collect()
 
-        let config = ConfigLock::default();
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), config).await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
@@ -371,9 +369,7 @@ mod tests {
 
         provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
 
-        let config = ConfigLock::default();
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), config).await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let market_monitor = MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor);

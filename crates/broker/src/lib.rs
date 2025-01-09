@@ -410,12 +410,9 @@ where
         };
 
         let chain_monitor = Arc::new(
-            chain_monitor::ChainMonitorService::new(
-                self.provider.clone(),
-                self.config_watcher.config.clone(),
-            )
-            .await
-            .context("Failed to initialize chain monitor")?,
+            chain_monitor::ChainMonitorService::new(self.provider.clone())
+                .await
+                .context("Failed to initialize chain monitor")?,
         );
 
         let cloned_chain_monitor = chain_monitor.clone();

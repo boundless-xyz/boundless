@@ -350,8 +350,7 @@ mod tests {
         db.add_order(order_id, order).await.unwrap();
         db.set_last_block(1).await.unwrap();
 
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
         let monitor = OrderMonitor::new(
             db.clone(),
@@ -463,8 +462,7 @@ mod tests {
 
         db.set_last_block(0).await.unwrap();
 
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
         let monitor = OrderMonitor::new(
             db.clone(),

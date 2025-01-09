@@ -490,8 +490,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
         let picker = OrderPicker::new(
             db.clone(),
@@ -603,8 +602,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
 
         let picker = OrderPicker::new(
@@ -718,8 +716,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
         let picker = OrderPicker::new(
             db.clone(),
@@ -822,8 +819,7 @@ mod tests {
         let image_id = Digest::from(ECHO_ID);
         let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), config.clone()).await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
         let picker = OrderPicker::new(
             db.clone(),

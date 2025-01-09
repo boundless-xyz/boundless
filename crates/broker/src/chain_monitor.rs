@@ -1,3 +1,4 @@
+use alloy_chains::NamedChain;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -8,15 +9,11 @@ use tokio::sync::RwLock;
 use alloy::{network::Ethereum, providers::Provider, transports::BoxTransport};
 use anyhow::{Context, Result};
 
-use crate::{
-    config::ConfigLock,
-    task::{RetryRes, RetryTask, SupervisorErr},
-};
+use crate::task::{RetryRes, RetryTask, SupervisorErr};
 
 #[derive(Clone)]
 pub struct ChainMonitorService<P> {
     provider: Arc<P>,
-    config: ConfigLock,
     block_number: watch::Sender<u64>,
     update_notifier: Arc<Notify>,
     next_update: Arc<RwLock<Instant>>,
@@ -26,12 +23,11 @@ impl<P> ChainMonitorService<P>
 where
     P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
-    pub async fn new(provider: Arc<P>, config: ConfigLock) -> Result<Self> {
+    pub async fn new(provider: Arc<P>) -> Result<Self> {
         let (block_number, _) = watch::channel(0);
 
         Ok(Self {
             provider,
-            config,
             block_number,
             update_notifier: Arc::new(Notify::new()),
             next_update: Arc::new(RwLock::new(Instant::now())),
@@ -61,14 +57,19 @@ where
 
         Box::pin(async move {
             tracing::info!("Starting ChainMonitor service");
-            let conf_poll_time_ms = {
-                let config = self_clone
-                    .config
-                    .lock_all()
-                    .context("Failed to lock config")
-                    .map_err(SupervisorErr::Fault)?;
-                config.prover.status_poll_ms
-            };
+
+            let chain_id = self_clone
+                .provider
+                .get_chain_id()
+                .await
+                .context("failed to get chain ID")
+                .map_err(SupervisorErr::Recover)?;
+
+            let chain_poll_time = NamedChain::try_from(chain_id)
+                .ok()
+                .and_then(|chain| chain.average_blocktime_hint())
+                .map(|block_time| block_time.mul_f32(0.6))
+                .unwrap_or(Duration::from_secs(2));
 
             loop {
                 // Wait for notification
@@ -85,7 +86,7 @@ where
                 let _ = self_clone.block_number.send_replace(block_number);
 
                 // Set timestamp for next update
-                *next_update = Instant::now() + Duration::from_millis(conf_poll_time_ms);
+                *next_update = Instant::now() + chain_poll_time;
             }
         })
     }
