@@ -435,7 +435,10 @@ contract BoundlessMarket is
 
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
         verifyDelivery(fill, assessorSeal, prover);
-        _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
+        uint96 stake = _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
+        if (stake > 0) {
+            HitPoints(HP_CONTRACT).unlock(prover, stake);
+        }
 
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
@@ -443,13 +446,17 @@ contract BoundlessMarket is
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
         verifyBatchDelivery(fills, assessorSeal, prover);
 
+        uint96 totalStake = 0;
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(fills[i].id, fills[i].requestDigest, prover, fills[i].requirePayment);
+            totalStake += _fulfillVerified(fills[i].id, fills[i].requestDigest, prover, fills[i].requirePayment);
 
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+        }
+        if (totalStake > 0) {
+            HitPoints(HP_CONTRACT).unlock(prover, totalStake);
         }
     }
 
@@ -468,7 +475,7 @@ contract BoundlessMarket is
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
     function _fulfillVerified(uint256 id, bytes32 requestDigest, address assessorProver, bool requirePayment)
-        internal
+        internal returns (uint96 stake)
     {
         address client = BoundlessMarketLib.requestFrom(id);
         uint32 idx = BoundlessMarketLib.requestIndex(id);
@@ -478,6 +485,11 @@ contract BoundlessMarket is
         bytes memory paymentError;
         if (locked) {
             paymentError = _fulfillVerifiedLocked(id, client, idx, requestDigest, fulfilled, assessorProver);
+            if (paymentError.length == 0) {
+                stake = requestLocks[id].stake;
+                // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
+                requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
+            }
         } else {
             paymentError = _fulfillVerifiedUnlocked(id, client, idx, requestDigest, fulfilled, assessorProver);
         }
@@ -530,9 +542,6 @@ contract BoundlessMarket is
             return abi.encodeWithSelector(RequestIsLocked.selector, id);
         }
 
-        // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
-        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
-
         uint96 valueToProver = lock.price;
         if (MARKET_FEE_NUMERATOR > 0) {
             uint256 fee = uint256(lock.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
@@ -540,7 +549,6 @@ contract BoundlessMarket is
             marketBalance += fee;
         }
         accounts[lock.prover].balance += valueToProver;
-        HitPoints(HP_CONTRACT).unlock(lock.prover, lock.stake);
     }
 
     function _fulfillVerifiedUnlocked(
