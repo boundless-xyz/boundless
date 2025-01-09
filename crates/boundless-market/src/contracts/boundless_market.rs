@@ -23,7 +23,7 @@ use alloy::{
     primitives::{Address, Bytes, B256, U256},
     providers::Provider,
     rpc::types::{Log, TransactionReceipt},
-    signers::{Signer, SignerSync},
+    signers::Signer,
     transports::Transport,
 };
 use alloy_sol_types::SolEvent;
@@ -33,7 +33,8 @@ use thiserror::Error;
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, RequestError, TxnErr,
+    TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -50,6 +51,14 @@ pub enum MarketError {
     /// Request has expired.
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
+
+    /// Request malformed.
+    #[error("Request error {0}")]
+    RequestError(#[from] RequestError),
+
+    /// Request address does not match with signer.
+    #[error("Request address does not match with signer {0} - {0}")]
+    AddressMismatch(Address, Address),
 
     /// Proof not found.
     #[error("Proof not found for request in events logs 0x{0:x}")]
@@ -261,13 +270,18 @@ where
     pub async fn submit_request_with_value(
         &self,
         request: &ProofRequest,
-        signer: &(impl Signer + SignerSync),
+        signer: &impl Signer,
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
         tracing::debug!("calling submitRequest({:x?})", request);
+        let client_address = request.client_address()?;
+        if client_address != signer.address() {
+            return Err(MarketError::AddressMismatch(client_address, signer.address()));
+        };
         let chain_id = self.get_chain_id().await.context("failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)
+            .await
             .context("failed to sign request")?;
         let call = self
             .instance
@@ -294,7 +308,7 @@ where
     pub async fn submit_request(
         &self,
         request: &ProofRequest,
-        signer: &(impl Signer + SignerSync),
+        signer: &impl Signer,
     ) -> Result<U256, MarketError> {
         let balance = self
             .balance_of(signer.address())

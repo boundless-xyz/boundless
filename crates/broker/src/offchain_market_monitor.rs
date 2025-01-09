@@ -2,7 +2,10 @@
 //
 // All rights reserved.
 
-use alloy::primitives::U256;
+use alloy::{
+    primitives::U256,
+    signers::{local::PrivateKeySigner, Signer},
+};
 use anyhow::Result;
 use boundless_market::order_stream_client::{order_stream, Client as OrderStreamClient};
 use futures_util::StreamExt;
@@ -15,17 +18,22 @@ use crate::{
 pub struct OffchainMarketMonitor {
     db: DbObj,
     client: OrderStreamClient,
+    signer: PrivateKeySigner,
 }
 
 impl OffchainMarketMonitor {
-    pub fn new(db: DbObj, client: OrderStreamClient) -> Self {
-        Self { db, client }
+    pub fn new(db: DbObj, client: OrderStreamClient, signer: PrivateKeySigner) -> Self {
+        Self { db, client, signer }
     }
 
-    async fn monitor_orders(client: OrderStreamClient, db: DbObj) -> Result<(), SupervisorErr> {
+    async fn monitor_orders(
+        client: OrderStreamClient,
+        signer: &impl Signer,
+        db: DbObj,
+    ) -> Result<(), SupervisorErr> {
         // TODO: retry until it can reestablish a connection.
         tracing::debug!("Connecting to off-chain market: {}", client.base_url);
-        let socket = client.connect_async().await.map_err(SupervisorErr::Fault)?;
+        let socket = client.connect_async(signer).await.map_err(SupervisorErr::Fault)?;
 
         let stream = order_stream(socket);
         tracing::info!("Subscribed to offchain Order stream");
@@ -68,10 +76,11 @@ impl RetryTask for OffchainMarketMonitor {
     fn spawn(&self) -> RetryRes {
         let db = self.db.clone();
         let client = self.client.clone();
+        let signer = self.signer.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up offchain market monitor");
-            Self::monitor_orders(client, db).await?;
+            Self::monitor_orders(client, &signer, db).await?;
             Ok(())
         })
     }

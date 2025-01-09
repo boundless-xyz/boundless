@@ -389,14 +389,15 @@ mod tests {
 
         let client = Client::new(
             Url::parse(&format!("http://{addr}", addr = addr)).unwrap(),
-            ctx.prover_signer.clone(),
             config.market_address,
             app_state.chain_id,
         );
 
         // 2. Requestor submits a request
-        let order =
-            client.submit_request(&new_request(1, &ctx.prover_signer.address())).await.unwrap();
+        let order = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
 
         // 3. Broker receives the request
         let db_order = task.await.unwrap().unwrap();

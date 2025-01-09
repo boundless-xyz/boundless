@@ -18,7 +18,7 @@ runs:
   using: composite
   steps:
     - name: install rust
-      uses: risc0/risc0/.github/actions/rustup@release-1.1
+      uses: risc0/risc0/.github/actions/rustup@release-1.2
 
     - uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
       with:
