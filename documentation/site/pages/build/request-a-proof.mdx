@@ -218,7 +218,8 @@ Off-chain requests will not cost any gas, but does require you to deposit funds 
 The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
 
 #### Submit a Request with a Generic Signer.
-The previous step assumes that the *boundless_client* has a private key signer. If you wish to use a different signer that implements the [alloy::signers::Signer] trait, you can use the following code:
+The previous step assumes that the *boundless_client* has a private key signer. If you wish to use a different signer that implements the [alloy::signers::Signer](https://docs.rs/alloy/latest/alloy/signers/trait.Signer.html) trait,
+you can use the following code:
 
 <StripRustCodeComments>
 ```rust
@@ -234,6 +235,8 @@ let (request_id, expires_at) = boundless_client.submit_request_with_signer(&requ
 </StripRustCodeComments>
 
 Similarly, using `boundless_client.submit_request_offchain_with_signer`, will send your request off-chain through the order-stream service.
+
+> Relevant links: [Signers supported by alloy](https://alloy.rs/examples/wallets/index.html)
 
 ### 7. Wait for the Request to Be Fulfilled
 
