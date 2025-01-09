@@ -225,7 +225,7 @@ The previous step assumes that the *boundless_client* has a private key signer. 
 # use alloy::signers::Signer;
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
-async fn submit_request_with_signer(request: ProofRequest, signer: impl Signer) -> Result<(), Box<dyn std::error::Error>> {
+# async fn submit_request_with_signer(request: ProofRequest, signer: impl Signer) -> Result<(), Box<dyn std::error::Error>> {
 # let boundless_client = ClientBuilder::default().build().await?;
 let (request_id, expires_at) = boundless_client.submit_request_with_signer(&request, &signer).await?;
 # Ok(())
