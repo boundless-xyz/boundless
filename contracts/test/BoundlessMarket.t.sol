@@ -525,8 +525,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector,
-                address(0x0F34d88fC95E5b27063a97f5ad37BBA958399192)
+                IBoundlessMarket.InsufficientBalance.selector, address(0x0F34d88fC95E5b27063a97f5ad37BBA958399192)
             )
         );
         boundlessMarket.lockinWithSig(request, clientSignature, badProverSignature);
