@@ -27,7 +27,7 @@ struct Account {
     /// @dev uint96 is enough to represent the entire token supply of Ether.
     uint96 balance;
     /// @notice 79 pairs of 2 bits representing the status of a request. One bit is for lock-in and
-    /// the other is for fulfillment. The last bit is used to store the account frozen state.
+    /// the other is for fulfillment. The penultimate bit is used to store the account frozen state.
     /// @dev Request state flags are packed into a uint160 to make balance and flags for the first
     /// 79 requests fit in one slot.
     uint160 requestFlagsInitial;
