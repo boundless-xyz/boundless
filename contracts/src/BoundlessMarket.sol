@@ -20,15 +20,16 @@ import {BoundlessMarketLib} from "./BoundlessMarketLib.sol";
 import {HitPoints} from "./HitPoints.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
+uint256 constant FROZEN_BIT_POSITION = 158;
 
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
 struct Account {
     /// @dev uint96 is enough to represent the entire token supply of Ether.
     uint96 balance;
-    /// @notice 80 pairs of 2 bits representing the status of a request. One bit is for lock-in and
-    /// the other is for fulfillment.
+    /// @notice 79 pairs of 2 bits representing the status of a request. One bit is for lock-in and
+    /// the other is for fulfillment. The last bit is used to store the account frozen state.
     /// @dev Request state flags are packed into a uint160 to make balance and flags for the first
-    /// 80 requests fit in one slot.
+    /// 79 requests fit in one slot.
     uint160 requestFlagsInitial;
     /// @dev Flags for the remaining requests are in a storage array. Each uint256 holds the packed
     /// flags for 128 requests, indexed in a linear fashion. Note that this struct cannot be
@@ -39,14 +40,14 @@ struct Account {
 library AccountLib {
     /// Gets the locked and fulfilled request flags for the request with the given index.
     function requestFlags(Account storage account, uint32 idx) internal view returns (bool locked, bool fulfilled) {
-        if (idx < 160 / REQUEST_FLAGS_BITWIDTH) {
+        if (idx < FROZEN_BIT_POSITION / REQUEST_FLAGS_BITWIDTH) {
             uint160 masked = (
                 account.requestFlagsInitial
                     & (uint160((1 << REQUEST_FLAGS_BITWIDTH) - 1) << uint160(idx * REQUEST_FLAGS_BITWIDTH))
             ) >> (idx * REQUEST_FLAGS_BITWIDTH);
             return (masked & uint160(1) != 0, masked & uint160(2) != 0);
         } else {
-            uint256 idxShifted = idx - (160 / REQUEST_FLAGS_BITWIDTH);
+            uint256 idxShifted = idx - (FROZEN_BIT_POSITION / REQUEST_FLAGS_BITWIDTH);
             uint256 packed = account.requestFlagsExtended[(idxShifted * REQUEST_FLAGS_BITWIDTH) / 256];
             uint256 maskShift = (idxShifted * REQUEST_FLAGS_BITWIDTH) % 256;
             uint256 masked = (packed & (uint256((1 << REQUEST_FLAGS_BITWIDTH) - 1) << maskShift)) >> maskShift;
@@ -59,11 +60,11 @@ library AccountLib {
     /// Least significant bit is locked, second-least significant is fulfilled.
     function setRequestFlags(Account storage account, uint32 idx, uint8 flags) internal {
         assert(flags < (1 << REQUEST_FLAGS_BITWIDTH));
-        if (idx < 160 / REQUEST_FLAGS_BITWIDTH) {
+        if (idx < FROZEN_BIT_POSITION / REQUEST_FLAGS_BITWIDTH) {
             uint160 mask = uint160(flags) << uint160(idx * REQUEST_FLAGS_BITWIDTH);
             account.requestFlagsInitial |= mask;
         } else {
-            uint256 idxShifted = idx - (160 / REQUEST_FLAGS_BITWIDTH);
+            uint256 idxShifted = idx - (FROZEN_BIT_POSITION / REQUEST_FLAGS_BITWIDTH);
             uint256 mask = uint256(flags) << (uint256(idxShifted * REQUEST_FLAGS_BITWIDTH) % 256);
             account.requestFlagsExtended[(idxShifted * REQUEST_FLAGS_BITWIDTH) / 256] |= mask;
         }
@@ -75,6 +76,21 @@ library AccountLib {
 
     function setRequestFulfilled(Account storage account, uint32 idx) internal {
         setRequestFlags(account, idx, 2);
+    }
+
+    /// @notice Check if the account is frozen
+    function isFrozen(Account storage account) internal view returns (bool) {
+        return (account.requestFlagsInitial & (uint160(1) << uint160(FROZEN_BIT_POSITION))) != 0;
+    }
+
+    /// @notice Set the account frozen state
+    function setFrozen(Account storage account) internal {
+        account.requestFlagsInitial |= uint160(1) << uint160(FROZEN_BIT_POSITION);
+    }
+
+    /// @notice Clear the account frozen state
+    function clearFrozen(Account storage account) internal {
+        account.requestFlagsInitial &= ~(uint160(1) << uint160(FROZEN_BIT_POSITION));
     }
 }
 
@@ -342,6 +358,9 @@ contract BoundlessMarket is
         uint32 idx,
         address prover
     ) internal {
+        if (accounts[prover].isFrozen()) {
+            revert AccountFrozen(prover);
+        }
         (uint96 price, uint64 deadline) = _validateRequestForLockin(request, client, idx);
 
         // Deduct funds from the client account.
@@ -367,6 +386,21 @@ contract BoundlessMarket is
 
         clientAccount.setRequestLocked(idx);
         emit RequestLockedin(request.id, prover);
+    }
+
+    /// Returns the frozen state of an account.
+    /// @dev A frozen account cannot lock-in requests. To unlock the account, its owner must call
+    /// `unfreezeAccount`.
+    function accountIsFrozen(address addr) external view returns (bool) {
+        return accounts[addr].isFrozen();
+    }
+
+    /// Clear the frozen state of an account.
+    function unfreezeAccount() public {
+        Account storage account = accounts[msg.sender];
+        if (account.isFrozen()) {
+            account.clearFrozen();
+        }
     }
 
     /// Validates the request and records the price to transient storage such that it can be
@@ -617,18 +651,16 @@ contract BoundlessMarket is
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
         }
 
+        // Freeze the prover account.
+        accounts[lock.prover].setFrozen();
+
         // Zero out the lock to prevent the same request from being slashed twice.
         requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
-
-        // Calculate the portion of stake that should be burned vs sent to the client.
-        // NOTE: If the burn fraction is not properly set, this can overflow.
-        // The maximum feasible stake multiplied by the numerator must be less than 2^256.
-        // uint256 burnValue = uint256(lock.stake);
 
         // Return the price to the client.
         accounts[client].balance += lock.price;
 
-        emit ProverSlashed(requestId, uint256(lock.stake), 0);
+        emit ProverSlashed(requestId, lock.prover, uint256(lock.stake));
     }
 
     function imageInfo() external view returns (bytes32, string memory) {

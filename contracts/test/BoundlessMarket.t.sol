@@ -454,6 +454,43 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    function _testLockinAfterFreeze(bool withSig) private {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(2);
+        bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
+
+        // Attempt to lock in the request
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.AccountFrozen.selector, address(testProver)));
+        if (withSig) {
+            boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            boundlessMarket.lockin(request, clientSignature);
+        }
+
+        // Unfreeze the account
+        vm.prank(address(testProver));
+        boundlessMarket.unfreezeAccount();
+
+         // Expect the event to be emitted
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestLockedin(request.id, address(testProver));
+        if (withSig) {
+            boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            boundlessMarket.lockin(request, clientSignature);
+        }
+
+        // Ensure the balances are correct
+        client.expectBalanceChange(-1 ether);
+        testProver.expectHPBalanceChange(-2 ether);
+
+        // Verify the lockin
+        assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
+    }
+
     function testLockinAlreadyLocked() public {
         return _testLockinAlreadyLocked(true);
     }
@@ -1052,13 +1089,22 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFulfillWithoutLockinRepeatIndex() public {
         _testFulfillRepeatIndex(LockinMethod.None);
     }
+    
+    function testFreezeAccount() public {
+        testSlash();
+
+        bool frozen = boundlessMarket.accountIsFrozen(address(testProver));
+        assertTrue(frozen, "Prover account should be frozen");
+
+        _testLockinAfterFreeze(false);
+    }
 
     function testSlash() public returns (Client, ProofRequest memory) {
         (Client client, ProofRequest memory request) = testFulfillExpired();
 
         // Slash the request
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, request.offer.lockinStake, 0);
+        emit IBoundlessMarket.ProverSlashed(request.id, address(testProver), request.offer.lockinStake);
         boundlessMarket.slash(request.id);
 
         // NOTE: This should be updated if not all the stake burned.

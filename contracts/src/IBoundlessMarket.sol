@@ -140,7 +140,7 @@ interface IBoundlessMarket {
     event ProofDelivered(uint256 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is slashed for failing to fulfill a request by the deadline.
     /// Part of the stake is burned, and part is transferred to the client as compensation.
-    event ProverSlashed(uint256 indexed requestId, uint256 stakeBurned, uint256 stakeTransferred);
+    event ProverSlashed(uint256 indexed requestId, address indexed prover, uint256 stakeBurned);
     /// Event when a deposit is made to the market.
     event Deposit(address indexed account, uint256 value);
     /// Event when a withdrawal is made from the market.
@@ -177,6 +177,8 @@ interface IBoundlessMarket {
     error RequestLockFingerprintDoesNotMatch(uint256 requestId, bytes8 provided, bytes8 locked);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
+    /// Account is frozen and cannot perform the requested operation.
+    error AccountFrozen(address account);
     /// A signature did not pass verification checks.
     error InvalidSignature();
     /// Request is malformed or internally inconsistent.
@@ -273,6 +275,14 @@ interface IBoundlessMarket {
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
     function slash(uint256 requestId) external;
+
+    /// Returns the frozen state of an account.
+    /// @dev An account gets frozen after a slash occurred. A frozen account cannot lock-in requests.
+    /// To unlock the account, its owner must call `unfreezeAccount`.
+    function accountIsFrozen(address addr) external view returns (bool);
+
+    /// Clear the frozen state of an account.
+    function unfreezeAccount() external;
 
     /// EIP 712 domain separator getter
     function eip712DomainSeparator() external view returns (bytes32);
