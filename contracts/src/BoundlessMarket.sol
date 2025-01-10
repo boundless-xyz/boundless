@@ -350,14 +350,11 @@ contract BoundlessMarket is
             revert InsufficientBalance(client);
         }
         // Deduct funds from the prover HP account.
-        (uint256 available,) = HitPoints(HP_CONTRACT).balanceOf(prover);
-        if (available < request.offer.lockinStake) {
-            revert InsufficientBalance(prover);
-        }
+        HitPoints(HP_CONTRACT).burn(prover, request.offer.lockinStake);
+
         unchecked {
             clientAccount.balance -= price;
         }
-        HitPoints(HP_CONTRACT).lock(prover, request.offer.lockinStake);
 
         // Record the lock for the request and emit an event.
         requestLocks[request.id] = RequestLock({
@@ -437,7 +434,7 @@ contract BoundlessMarket is
         verifyDelivery(fill, assessorSeal, prover);
         uint96 stake = _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
         if (stake > 0) {
-            HitPoints(HP_CONTRACT).unlock(prover, stake);
+            HitPoints(HP_CONTRACT).mint(prover, stake);
         }
 
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
@@ -456,7 +453,7 @@ contract BoundlessMarket is
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
         if (totalStake > 0) {
-            HitPoints(HP_CONTRACT).unlock(prover, totalStake);
+            HitPoints(HP_CONTRACT).mint(prover, totalStake);
         }
     }
 
@@ -630,9 +627,6 @@ contract BoundlessMarket is
 
         // Return the price to the client.
         accounts[client].balance += lock.price;
-
-        // Deduct HP from the prover.
-        HitPoints(HP_CONTRACT).burn(lock.prover, lock.stake);
 
         emit ProverSlashed(requestId, uint256(lock.stake), 0);
     }

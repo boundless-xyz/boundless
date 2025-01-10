@@ -20,9 +20,7 @@ interface IHitPoints {
     /// @dev Thrown when a caller is not authorized for an operation
     error UnauthorizedCaller();
     /// @dev Thrown when trying to use more tokens than available
-    error InsufficientBalance();
-    /// @dev Thrown when trying to use more locked tokens than available
-    error InsufficientLockedBalance();
+    error InsufficientBalance(address account);
 
     /// @notice Adds a new address to the authorized list
     /// @param account The address to authorize
@@ -37,28 +35,13 @@ interface IHitPoints {
     /// @param amount The amount of tokens to mint
     function mint(address account, uint256 amount) external;
 
-    /// @notice Locks tokens from an account
-    /// @param account The address to lock tokens from
-    /// @param amount The amount of tokens to lock
-    function lock(address account, uint256 amount) external;
-
-    /// @notice Unlocks tokens for an account
-    /// @param account The address to unlock tokens for
-    /// @param amount The amount of tokens to unlock
-    function unlock(address account, uint256 amount) external;
-
     /// @notice Burns locked tokens from an account
     /// @param account The address to burn locked tokens from
     /// @param amount The amount of tokens to burn
     function burn(address account, uint256 amount) external;
 
-    /// @notice Gets both available and locked balances of an account
+    /// @notice Gets the balance of an account
     /// @param account The address to query
-    /// @return available The number of available tokens available
-    /// @return locked The number of tokens currently locked
-    function balanceOf(address account) external view returns (uint256 available, uint256 locked);
-
-    /// @notice Gets the total supply of tokens
-    /// @return The total number of tokens in existence
-    function totalSupply() external view returns (uint256);
+    /// @return balance The number of tokens available
+    function balanceOf(address account) external view returns (uint256 balance);
 }

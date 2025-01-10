@@ -52,12 +52,12 @@ where
     }
 
     /// Returns the balance of an account.
-    pub async fn balance_of(&self, account: Address) -> Result<(U256, U256)> {
+    pub async fn balance_of(&self, account: Address) -> Result<U256> {
         tracing::debug!("Calling balance_of({:?})", account);
         let call = self.instance.balanceOf(account);
 
-        let balance = call.call().await.context("call failed")?;
-        Ok((balance.available, balance.locked))
+        let balance = call.call().await.context("call failed")?.balance;
+        Ok(balance)
     }
 
     /// Add an account to the authorized list.

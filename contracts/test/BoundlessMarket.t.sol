@@ -125,8 +125,7 @@ contract Client {
     }
 
     function snapshotHPBalance() public {
-        (uint256 balance,) = hitPoints.balanceOf(wallet.addr);
-        hpBalanceSnapshot = balance.toInt256();
+        hpBalanceSnapshot = hitPoints.balanceOf(wallet.addr).toInt256();
         //console2.log("%s HP balance at block %d: %d", identifier, block.number, hpBalanceSnapshot.toUint256());
     }
 
@@ -142,8 +141,7 @@ contract Client {
 
     function expectHPBalanceChange(int256 change) public view {
         require(hpBalanceSnapshot != type(int256).max, "balance snapshot is not set");
-        (uint256 balance,) = hitPoints.balanceOf(wallet.addr);
-        int256 newBalance = balance.toInt256();
+        int256 newBalance = hitPoints.balanceOf(wallet.addr).toInt256();
         console2.log("%s HP balance at block %d: %d", identifier, block.number, newBalance.toUint256());
         int256 expectedBalance = hpBalanceSnapshot + change;
         require(expectedBalance >= 0, "expected HP balance cannot be less than 0");
@@ -167,7 +165,6 @@ contract BoundlessMarketTest is Test {
     mapping(uint256 => Client) internal clients;
     Client internal testProver;
     uint256 initialBalance;
-    uint256 initialHPSupply;
 
     uint256 constant DEFAULT_BALANCE = 1000 ether;
 
@@ -215,7 +212,6 @@ contract BoundlessMarketTest is Test {
         }
 
         initialBalance = address(boundlessMarket).balance;
-        initialHPSupply = hitPoints.totalSupply();
 
         // Verify that OWNER is the actual owner
         assertEq(boundlessMarket.owner(), OWNER_WALLET.addr, "OWNER address is not the contract owner after deployment");
@@ -234,11 +230,6 @@ contract BoundlessMarketTest is Test {
         //console2.log("Final balance:", finalBalance);
         require(finalBalance == initialBalance - burnedBalance, "Contract balance changed during the test");
         require(address(0).balance == burnedBalance, "Burned balance did not go to the null address");
-    }
-
-    function expectHPSupplyBurned(uint256 burnedBalance) internal view {
-        uint256 finalHPSupply = hitPoints.totalSupply();
-        require(finalHPSupply == initialHPSupply - burnedBalance, "HP total supply changed during the test");
     }
 
     // Creates a client account with the given index, gives it some Ether, and deposits from Ether in the market.
@@ -558,11 +549,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.deposit{value: DEFAULT_BALANCE}();
 
         vm.prank(address(boundlessMarket));
-        hitPoints.lock(address(testProver), uint128(DEFAULT_BALANCE));
+        hitPoints.burn(address(testProver), uint128(DEFAULT_BALANCE));
 
         // case: prover does not have enough funds to cover for the lockin stake
-        // should revert with "InsufficientBalance(address requester)"
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(testProver)));
+        // should revert with "IHitPoints.InsufficientBalance(address requester)"
+        vm.expectRevert(abi.encodeWithSelector(IHitPoints.InsufficientBalance.selector, address(testProver)));
         if (withSig) {
             boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
         } else {
@@ -751,7 +742,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     /// Fulfill without lockin should still work even if the prover does not have HP.
     function testFulfillWithoutLockinNoHP() public {
         vm.prank(OWNER_WALLET.addr);
-        hitPoints.lock(address(testProver), DEFAULT_BALANCE);
+        hitPoints.burn(address(testProver), DEFAULT_BALANCE);
 
         _testFulfill(1, LockinMethod.None);
     }
@@ -1073,7 +1064,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // NOTE: This should be updated if not all the stake burned.
         client.expectBalanceChange(0 ether);
         testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
-        expectHPSupplyBurned(request.offer.lockinStake);
 
         return (client, request);
     }
@@ -1120,8 +1110,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLocked.selector, request.id));
         boundlessMarket.slash(request.id);
-
-        expectHPSupplyBurned(request.offer.lockinStake);
     }
 
     function testSubmitRootAndFulfillBatch() public {
