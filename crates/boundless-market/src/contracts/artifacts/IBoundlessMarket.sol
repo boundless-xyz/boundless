@@ -202,7 +202,8 @@ interface IBoundlessMarket {
     function requestIsLocked(uint256 requestId) external view returns (bool);
     /// @notice Check if the given request has been fulfilled (i.e. a proof was delivered).
     function requestIsFulfilled(uint256 requestId) external view returns (bool);
-    /// @notice Check if the prover for the given request has been slashed.
+    /// @notice Check if the given request resulted in the prover being slashed 
+    /// (i.e. request was locked in but proof was not delivered)
     function requestIsSlashed(uint256 requestId) external view returns (bool);
     /// @notice Return when the given request expires.
     function requestDeadline(uint256 requestId) external view returns (uint64);
