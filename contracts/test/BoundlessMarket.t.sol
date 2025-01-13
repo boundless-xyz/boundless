@@ -1149,7 +1149,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         } else {
             vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id));
         }
-        
+
         boundlessMarket.slash(request.id);
 
         expectMarketBalanceUnchanged();
