@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -210,7 +210,7 @@ contract BoundlessMarketTest is Test {
         require(boundlessMarket.requestIsFulfilled(requestId), "Request should be fulfilled");
         require(!boundlessMarket.requestIsSlashed(requestId), "Request should not be slashed");
     }
-    
+
     function expectRequestNotFulfilled(uint256 requestId) internal view {
         require(!boundlessMarket.requestIsFulfilled(requestId), "Request should not be fulfilled");
     }
@@ -1112,7 +1112,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.expectBalanceChange(0 ether);
         testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceBurned(request.offer.lockinStake);
-        
+
         // Check that the request is slashed and is not fulfilled
         expectRequestSlashed(request.id);
 

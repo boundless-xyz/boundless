@@ -398,7 +398,7 @@ contract BoundlessMarket is
             (BoundlessMarketLib.requestFrom(request.id), BoundlessMarketLib.requestIndex(request.id));
         (bytes32 requestDigest) = verifyRequestSignature(client, request, clientSignature);
 
-        (uint96 price, ) = _validateRequestForLockin(request, client, idx);
+        (uint96 price,) = _validateRequestForLockin(request, client, idx);
 
         // Record the price in transient storage, such that the order can be filled in this same transaction.
         // NOTE: Since transient storage is cleared at the end of the transaction, we know that this
