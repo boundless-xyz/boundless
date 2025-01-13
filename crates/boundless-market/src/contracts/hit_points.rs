@@ -51,15 +51,6 @@ where
         Self { tx_timeout, ..self }
     }
 
-    /// Returns the balance of an account.
-    pub async fn balance_of(&self, account: Address) -> Result<U256> {
-        tracing::debug!("Calling balance_of({:?})", account);
-        let call = self.instance.balanceOf(account);
-
-        let balance = call.call().await.context("call failed")?.balance;
-        Ok(balance)
-    }
-
     /// Add an account to the authorized list.
     pub async fn authorize(&self, account: Address) -> Result<()> {
         tracing::debug!("Calling authorize({:?})", account);

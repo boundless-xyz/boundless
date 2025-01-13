@@ -12,10 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.20;
 
-/// @title IHitPoints - Interface for the hit points system
-/// @notice Defines the interface for a non-transferrable token with locking mechanism
+struct Permit {
+        address owner;
+        address spender;
+        uint256 value;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
+/// @title IHitPoints ERC20
+/// @notice Interface of a restricted transfer token using ERC20
 interface IHitPoints {
     /// @dev Thrown when a caller is not authorized for an operation
     error UnauthorizedCaller();
@@ -35,13 +43,8 @@ interface IHitPoints {
     /// @param amount The amount of tokens to mint
     function mint(address account, uint256 amount) external;
 
-    /// @notice Burns locked tokens from an account
-    /// @param account The address to burn locked tokens from
+    /// @notice Burns tokens from the caller's account
+    /// @dev The tokens are sent to the zero address and the total supply is unchanged
     /// @param amount The amount of tokens to burn
-    function burn(address account, uint256 amount) external;
-
-    /// @notice Gets the balance of an account
-    /// @param account The address to query
-    /// @return balance The number of tokens available
-    function balanceOf(address account) external view returns (uint256 balance);
+    function burn(uint256 amount) external;
 }

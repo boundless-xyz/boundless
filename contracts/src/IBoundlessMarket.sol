@@ -145,6 +145,10 @@ interface IBoundlessMarket {
     event Deposit(address indexed account, uint256 value);
     /// Event when a withdrawal is made from the market.
     event Withdrawal(address indexed account, uint256 value);
+    /// Event when a HP deposit is made to the market.
+    event HpDeposit(address indexed account, uint256 value);
+    /// Event when a HP withdrawal is made from the market.
+    event HpWithdrawal(address indexed account, uint256 value);
     /// Contract upgraded to a new version.
     event Upgraded(uint64 indexed version);
     /// @notice Event emitted during fulfillment if a request was fulfilled, but payment was not
@@ -192,7 +196,7 @@ interface IBoundlessMarket {
     /// @notice Return when the given request expires.
     function requestDeadline(uint256 requestId) external view returns (uint64);
 
-    /// @notice Deposit Ether into the market to pay for proof and/or lockin stake.
+    /// @notice Deposit Ether into the market to pay for proof.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
     function deposit() external payable;
     /// @notice Withdraw Ether from the market.
@@ -200,6 +204,17 @@ interface IBoundlessMarket {
     function withdraw(uint256 value) external;
     /// @notice Check the deposited balance, in Ether, of the given account.
     function balanceOf(address addr) external view returns (uint256);
+
+    /// @notice Deposit HP into the market to pay for lockin stake.
+    /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
+    function hpDeposit(uint256 amount) external;
+    /// @notice Permit and deposit HP into the market to pay for lockin stake.
+    /// @dev This method requires a valid EIP-712 signature from the account owner.
+    function hpDepositWithPermit(uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    /// @notice Withdraw HP from the market.
+    function hpWithdraw(uint256 value) external;
+    /// @notice Check the deposited balance, in HP, of the given account.
+    function hpBalanceOf(address addr) external view returns (uint256);
 
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.

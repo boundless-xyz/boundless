@@ -16,8 +16,10 @@ import {TestUtils} from "./TestUtils.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 import {IHitPoints} from "../src/IHitPoints.sol";
+import {SigUtils, Permit} from "./SigUtils.sol";
 
 import {
     BoundlessMarket,
@@ -58,7 +60,7 @@ contract Client {
     string public identifier;
     Vm.Wallet public wallet;
     IBoundlessMarket public boundlessMarket;
-    IHitPoints public hitPoints;
+    HitPoints public hitPoints;
 
     /// A snapshot of the client balance for later comparison.
     int256 internal balanceSnapshot;
@@ -66,7 +68,7 @@ contract Client {
 
     receive() external payable {}
 
-    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, IHitPoints _hitPoints) public {
+    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, HitPoints _hitPoints) public {
         identifier = _identifier;
         boundlessMarket = _boundlessMarket;
         hitPoints = _hitPoints;
@@ -119,13 +121,25 @@ contract Client {
         return abi.encodePacked(r, s, v);
     }
 
+    function signPermit(address spender, uint256 amount, uint256 deadline)
+        public
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
+        Permit memory permit =
+            Permit({owner: wallet.addr, spender: spender, value: amount, nonce: 0, deadline: deadline});
+
+        bytes32 digest = SigUtils.getTypedDataHash(permit, hitPoints.DOMAIN_SEPARATOR());
+
+        return VM.sign(wallet, digest);
+    }
+
     function snapshotBalance() public {
         balanceSnapshot = boundlessMarket.balanceOf(wallet.addr).toInt256();
         //console2.log("%s balance at block %d: %d", identifier, block.number, balanceSnapshot.toUint256());
     }
 
     function snapshotHPBalance() public {
-        hpBalanceSnapshot = hitPoints.balanceOf(wallet.addr).toInt256();
+        hpBalanceSnapshot = boundlessMarket.hpBalanceOf(wallet.addr).toInt256();
         //console2.log("%s HP balance at block %d: %d", identifier, block.number, hpBalanceSnapshot.toUint256());
     }
 
@@ -141,7 +155,7 @@ contract Client {
 
     function expectHPBalanceChange(int256 change) public view {
         require(hpBalanceSnapshot != type(int256).max, "balance snapshot is not set");
-        int256 newBalance = hitPoints.balanceOf(wallet.addr).toInt256();
+        int256 newBalance = boundlessMarket.hpBalanceOf(wallet.addr).toInt256();
         console2.log("%s HP balance at block %d: %d", identifier, block.number, newBalance.toUint256());
         int256 expectedBalance = hpBalanceSnapshot + change;
         require(expectedBalance >= 0, "expected HP balance cannot be less than 0");
@@ -159,6 +173,7 @@ contract BoundlessMarketTest is Test {
 
     RiscZeroMockVerifier internal verifier;
     BoundlessMarket internal boundlessMarket;
+
     address internal proxy;
     RiscZeroSetVerifier internal setVerifier;
     HitPoints internal hitPoints;
@@ -183,14 +198,9 @@ contract BoundlessMarketTest is Test {
         hitPoints = new HitPoints(OWNER_WALLET.addr);
 
         // Deploy the UUPS proxy with the implementation
-        UpgradeOptions memory opts;
-        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(setVerifier, ASSESSOR_IMAGE_ID);
-        proxy = Upgrades.deployUUPSProxy(
-            "BoundlessMarket.sol:BoundlessMarket",
-            abi.encodeCall(
-                BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null", address(hitPoints))
-            ),
-            opts
+        proxy = UnsafeUpgrades.deployUUPSProxy(
+            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID)),
+            abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null", address(hitPoints)))
         );
         boundlessMarket = BoundlessMarket(proxy);
 
@@ -204,6 +214,12 @@ contract BoundlessMarketTest is Test {
         hitPoints.mint(address(testProver), DEFAULT_BALANCE);
 
         vm.deal(address(testProver), DEFAULT_BALANCE);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = testProver.signPermit(proxy, DEFAULT_BALANCE, deadline);
+        vm.prank(address(testProver));
+        boundlessMarket.hpDepositWithPermit(DEFAULT_BALANCE, deadline, v, r, s);
+
         testProver.snapshotBalance();
         testProver.snapshotHPBalance();
 
@@ -535,7 +551,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(client));
         boundlessMarket.withdraw(DEFAULT_BALANCE);
 
-        // case: client does not have enough funds to cover for the lockin
+        // case: client does not have enough funds to cover for the price
         // should revert with "InsufficientBalance(address requester)"
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(client)));
         if (withSig) {
@@ -548,12 +564,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(client));
         boundlessMarket.deposit{value: DEFAULT_BALANCE}();
 
-        vm.prank(address(boundlessMarket));
-        hitPoints.burn(address(testProver), uint128(DEFAULT_BALANCE));
+        vm.prank(address(testProver));
+        boundlessMarket.hpWithdraw(DEFAULT_BALANCE);
 
         // case: prover does not have enough funds to cover for the lockin stake
-        // should revert with "IHitPoints.InsufficientBalance(address requester)"
-        vm.expectRevert(abi.encodeWithSelector(IHitPoints.InsufficientBalance.selector, address(testProver)));
+        // should revert with "InsufficientBalance(address requester)"
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(testProver)));
         if (withSig) {
             boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
         } else {
@@ -741,8 +757,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     /// Fulfill without lockin should still work even if the prover does not have HP.
     function testFulfillWithoutLockinNoHP() public {
-        vm.prank(OWNER_WALLET.addr);
-        hitPoints.burn(address(testProver), DEFAULT_BALANCE);
+        vm.prank(address(testProver));
+        boundlessMarket.hpWithdraw(DEFAULT_BALANCE);
 
         _testFulfill(1, LockinMethod.None);
     }
