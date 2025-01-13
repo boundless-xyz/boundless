@@ -15,12 +15,12 @@
 pragma solidity ^0.8.20;
 
 struct Permit {
-        address owner;
-        address spender;
-        uint256 value;
-        uint256 nonce;
-        uint256 deadline;
-    }
+    address owner;
+    address spender;
+    uint256 value;
+    uint256 nonce;
+    uint256 deadline;
+}
 
 /// @title IHitPoints ERC20
 /// @notice Interface of a restricted transfer token using ERC20
