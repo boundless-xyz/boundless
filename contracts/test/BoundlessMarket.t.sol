@@ -1144,7 +1144,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function _testSlashFulfilled(uint32 idx, LockinMethod lockinMethod) private {
         (, ProofRequest memory request) = _testFulfill(idx, lockinMethod);
 
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLocked.selector, request.id));
+        if (lockinMethod == LockinMethod.None) {
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLocked.selector, request.id));
+        } else {
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id));
+        }
+        
         boundlessMarket.slash(request.id);
 
         expectMarketBalanceUnchanged();

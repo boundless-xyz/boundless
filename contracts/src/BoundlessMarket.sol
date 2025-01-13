@@ -620,15 +620,16 @@ contract BoundlessMarket is
         }
         RequestLock memory lock = requestLocks[requestId];
 
-        // If the lock was cleared, the request is already finalized, either by fulfillment or slashing.
-        if (lock.prover == address(0)) {
-            revert RequestIsFulfilled({requestId: requestId});
-        }
-        if (lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0)) {
-            revert RequestIsSlashed({requestId: requestId});
-        }
         if (lock.deadline >= block.number) {
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
+        }
+
+        // If the lock was cleared, the request is already finalized, either by fulfillment or slashing.
+        if (lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0)) {
+            if (lock.prover == address(0)) {
+                revert RequestIsFulfilled({requestId: requestId});
+            }
+            revert RequestIsSlashed({requestId: requestId});
         }
 
         // Zero out deadline, stake and fingerprint in storage to indicate that the request has been slashed.
