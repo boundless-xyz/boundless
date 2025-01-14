@@ -69,9 +69,9 @@ where
     }
 
     /// Mint HitPoints for an account.
-    pub async fn mint(&self, account: Address, amount: U256) -> Result<()> {
-        tracing::debug!("Calling mint({:?}, {})", account, amount);
-        let call = self.instance.mint(account, amount).from(self.caller);
+    pub async fn mint(&self, account: Address, value: U256) -> Result<()> {
+        tracing::debug!("Calling mint({:?}, {})", account, value);
+        let call = self.instance.mint(account, value).from(self.caller);
         let pending_tx = call.send().await.map_err(IHitPointsErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -80,7 +80,7 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Minted {} for {}: {}", amount, account, tx_hash);
+        tracing::info!("Minted {} for {}: {}", value, account, tx_hash);
 
         Ok(())
     }

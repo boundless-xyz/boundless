@@ -145,10 +145,10 @@ interface IBoundlessMarket {
     event Deposit(address indexed account, uint256 value);
     /// Event when a withdrawal is made from the market.
     event Withdrawal(address indexed account, uint256 value);
-    /// Event when a HP deposit is made to the market.
-    event HpDeposit(address indexed account, uint256 value);
-    /// Event when a HP withdrawal is made from the market.
-    event HpWithdrawal(address indexed account, uint256 value);
+    /// Event when a stake deposit is made to the market.
+    event StakeDeposit(address indexed account, uint256 value);
+    /// Event when a stake withdrawal is made from the market.
+    event StakeWithdrawal(address indexed account, uint256 value);
     /// Contract upgraded to a new version.
     event Upgraded(uint64 indexed version);
     /// @notice Event emitted during fulfillment if a request was fulfilled, but payment was not
@@ -205,16 +205,16 @@ interface IBoundlessMarket {
     /// @notice Check the deposited balance, in Ether, of the given account.
     function balanceOf(address addr) external view returns (uint256);
 
-    /// @notice Deposit HP into the market to pay for lockin stake.
+    /// @notice Deposit stake into the market to pay for lockin stake.
     /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
-    function hpDeposit(uint256 amount) external;
-    /// @notice Permit and deposit HP into the market to pay for lockin stake.
+    function stakeDeposit(uint256 value) external;
+    /// @notice Permit and deposit stake into the market to pay for lockin stake.
     /// @dev This method requires a valid EIP-712 signature from the account owner.
-    function hpDepositWithPermit(uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
-    /// @notice Withdraw HP from the market.
-    function hpWithdraw(uint256 value) external;
+    function stakeDepositWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    /// @notice Withdraw stake from the market.
+    function stakeWithdraw(uint256 value) external;
     /// @notice Check the deposited balance, in HP, of the given account.
-    function hpBalanceOf(address addr) external view returns (uint256);
+    function stakeBalanceOf(address addr) external view returns (uint256);
 
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.

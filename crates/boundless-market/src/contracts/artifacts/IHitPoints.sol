@@ -14,21 +14,13 @@
 
 pragma solidity ^0.8.20;
 
-struct Permit {
-        address owner;
-        address spender;
-        uint256 value;
-        uint256 nonce;
-        uint256 deadline;
-    }
-
 /// @title IHitPoints ERC20
 /// @notice Interface of a restricted transfer token using ERC20
 interface IHitPoints {
     /// @dev Thrown when a caller is not authorized for an operation
-    error UnauthorizedCaller();
-    /// @dev Thrown when trying to use more tokens than available
-    error InsufficientBalance(address account);
+    error Unauthorized();
+    /// @dev Thrown when trying to transfer tokens from/to an unauthorized address
+    error UnauthorizedTransfer();
 
     /// @notice Adds a new address to the authorized list
     /// @param account The address to authorize
@@ -40,11 +32,11 @@ interface IHitPoints {
 
     /// @notice Creates new tokens and assigns them to an account
     /// @param account The address that will receive the minted tokens
-    /// @param amount The amount of tokens to mint
-    function mint(address account, uint256 amount) external;
+    /// @param value The `value` amount of tokens to mint
+    function mint(address account, uint256 value) external;
 
     /// @notice Burns tokens from the caller's account
     /// @dev The tokens are sent to the zero address and the total supply is unchanged
-    /// @param amount The amount of tokens to burn
-    function burn(uint256 amount) external;
+    /// @param value The `value` amount of tokens to burn
+    function burn(uint256 value) external;
 }
