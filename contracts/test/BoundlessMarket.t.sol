@@ -21,7 +21,6 @@ import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20P
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 import {IHitPoints} from "../src/IHitPoints.sol";
-import {SigUtils, Permit} from "./SigUtils.sol";
 
 import {
     BoundlessMarket,
@@ -127,17 +126,15 @@ contract Client {
         public
         returns (uint8 v, bytes32 r, bytes32 s)
     {
-        Permit memory permit = Permit({
-            owner: wallet.addr,
-            spender: spender,
-            value: value,
-            nonce: ERC20Permit(address(hitPoints)).nonces(wallet.addr),
-            deadline: deadline
-        });
-
-        bytes32 digest = MessageHashUtils.toTypedDataHash(hitPoints.DOMAIN_SEPARATOR(), SigUtils.getStructHash(permit));
-
-        return VM.sign(wallet, digest);
+        return VM.sign(
+            wallet,
+            MessageHashUtils.toTypedDataHash(
+                hitPoints.DOMAIN_SEPARATOR(),
+                TestUtils.getPermitHash(
+                    wallet.addr, spender, value, ERC20Permit(address(hitPoints)).nonces(wallet.addr), deadline
+                )
+            )
+        );
     }
 
     function snapshotBalance() public {
@@ -445,11 +442,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(testProver));
         boundlessMarket.stakeWithdraw(1);
         testProver.expectStakeBalanceChange(-1);
-        assertEq(
-            hitPoints.balanceOf(address(testProver)),
-            1,
-            "TestProver should have 1 hitPoint after withdrawing"
-        );
+        assertEq(hitPoints.balanceOf(address(testProver)), 1, "TestProver should have 1 hitPoint after withdrawing");
     }
 
     function testSubmitRequest() public {
