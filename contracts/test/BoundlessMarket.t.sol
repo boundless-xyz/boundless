@@ -16,6 +16,8 @@ import {TestUtils} from "./TestUtils.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 import {IHitPoints} from "../src/IHitPoints.sol";
@@ -64,7 +66,7 @@ contract Client {
 
     /// A snapshot of the client balance for later comparison.
     int256 internal balanceSnapshot;
-    int256 internal hpBalanceSnapshot;
+    int256 internal stakeBalanceSnapshot;
 
     receive() external payable {}
 
@@ -121,14 +123,19 @@ contract Client {
         return abi.encodePacked(r, s, v);
     }
 
-    function signPermit(address spender, uint256 amount, uint256 deadline)
+    function signPermit(address spender, uint256 value, uint256 deadline)
         public
         returns (uint8 v, bytes32 r, bytes32 s)
     {
-        Permit memory permit =
-            Permit({owner: wallet.addr, spender: spender, value: amount, nonce: 0, deadline: deadline});
+        Permit memory permit = Permit({
+            owner: wallet.addr,
+            spender: spender,
+            value: value,
+            nonce: ERC20Permit(address(hitPoints)).nonces(wallet.addr),
+            deadline: deadline
+        });
 
-        bytes32 digest = SigUtils.getTypedDataHash(permit, hitPoints.DOMAIN_SEPARATOR());
+        bytes32 digest = MessageHashUtils.toTypedDataHash(hitPoints.DOMAIN_SEPARATOR(), SigUtils.getStructHash(permit));
 
         return VM.sign(wallet, digest);
     }
@@ -138,9 +145,9 @@ contract Client {
         //console2.log("%s balance at block %d: %d", identifier, block.number, balanceSnapshot.toUint256());
     }
 
-    function snapshotHPBalance() public {
-        hpBalanceSnapshot = boundlessMarket.hpBalanceOf(wallet.addr).toInt256();
-        //console2.log("%s HP balance at block %d: %d", identifier, block.number, hpBalanceSnapshot.toUint256());
+    function snapshotStakeBalance() public {
+        stakeBalanceSnapshot = boundlessMarket.stakeBalanceOf(wallet.addr).toInt256();
+        //console2.log("%s stake balance at block %d: %d", identifier, block.number, stakeBalanceSnapshot.toUint256());
     }
 
     function expectBalanceChange(int256 change) public view {
@@ -153,14 +160,14 @@ contract Client {
         require(expectedBalance == newBalance, "balance is not equal to expected value");
     }
 
-    function expectHPBalanceChange(int256 change) public view {
-        require(hpBalanceSnapshot != type(int256).max, "balance snapshot is not set");
-        int256 newBalance = boundlessMarket.hpBalanceOf(wallet.addr).toInt256();
-        console2.log("%s HP balance at block %d: %d", identifier, block.number, newBalance.toUint256());
-        int256 expectedBalance = hpBalanceSnapshot + change;
-        require(expectedBalance >= 0, "expected HP balance cannot be less than 0");
-        console2.log("%s expected HP balance is %d", identifier, expectedBalance.toUint256());
-        require(expectedBalance == newBalance, "HP balance is not equal to expected value");
+    function expectStakeBalanceChange(int256 change) public view {
+        require(stakeBalanceSnapshot != type(int256).max, "stake balance snapshot is not set");
+        int256 newBalance = boundlessMarket.stakeBalanceOf(wallet.addr).toInt256();
+        console2.log("%s stake balance at block %d: %d", identifier, block.number, newBalance.toUint256());
+        int256 expectedBalance = stakeBalanceSnapshot + change;
+        require(expectedBalance >= 0, "expected stake balance cannot be less than 0");
+        console2.log("%s expected stake balance is %d", identifier, expectedBalance.toUint256());
+        require(expectedBalance == newBalance, "stake balance is not equal to expected value");
     }
 }
 
@@ -220,10 +227,10 @@ contract BoundlessMarketTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) = testProver.signPermit(proxy, DEFAULT_BALANCE, deadline);
         vm.prank(address(testProver));
-        boundlessMarket.hpDepositWithPermit(DEFAULT_BALANCE, deadline, v, r, s);
+        boundlessMarket.stakeDepositWithPermit(DEFAULT_BALANCE, deadline, v, r, s);
 
         testProver.snapshotBalance();
-        testProver.snapshotHPBalance();
+        testProver.snapshotStakeBalance();
 
         for (uint256 i = 0; i < 5; i++) {
             getClient(i);
@@ -397,6 +404,54 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    function testStakeDeposit() public {
+        // Mint some tokens
+        vm.prank(OWNER_WALLET.addr);
+        hitPoints.mint(address(testProver), 1);
+
+        // Approve the market to spend the testProver's hitPoints
+        vm.prank(address(testProver));
+        ERC20(address(hitPoints)).approve(address(boundlessMarket), 1);
+
+        // Deposit stake into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.stakeDeposit(1);
+        testProver.expectStakeBalanceChange(1);
+    }
+
+    function testStakeDepositWithPermit() public {
+        // Mint some tokens
+        vm.prank(OWNER_WALLET.addr);
+        hitPoints.mint(address(testProver), 1);
+
+        // Approve the market to spend the testProver's hitPoints
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = testProver.signPermit(address(boundlessMarket), 1, deadline);
+
+        // Deposit stake into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.stakeDepositWithPermit(1, deadline, v, r, s);
+        testProver.expectStakeBalanceChange(1);
+    }
+
+    function testStakeWithdraw() public {
+        // Withdraw stake from the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeWithdrawal(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.stakeWithdraw(1);
+        testProver.expectStakeBalanceChange(-1);
+        assertEq(
+            hitPoints.balanceOf(address(testProver)),
+            1,
+            "TestProver should have 1 hitPoint after withdrawing"
+        );
+    }
+
     function testSubmitRequest() public {
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
@@ -437,7 +492,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Ensure the balances are correct
         client.expectBalanceChange(-1 ether);
-        testProver.expectHPBalanceChange(-1 ether);
+        testProver.expectStakeBalanceChange(-1 ether);
 
         // Verify the lockin
         assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
@@ -567,7 +622,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.deposit{value: DEFAULT_BALANCE}();
 
         vm.prank(address(testProver));
-        boundlessMarket.hpWithdraw(DEFAULT_BALANCE);
+        boundlessMarket.stakeWithdraw(DEFAULT_BALANCE);
 
         // case: prover does not have enough funds to cover for the lockin stake
         // should revert with "InsufficientBalance(address requester)"
@@ -757,10 +812,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfill(1, LockinMethod.None);
     }
 
-    /// Fulfill without lockin should still work even if the prover does not have HP.
-    function testFulfillWithoutLockinNoHP() public {
+    /// Fulfill without lockin should still work even if the prover does not have stake.
+    function testFulfillWithoutLockinNoStake() public {
         vm.prank(address(testProver));
-        boundlessMarket.hpWithdraw(DEFAULT_BALANCE);
+        boundlessMarket.stakeWithdraw(DEFAULT_BALANCE);
 
         _testFulfill(1, LockinMethod.None);
     }
@@ -842,7 +897,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         assertFalse(boundlessMarket.requestIsFulfilled(fill.id), "Request should not have fulfilled status");
 
         // Prover should have their original balance.
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceUnchanged();
     }
 
@@ -865,7 +920,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
 
         // Prover should have their original balance.
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceUnchanged();
 
         return (client, request);
@@ -877,7 +932,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (, ProofRequest memory request) = testFulfillDistinctProversNoPayment();
 
         testProver.snapshotBalance();
-        testProver.snapshotHPBalance();
+        testProver.snapshotStakeBalance();
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
         boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
@@ -886,7 +941,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Prover should now have received back their stake plus payment for the request.
         testProver.expectBalanceChange(1 ether);
-        testProver.expectHPBalanceChange(1 ether);
+        testProver.expectStakeBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
     }
 
@@ -904,7 +959,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
 
         // Prover should have their original balance less the stake amount.
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceUnchanged();
     }
 
@@ -981,7 +1036,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
 
         // Prover should have their original balance less the stake amount.
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceUnchanged();
 
         return (client, request);
@@ -1054,7 +1109,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             testProver.expectBalanceChange(0 ether);
         } else {
             client.expectBalanceChange(-1 ether);
-            testProver.expectHPBalanceChange(-1 ether);
+            testProver.expectStakeBalanceChange(-1 ether);
         }
         expectMarketBalanceUnchanged();
     }
@@ -1081,7 +1136,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // NOTE: This should be updated if not all the stake burned.
         client.expectBalanceChange(0 ether);
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
 
         return (client, request);
     }

@@ -28,7 +28,7 @@ struct Account {
     /// @dev uint96 is enough to represent the entire token supply of Ether.
     uint96 balance;
     /// @dev Balance of HP tokens.
-    uint96 hpBalance;
+    uint96 stakeBalance;
     /// @notice 32 pairs of 2 bits representing the status of a request. One bit is for lock-in and
     /// the other is for fulfillment.
     /// @dev Request state flags are packed into a uint64 to make balance and flags for the first
@@ -146,8 +146,8 @@ contract BoundlessMarket is
     mapping(uint256 => RequestLock) public requestLocks;
     // Mapping of address to account state.
     mapping(address => Account) internal accounts;
-    // Mapping of addresses to frozen HP balances.
-    mapping(address => uint96) internal frozenHpBalances;
+    // Mapping of addresses to frozen stake balances.
+    mapping(address => uint96) internal frozenStakeBalances;
 
     // Using immutable here means the image ID and verifier address is linked to the implementation
     // contract, and not to the proxy. Any deployment that wants to update these values must deploy
@@ -181,7 +181,7 @@ contract BoundlessMarket is
     /// when the fee rate is set to a non-zero value.
     uint256 internal marketBalance;
 
-    address public HP_CONTRACT;
+    address public STAKE_CONTRACT;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, bytes32 assessorId) {
@@ -191,20 +191,20 @@ contract BoundlessMarket is
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, string calldata _imageUrl, address hpContract) external initializer {
+    function initialize(address initialOwner, string calldata _imageUrl, address stakeContract) external initializer {
         __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
         imageUrl = _imageUrl;
-        HP_CONTRACT = hpContract;
+        STAKE_CONTRACT = stakeContract;
     }
 
     function setImageUrl(string calldata _imageUrl) external onlyOwner {
         imageUrl = _imageUrl;
     }
 
-    function setHpContract(address hpContract) external onlyOwner {
-        HP_CONTRACT = hpContract;
+    function setStakeContract(address stakeContract) external onlyOwner {
+        STAKE_CONTRACT = stakeContract;
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
@@ -273,45 +273,45 @@ contract BoundlessMarket is
         return uint256(accounts[addr].balance);
     }
 
-    function _hpDeposit(address from, uint256 amount) internal {
-        bool success = IERC20(HP_CONTRACT).transferFrom(from, address(this), amount);
+    function _stakeDeposit(address from, uint256 value) internal {
+        bool success = IERC20(STAKE_CONTRACT).transferFrom(from, address(this), value);
         if (!success) revert TransferFailed();
 
-        accounts[from].hpBalance += amount.toUint96();
-        emit HpDeposit(from, amount);
+        accounts[from].stakeBalance += value.toUint96();
+        emit StakeDeposit(from, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function hpDeposit(uint256 amount) external {
+    function stakeDeposit(uint256 value) external {
         // Transfer tokens from user to market
-        _hpDeposit(msg.sender, amount);
+        _stakeDeposit(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function hpDepositWithPermit(uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+    function stakeDepositWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         // Transfer tokens from user to market
-        IERC20Permit(HP_CONTRACT).permit(msg.sender, address(this), amount, deadline, v, r, s);
-        _hpDeposit(msg.sender, amount);
+        IERC20Permit(STAKE_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s);
+        _stakeDeposit(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function hpWithdraw(uint256 value) public {
-        if (accounts[msg.sender].hpBalance < value.toUint96()) {
+    function stakeWithdraw(uint256 value) public {
+        if (accounts[msg.sender].stakeBalance < value.toUint96()) {
             revert InsufficientBalance(msg.sender);
         }
         unchecked {
-            accounts[msg.sender].hpBalance -= value.toUint96();
+            accounts[msg.sender].stakeBalance -= value.toUint96();
         }
         // Transfer tokens from market to user
-        bool success = IERC20(HP_CONTRACT).transfer(msg.sender, value);
+        bool success = IERC20(STAKE_CONTRACT).transfer(msg.sender, value);
         if (!success) revert TransferFailed();
 
-        emit HpWithdrawal(msg.sender, value);
+        emit StakeWithdrawal(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function hpBalanceOf(address addr) public view returns (uint256) {
-        return uint256(accounts[addr].hpBalance);
+    function stakeBalanceOf(address addr) public view returns (uint256) {
+        return uint256(accounts[addr].stakeBalance);
     }
 
     // NOTE: We could verify the client signature here, but this adds about 18k gas (with a naive
@@ -397,13 +397,13 @@ contract BoundlessMarket is
             revert InsufficientBalance(client);
         }
         Account storage proverAccount = accounts[prover];
-        if (proverAccount.hpBalance < request.offer.lockinStake.toUint96()) {
+        if (proverAccount.stakeBalance < request.offer.lockinStake.toUint96()) {
             revert InsufficientBalance(prover);
         }
 
         unchecked {
             clientAccount.balance -= price;
-            proverAccount.hpBalance -= request.offer.lockinStake.toUint96();
+            proverAccount.stakeBalance -= request.offer.lockinStake.toUint96();
         }
 
         // Record the lock for the request and emit an event.
@@ -588,7 +588,7 @@ contract BoundlessMarket is
         }
         Account storage proverAccount = accounts[lock.prover];
         proverAccount.balance += valueToProver;
-        proverAccount.hpBalance += lock.stake;
+        proverAccount.stakeBalance += lock.stake;
     }
 
     function _fulfillVerifiedUnlocked(
@@ -667,7 +667,7 @@ contract BoundlessMarket is
         // The maximum feasible stake multiplied by the numerator must be less than 2^256.
         uint256 burnValue = uint256(lock.stake);
         // Transfer tokens from market to address zero.
-        IHitPoints(HP_CONTRACT).burn(burnValue);
+        IHitPoints(STAKE_CONTRACT).burn(burnValue);
         // Return the price to the client.
         accounts[client].balance += lock.price;
 

@@ -17,6 +17,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+
 import "./IHitPoints.sol";
 
 /// @title HitPoints ERC20
@@ -24,9 +25,6 @@ import "./IHitPoints.sol";
 contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
     // Mapping for operators who can mint and can receive/send tokens from/to anyone
     mapping(address => bool) public isAuthorized;
-
-    error Unauthorized();
-    error UnauthorizedTransfer();
 
     constructor(address initialOwner) ERC20("HitPoints", "HP") ERC20Permit("HitPoints") Ownable(initialOwner) {
         isAuthorized[initialOwner] = true;
@@ -48,17 +46,17 @@ contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
     }
 
     /// @inheritdoc IHitPoints
-    function mint(address account, uint256 amount) external onlyAuthorized {
-        _mint(account, amount);
+    function mint(address account, uint256 value) external onlyAuthorized {
+        _mint(account, value);
     }
 
     /// @inheritdoc IHitPoints
-    function burn(uint256 amount) external {
-        _burn(msg.sender, amount);
+    function burn(uint256 value) external {
+        _burn(msg.sender, value);
     }
 
-    function _update(address from, address to, uint256 amount) internal virtual override {
-        super._update(from, to, amount);
+    function _update(address from, address to, uint256 value) internal virtual override {
+        super._update(from, to, value);
 
         // Allow mint and burn operations
         if (from == address(0)) return;
