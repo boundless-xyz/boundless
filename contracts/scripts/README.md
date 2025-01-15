@@ -135,7 +135,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!NOTE]
    > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
 
-4. Update the stake-token field with the HitPoints address of the newly deployed contract to the `deployment.toml` file.
+3. Update the stake-token field with the HitPoints address of the newly deployed contract to the `deployment.toml` file.
 
 ### Deploy the market contract
 
