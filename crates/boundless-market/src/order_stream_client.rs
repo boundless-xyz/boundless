@@ -171,7 +171,6 @@ impl AuthMsg {
             domain: Some(domain.parse().context("Invalid domain")?),
             nonce: Some(nonce.into()),
             timestamp: Some(OffsetDateTime::now_utc()),
-            ..Default::default()
         };
 
         self.message
@@ -294,7 +293,7 @@ impl Client {
             Ok(res) => res,
             Err(tokio_tungstenite::tungstenite::Error::Http(err)) => {
                 let http_err = if let Some(http_body) = err.body() {
-                    String::from_utf8_lossy(&http_body)
+                    String::from_utf8_lossy(http_body)
                 } else {
                     "Empty http error body".into()
                 };

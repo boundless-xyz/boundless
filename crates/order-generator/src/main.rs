@@ -190,7 +190,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                     .with_timeout(args.timeout),
             );
 
-        let (request_id, _) = if let Some(_) = args.order_stream_url {
+        let (request_id, _) = if args.order_stream_url.is_some() {
             boundless_client.submit_request_offchain(&request).await?
         } else {
             boundless_client.submit_request(&request).await?
