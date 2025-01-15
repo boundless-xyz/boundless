@@ -294,4 +294,7 @@ interface IBoundlessMarket {
 
     /// Returns the assessor imageId and its url.
     function imageInfo() external view returns (bytes32, string memory);
+
+    /// Returns the address of the token used for stake deposits.
+    function stakeTokenAddress() external view returns (address);
 }

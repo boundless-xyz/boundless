@@ -19,16 +19,20 @@ use std::{
 };
 
 use alloy::{
+    consensus::BlockHeader,
+    eips::BlockNumberOrTag,
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
     providers::Provider,
-    rpc::types::{Log, TransactionReceipt},
+    rpc::types::{BlockTransactionsKind, Log, TransactionReceipt},
     signers::Signer,
     transports::Transport,
 };
 use alloy_sol_types::SolEvent;
 use anyhow::{anyhow, Context, Result};
 use thiserror::Error;
+
+use crate::contracts::stake::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
@@ -991,6 +995,121 @@ where
         self.chain_id.store(id, Ordering::Relaxed);
         Ok(id)
     }
+
+    /// Approve a spender to spend `value` amount of HitPoints on behalf of the caller.
+    pub async fn approve_stake_deposit(&self, value: U256) -> Result<()> {
+        let spender = *self.instance.address();
+        tracing::debug!("Calling approve({:?}, {})", spender, value);
+        let token_address = self
+            .instance
+            .stakeTokenAddress()
+            .call()
+            .await
+            .context("stakeTokenAddress call failed")?
+            ._0;
+        let contract = IERC20::new(token_address, self.instance.provider());
+        let call = contract.approve(spender, value).from(self.caller);
+        let pending_tx = call.send().await.map_err(IHitPointsErrors::decode_error)?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Approved {} to spend {}: {}", spender, value, tx_hash);
+
+        Ok(())
+    }
+
+    /// Deposit stake into the market to pay for lockin stake.
+    /// Before calling this method, the account owner must approve
+    /// the Boundless market contract as an allowed spender by calling `approve_stake_deposit`.    
+    pub async fn stake_deposit(&self, value: U256) -> Result<(), MarketError> {
+        tracing::debug!("Calling stakeDeposit({})", value);
+        let call = self.instance.stakeDeposit(value);
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+        tracing::debug!("Submitted stake deposit {}", tx_hash);
+        Ok(())
+    }
+
+    /// Permit and deposit stake into the market to pay for lockin stake.
+    pub async fn stake_deposit_with_permit(
+        &self,
+        value: U256,
+        signer: &impl Signer,
+    ) -> Result<(), MarketError> {
+        let token_address = self
+            .instance
+            .stakeTokenAddress()
+            .call()
+            .await
+            .context("stakeTokenAddress call failed")?
+            ._0;
+        let contract = IERC20Permit::new(token_address, self.instance.provider());
+        let call = contract.nonces(self.caller());
+        let nonce = call.call().await.map_err(IHitPointsErrors::decode_error)?._0;
+        let block = self
+            .instance
+            .provider()
+            .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+            .await
+            .context("failed to get block")?
+            .context("failed to get block")?;
+        let deadline = U256::from(block.header.timestamp() + 1000);
+        let permit = Permit {
+            owner: self.caller(),
+            spender: *self.instance().address(),
+            value,
+            nonce,
+            deadline,
+        };
+        tracing::debug!("Permit: {:?}", permit);
+        let chain_id = self.get_chain_id().await?;
+        let sig = permit.sign(signer, token_address, chain_id).await?.as_bytes();
+        let r = B256::from_slice(&sig[..32]);
+        let s = B256::from_slice(&sig[32..64]);
+        let v: u8 = sig[64];
+        tracing::debug!("Calling stakeDepositWithPermit({})", value);
+        let call = self.instance.stakeDepositWithPermit(value, deadline, v, r, s);
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+        tracing::debug!("Submitted stake deposit {}", tx_hash);
+        Ok(())
+    }
+
+    /// Withdraw stake from the market.
+    pub async fn stake_withdraw(&self, value: U256) -> Result<(), MarketError> {
+        tracing::debug!("Calling stakeWithdraw({})", value);
+        let call = self.instance.stakeWithdraw(value);
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting stake withdraw tx {}", pending_tx.tx_hash());
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+        tracing::debug!("Submitted stake withdraw {}", tx_hash);
+        Ok(())
+    }
+
+    /// Returns the deposited balance, in HP, of the given account.
+    pub async fn stake_balance_of(&self, account: Address) -> Result<U256, MarketError> {
+        tracing::debug!("Calling stakeBalanceOf({})", account);
+        let balance = self.instance.stakeBalanceOf(account).call().await.context("call failed")?._0;
+        Ok(balance)
+    }
 }
 
 #[cfg(test)]
@@ -1254,7 +1373,8 @@ mod tests {
         let customer_sig = log.inner.data.clientSignature;
 
         // Deposit prover balances
-        ctx.prover_market.deposit(parse_ether("1").unwrap()).await.unwrap();
+        let deposit = U256::from(100);
+        ctx.prover_market.stake_deposit_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
@@ -1318,7 +1438,8 @@ mod tests {
         let customer_sig = log.inner.data.clientSignature;
 
         // Deposit prover balances
-        ctx.prover_market.deposit(parse_ether("1").unwrap()).await.unwrap();
+        let deposit = U256::from(100);
+        ctx.prover_market.stake_deposit_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
@@ -1444,7 +1565,8 @@ mod tests {
         let customer_sig = log.inner.data.clientSignature;
 
         // Deposit prover balances
-        ctx.prover_market.deposit(parse_ether("1").unwrap()).await.unwrap();
+        let deposit = U256::from(100);
+        ctx.prover_market.stake_deposit_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();

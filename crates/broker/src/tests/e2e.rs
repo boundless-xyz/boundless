@@ -34,7 +34,7 @@ async fn simple_e2e() {
         .unwrap();
 
     // Deposit prover / customer balances
-    ctx.prover_market.deposit(utils::parse_ether("2").unwrap()).await.unwrap();
+    ctx.prover_market.stake_deposit_with_permit(U256::from(100), &ctx.prover_signer).await.unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     // Stand up a local http server for image delivery

@@ -782,7 +782,10 @@ mod tests {
             TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
                 .await
                 .unwrap();
-        ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
+        ctx.prover_market
+            .stake_deposit_with_permit(U256::from(100), &ctx.prover_signer)
+            .await
+            .unwrap();
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),

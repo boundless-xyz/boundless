@@ -95,9 +95,9 @@ pub struct Args {
 
     /// Pre deposit amount
     ///
-    /// Amount of ETH to pre-deposit into the contract for staking eg: 0.1 ETH
+    /// Amount of HP tokens to pre-deposit into the contract for staking eg: 100
     #[clap(short, long)]
-    pub deposit_amount: Option<String>,
+    pub deposit_amount: Option<U256>,
 
     /// RPC HTTP retry rate limit max retry
     ///

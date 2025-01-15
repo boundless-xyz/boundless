@@ -14,7 +14,10 @@
 
 use std::time::Duration;
 
-use crate::contracts::IHitPoints::{self, IHitPointsErrors};
+use crate::contracts::{
+    stake::IERC20,
+    IHitPoints::{self, IHitPointsErrors},
+};
 
 use super::{IHitPoints::IHitPointsInstance, TXN_CONFIRM_TIMEOUT};
 use alloy::{network::Ethereum, primitives::Address, providers::Provider, transports::Transport};
@@ -83,5 +86,14 @@ where
         tracing::info!("Minted {} for {}: {}", value, account, tx_hash);
 
         Ok(())
+    }
+
+    /// Returns the balance of an account.
+    pub async fn balance_of(&self, account: Address) -> Result<U256> {
+        tracing::debug!("Calling balanceOf({:?})", account);
+        let contract = IERC20::new(*self.instance.address(), self.instance.provider());
+        let call = contract.balanceOf(account).from(self.caller);
+        let balance = call.call().await.map_err(IHitPointsErrors::decode_error)?;
+        return Ok(balance._0);
     }
 }

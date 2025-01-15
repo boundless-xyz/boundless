@@ -225,7 +225,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::Address,
+        primitives::{Address, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
@@ -269,6 +269,10 @@ mod tests {
             TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
                 .await
                 .unwrap();
+        ctx.prover_market
+            .stake_deposit_with_permit(U256::from(100), &ctx.prover_signer)
+            .await
+            .unwrap();
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
 
         // Start a broker

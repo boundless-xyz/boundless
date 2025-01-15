@@ -697,6 +697,11 @@ contract BoundlessMarket is
             revert(add(err, 0x20), mload(err))
         }
     }
+
+    /// @inheritdoc IBoundlessMarket
+    function stakeTokenAddress() external view returns (address) {
+        return STAKE_CONTRACT;
+    }
 }
 
 // Functions copied from OZ MerkleProof library to allow building the Merkle tree above.

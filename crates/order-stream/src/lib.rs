@@ -360,7 +360,10 @@ mod tests {
                 .await
                 .unwrap();
 
-        ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
+        ctx.prover_market
+            .stake_deposit_with_permit(U256::from(100), &ctx.prover_signer)
+            .await
+            .unwrap();
 
         let config = Config {
             rpc_url,
