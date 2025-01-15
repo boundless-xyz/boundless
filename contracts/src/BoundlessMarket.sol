@@ -77,6 +77,9 @@ library AccountLib {
     }
 }
 
+/// @notice Stores details about a request that has been locked, including the prover that locked it and the stake.
+/// @dev When a request is slashed, the deadline, stake, and fingerprint fields are cleared, but the
+/// prover and price fields are left untouched. When a request is fulfilled, the entire object is cleared.
 struct RequestLock {
     address prover;
     uint96 price;
@@ -98,8 +101,6 @@ struct RequestLock {
     /// construction by the private key holder, which would be pointless, or accidental collision.
     /// With 64-bits, a client that constructed 65k signed requests with the same request ID would
     /// have a roughly 2^-32 chance of accidental collision, which is negligible in this scenario.
-    /// When a request is slashed, the deadline, stake, and fingerprint fields are cleared, but the
-    /// prover and price fields are left untouched.
     bytes8 fingerprint;
 }
 
@@ -224,6 +225,8 @@ contract BoundlessMarket is
             revert InvalidRequest();
         }
         RequestLock memory lock = requestLocks[id];
+        // Note, a stake and fingerprint of zero can exist on a valid request, however a deadline of zero cannot as
+        // the request would be immediately expired, and expired requests cannot be locked in.
         return lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
     }
 
@@ -633,13 +636,10 @@ contract BoundlessMarket is
         }
 
         // Zero out deadline, stake and fingerprint in storage to indicate that the request has been slashed.
-        // They are stored in the second slot of the requestLock object, so calculate that slot, and clear it.
-        assembly {
-            let ptr := mload(0x40)
-            mstore(ptr, requestId)
-            mstore(add(ptr, 0x20), requestLocks.slot)
-            sstore(add(keccak256(ptr, 0x40), 1), 0)
-        }
+        RequestLock storage lockStorage = requestLocks[requestId];
+        lockStorage.deadline = 0;
+        lockStorage.stake = 0;
+        lockStorage.fingerprint = bytes8(0);
 
         // Calculate the portion of stake that should be burned vs sent to the client.
         // NOTE: If the burn fraction is not properly set, this can overflow.

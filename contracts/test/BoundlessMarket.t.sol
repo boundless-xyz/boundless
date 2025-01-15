@@ -224,7 +224,7 @@ contract BoundlessMarketTest is Test {
         require(!boundlessMarket.requestIsSlashed(requestId), "Request should be slashed");
     }
 
-    // Creates a client account with the given index, gives it some Ether, and deposits from Ether in the market.
+    // Creates a client account with the given index, gives it some Ether, and deposits Ether in the market.
     function getClient(uint256 index) internal returns (Client) {
         if (address(clients[index]) != address(0)) {
             return clients[index];
@@ -1117,6 +1117,41 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectRequestSlashed(request.id);
 
         return (client, request);
+    }
+
+    function testSlashRequestFulfilledByThirdParty() public {
+        // Handles case where a third-party that was not locked fulfills the request, and the locked prover does not.
+        // Once the locked prover is slashed, we expect the request to be both "fulfilled" and "slashed"
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+
+        // Lock to "testProver" but "prover2" fulfills the request
+        boundlessMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
+
+        Client testProver2 = getClient(2);
+        (address testProver2Address,,,) = testProver2.wallet();
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, testProver2Address);
+        fill.requirePayment = false;
+
+        boundlessMarket.fulfill(fill, assessorSeal, testProver2Address);
+        expectRequestFulfilled(fill.id);
+
+        vm.roll(request.offer.deadline() + 1);
+
+        // Slash the original prover that locked and didnt deliver
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.ProverSlashed(request.id, request.offer.lockinStake, 0);
+        boundlessMarket.slash(request.id);
+
+        client.expectBalanceChange(0 ether);
+        testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver2.expectBalanceChange(0 ether);
+
+        expectMarketBalanceBurned(request.offer.lockinStake);
+
+        // We expect the request is both slashed and fulfilled
+        require(boundlessMarket.requestIsSlashed(request.id), "Request should be slashed");
+        require(boundlessMarket.requestIsFulfilled(request.id), "Request should be fulfilled");
     }
 
     function testSlashInvalidRequestID() public {
