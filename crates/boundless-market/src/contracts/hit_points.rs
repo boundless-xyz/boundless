@@ -14,13 +14,17 @@
 
 use std::time::Duration;
 
-use crate::contracts::IHitPoints::{self, IHitPointsErrors};
+use crate::contracts::{
+    token::IERC20,
+    IHitPoints::{self, IHitPointsErrors},
+};
 
 use super::{IHitPoints::IHitPointsInstance, TXN_CONFIRM_TIMEOUT};
 use alloy::{network::Ethereum, primitives::Address, providers::Provider, transports::Transport};
 use alloy_primitives::U256;
 use anyhow::{Context, Result};
 
+const DEFAULT_ALLOWANCE: u32 = 100;
 /// HitPointsService provides a high-level interface to the HitPoints contract.
 #[derive(Clone)]
 pub struct HitPointsService<T, P> {
@@ -51,15 +55,6 @@ where
         Self { tx_timeout, ..self }
     }
 
-    /// Returns the balance of an account.
-    pub async fn balance_of(&self, account: Address) -> Result<U256> {
-        tracing::debug!("Calling balance_of({:?})", account);
-        let call = self.instance.balanceOf(account);
-
-        let balance = call.call().await.context("call failed")?.balance;
-        Ok(balance)
-    }
-
     /// Add an account to the authorized list.
     pub async fn authorize(&self, account: Address) -> Result<()> {
         tracing::debug!("Calling authorize({:?})", account);
@@ -78,9 +73,9 @@ where
     }
 
     /// Mint HitPoints for an account.
-    pub async fn mint(&self, account: Address, amount: U256) -> Result<()> {
-        tracing::debug!("Calling mint({:?}, {})", account, amount);
-        let call = self.instance.mint(account, amount).from(self.caller);
+    pub async fn mint(&self, account: Address, value: U256) -> Result<()> {
+        tracing::debug!("Calling mint({:?}, {})", account, value);
+        let call = self.instance.mint(account, value).from(self.caller);
         let pending_tx = call.send().await.map_err(IHitPointsErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -89,8 +84,22 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Minted {} for {}: {}", amount, account, tx_hash);
+        tracing::info!("Minted {} for {}: {}", value, account, tx_hash);
 
         Ok(())
     }
+
+    /// Returns the balance of an account.
+    pub async fn balance_of(&self, account: Address) -> Result<U256> {
+        tracing::debug!("Calling balanceOf({:?})", account);
+        let contract = IERC20::new(*self.instance.address(), self.instance.provider());
+        let call = contract.balanceOf(account).from(self.caller);
+        let balance = call.call().await.map_err(IHitPointsErrors::decode_error)?;
+        return Ok(balance._0);
+    }
+}
+
+/// Returns the default allowance.
+pub fn default_allowance() -> U256 {
+    U256::from(DEFAULT_ALLOWANCE)
 }

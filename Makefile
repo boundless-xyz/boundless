@@ -12,7 +12,7 @@ RUST_LOG = info,broker=debug,boundless_market=debug
 DEPLOYER_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ADMIN_ADDRESS = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-DEPOSIT_AMOUNT = 10
+DEPOSIT_AMOUNT = 100
 
 LOGS_DIR = logs
 PID_FILE = $(LOGS_DIR)/devnet.pid
@@ -58,7 +58,7 @@ devnet-up: check-deps
 		echo "Minting HP for prover address."; \
         cast send --private-key $(DEPLOYER_PRIVATE_KEY) \
             --rpc-url http://localhost:$(ANVIL_PORT) \
-            $$HIT_POINTS_ADDRESS "mint(address, uint256)" $(ADMIN_ADDRESS) 100; \
+            $$HIT_POINTS_ADDRESS "mint(address, uint256)" $(ADMIN_ADDRESS) $(DEPOSIT_AMOUNT); \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \
 			--private-key $(PRIVATE_KEY) \

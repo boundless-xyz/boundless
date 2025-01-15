@@ -16,6 +16,9 @@ import {TestUtils} from "./TestUtils.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 import {IHitPoints} from "../src/IHitPoints.sol";
 
@@ -58,18 +61,18 @@ contract Client {
     string public identifier;
     Vm.Wallet public wallet;
     IBoundlessMarket public boundlessMarket;
-    IHitPoints public hitPoints;
+    HitPoints public stakeToken;
 
     /// A snapshot of the client balance for later comparison.
     int256 internal balanceSnapshot;
-    int256 internal hpBalanceSnapshot;
+    int256 internal stakeBalanceSnapshot;
 
     receive() external payable {}
 
-    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, IHitPoints _hitPoints) public {
+    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, HitPoints _stakeToken) public {
         identifier = _identifier;
         boundlessMarket = _boundlessMarket;
-        hitPoints = _hitPoints;
+        stakeToken = _stakeToken;
         wallet = VM.createWallet(identifier);
         balanceSnapshot = type(int256).max;
     }
@@ -119,14 +122,29 @@ contract Client {
         return abi.encodePacked(r, s, v);
     }
 
+    function signPermit(address spender, uint256 value, uint256 deadline)
+        public
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
+        return VM.sign(
+            wallet,
+            MessageHashUtils.toTypedDataHash(
+                stakeToken.DOMAIN_SEPARATOR(),
+                TestUtils.getPermitHash(
+                    wallet.addr, spender, value, ERC20Permit(address(stakeToken)).nonces(wallet.addr), deadline
+                )
+            )
+        );
+    }
+
     function snapshotBalance() public {
         balanceSnapshot = boundlessMarket.balanceOf(wallet.addr).toInt256();
         //console2.log("%s balance at block %d: %d", identifier, block.number, balanceSnapshot.toUint256());
     }
 
-    function snapshotHPBalance() public {
-        hpBalanceSnapshot = hitPoints.balanceOf(wallet.addr).toInt256();
-        //console2.log("%s HP balance at block %d: %d", identifier, block.number, hpBalanceSnapshot.toUint256());
+    function snapshotStakeBalance() public {
+        stakeBalanceSnapshot = boundlessMarket.balanceOfStake(wallet.addr).toInt256();
+        //console2.log("%s stake balance at block %d: %d", identifier, block.number, stakeBalanceSnapshot.toUint256());
     }
 
     function expectBalanceChange(int256 change) public view {
@@ -139,14 +157,14 @@ contract Client {
         require(expectedBalance == newBalance, "balance is not equal to expected value");
     }
 
-    function expectHPBalanceChange(int256 change) public view {
-        require(hpBalanceSnapshot != type(int256).max, "balance snapshot is not set");
-        int256 newBalance = hitPoints.balanceOf(wallet.addr).toInt256();
-        console2.log("%s HP balance at block %d: %d", identifier, block.number, newBalance.toUint256());
-        int256 expectedBalance = hpBalanceSnapshot + change;
-        require(expectedBalance >= 0, "expected HP balance cannot be less than 0");
-        console2.log("%s expected HP balance is %d", identifier, expectedBalance.toUint256());
-        require(expectedBalance == newBalance, "HP balance is not equal to expected value");
+    function expectStakeBalanceChange(int256 change) public view {
+        require(stakeBalanceSnapshot != type(int256).max, "stake balance snapshot is not set");
+        int256 newBalance = boundlessMarket.balanceOfStake(wallet.addr).toInt256();
+        console2.log("%s stake balance at block %d: %d", identifier, block.number, newBalance.toUint256());
+        int256 expectedBalance = stakeBalanceSnapshot + change;
+        require(expectedBalance >= 0, "expected stake balance cannot be less than 0");
+        console2.log("%s expected stake balance is %d", identifier, expectedBalance.toUint256());
+        require(expectedBalance == newBalance, "stake balance is not equal to expected value");
     }
 }
 
@@ -159,9 +177,10 @@ contract BoundlessMarketTest is Test {
 
     RiscZeroMockVerifier internal verifier;
     BoundlessMarket internal boundlessMarket;
+
     address internal proxy;
     RiscZeroSetVerifier internal setVerifier;
-    HitPoints internal hitPoints;
+    HitPoints internal stakeToken;
     mapping(uint256 => Client) internal clients;
     Client internal testProver;
     uint256 initialBalance;
@@ -180,32 +199,33 @@ contract BoundlessMarketTest is Test {
         // Deploy the implementation contracts
         verifier = new RiscZeroMockVerifier(bytes4(0));
         setVerifier = new RiscZeroSetVerifier(verifier, SET_BUILDER_IMAGE_ID, "https://set-builder.dev.null");
-        hitPoints = new HitPoints(OWNER_WALLET.addr);
+        stakeToken = new HitPoints(OWNER_WALLET.addr);
 
         // Deploy the UUPS proxy with the implementation
-        UpgradeOptions memory opts;
-        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(setVerifier, ASSESSOR_IMAGE_ID);
-        proxy = Upgrades.deployUUPSProxy(
-            "BoundlessMarket.sol:BoundlessMarket",
-            abi.encodeCall(
-                BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null", address(hitPoints))
-            ),
-            opts
+        proxy = UnsafeUpgrades.deployUUPSProxy(
+            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(stakeToken))),
+            abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
         );
         boundlessMarket = BoundlessMarket(proxy);
 
-        hitPoints.authorize(OWNER_WALLET.addr);
-        hitPoints.authorize(proxy);
+        stakeToken.authorize(OWNER_WALLET.addr);
+        stakeToken.authorize(proxy);
         vm.stopPrank();
 
         testProver = createClientContract("PROVER");
 
         vm.prank(OWNER_WALLET.addr);
-        hitPoints.mint(address(testProver), DEFAULT_BALANCE);
+        stakeToken.mint(address(testProver), DEFAULT_BALANCE);
 
         vm.deal(address(testProver), DEFAULT_BALANCE);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = testProver.signPermit(proxy, DEFAULT_BALANCE, deadline);
+        vm.prank(address(testProver));
+        boundlessMarket.depositStakeWithPermit(DEFAULT_BALANCE, deadline, v, r, s);
+
         testProver.snapshotBalance();
-        testProver.snapshotHPBalance();
+        testProver.snapshotStakeBalance();
 
         for (uint256 i = 0; i < 5; i++) {
             getClient(i);
@@ -257,7 +277,7 @@ contract BoundlessMarketTest is Test {
         address payable clientAddress = payable(vm.createWallet(identifier).addr);
         vm.etch(clientAddress, address(new Client()).code);
         Client client = Client(clientAddress);
-        client.initialize(identifier, boundlessMarket, hitPoints);
+        client.initialize(identifier, boundlessMarket, stakeToken);
         return client;
     }
 
@@ -379,6 +399,50 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    function testStakeDeposit() public {
+        // Mint some tokens
+        vm.prank(OWNER_WALLET.addr);
+        stakeToken.mint(address(testProver), 1);
+
+        // Approve the market to spend the testProver's stakeToken
+        vm.prank(address(testProver));
+        ERC20(address(stakeToken)).approve(address(boundlessMarket), 1);
+
+        // Deposit stake into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.depositStake(1);
+        testProver.expectStakeBalanceChange(1);
+    }
+
+    function testStakeDepositWithPermit() public {
+        // Mint some tokens
+        vm.prank(OWNER_WALLET.addr);
+        stakeToken.mint(address(testProver), 1);
+
+        // Approve the market to spend the testProver's stakeToken
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = testProver.signPermit(address(boundlessMarket), 1, deadline);
+
+        // Deposit stake into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.depositStakeWithPermit(1, deadline, v, r, s);
+        testProver.expectStakeBalanceChange(1);
+    }
+
+    function testStakeWithdraw() public {
+        // Withdraw stake from the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeWithdrawal(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawStake(1);
+        testProver.expectStakeBalanceChange(-1);
+        assertEq(stakeToken.balanceOf(address(testProver)), 1, "TestProver should have 1 hitPoint after withdrawing");
+    }
+
     function testSubmitRequest() public {
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
@@ -419,7 +483,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Ensure the balances are correct
         client.expectBalanceChange(-1 ether);
-        testProver.expectHPBalanceChange(-1 ether);
+        testProver.expectStakeBalanceChange(-1 ether);
 
         // Verify the lockin
         assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
@@ -572,7 +636,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(client));
         boundlessMarket.withdraw(DEFAULT_BALANCE);
 
-        // case: client does not have enough funds to cover for the lockin
+        // case: client does not have enough funds to cover for the price
         // should revert with "InsufficientBalance(address requester)"
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(client)));
         if (withSig) {
@@ -585,12 +649,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(client));
         boundlessMarket.deposit{value: DEFAULT_BALANCE}();
 
-        vm.prank(address(boundlessMarket));
-        hitPoints.burn(address(testProver), uint128(DEFAULT_BALANCE));
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawStake(DEFAULT_BALANCE);
 
         // case: prover does not have enough funds to cover for the lockin stake
-        // should revert with "IHitPoints.InsufficientBalance(address requester)"
-        vm.expectRevert(abi.encodeWithSelector(IHitPoints.InsufficientBalance.selector, address(testProver)));
+        // should revert with "InsufficientBalance(address requester)"
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(testProver)));
         if (withSig) {
             boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
         } else {
@@ -776,10 +840,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfill(1, LockinMethod.None);
     }
 
-    /// Fulfill without lockin should still work even if the prover does not have HP.
-    function testFulfillWithoutLockinNoHP() public {
-        vm.prank(OWNER_WALLET.addr);
-        hitPoints.burn(address(testProver), DEFAULT_BALANCE);
+    /// Fulfill without lockin should still work even if the prover does not have stake.
+    function testFulfillWithoutLockinNoStake() public {
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawStake(DEFAULT_BALANCE);
 
         _testFulfill(1, LockinMethod.None);
     }
@@ -861,7 +925,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         assertFalse(boundlessMarket.requestIsFulfilled(fill.id), "Request should not have fulfilled status");
 
         // Prover should have their original balance.
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceUnchanged();
     }
 
@@ -884,7 +948,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
 
         // Prover should have their original balance.
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceUnchanged();
 
         return (client, request);
@@ -896,7 +960,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (, ProofRequest memory request) = testFulfillDistinctProversNoPayment();
 
         testProver.snapshotBalance();
-        testProver.snapshotHPBalance();
+        testProver.snapshotStakeBalance();
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
         boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
@@ -905,7 +969,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Prover should now have received back their stake plus payment for the request.
         testProver.expectBalanceChange(1 ether);
-        testProver.expectHPBalanceChange(1 ether);
+        testProver.expectStakeBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
     }
 
@@ -923,7 +987,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
 
         // Prover should have their original balance less the stake amount.
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceUnchanged();
     }
 
@@ -1000,7 +1064,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
 
         // Prover should have their original balance less the stake amount.
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
         expectMarketBalanceUnchanged();
 
         return (client, request);
@@ -1073,7 +1137,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             testProver.expectBalanceChange(0 ether);
         } else {
             client.expectBalanceChange(-1 ether);
-            testProver.expectHPBalanceChange(-1 ether);
+            testProver.expectStakeBalanceChange(-1 ether);
         }
         expectMarketBalanceUnchanged();
     }
@@ -1109,7 +1173,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // NOTE: This should be updated if not all the stake burned.
         client.expectBalanceChange(0 ether);
-        testProver.expectHPBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
 
         return (client, request);
     }
@@ -1241,8 +1305,8 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     function testUnsafeUpgrade() public {
         vm.startPrank(OWNER_WALLET.addr);
         proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID)),
-            abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null", address(0)))
+            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))),
+            abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
         );
         boundlessMarket = BoundlessMarket(proxy);
         address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
@@ -1251,7 +1315,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy, address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID)), "", OWNER_WALLET.addr
+            proxy, address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))), "", OWNER_WALLET.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);

@@ -22,7 +22,7 @@ contract Deploy is Script, RiscZeroCheats {
     IRiscZeroVerifier verifier;
     address boundlessMarketAddress;
     bytes32 assessorImageId;
-    address hitPoints;
+    address stakeToken;
 
     function run() external {
         string memory assessorGuestUrl = "";
@@ -92,27 +92,26 @@ contract Deploy is Script, RiscZeroCheats {
             console2.log("Using IRiscZeroVerifier deployed at", address(verifier));
         }
 
-        if (deploymentConfig.hitPoints == address(0)) {
+        if (deploymentConfig.stakeToken == address(0)) {
             // Deploy the HitPoints contract
-            hitPoints = address(new HitPoints(boundlessMarketOwner));
+            stakeToken = address(new HitPoints(boundlessMarketOwner));
         } else {
-            hitPoints = deploymentConfig.hitPoints;
-            console2.log("Using HitPoints deployed at", hitPoints);
+            stakeToken = deploymentConfig.stakeToken;
+            console2.log("Using HitPoints deployed at", stakeToken);
         }
 
         // Deploy the Boundless market
         bytes32 salt = bytes32(0);
-        address newImplementation = address(new BoundlessMarket{salt: salt}(verifier, assessorImageId));
+        address newImplementation = address(new BoundlessMarket{salt: salt}(verifier, assessorImageId, stakeToken));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(
-                newImplementation,
-                abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl, hitPoints))
+                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
             )
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
 
-        HitPoints(hitPoints).authorize(boundlessMarketAddress);
+        HitPoints(stakeToken).authorize(boundlessMarketAddress);
 
         vm.stopBroadcast();
     }

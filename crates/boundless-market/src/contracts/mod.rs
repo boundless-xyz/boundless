@@ -26,13 +26,13 @@ use alloy::{
 };
 use alloy_primitives::{aliases::U160, Address, Bytes, B256, U256};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
-#[cfg(not(target_os = "zkvm"))]
-use hp::IHitPoints::{self, IHitPointsErrors};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
 use std::time::Duration;
 #[cfg(not(target_os = "zkvm"))]
 use thiserror::Error;
+#[cfg(not(target_os = "zkvm"))]
+use token::IHitPoints::{self, IHitPointsErrors};
 use url::Url;
 
 use risc0_zkvm::sha::Digest;
@@ -49,12 +49,68 @@ include!(concat!(env!("OUT_DIR"), "/boundless_market.rs"));
 pub use boundless_market_contract::*;
 
 #[allow(missing_docs)]
-pub mod hp {
-    #[cfg(not(target_os = "zkvm"))]
+#[cfg(not(target_os = "zkvm"))]
+pub mod token {
+    use alloy::{
+        primitives::{Address, PrimitiveSignature},
+        signers::Signer,
+        sol_types::SolStruct,
+    };
+    use alloy_sol_types::eip712_domain;
+    use anyhow::Result;
+    use serde::Serialize;
+
     alloy::sol!(
         #![sol(rpc, all_derives)]
         "src/contracts/artifacts/IHitPoints.sol"
     );
+
+    alloy::sol! {
+        #[derive(Debug, Serialize)]
+        struct Permit {
+            address owner;
+            address spender;
+            uint256 value;
+            uint256 nonce;
+            uint256 deadline;
+        }
+    }
+
+    alloy::sol! {
+        #[sol(rpc)]
+        interface IERC20 {
+            function approve(address spender, uint256 value) external returns (bool);
+            function balanceOf(address account) external view returns (uint256);
+        }
+    }
+
+    alloy::sol! {
+        #[sol(rpc)]
+        interface IERC20Permit {
+            function nonces(address owner) external view returns (uint256);
+            function DOMAIN_SEPARATOR() external view returns (bytes32);
+        }
+    }
+
+    impl Permit {
+        /// Signs the [Permit] with the given signer and EIP-712 domain derived from the given
+        /// contract address and chain ID.
+        pub async fn sign(
+            &self,
+            signer: &impl Signer,
+            contract_addr: Address,
+            chain_id: u64,
+        ) -> Result<PrimitiveSignature> {
+            let domain = eip712_domain! {
+                name: "HitPoints",
+                version: "1",
+                chain_id: chain_id,
+                verifying_contract: contract_addr,
+            };
+            let hash = self.eip712_signing_hash(&domain);
+            Ok(signer.sign_hash(&hash).await?)
+        }
+    }
 }
 
 /// Status of a proof request
@@ -595,10 +651,10 @@ pub mod test_utils {
     use std::sync::Arc;
 
     use crate::contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService,
+        boundless_market::BoundlessMarketService,
+        hit_points::{default_allowance, HitPointsService},
+        set_verifier::SetVerifierService,
     };
-
-    use super::hit_points::HitPointsService;
 
     // Bytecode for the contracts is copied from the contract build output by the build script. It
     // is checked into git so that we can avoid issues with publishing to crates.io. We do not use
@@ -624,8 +680,8 @@ pub mod test_utils {
     alloy::sol! {
         #![sol(rpc)]
         contract BoundlessMarket {
-            constructor(address verifier, bytes32 assessorId) {}
-            function initialize(address initialOwner, string calldata imageUrl, address hitPoints) {}
+            constructor(address verifier, bytes32 assessorId, address stakeTokenContract) {}
+            function initialize(address initialOwner, string calldata imageUrl) {}
         }
     }
 
@@ -671,6 +727,7 @@ pub mod test_utils {
         pub customer_provider: ProviderWallet,
         pub customer_market: BoundlessMarketService<BoxTransport, ProviderWallet>,
         pub set_verifier: SetVerifierService<BoxTransport, ProviderWallet>,
+        pub hit_points_service: HitPointsService<BoxTransport, ProviderWallet>,
     }
 
     pub async fn deploy_mock_verifier<T, P>(deployer_provider: P) -> Result<Address>
@@ -764,6 +821,7 @@ pub mod test_utils {
                 BoundlessMarket::constructorCall {
                     verifier: set_verifier,
                     assessorId: <[u8; 32]>::from(assessor_guest_id).into(),
+                    stakeTokenContract: hit_points,
                 }
                 .abi_encode(),
             ]
@@ -783,7 +841,6 @@ pub mod test_utils {
                     data: BoundlessMarket::initializeCall {
                         initialOwner: deployer_address,
                         imageUrl: "".to_string(),
-                        hitPoints: hit_points,
                     }
                     .abi_encode()
                     .into(),
@@ -805,7 +862,7 @@ pub mod test_utils {
             );
             hit_points_service.authorize(proxy).await?;
             if let Some(prover) = allowed_prover {
-                hit_points_service.mint(prover, U256::from(100)).await?;
+                hit_points_service.mint(prover, default_allowance()).await?;
             }
         }
 
@@ -901,13 +958,13 @@ pub mod test_utils {
                 verifier_signer.address(),
             );
 
-            HitPointsService::new(
+            let hit_points_service = HitPointsService::new(
                 hit_points_addr,
                 verifier_provider.clone(),
                 verifier_signer.address(),
-            )
-            .mint(prover_signer.address(), U256::from(100))
-            .await?;
+            );
+
+            hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
 
             Ok(TestCtx {
                 verifier_addr,
@@ -921,6 +978,7 @@ pub mod test_utils {
                 customer_provider,
                 customer_market,
                 set_verifier,
+                hit_points_service,
             })
         }
     }

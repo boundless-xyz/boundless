@@ -31,6 +31,7 @@ use tokio::task::JoinSet;
 use url::Url;
 
 pub(crate) mod aggregator;
+pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
 pub(crate) mod market_monitor;
@@ -95,9 +96,9 @@ pub struct Args {
 
     /// Pre deposit amount
     ///
-    /// Amount of ETH to pre-deposit into the contract for staking eg: 0.1 ETH
+    /// Amount of HP tokens to pre-deposit into the contract for staking eg: 100
     #[clap(short, long)]
-    pub deposit_amount: Option<String>,
+    pub deposit_amount: Option<U256>,
 
     /// RPC HTTP retry rate limit max retry
     ///
@@ -408,12 +409,27 @@ where
             config.market.lookback_blocks
         };
 
+        let chain_monitor = Arc::new(
+            chain_monitor::ChainMonitorService::new(self.provider.clone())
+                .await
+                .context("Failed to initialize chain monitor")?,
+        );
+
+        let cloned_chain_monitor = chain_monitor.clone();
+        supervisor_tasks.spawn(async move {
+            task::supervisor(1, cloned_chain_monitor)
+                .await
+                .context("Failed to start chain monitor")?;
+            Ok(())
+        });
+
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
             self.args.boundless_market_addr,
             self.provider.clone(),
             self.db.clone(),
+            chain_monitor.clone(),
         ));
 
         let block_times =
@@ -490,6 +506,7 @@ where
             block_times,
             self.args.boundless_market_addr,
             self.provider.clone(),
+            chain_monitor.clone(),
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
@@ -499,6 +516,7 @@ where
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
             self.provider.clone(),
+            chain_monitor.clone(),
             self.config_watcher.config.clone(),
             block_times,
             self.args.boundless_market_addr,
@@ -533,6 +551,7 @@ where
             aggregator::AggregatorService::new(
                 self.db.clone(),
                 self.provider.clone(),
+                chain_monitor.clone(),
                 set_builder_img_data.0,
                 set_builder_img_data.1,
                 assessor_img_data.0,

@@ -376,6 +376,7 @@ mod tests {
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
+        hit_points::default_allowance,
         test_utils::{
             deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
         },
@@ -433,7 +434,7 @@ mod tests {
         .unwrap();
 
         let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
-        market.deposit(U256::from(10000000000u64)).await.unwrap();
+        market.deposit_stake_with_permit(default_allowance(), &signer).await.unwrap();
 
         let market_customer =
             BoundlessMarketService::new(market_address, customer_provider.clone(), customer_addr);

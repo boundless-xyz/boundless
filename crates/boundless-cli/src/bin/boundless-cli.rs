@@ -78,6 +78,22 @@ enum Command {
         /// if not provided, defaults to the wallet address
         address: Option<Address>,
     },
+    /// Deposit stake funds into the market
+    DepositStake {
+        /// Amount in ether to deposit
+        amount: U256,
+    },
+    /// Withdraw stake funds from the market
+    WithdrawStake {
+        /// Amount in ether to withdraw
+        amount: U256,
+    },
+    /// Check the stake balance of an account in the market
+    BalanceOfStake {
+        /// Address to check the balance of;
+        /// if not provided, defaults to the wallet address
+        address: Option<Address>,
+    },
     /// Submit a proof request, constructed with the given offer, input, and image.
     SubmitOffer(SubmitOfferArgs),
     /// Submit a fully specified proof request
@@ -299,6 +315,19 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             let addr = address.unwrap_or(caller);
             let balance = boundless_market.balance_of(addr).await?;
             tracing::info!("Balance of {addr}: {}", format_ether(balance));
+        }
+        Command::DepositStake { amount } => {
+            boundless_market.deposit_stake_with_permit(amount, &args.private_key).await?;
+            tracing::info!("Deposited stake: {}", amount);
+        }
+        Command::WithdrawStake { amount } => {
+            boundless_market.withdraw_stake(amount).await?;
+            tracing::info!("Withdrew stake: {}", amount);
+        }
+        Command::BalanceOfStake { address } => {
+            let addr = address.unwrap_or(caller);
+            let balance = boundless_market.balance_of_stake(addr).await?;
+            tracing::info!("Stake balance of {addr}: {}", balance);
         }
         Command::SubmitOffer(offer_args) => {
             let order_stream_url = offer_args
@@ -739,7 +768,7 @@ mod tests {
     use super::*;
 
     use alloy::node_bindings::Anvil;
-    use boundless_market::contracts::test_utils::TestCtx;
+    use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use risc0_zkvm::sha::Digest;
@@ -763,15 +792,15 @@ mod tests {
             boundless_market_address: ctx.boundless_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
             tx_timeout: None,
-            command: Command::Deposit { amount: U256::from(100) },
+            command: Command::Deposit { amount: default_allowance() },
         };
 
         run(&args).await.unwrap();
 
         let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
-        assert_eq!(balance, U256::from(100));
+        assert_eq!(balance, default_allowance());
 
-        args.command = Command::Withdraw { amount: U256::from(100) };
+        args.command = Command::Withdraw { amount: default_allowance() };
         run(&args).await.unwrap();
 
         let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
@@ -788,7 +817,10 @@ mod tests {
             TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
                 .await
                 .unwrap();
-        ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
+        ctx.prover_market
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .await
+            .unwrap();
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
