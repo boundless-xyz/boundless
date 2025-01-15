@@ -157,6 +157,9 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 public immutable ASSESSOR_ID;
     string private imageUrl;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable STAKE_TOKEN_CONTRACT;
+
 
     /// In order to fulfill a request, the prover must provide a proof that can be verified with at
     /// most the amount of gas specified by this constant. This requirement exists to ensure the
@@ -181,30 +184,24 @@ contract BoundlessMarket is
     /// when the fee rate is set to a non-zero value.
     uint256 internal marketBalance;
 
-    address public STAKE_CONTRACT;
-
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId) {
+    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
+        STAKE_TOKEN_CONTRACT = stakeTokenContract;
 
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, string calldata _imageUrl, address stakeContract) external initializer {
+    function initialize(address initialOwner, string calldata _imageUrl) external initializer {
         __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
         imageUrl = _imageUrl;
-        STAKE_CONTRACT = stakeContract;
     }
 
     function setImageUrl(string calldata _imageUrl) external onlyOwner {
         imageUrl = _imageUrl;
-    }
-
-    function setStakeContract(address stakeContract) external onlyOwner {
-        STAKE_CONTRACT = stakeContract;
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
@@ -273,8 +270,8 @@ contract BoundlessMarket is
         return uint256(accounts[addr].balance);
     }
 
-    function _stakeDeposit(address from, uint256 value) internal {
-        bool success = IERC20(STAKE_CONTRACT).transferFrom(from, address(this), value);
+    function _depositStake(address from, uint256 value) internal {
+        bool success = IERC20(STAKE_TOKEN_CONTRACT).transferFrom(from, address(this), value);
         if (!success) revert TransferFailed();
 
         accounts[from].stakeBalance += value.toUint96();
@@ -282,20 +279,20 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function stakeDeposit(uint256 value) external {
+    function depositStake(uint256 value) external {
         // Transfer tokens from user to market
-        _stakeDeposit(msg.sender, value);
+        _depositStake(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function stakeDepositWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+    function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         // Transfer tokens from user to market
-        IERC20Permit(STAKE_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s);
-        _stakeDeposit(msg.sender, value);
+        IERC20Permit(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s);
+        _depositStake(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function stakeWithdraw(uint256 value) public {
+    function withdrawStake(uint256 value) public {
         if (accounts[msg.sender].stakeBalance < value.toUint96()) {
             revert InsufficientBalance(msg.sender);
         }
@@ -303,14 +300,14 @@ contract BoundlessMarket is
             accounts[msg.sender].stakeBalance -= value.toUint96();
         }
         // Transfer tokens from market to user
-        bool success = IERC20(STAKE_CONTRACT).transfer(msg.sender, value);
+        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
         if (!success) revert TransferFailed();
 
         emit StakeWithdrawal(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function stakeBalanceOf(address addr) public view returns (uint256) {
+    function balanceOfStake(address addr) public view returns (uint256) {
         return uint256(accounts[addr].stakeBalance);
     }
 
@@ -667,7 +664,7 @@ contract BoundlessMarket is
         // The maximum feasible stake multiplied by the numerator must be less than 2^256.
         uint256 burnValue = uint256(lock.stake);
         // Transfer tokens from market to address zero.
-        IHitPoints(STAKE_CONTRACT).burn(burnValue);
+        IHitPoints(STAKE_TOKEN_CONTRACT).burn(burnValue);
         // Return the price to the client.
         accounts[client].balance += lock.price;
 
@@ -696,11 +693,6 @@ contract BoundlessMarket is
         assembly {
             revert(add(err, 0x20), mload(err))
         }
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function stakeTokenAddress() external view returns (address) {
-        return STAKE_CONTRACT;
     }
 }
 

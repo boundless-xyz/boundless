@@ -61,24 +61,24 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         console2.log("Assessor info:");
         console2.log("image ID:", Strings.toHexString(uint256(assessorImageId)));
         console2.log("URL:", assessorGuestUrl);
-        address hitPoints = deploymentConfig.hitPoints;
-        require(hitPoints != address(0), "hit-points address must be set in config");
+        address stakeToken = deploymentConfig.stakeToken;
+        require(stakeToken != address(0), "stake-token address must be set in config");
 
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
         address newImplementation =
-            address(new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId));
+            address(new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, stakeToken));
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(
                 newImplementation,
-                abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl, hitPoints))
+                abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl))
             )
         );
         vm.stopBroadcast();
 
-        // Add the market address in the authorized list of the hit-points contract
-        HitPoints(hitPoints).authorize(marketAddress);
+        // Add the market address in the authorized list of the stake-token contract
+        HitPoints(stakeToken).authorize(marketAddress);
 
         console2.log("Deployed BoundlessMarket proxy contract at %s", marketAddress);
     }

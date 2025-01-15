@@ -681,7 +681,7 @@ pub mod test_utils {
         #![sol(rpc)]
         contract BoundlessMarket {
             constructor(address verifier, bytes32 assessorId) {}
-            function initialize(address initialOwner, string calldata imageUrl, address hitPoints) {}
+            function initialize(address initialOwner, string calldata imageUrl, address stakeToken) {}
         }
     }
 
@@ -840,7 +840,7 @@ pub mod test_utils {
                     data: BoundlessMarket::initializeCall {
                         initialOwner: deployer_address,
                         imageUrl: "".to_string(),
-                        hitPoints: hit_points,
+                        stakeToken: hit_points,
                     }
                     .abi_encode()
                     .into(),

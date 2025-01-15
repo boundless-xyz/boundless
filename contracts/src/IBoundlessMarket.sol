@@ -207,14 +207,14 @@ interface IBoundlessMarket {
 
     /// @notice Deposit stake into the market to pay for lockin stake.
     /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
-    function stakeDeposit(uint256 value) external;
+    function depositStake(uint256 value) external;
     /// @notice Permit and deposit stake into the market to pay for lockin stake.
     /// @dev This method requires a valid EIP-712 signature from the account owner.
-    function stakeDepositWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
     /// @notice Withdraw stake from the market.
-    function stakeWithdraw(uint256 value) external;
+    function withdrawStake(uint256 value) external;
     /// @notice Check the deposited balance, in HP, of the given account.
-    function stakeBalanceOf(address addr) external view returns (uint256);
+    function balanceOfStake(address addr) external view returns (uint256);
 
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
@@ -296,5 +296,6 @@ interface IBoundlessMarket {
     function imageInfo() external view returns (bytes32, string memory);
 
     /// Returns the address of the token used for stake deposits.
-    function stakeTokenAddress() external view returns (address);
+    // solhint-disable-next-line func-name-mixedcase
+    function STAKE_TOKEN_CONTRACT() external view returns (address);
 }
