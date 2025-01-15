@@ -181,8 +181,6 @@ interface IBoundlessMarket {
     error RequestLockFingerprintDoesNotMatch(uint256 requestId, bytes8 provided, bytes8 locked);
     /// Unable to complete request because of insufficient balance.
     error InsufficientBalance(address account);
-    /// Account is frozen and cannot perform the requested operation.
-    error AccountFrozen(address account);
     /// A signature did not pass verification checks.
     error InvalidSignature();
     /// Request is malformed or internally inconsistent.

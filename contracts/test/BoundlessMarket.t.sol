@@ -525,7 +525,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory proverSignature = testProver.sign(request);
 
         // Attempt to lock in the request
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.AccountFrozen.selector, address(testProver)));
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(testProver)));
         if (withSig) {
             boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
         } else {
@@ -537,7 +537,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(testProver));
         boundlessMarket.unfreezeAccount();
 
-         // Expect the event to be emitted
+        // Expect the event to be emitted
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestLockedin(request.id, address(testProver));
         if (withSig) {
@@ -549,7 +549,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Ensure the balances are correct
         client.expectBalanceChange(-1 ether);
-        testProver.expectHPBalanceChange(-2 ether);
+        testProver.expectStakeBalanceChange(-2 ether);
 
         // Verify the lockin
         assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
@@ -1153,7 +1153,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFulfillWithoutLockinRepeatIndex() public {
         _testFulfillRepeatIndex(LockinMethod.None);
     }
-    
+
     function testFreezeAccount() public {
         testSlash();
 
@@ -1165,6 +1165,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testSlash() public returns (Client, ProofRequest memory) {
         (Client client, ProofRequest memory request) = testFulfillExpired();
+        uint256 marketStakeBalance = stakeToken.balanceOf(address(boundlessMarket));
 
         // Slash the request
         vm.expectEmit(true, true, true, true);
@@ -1173,7 +1174,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // NOTE: This should be updated if not all the stake burned.
         client.expectBalanceChange(0 ether);
-        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        assertEq(boundlessMarket.balanceOfStake(address(testProver)), 0, "Prover should have no stake");
+        assertEq(
+            stakeToken.balanceOf(address(boundlessMarket)),
+            marketStakeBalance - request.offer.lockinStake,
+            "Lockin stake should be burned"
+        );
 
         return (client, request);
     }

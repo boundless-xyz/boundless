@@ -22,7 +22,6 @@ import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC2
 import {IHitPoints} from "./IHitPoints.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
-uint256 constant FROZEN_BIT_POSITION = 158;
 
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
 struct Account {
@@ -80,21 +79,6 @@ library AccountLib {
 
     function setRequestFulfilled(Account storage account, uint32 idx) internal {
         setRequestFlags(account, idx, 2);
-    }
-
-    /// @notice Check if the account is frozen
-    function isFrozen(Account storage account) internal view returns (bool) {
-        return (account.requestFlagsInitial & (uint160(1) << uint160(FROZEN_BIT_POSITION))) != 0;
-    }
-
-    /// @notice Set the account frozen state
-    function setFrozen(Account storage account) internal {
-        account.requestFlagsInitial |= uint160(1) << uint160(FROZEN_BIT_POSITION);
-    }
-
-    /// @notice Clear the account frozen state
-    function clearFrozen(Account storage account) internal {
-        account.requestFlagsInitial &= ~(uint160(1) << uint160(FROZEN_BIT_POSITION));
     }
 }
 
@@ -196,6 +180,10 @@ contract BoundlessMarket is
     /// @notice Balance owned by the market contract itself. This balance is collected from fees,
     /// when the fee rate is set to a non-zero value.
     uint256 internal marketBalance;
+
+    /// @notice Mapping of addresses to frozen stake balances.
+    /// @dev A frozen account cannot lock-in requests.
+    mapping(address => uint96) public frozenAccounts;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
@@ -399,9 +387,6 @@ contract BoundlessMarket is
         uint32 idx,
         address prover
     ) internal {
-        if (accounts[prover].isFrozen()) {
-            revert AccountFrozen(prover);
-        }
         (uint96 price, uint64 deadline) = _validateRequestForLockin(request, client, idx);
 
         // Deduct funds from the client account and prover HP account.
@@ -436,14 +421,26 @@ contract BoundlessMarket is
     /// @dev A frozen account cannot lock-in requests. To unlock the account, its owner must call
     /// `unfreezeAccount`.
     function accountIsFrozen(address addr) external view returns (bool) {
-        return accounts[addr].isFrozen();
+        return _accountIsFrozen(addr);
     }
 
-    /// Clear the frozen state of an account.
+    /// Clear the frozen state of the sender's account.
     function unfreezeAccount() public {
-        Account storage account = accounts[msg.sender];
-        if (account.isFrozen()) {
-            account.clearFrozen();
+        address addr = msg.sender;
+        if (_accountIsFrozen(addr)) {
+            accounts[addr].stakeBalance += frozenAccounts[addr];
+            frozenAccounts[addr] = 0;
+        }
+    }
+
+    function _accountIsFrozen(address addr) internal view returns (bool) {
+        return frozenAccounts[addr] > 0;
+    }
+
+    function freezeAccount(address addr) internal {
+        if (!_accountIsFrozen(addr)) {
+            frozenAccounts[addr] = accounts[addr].stakeBalance;
+            accounts[addr].stakeBalance = 0;
         }
     }
 
@@ -688,7 +685,7 @@ contract BoundlessMarket is
         }
 
         // Freeze the prover account.
-        accounts[lock.prover].setFrozen();
+        freezeAccount(lock.prover);
 
         // Zero out the lock to prevent the same request from being slashed twice.
         requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
