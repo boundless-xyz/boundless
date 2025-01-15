@@ -168,8 +168,8 @@ impl Level {
         for line in normalized.lines() {
             let trimmed = line.trim_start();
 
-            if trimmed.starts_with("# ") {
-                let content = trimmed[2..].trim_start();
+            if let Some(content) = trimmed.strip_prefix("# ") {
+                let content = content.trim_start();
                 if !content.is_empty() {
                     processed_lines.push(content.to_string());
                 }

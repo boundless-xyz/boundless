@@ -244,8 +244,7 @@ impl DefaultProver {
             InputType::Url => fetch_url(
                 std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
             )
-            .await?
-            .into(),
+            .await?,
             _ => bail!("Unsupported input type"),
         };
         let order_receipt =

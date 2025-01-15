@@ -89,6 +89,7 @@ impl EIP721DomainSaltless {
 }
 
 pub(crate) fn request_id(addr: &Address, id: u32) -> U256 {
+    #[allow(clippy::unnecessary_fallible_conversions)] // U160::from does not compile
     let addr = U160::try_from(*addr).unwrap();
     (U256::from(addr) << 32) | U256::from(id)
 }
@@ -389,6 +390,7 @@ impl Default for ProofRequest {
     }
 }
 
+#[allow(clippy::derivable_impls)] // struct defined in generated code
 impl Default for Requirements {
     fn default() -> Self {
         Self { imageId: Default::default(), predicate: Default::default() }
@@ -479,7 +481,7 @@ impl From<ContractErr> for TxnErr {
 
                 // Trial deocde the error with each possible contract ABI. Right now, there are two.
                 if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data, true) {
-                    return Self::BoundlessMarketErr(decoded_error.into());
+                    return Self::BoundlessMarketErr(decoded_error);
                 }
                 match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
                     Ok(decoded_error) => Self::SetVerifierErr(decoded_error),

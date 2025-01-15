@@ -18,6 +18,7 @@ use risc0_zkvm::serde::to_vec;
 use serde::Serialize;
 
 /// Input builder.
+#[derive(Clone, Default, Debug)]
 pub struct InputBuilder {
     input: Vec<u8>,
 }
@@ -82,7 +83,7 @@ impl InputBuilder {
     /// ```
     pub fn write_slice<T: Pod>(self, slice: &[T]) -> Self {
         let mut input = self.input;
-        input.extend_from_slice(&bytemuck::cast_slice(slice));
+        input.extend_from_slice(bytemuck::cast_slice(slice));
         Self { input }
     }
 

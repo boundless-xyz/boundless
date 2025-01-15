@@ -523,11 +523,9 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let offchain_client = if let Some(url) = order_stream_url {
-            Some(OrderStreamClient::new(url, boundless_market_address, chain_id))
-        } else {
-            None
-        };
+        let offchain_client = order_stream_url.map(|url|
+            OrderStreamClient::new(url, boundless_market_address, chain_id)
+        );
 
         Ok(Self {
             boundless_market,
