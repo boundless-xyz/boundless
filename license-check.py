@@ -37,8 +37,9 @@ EXTENSIONS = [
 SKIP_PATHS = [
     # ImageID.sol is automatically generated.
     str(Path.cwd()) + "/contracts/src/SetBuilderImageID.sol",
-    str(Path.cwd()) + "/contracts/src/AssessorImageID.sol",
-    str(Path.cwd()) + "/contracts/src/UtilImageID.sol"
+    str(Path.cwd()) + "/contracts/src/libraries/AssessorImageID.sol",
+    str(Path.cwd()) + "/contracts/src/libraries/UtilImageID.sol",
+    str(Path.cwd()) + "/crates/boundless-market/src/contracts/artifacts",
 ]
 
 APACHE_PATHS = [
