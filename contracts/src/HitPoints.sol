@@ -23,6 +23,8 @@ import "./IHitPoints.sol";
 /// @title HitPoints ERC20
 /// @notice Implementation of a restricted transfer token using ERC20
 contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
+    // Maximum allowed balance (uint96 max value)
+    uint256 private constant MAX_BALANCE = type(uint96).max;
     // Mapping for operators who can mint and can receive/send tokens from/to anyone
     mapping(address => bool) public isAuthorized;
 
@@ -47,6 +49,11 @@ contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
 
     /// @inheritdoc IHitPoints
     function mint(address account, uint256 value) external onlyAuthorized {
+        // Ensure the new balance won't exceed uint96 max
+        uint256 newBalance = balanceOf(account) + value;
+        if (newBalance > MAX_BALANCE) {
+            revert BalanceExceedsLimit(account, balanceOf(account), value);
+        }
         _mint(account, value);
     }
 
@@ -56,15 +63,29 @@ contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
     }
 
     function _update(address from, address to, uint256 value) internal virtual override {
-        super._update(from, to, value);
-
         // Allow mint operations
-        if (from == address(0)) return;
+        if (from == address(0)) {
+            super._update(from, to, value);
+            return;
+        }
+
+        // Ensure the recipient's balance won't exceed uint96 max for non-zero transfers
+        if (to != address(0)) {
+            uint256 newBalance = balanceOf(to) + value;
+            if (newBalance > MAX_BALANCE) {
+                revert BalanceExceedsLimit(to, balanceOf(to), value);
+            }
+        }
 
         // Authorized accounts can transfer anywhere
-        if (isAuthorized[from]) return;
+        if (isAuthorized[from]) {
+            super._update(from, to, value);
+            return;
+        }
 
         // Others can only transfer to authorized accounts
         if (!isAuthorized[to]) revert UnauthorizedTransfer();
+
+        super._update(from, to, value);
     }
 }

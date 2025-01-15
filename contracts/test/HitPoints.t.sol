@@ -54,7 +54,7 @@ contract HitPointsTest is Test {
 
     function testMintRevertUnauthorized() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
+        vm.expectRevert(abi.encodeWithSelector(IHitPoints.Unauthorized.selector));
         token.mint(user, 100);
     }
 
@@ -82,7 +82,7 @@ contract HitPointsTest is Test {
         token.mint(user, 100);
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSignature("UnauthorizedTransfer()"));
+        vm.expectRevert(abi.encodeWithSelector(IHitPoints.UnauthorizedTransfer.selector));
         token.transfer(authorized, 50);
     }
 
@@ -107,31 +107,86 @@ contract HitPointsTest is Test {
         token.approve(authorized, 50);
 
         vm.prank(authorized);
-        vm.expectRevert(abi.encodeWithSignature("UnauthorizedTransfer()"));
+        vm.expectRevert(abi.encodeWithSelector(IHitPoints.UnauthorizedTransfer.selector));
         token.transferFrom(user, authorized, 50);
     }
 
     function testFuzzMint(address _user, uint256 _amount) public {
         vm.assume(_user != address(0));
-        vm.assume(_amount < type(uint256).max);
+        vm.assume(_amount <= type(uint96).max);
 
         uint256 initialSupply = token.totalSupply();
+
         token.mint(_user, _amount);
+
         assertEq(token.balanceOf(_user), _amount);
         assertEq(token.totalSupply(), initialSupply + _amount);
     }
 
+    function testFuzzMintExceedLimit(address _user, uint256 _existingAmount) public {
+        vm.assume(_user != address(0));
+        vm.assume(_existingAmount <= type(uint96).max - 1);
+
+        // Mint existing amount
+        token.mint(_user, _existingAmount);
+
+        // Calculate mint amount that would exceed limit
+        uint256 _mintAmount = type(uint96).max - _existingAmount + 1;
+
+        // Expect revert when minting would exceed uint96 max
+        vm.expectRevert(
+            abi.encodeWithSelector(IHitPoints.BalanceExceedsLimit.selector, _user, _existingAmount, _mintAmount)
+        );
+        token.mint(_user, _mintAmount);
+    }
+
     function testFuzzTransfer(address _from, uint256 _amount) public {
         vm.assume(_from != address(0));
-        vm.assume(_amount < type(uint256).max);
+        vm.assume(_amount > 0); // Ensure non-zero transfer
+        vm.assume(_amount <= type(uint96).max);
 
-        token.authorize(authorized);
+        // Create a recipient
+        address recipient = makeAddr("recipient");
+
+        // Authorize the sender
+        token.authorize(_from);
+
+        // Mint tokens to the sender
         token.mint(_from, _amount);
 
+        // Perform the transfer
         vm.prank(_from);
-        token.transfer(authorized, _amount);
+        token.transfer(recipient, _amount);
 
-        assertEq(token.balanceOf(_from), 0);
-        assertEq(token.balanceOf(authorized), _amount);
+        // Check balances
+        assertEq(token.balanceOf(_from), 0, "Sender balance should be zero");
+        assertEq(token.balanceOf(recipient), _amount, "Recipient balance should match transferred amount");
+    }
+
+    function testFuzzTransferExceedLimit(address _recipient) public {
+        vm.assume(_recipient != address(0));
+
+        address _sender = makeAddr("sender");
+
+        // Ensure authorized
+        token.authorize(_recipient);
+        token.authorize(_sender);
+
+        // Amount that would almost max out uint96
+        uint256 existingBalance = type(uint96).max - 1;
+
+        // Mint to recipient
+        token.mint(_recipient, existingBalance);
+
+        // Mint a transfer amount to sender
+        uint256 transferAmount = 2;
+        token.mint(_sender, transferAmount);
+
+        // Expect revert when transfer would exceed uint96 max
+        vm.prank(_sender);
+        vm.expectRevert(
+            abi.encodeWithSelector(IHitPoints.BalanceExceedsLimit.selector, _recipient, existingBalance, transferAmount)
+        );
+        token.transfer(_recipient, transferAmount);
     }
 }

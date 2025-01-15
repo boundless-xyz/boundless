@@ -21,6 +21,8 @@ interface IHitPoints {
     error Unauthorized();
     /// @dev Thrown when trying to transfer tokens from/to an unauthorized address
     error UnauthorizedTransfer();
+    /// @dev Thrown when balance exceeds uint96 max
+    error BalanceExceedsLimit(address account, uint256 currentBalance, uint256 addedAmount);
 
     /// @notice Adds a new address to the authorized list
     /// @param account The address to authorize

@@ -46,6 +46,7 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/crates/boundless-cli",
     str(Path.cwd()) + "/crates/assessor",
     str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
+    str(Path.cwd()) + "/contracts/src/HitPoints.sol",
     str(Path.cwd()) + "/contracts/src/IHitPoints.sol"
 ]
 
