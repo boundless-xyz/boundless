@@ -558,7 +558,7 @@ impl From<ContractErr> for TxnErr {
                     return Self::BoundlessMarketErr(decoded_error);
                 }
                 if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data, true) {
-                    return Self::HitPointsErr(decoded_error.into());
+                    return Self::HitPointsErr(decoded_error);
                 }
                 match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
                     Ok(decoded_error) => Self::SetVerifierErr(decoded_error),

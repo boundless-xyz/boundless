@@ -95,7 +95,7 @@ where
         let contract = IERC20::new(*self.instance.address(), self.instance.provider());
         let call = contract.balanceOf(account).from(self.caller);
         let balance = call.call().await.map_err(IHitPointsErrors::decode_error)?;
-        return Ok(balance._0);
+        Ok(balance._0)
     }
 }
 
