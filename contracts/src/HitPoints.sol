@@ -58,7 +58,7 @@ contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
     function _update(address from, address to, uint256 value) internal virtual override {
         super._update(from, to, value);
 
-        // Allow mint and burn operations
+        // Allow mint operations
         if (from == address(0)) return;
 
         // Authorized accounts can transfer anywhere

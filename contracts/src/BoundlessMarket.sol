@@ -146,8 +146,6 @@ contract BoundlessMarket is
     mapping(uint256 => RequestLock) public requestLocks;
     // Mapping of address to account state.
     mapping(address => Account) internal accounts;
-    // Mapping of addresses to frozen stake balances.
-    mapping(address => uint96) internal frozenStakeBalances;
 
     // Using immutable here means the image ID and verifier address is linked to the implementation
     // contract, and not to the proxy. Any deployment that wants to update these values must deploy
