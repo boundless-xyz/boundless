@@ -99,7 +99,9 @@ pub(crate) async fn websocket_handler(
         match state.db.connect_broker(client_addr).await {
             Err(OrderDbErr::MaxConnections) => {
                 tracing::warn!("{client_addr} at max connections");
-                return Ok((StatusCode::CONFLICT, "Max connections hit".to_string()).into_response());
+                return Ok(
+                    (StatusCode::CONFLICT, "Max connections hit".to_string()).into_response()
+                );
             }
             Err(err) => return Err(AppError::InternalErr(anyhow::anyhow!(err))),
             _ => {}
