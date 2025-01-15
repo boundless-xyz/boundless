@@ -1,0 +1,103 @@
+#!/bin/bash
+
+set -eo pipefail
+
+# Default mint amount (can be overridden by environment variable)
+DEFAULT_MINT_AMOUNT="${DEFAULT_MINT_AMOUNT:-100}"
+
+# Check if required environment variables are set
+check_env_vars() {
+    local vars=("PRIVATE_KEY" "RPC_URL" "HIT_POINTS_ADDRESS")
+    for var in "${vars[@]}"; do
+        if [ -z "${!var}" ]; then
+            echo "Error: $var environment variable is not set"
+            exit 1
+        fi
+    done
+}
+
+# Mint tokens
+mint() {
+    local target_address=$1
+    local amount=${2:-$DEFAULT_MINT_AMOUNT}
+    
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 mint <target_address> [amount]"
+        echo "Default amount: $DEFAULT_MINT_AMOUNT"
+        exit 1
+    fi
+    
+    echo "Minting HP for $target_address with amount $amount"
+    cast send --private-key "$PRIVATE_KEY" \
+        --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "mint(address, uint256)" "$target_address" "$amount"
+}
+
+# Authorize an address
+authorize() {
+    local target_address=$1
+    
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 authorize <target_address>"
+        exit 1
+    fi
+    
+    echo "Authorizing $target_address"
+    cast send --private-key "$PRIVATE_KEY" \
+        --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "authorize(address)" "$target_address"
+}
+
+# Deauthorize an address
+deauthorize() {
+    local target_address=$1
+    
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 deauthorize <target_address>"
+        exit 1
+    fi
+    
+    echo "Deauthorizing $target_address"
+    cast send --private-key "$PRIVATE_KEY" \
+        --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "deauthorize(address)" "$target_address"
+}
+
+# Get token balance
+balance() {
+    local target_address=$1
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 balance <target_address>"
+        exit 1
+    fi
+    echo "Checking HP balance for $target_address"
+    cast call --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "balanceOf(address)(uint256)" "$target_address"
+}
+
+# Main script logic
+check_env_vars
+
+case "$1" in
+    mint)
+        mint "$2" "$3"
+        ;;
+    authorize)
+        authorize "$2"
+        ;;
+    deauthorize)
+        deauthorize "$2"
+        ;;
+    balance)
+        balance "$2"
+        ;;
+    *)
+        echo "Usage: $0 {mint|authorize|deauthorize|balance} [arguments]"
+        echo "Examples:"
+        echo "  $0 mint 0x1234... 100"
+        echo "  $0 authorize 0x5678..."
+        echo "  $0 deauthorize 0x9abc..."
+        echo "  $0 balance 0x1234..."
+        exit 1
+        ;;
+esac

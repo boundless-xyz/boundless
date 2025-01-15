@@ -36,6 +36,27 @@ contract RiscZeroManagementScript is Script {
     }
 }
 
+/// @notice Deployment script for the HitPoints deployment.
+/// @dev Use the following environment variable to control the deployment:
+///     * BOUNDLESS_MARKET_OWNER owner of the HitPoints contract
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/tutorials/solidity-scripting
+contract DeployHitPoints is RiscZeroManagementScript {
+    function run() external {
+        address marketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
+        console2.log("marketOwner:", marketOwner);
+
+        vm.startBroadcast(deployerAddress());
+        bytes32 salt = bytes32(0);
+        // Deploy the HitPoints contract
+        address stakeTokenAddress = address(new HitPoints{salt: salt}(marketOwner));
+        vm.stopBroadcast();
+
+        console2.log("Deployed stake-token contract (HitPoints) at %s", stakeTokenAddress);
+    }
+}
+
 /// @notice Deployment script for the market deployment.
 /// @dev Use the following environment variable to control the deployment:
 ///     * BOUNDLESS_MARKET_OWNER owner of the BoundlessMarket contract
