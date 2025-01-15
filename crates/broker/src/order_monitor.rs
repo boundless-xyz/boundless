@@ -3,6 +3,7 @@
 // All rights reserved.
 
 use crate::{
+    chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::DbObj,
     task::{RetryRes, RetryTask, SupervisorErr},
@@ -40,7 +41,7 @@ pub enum LockOrderErr {
 #[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
-    provider: Arc<P>,
+    chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     config: ConfigLock,
     market: BoundlessMarketService<BoxTransport, Arc<P>>,
@@ -53,6 +54,7 @@ where
     pub fn new(
         db: DbObj,
         provider: Arc<P>,
+        chain_monitor: Arc<ChainMonitorService<P>>,
         config: ConfigLock,
         block_time: u64,
         market_addr: Address,
@@ -71,7 +73,7 @@ where
             market = market.with_timeout(Duration::from_secs(txn_timeout));
         }
 
-        Ok(Self { db, provider, block_time, config, market })
+        Ok(Self { db, chain_monitor, block_time, config, market })
     }
 
     async fn lock_order(&self, order_id: U256, order: &Order) -> Result<(), LockOrderErr> {
@@ -163,11 +165,7 @@ where
         // back scan if we have an existing block we last updated from
         // TODO: spawn a side thread to avoid missing new blocks while this is running:
         let order_count = if let Some(last_monitor_block) = opt_last_block {
-            let current_block = self
-                .provider
-                .get_block_number()
-                .await
-                .context("Failed to get current block in back scan")?;
+            let current_block = self.chain_monitor.current_block_number().await?;
 
             tracing::debug!(
                 "Search {last_monitor_block} - {current_block} blocks for lock pending orders..."
@@ -196,11 +194,7 @@ where
         let mut last_block = 0;
         let mut first_block = 0;
         loop {
-            let current_block = self
-                .provider
-                .get_block_number()
-                .await
-                .context("Failed to get current block in block monitor")?;
+            let current_block = self.chain_monitor.current_block_number().await?;
 
             if current_block != last_block {
                 last_block = current_block;
@@ -354,9 +348,12 @@ mod tests {
         db.add_order(order_id, order).await.unwrap();
         db.set_last_block(1).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
         let monitor = OrderMonitor::new(
             db.clone(),
             provider.clone(),
+            chain_monitor.clone(),
             config.clone(),
             block_time,
             market_address,
@@ -465,9 +462,12 @@ mod tests {
 
         db.set_last_block(0).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
         let monitor = OrderMonitor::new(
             db.clone(),
             provider.clone(),
+            chain_monitor.clone(),
             config.clone(),
             block_time,
             market_address,

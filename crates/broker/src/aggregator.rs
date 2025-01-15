@@ -19,6 +19,7 @@ use risc0_aggregation::{GuestInput, GuestOutput};
 use risc0_zkvm::sha::Digest;
 
 use crate::{
+    chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::DbObj,
     provers::{self, ProverObj},
@@ -31,7 +32,7 @@ pub struct AggregatorService<P> {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
-    provider: Arc<P>,
+    chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     set_builder_guest_id: Digest,
     assessor_guest_id: Digest,
@@ -47,6 +48,7 @@ where
     pub async fn new(
         db: DbObj,
         provider: Arc<P>,
+        chain_monitor: Arc<ChainMonitorService<P>>,
         set_builder_guest_id: Digest,
         set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
@@ -72,7 +74,7 @@ where
         Ok(Self {
             db,
             config,
-            provider,
+            chain_monitor,
             block_time,
             prover,
             set_builder_guest_id,
@@ -424,10 +426,7 @@ where
                 let config = self.config.lock_all().context("Failed to lock config")?;
                 config.batcher.block_deadline_buffer_secs
             };
-            // TODO: this will trigger quite frequently so we should
-            // try and move the "current_block" to a atomic managed by a sub-service
-            let block_number =
-                self.provider.get_block_number().await.context("Failed to get current block")?;
+            let block_number = self.chain_monitor.current_block_number().await?;
 
             let Some(block_deadline) = batch.block_deadline else {
                 tracing::warn!("batch does not yet have a block_deadline");
@@ -645,9 +644,12 @@ mod tests {
         let proof_res_2 =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let _handle = tokio::spawn(chain_monitor.spawn());
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
+            chain_monitor.clone(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -814,9 +816,12 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
+            chain_monitor,
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -923,16 +928,21 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+
+        let _handle = tokio::spawn(chain_monitor.spawn());
+
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
+            chain_monitor,
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
             signer.address(),
-            config,
+            config.clone(),
             prover,
             2,
         )
