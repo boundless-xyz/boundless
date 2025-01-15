@@ -1040,6 +1040,7 @@ where
     }
 
     /// Permit and deposit stake into the market to pay for lockin stake.
+    /// This method will send a single transaction.
     pub async fn deposit_stake_with_permit(
         &self,
         value: U256,
@@ -1317,6 +1318,41 @@ mod tests {
 
         // Withdraw when balance is zero
         assert!(ctx.prover_market.withdraw(parse_ether("2").unwrap()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_deposit_withdraw_stake() {
+        // Setup anvil
+        let anvil = Anvil::new().spawn();
+
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
+
+        let deposit = U256::from(10);
+
+        // Approve and deposit stake
+        ctx.prover_market.approve_deposit_stake(deposit).await.unwrap();
+        ctx.prover_market.deposit_stake(deposit).await.unwrap();
+
+        // Deposit stake with permit
+        ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+
+        assert_eq!(
+            ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+            U256::from(20)
+        );
+
+        // Withdraw prover balances
+        ctx.prover_market.withdraw_stake(U256::from(20)).await.unwrap();
+        assert_eq!(
+            ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+            U256::ZERO
+        );
+
+        // Withdraw when balance is zero
+        assert!(ctx.prover_market.withdraw_stake(U256::from(20)).await.is_err());
     }
 
     #[tokio::test]
