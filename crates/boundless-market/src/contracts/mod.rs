@@ -28,11 +28,11 @@ use alloy_primitives::{aliases::U160, Address, Bytes, B256, U256};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
-use stake::IHitPoints::{self, IHitPointsErrors};
-#[cfg(not(target_os = "zkvm"))]
 use std::time::Duration;
 #[cfg(not(target_os = "zkvm"))]
 use thiserror::Error;
+#[cfg(not(target_os = "zkvm"))]
+use token::IHitPoints::{self, IHitPointsErrors};
 use url::Url;
 
 use risc0_zkvm::sha::Digest;
@@ -50,7 +50,7 @@ pub use boundless_market_contract::*;
 
 #[allow(missing_docs)]
 #[cfg(not(target_os = "zkvm"))]
-pub mod stake {
+pub mod token {
     use alloy::{
         primitives::{Address, PrimitiveSignature},
         signers::Signer,

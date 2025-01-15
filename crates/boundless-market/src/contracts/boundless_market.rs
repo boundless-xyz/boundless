@@ -32,7 +32,7 @@ use alloy_sol_types::SolEvent;
 use anyhow::{anyhow, Context, Result};
 use thiserror::Error;
 
-use crate::contracts::stake::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
+use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
@@ -997,15 +997,15 @@ where
     }
 
     /// Approve a spender to spend `value` amount of HitPoints on behalf of the caller.
-    pub async fn approve_stake_deposit(&self, value: U256) -> Result<()> {
+    pub async fn approve_deposit_stake(&self, value: U256) -> Result<()> {
         let spender = *self.instance.address();
         tracing::debug!("Calling approve({:?}, {})", spender, value);
         let token_address = self
             .instance
-            .stakeTokenAddress()
+            .STAKE_TOKEN_CONTRACT()
             .call()
             .await
-            .context("stakeTokenAddress call failed")?
+            .context("STAKE_TOKEN_CONTRACT call failed")?
             ._0;
         let contract = IERC20::new(token_address, self.instance.provider());
         let call = contract.approve(spender, value).from(self.caller);
@@ -1023,11 +1023,11 @@ where
     }
 
     /// Deposit stake into the market to pay for lockin stake.
-    /// Before calling this method, the account owner must approve
-    /// the Boundless market contract as an allowed spender by calling `approve_stake_deposit`.    
-    pub async fn stake_deposit(&self, value: U256) -> Result<(), MarketError> {
-        tracing::debug!("Calling stakeDeposit({})", value);
-        let call = self.instance.stakeDeposit(value);
+    /// Before calling this method, the account owner must first approve
+    /// the Boundless market contract as an allowed spender by calling `approve_deposit_stake`.    
+    pub async fn deposit_stake(&self, value: U256) -> Result<(), MarketError> {
+        tracing::debug!("Calling depositStake({})", value);
+        let call = self.instance.depositStake(value);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -1040,17 +1040,17 @@ where
     }
 
     /// Permit and deposit stake into the market to pay for lockin stake.
-    pub async fn stake_deposit_with_permit(
+    pub async fn deposit_stake_with_permit(
         &self,
         value: U256,
         signer: &impl Signer,
     ) -> Result<(), MarketError> {
         let token_address = self
             .instance
-            .stakeTokenAddress()
+            .STAKE_TOKEN_CONTRACT()
             .call()
             .await
-            .context("stakeTokenAddress call failed")?
+            .context("STAKE_TOKEN_CONTRACT call failed")?
             ._0;
         let contract = IERC20Permit::new(token_address, self.instance.provider());
         let call = contract.nonces(self.caller());
@@ -1076,8 +1076,8 @@ where
         let r = B256::from_slice(&sig[..32]);
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
-        tracing::debug!("Calling stakeDepositWithPermit({})", value);
-        let call = self.instance.stakeDepositWithPermit(value, deadline, v, r, s);
+        tracing::debug!("Calling depositStakeWithPermit({})", value);
+        let call = self.instance.depositStakeWithPermit(value, deadline, v, r, s);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -1090,9 +1090,9 @@ where
     }
 
     /// Withdraw stake from the market.
-    pub async fn stake_withdraw(&self, value: U256) -> Result<(), MarketError> {
-        tracing::debug!("Calling stakeWithdraw({})", value);
-        let call = self.instance.stakeWithdraw(value);
+    pub async fn withdraw_stake(&self, value: U256) -> Result<(), MarketError> {
+        tracing::debug!("Calling withdrawStake({})", value);
+        let call = self.instance.withdrawStake(value);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting stake withdraw tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -1105,9 +1105,9 @@ where
     }
 
     /// Returns the deposited balance, in HP, of the given account.
-    pub async fn stake_balance_of(&self, account: Address) -> Result<U256, MarketError> {
-        tracing::debug!("Calling stakeBalanceOf({})", account);
-        let balance = self.instance.stakeBalanceOf(account).call().await.context("call failed")?._0;
+    pub async fn balance_of_stake(&self, account: Address) -> Result<U256, MarketError> {
+        tracing::debug!("Calling balanceOfStake({})", account);
+        let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?._0;
         Ok(balance)
     }
 }
@@ -1374,7 +1374,7 @@ mod tests {
 
         // Deposit prover balances
         let deposit = U256::from(100);
-        ctx.prover_market.stake_deposit_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+        ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
@@ -1439,7 +1439,7 @@ mod tests {
 
         // Deposit prover balances
         let deposit = U256::from(100);
-        ctx.prover_market.stake_deposit_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+        ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
@@ -1566,7 +1566,7 @@ mod tests {
 
         // Deposit prover balances
         let deposit = U256::from(100);
-        ctx.prover_market.stake_deposit_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+        ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request
         ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();

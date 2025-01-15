@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use crate::contracts::{
-    stake::IERC20,
+    token::IERC20,
     IHitPoints::{self, IHitPointsErrors},
 };
 

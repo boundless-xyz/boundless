@@ -361,7 +361,7 @@ mod tests {
                 .unwrap();
 
         ctx.prover_market
-            .stake_deposit_with_permit(U256::from(100), &ctx.prover_signer)
+            .deposit_stake_with_permit(U256::from(100), &ctx.prover_signer)
             .await
             .unwrap();
 

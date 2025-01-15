@@ -433,7 +433,7 @@ mod tests {
         .unwrap();
 
         let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
-        market.stake_deposit_with_permit(U256::from(100), &signer).await.unwrap();
+        market.deposit_stake_with_permit(U256::from(100), &signer).await.unwrap();
 
         let market_customer =
             BoundlessMarketService::new(market_address, customer_provider.clone(), customer_addr);
