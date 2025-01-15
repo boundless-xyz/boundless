@@ -417,14 +417,12 @@ contract BoundlessMarket is
         emit RequestLockedin(request.id, prover);
     }
 
-    /// Returns the frozen state of an account.
-    /// @dev A frozen account cannot lock-in requests. To unlock the account, its owner must call
-    /// `unfreezeAccount`.
+    /// @inheritdoc IBoundlessMarket
     function accountIsFrozen(address addr) external view returns (bool) {
         return _accountIsFrozen(addr);
     }
 
-    /// Clear the frozen state of the sender's account.
+    /// @inheritdoc IBoundlessMarket
     function unfreezeAccount() public {
         address addr = msg.sender;
         if (_accountIsFrozen(addr)) {
