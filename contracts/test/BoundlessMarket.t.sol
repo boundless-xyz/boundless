@@ -204,9 +204,7 @@ contract BoundlessMarketTest is Test {
         // Deploy the UUPS proxy with the implementation
         proxy = UnsafeUpgrades.deployUUPSProxy(
             address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(stakeToken))),
-            abi.encodeCall(
-                BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null")
-            )
+            abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
         );
         boundlessMarket = BoundlessMarket(proxy);
 

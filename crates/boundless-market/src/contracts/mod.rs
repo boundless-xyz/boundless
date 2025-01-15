@@ -651,10 +651,10 @@ pub mod test_utils {
     use std::sync::Arc;
 
     use crate::contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService,
+        boundless_market::BoundlessMarketService,
+        hit_points::{default_allowance, HitPointsService},
+        set_verifier::SetVerifierService,
     };
-
-    use super::hit_points::HitPointsService;
 
     // Bytecode for the contracts is copied from the contract build output by the build script. It
     // is checked into git so that we can avoid issues with publishing to crates.io. We do not use
@@ -680,8 +680,8 @@ pub mod test_utils {
     alloy::sol! {
         #![sol(rpc)]
         contract BoundlessMarket {
-            constructor(address verifier, bytes32 assessorId) {}
-            function initialize(address initialOwner, string calldata imageUrl, address stakeToken) {}
+            constructor(address verifier, bytes32 assessorId, address stakeTokenContract) {}
+            function initialize(address initialOwner, string calldata imageUrl) {}
         }
     }
 
@@ -821,6 +821,7 @@ pub mod test_utils {
                 BoundlessMarket::constructorCall {
                     verifier: set_verifier,
                     assessorId: <[u8; 32]>::from(assessor_guest_id).into(),
+                    stakeTokenContract: hit_points,
                 }
                 .abi_encode(),
             ]
@@ -840,7 +841,6 @@ pub mod test_utils {
                     data: BoundlessMarket::initializeCall {
                         initialOwner: deployer_address,
                         imageUrl: "".to_string(),
-                        stakeToken: hit_points,
                     }
                     .abi_encode()
                     .into(),
@@ -862,7 +862,7 @@ pub mod test_utils {
             );
             hit_points_service.authorize(proxy).await?;
             if let Some(prover) = allowed_prover {
-                hit_points_service.mint(prover, U256::from(100)).await?;
+                hit_points_service.mint(prover, default_allowance()).await?;
             }
         }
 
@@ -964,7 +964,7 @@ pub mod test_utils {
                 verifier_signer.address(),
             );
 
-            hit_points_service.mint(prover_signer.address(), U256::from(100)).await?;
+            hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
 
             Ok(TestCtx {
                 verifier_addr,

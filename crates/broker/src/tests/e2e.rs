@@ -13,8 +13,8 @@ use tempfile::NamedTempFile;
 // use broker::Broker;
 use crate::{config::Config, provers::encode_input, Args, Broker};
 use boundless_market::contracts::{
-    test_utils::TestCtx, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-    Requirements,
+    hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
+    PredicateType, ProofRequest, Requirements,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -34,7 +34,10 @@ async fn simple_e2e() {
         .unwrap();
 
     // Deposit prover / customer balances
-    ctx.prover_market.deposit_stake_with_permit(U256::from(100), &ctx.prover_signer).await.unwrap();
+    ctx.prover_market
+        .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     // Stand up a local http server for image delivery

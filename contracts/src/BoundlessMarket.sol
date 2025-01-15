@@ -160,7 +160,6 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable STAKE_TOKEN_CONTRACT;
 
-
     /// In order to fulfill a request, the prover must provide a proof that can be verified with at
     /// most the amount of gas specified by this constant. This requirement exists to ensure the
     /// client can then post the given proof in a new transaction as part of the application.

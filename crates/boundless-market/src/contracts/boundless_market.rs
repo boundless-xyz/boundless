@@ -1118,8 +1118,9 @@ mod tests {
 
     use super::BoundlessMarketService;
     use crate::contracts::{
-        test_utils::TestCtx, AssessorJournal, Fulfillment, IBoundlessMarket, Input, InputType,
-        Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements,
+        hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
+        IBoundlessMarket, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
+        ProofStatus, Requirements,
     };
     use alloy::{
         node_bindings::Anvil,
@@ -1373,7 +1374,7 @@ mod tests {
         let customer_sig = log.inner.data.clientSignature;
 
         // Deposit prover balances
-        let deposit = U256::from(100);
+        let deposit = default_allowance();
         ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request
@@ -1438,7 +1439,7 @@ mod tests {
         let customer_sig = log.inner.data.clientSignature;
 
         // Deposit prover balances
-        let deposit = U256::from(100);
+        let deposit = default_allowance();
         ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request
@@ -1565,7 +1566,7 @@ mod tests {
         let customer_sig = log.inner.data.clientSignature;
 
         // Deposit prover balances
-        let deposit = U256::from(100);
+        let deposit = default_allowance();
         ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lockin the request

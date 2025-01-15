@@ -71,8 +71,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
             address(new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, stakeToken));
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(
-                newImplementation,
-                abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl))
+                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl))
             )
         );
         vm.stopBroadcast();

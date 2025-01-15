@@ -24,6 +24,7 @@ use alloy::{network::Ethereum, primitives::Address, providers::Provider, transpo
 use alloy_primitives::U256;
 use anyhow::{Context, Result};
 
+const DEFAULT_ALLOWANCE: u32 = 100;
 /// HitPointsService provides a high-level interface to the HitPoints contract.
 #[derive(Clone)]
 pub struct HitPointsService<T, P> {
@@ -96,4 +97,9 @@ where
         let balance = call.call().await.map_err(IHitPointsErrors::decode_error)?;
         return Ok(balance._0);
     }
+}
+
+/// Returns the default allowance.
+pub fn default_allowance() -> U256 {
+    U256::from(DEFAULT_ALLOWANCE)
 }

@@ -733,7 +733,7 @@ mod tests {
     use super::*;
 
     use alloy::node_bindings::Anvil;
-    use boundless_market::contracts::test_utils::TestCtx;
+    use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use risc0_zkvm::sha::Digest;
@@ -757,15 +757,15 @@ mod tests {
             boundless_market_address: ctx.boundless_market_addr,
             set_verifier_address: ctx.set_verifier_addr,
             tx_timeout: None,
-            command: Command::Deposit { amount: U256::from(100) },
+            command: Command::Deposit { amount: default_allowance() },
         };
 
         run(&args).await.unwrap();
 
         let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
-        assert_eq!(balance, U256::from(100));
+        assert_eq!(balance, default_allowance());
 
-        args.command = Command::Withdraw { amount: U256::from(100) };
+        args.command = Command::Withdraw { amount: default_allowance() };
         run(&args).await.unwrap();
 
         let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
@@ -783,7 +783,7 @@ mod tests {
                 .await
                 .unwrap();
         ctx.prover_market
-            .deposit_stake_with_permit(U256::from(100), &ctx.prover_signer)
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await
             .unwrap();
 

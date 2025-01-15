@@ -229,7 +229,7 @@ mod tests {
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
-    use boundless_market::contracts::test_utils::TestCtx;
+    use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
     use broker::test_utils::broker_from_test_ctx;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
@@ -270,7 +270,7 @@ mod tests {
                 .await
                 .unwrap();
         ctx.prover_market
-            .deposit_stake_with_permit(U256::from(100), &ctx.prover_signer)
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await
             .unwrap();
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();

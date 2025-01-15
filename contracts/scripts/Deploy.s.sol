@@ -106,8 +106,7 @@ contract Deploy is Script, RiscZeroCheats {
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(
-                newImplementation,
-                abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
+                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
             )
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
