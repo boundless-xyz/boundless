@@ -241,11 +241,12 @@ impl DefaultProver {
         let order_elf = fetch_url(&request.imageUrl).await?;
         let order_input: Vec<u8> = match request.input.inputType {
             InputType::Inline => request.input.data.into(),
-            InputType::Url => fetch_url(
-                std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
-            )
-            .await?
-            .into(),
+            InputType::Url => {
+                fetch_url(
+                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
+                )
+                .await?
+            }
             _ => bail!("Unsupported input type"),
         };
         let order_receipt =

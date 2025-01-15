@@ -109,8 +109,8 @@ where
         Self {
             instance: self.instance.clone(),
             chain_id: self.chain_id.load(Ordering::Relaxed).into(),
-            caller: self.caller.clone(),
-            timeout: self.timeout.clone(),
+            caller: self.caller,
+            timeout: self.timeout,
             event_query_config: self.event_query_config.clone(),
         }
     }
@@ -156,7 +156,7 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
     let logs = receipt
         .inner
         .logs()
-        .into_iter()
+        .iter()
         .filter_map(|log| {
             if log.topic0().map(|topic| E::SIGNATURE_HASH == *topic).unwrap_or(false) {
                 Some(
@@ -934,7 +934,7 @@ where
         let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
         let request_id = request_id(&self.caller, id);
         match self.get_status(request_id, None).await? {
-            ProofStatus::Unknown => return Ok(id),
+            ProofStatus::Unknown => Ok(id),
             _ => Err(MarketError::Error(anyhow!("index already in use"))),
         }
     }

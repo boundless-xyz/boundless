@@ -90,7 +90,7 @@ impl OrderDb {
 
     fn create_nonce() -> String {
         let rand_bytes: [u8; 16] = rand::random();
-        hex::encode(rand_bytes.to_vec())
+        hex::encode(rand_bytes.as_slice())
     }
 
     /// Add a new broker to the database

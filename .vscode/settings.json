@@ -1,14 +1,15 @@
 {
   "rust-analyzer.check.allTargets": true,
   "rust-analyzer.check.features": [],
-  "rust-analyzer.check.extraEnv": {
+  "rust-analyzer.server.extraEnv": {
     "RISC0_SKIP_BUILD": "1",
-    "RISC0_SKIP_BUILD_KERNELS": "1"
+    "RISC0_SKIP_BUILD_KERNELS": "1",
+    "CARGO_TARGET_DIR": "target/analyzer"
   },
-  // "rust-analyzer.check.extraArgs": [
-  //   "--target-dir",
-  //   "target/analyzer"
-  // ],
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.extraArgs": [
+    "--target-dir=target/analyzer"
+  ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",
     "editor.codeActionsOnSave": {
