@@ -18,10 +18,12 @@ import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {IBoundlessMarket, ProofRequest, Offer, Fulfillment, AssessorJournal} from "./IBoundlessMarket.sol";
 import {BoundlessMarketLib} from "./BoundlessMarketLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
-import {IHitPoints} from "./IHitPoints.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
+uint256 constant REQUEST_FLAGS_INITIAL_BITS = 64;
 
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
 struct Account {
@@ -43,14 +45,14 @@ struct Account {
 library AccountLib {
     /// Gets the locked and fulfilled request flags for the request with the given index.
     function requestFlags(Account storage account, uint32 idx) internal view returns (bool locked, bool fulfilled) {
-        if (idx < 64 / REQUEST_FLAGS_BITWIDTH) {
+        if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
             uint64 masked = (
                 account.requestFlagsInitial
                     & (uint64((1 << REQUEST_FLAGS_BITWIDTH) - 1) << uint64(idx * REQUEST_FLAGS_BITWIDTH))
             ) >> (idx * REQUEST_FLAGS_BITWIDTH);
             return (masked & uint64(1) != 0, masked & uint64(2) != 0);
         } else {
-            uint256 idxShifted = idx - (64 / REQUEST_FLAGS_BITWIDTH);
+            uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
             uint256 packed = account.requestFlagsExtended[(idxShifted * REQUEST_FLAGS_BITWIDTH) / 256];
             uint256 maskShift = (idxShifted * REQUEST_FLAGS_BITWIDTH) % 256;
             uint256 masked = (packed & (uint256((1 << REQUEST_FLAGS_BITWIDTH) - 1) << maskShift)) >> maskShift;
@@ -63,11 +65,11 @@ library AccountLib {
     /// Least significant bit is locked, second-least significant is fulfilled.
     function setRequestFlags(Account storage account, uint32 idx, uint8 flags) internal {
         assert(flags < (1 << REQUEST_FLAGS_BITWIDTH));
-        if (idx < 64 / REQUEST_FLAGS_BITWIDTH) {
+        if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
             uint64 mask = uint64(flags) << uint64(idx * REQUEST_FLAGS_BITWIDTH);
             account.requestFlagsInitial |= mask;
         } else {
-            uint256 idxShifted = idx - (64 / REQUEST_FLAGS_BITWIDTH);
+            uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
             uint256 mask = uint256(flags) << (uint256(idxShifted * REQUEST_FLAGS_BITWIDTH) % 256);
             account.requestFlagsExtended[(idxShifted * REQUEST_FLAGS_BITWIDTH) / 256] |= mask;
         }
@@ -138,6 +140,7 @@ contract BoundlessMarket is
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for uint256;
     using TransientPriceLib for TransientPrice;
+    using SafeERC20 for IERC20;
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
@@ -272,9 +275,7 @@ contract BoundlessMarket is
     }
 
     function _depositStake(address from, uint256 value) internal {
-        bool success = IERC20(STAKE_TOKEN_CONTRACT).transferFrom(from, address(this), value);
-        if (!success) revert TransferFailed();
-
+        IERC20(STAKE_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
         accounts[from].stakeBalance += value.toUint96();
         emit StakeDeposit(from, value);
     }
@@ -288,7 +289,7 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         // Transfer tokens from user to market
-        IERC20Permit(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s);
+        try IERC20Permit(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
         _depositStake(msg.sender, value);
     }
 
@@ -691,11 +692,14 @@ contract BoundlessMarket is
         // Calculate the portion of stake that should be burned vs sent to the client.
         // NOTE: If the burn fraction is not properly set, this can overflow.
         // The maximum feasible stake multiplied by the numerator must be less than 2^256.
-        uint256 burnValue = uint256(lock.stake);
-        // Transfer tokens from market to address zero.
-        IHitPoints(STAKE_TOKEN_CONTRACT).burn(burnValue);
-        // Return the price to the client.
+        uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_FRACTION_NUMERATOR / SLASHING_BURN_FRACTION_DENOMINATOR;
+        uint256 transferValue = uint256(lock.stake) - burnValue;
+
+        // Return the price to the client, plus the transfer value. Then burn the burn value.
         accounts[client].balance += lock.price;
+        accounts[client].stakeBalance += transferValue.toUint96();
+        // Transfer tokens from market to address zero.
+        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
 
         emit ProverSlashed(requestId, lock.prover, uint256(lock.stake));
     }

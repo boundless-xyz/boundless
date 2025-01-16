@@ -36,9 +36,4 @@ interface IHitPoints {
     /// @param account The address that will receive the minted tokens
     /// @param value The `value` amount of tokens to mint
     function mint(address account, uint256 value) external;
-
-    /// @notice Burns tokens from the caller's account
-    /// @dev The tokens are sent to the zero address and the total supply is unchanged
-    /// @param value The `value` amount of tokens to burn
-    function burn(uint256 value) external;
 }

@@ -95,6 +95,7 @@ contract Deploy is Script, RiscZeroCheats {
         if (deploymentConfig.stakeToken == address(0)) {
             // Deploy the HitPoints contract
             stakeToken = address(new HitPoints(boundlessMarketOwner));
+            console2.log("Deployed HitPoints to", stakeToken);
         } else {
             stakeToken = deploymentConfig.stakeToken;
             console2.log("Using HitPoints deployed at", stakeToken);

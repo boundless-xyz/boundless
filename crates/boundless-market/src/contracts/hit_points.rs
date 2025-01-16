@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Interface to interact with the `HitPoints` contract used for staking on the market during the Boundless testnet.
+//!
+//! NOTE: This module will be removed in later phases of the testnet and before mainnet.
+
 use std::time::Duration;
 
 use crate::contracts::{

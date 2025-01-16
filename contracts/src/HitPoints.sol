@@ -15,6 +15,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -22,18 +23,19 @@ import "./IHitPoints.sol";
 
 /// @title HitPoints ERC20
 /// @notice Implementation of a restricted transfer token using ERC20
-contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
+contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, Ownable {
     // Maximum allowed balance (uint96 max value)
     uint256 private constant MAX_BALANCE = type(uint96).max;
     // Mapping for operators who can mint and can receive/send tokens from/to anyone
     mapping(address => bool) public isAuthorized;
 
     constructor(address initialOwner) ERC20("HitPoints", "HP") ERC20Permit("HitPoints") Ownable(initialOwner) {
-        isAuthorized[initialOwner] = true;
+        // Authorize address(0) as a sender and receiver to simplify mints and burns.
+        isAuthorized[address(0)] = true;
     }
 
     modifier onlyAuthorized() {
-        if (!isAuthorized[msg.sender]) revert Unauthorized();
+        if (!isAuthorized[msg.sender] && msg.sender != owner()) revert Unauthorized();
         _;
     }
 
@@ -48,7 +50,7 @@ contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
     }
 
     /// @inheritdoc IHitPoints
-    function mint(address account, uint256 value) external onlyAuthorized {
+    function mint(address account, uint256 value) external onlyOwner {
         // Ensure the new balance won't exceed uint96 max
         uint256 newBalance = balanceOf(account) + value;
         if (newBalance > MAX_BALANCE) {
@@ -57,35 +59,25 @@ contract HitPoints is ERC20, ERC20Permit, IHitPoints, Ownable {
         _mint(account, value);
     }
 
-    /// @inheritdoc IHitPoints
-    function burn(uint256 value) external {
-        _burn(msg.sender, value);
-    }
-
     function _update(address from, address to, uint256 value) internal virtual override {
-        // Allow mint operations
-        if (from == address(0)) {
-            super._update(from, to, value);
-            return;
+        // Either the sender or the receiver must be authorized.
+        if (!isAuthorized[from] && !isAuthorized[to]) {
+            revert UnauthorizedTransfer();
         }
 
-        // Ensure the recipient's balance won't exceed uint96 max for non-zero transfers
-        if (to != address(0)) {
-            uint256 newBalance = balanceOf(to) + value;
-            if (newBalance > MAX_BALANCE) {
-                revert BalanceExceedsLimit(to, balanceOf(to), value);
+        // Prevent direct transfers to authorized addresses
+        // Allow transfers only through allowance or permit
+        if (isAuthorized[to] && from != address(0)) {
+            if (allowance(from, msg.sender) < value && msg.sender != to && !isAuthorized[from]) {
+                revert UnauthorizedTransfer();
             }
         }
 
-        // Authorized accounts can transfer anywhere
-        if (isAuthorized[from]) {
-            super._update(from, to, value);
-            return;
-        }
-
-        // Others can only transfer to authorized accounts
-        if (!isAuthorized[to]) revert UnauthorizedTransfer();
-
         super._update(from, to, value);
+
+        // Ensure the recipient's balance didn't exceed MAX_BALANCE.
+        if (to != address(0) && balanceOf(to) > MAX_BALANCE) {
+            revert BalanceExceedsLimit(to, balanceOf(to) - value, value);
+        }
     }
 }
