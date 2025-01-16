@@ -347,7 +347,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(newUser);
         boundlessMarket.deposit{value: 1 ether}();
         vm.snapshotGasLastCall("deposit: first ever deposit");
-        
+
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.Deposit(newUser, 1 ether);
         vm.prank(newUser);
@@ -444,7 +444,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             boundlessMarket.lockin(request, clientSignature);
         }
 
-        if (!_stringEquals(snapshot, "")) {  
+        if (!_stringEquals(snapshot, "")) {
             vm.snapshotGasLastCall(snapshot);
         }
 
@@ -769,7 +769,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     // Base for fulfillment tests with different methods for lockin, including none. All paths should yield the same result.
-    function _testFulfill(uint32 requestIdx, LockinMethod lockinMethod, string memory snapshot) private returns (Client, ProofRequest memory) {
+    function _testFulfill(uint32 requestIdx, LockinMethod lockinMethod, string memory snapshot)
+        private
+        returns (Client, ProofRequest memory)
+    {
         Client client = getClient(1);
         ProofRequest memory request = client.request(requestIdx);
         bytes memory clientSignature = client.sign(request);
@@ -842,7 +845,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(OWNER_WALLET.addr);
         boundlessMarket.removeProverFromAppnetAllowlist(address(testProver));
 
-        _testFulfill(1, LockinMethod.None, "priceAndFulfillBatch: a single request that was not locked fulfilled by prover not in allow-list");
+        _testFulfill(
+            1,
+            LockinMethod.None,
+            "priceAndFulfillBatch: a single request that was not locked fulfilled by prover not in allow-list"
+        );
     }
 
     // Check that a single client can create many requests, with the full range of indices, and
@@ -898,7 +905,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         }
         boundlessMarket.fulfillBatch(fills, assessorSeal, address(testProver));
         vm.snapshotGasLastCall(string.concat("fulfillBatch: a batch of ", vm.toString(batchSize)));
-        
 
         for (uint256 i = 0; i < fills.length; i++) {
             // Check that the proof was submitted
@@ -963,7 +969,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
         boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
-        vm.snapshotGasLastCall("fulfill: fulfilled by the locked prover for payment (request already fulfilled by another prover)");
+        vm.snapshotGasLastCall(
+            "fulfill: fulfilled by the locked prover for payment (request already fulfilled by another prover)"
+        );
 
         assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
 
@@ -1360,4 +1368,3 @@ contract TransientPriceLibTest is Test {
         assertEq(unpacked.price, original.price, "Price mismatch");
     }
 }
-
