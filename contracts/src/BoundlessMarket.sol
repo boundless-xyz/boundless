@@ -185,7 +185,9 @@ contract BoundlessMarket is
     uint256 internal marketBalance;
 
     /// @notice Mapping of addresses to frozen stake balances.
+    ///
     /// @dev A frozen account cannot lock-in requests.
+    ///           Upon freezing, the account balance record is transfers to this mapping, to be returned when the account is unfrozen.
     mapping(address => uint96) public frozenAccounts;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -426,10 +428,8 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function unfreezeAccount() public {
         address addr = msg.sender;
-        if (_accountIsFrozen(addr)) {
             accounts[addr].stakeBalance += frozenAccounts[addr];
             frozenAccounts[addr] = 0;
-        }
     }
 
     function _accountIsFrozen(address addr) internal view returns (bool) {
@@ -437,10 +437,8 @@ contract BoundlessMarket is
     }
 
     function freezeAccount(address addr) internal {
-        if (!_accountIsFrozen(addr)) {
-            frozenAccounts[addr] = accounts[addr].stakeBalance;
+            frozenAccounts[addr] += accounts[addr].stakeBalance;
             accounts[addr].stakeBalance = 0;
-        }
     }
 
     /// Validates the request and records the price to transient storage such that it can be
@@ -683,7 +681,7 @@ contract BoundlessMarket is
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
         }
 
-        // Freeze the prover account.
+        // Freeze the prover account's remaining stake.
         freezeAccount(lock.prover);
 
         // Zero out the lock to prevent the same request from being slashed twice.

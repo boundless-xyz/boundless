@@ -294,7 +294,7 @@ interface IBoundlessMarket {
     /// To unlock the account, its owner must call `unfreezeAccount`.
     function accountIsFrozen(address addr) external view returns (bool);
 
-    /// Clear the frozen state of an account.
+    /// Clear the frozen state of an account, transferring the frozen stake back to the prover's available balance.
     function unfreezeAccount() external;
 
     /// EIP 712 domain separator getter
