@@ -14,7 +14,7 @@ use sqlx::{
 };
 use thiserror::Error;
 
-use crate::{Batch, BatchStatus, Node, Order, OrderStatus, ProofRequest};
+use crate::{Batch, BatchStatus, Order, OrderStatus, ProofRequest};
 
 #[derive(Error, Debug)]
 pub enum DbError {
@@ -118,9 +118,6 @@ pub trait BrokerDb {
         fees: U256,
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
-    async fn set_batch_peaks(&self, batch_id: usize, peaks: Vec<Node>) -> Result<(), DbError>;
-    async fn get_batch_peaks(&self, batch_id: usize) -> Result<Vec<Node>, DbError>;
-    async fn get_batch_peak_count(&self, batch_id: usize) -> Result<usize, DbError>;
 
     #[cfg(test)]
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
@@ -860,53 +857,6 @@ impl BrokerDb for SqliteDb {
         }
     }
 
-    async fn set_batch_peaks(&self, batch_id: usize, peaks: Vec<Node>) -> Result<(), DbError> {
-        let res = sqlx::query(
-            r#"
-            UPDATE batches
-            SET
-                data = json_set(data, '$.peaks', json($1))
-            WHERE
-                id = $2"#,
-        )
-        .bind(sqlx::types::Json(peaks))
-        .bind(batch_id as i64)
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::BatchNotFound(batch_id));
-        }
-
-        Ok(())
-    }
-
-    async fn get_batch_peaks(&self, batch_id: usize) -> Result<Vec<Node>, DbError> {
-        let res = sqlx::query("SELECT data->>'peaks' as peaks FROM batches WHERE id = $1")
-            .bind(batch_id as i64)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        let Some(rows) = res else {
-            return Err(DbError::BatchNotFound(batch_id));
-        };
-        let peaks: sqlx::types::Json<Vec<Node>> = rows.try_get("peaks")?;
-
-        Ok(peaks.0)
-    }
-
-    async fn get_batch_peak_count(&self, batch_id: usize) -> Result<usize, DbError> {
-        let count: Option<i64> = sqlx::query_scalar(
-            "SELECT json_array_length(data->>'peaks') FROM batches WHERE id = $1",
-        )
-        .bind(batch_id as i64)
-        .fetch_optional(&self.pool)
-        .await?;
-        let count = count.unwrap_or(0);
-
-        Ok(count as usize)
-    }
-
     #[cfg(test)]
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError> {
         let res = sqlx::query("INSERT INTO batches (id, data) VALUES ($1, $2)")
@@ -1422,62 +1372,5 @@ mod tests {
         assert_eq!(db_batch.orders, vec![order_id]);
         assert_eq!(db_batch.block_deadline, Some(expire_block));
         assert_eq!(db_batch.fees, base_fees + new_fees);
-    }
-
-    #[sqlx::test]
-    async fn set_batch_peaks(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
-        db.add_batch(batch_id, batch.clone()).await.unwrap();
-
-        let proof_id = "test";
-        let order_id = U256::from(1);
-        let root = Digest::new([1; DIGEST_WORDS]);
-        db.set_batch_peaks(
-            batch_id,
-            vec![Node::Singleton { proof_id: proof_id.into(), order_id, root }],
-        )
-        .await
-        .unwrap();
-    }
-
-    #[sqlx::test]
-    async fn get_batch_peaks(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-
-        let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
-        db.add_batch(batch_id, batch.clone()).await.unwrap();
-
-        let proof_id = "test";
-        let order_id = U256::from(1);
-        let root = Digest::new([1; DIGEST_WORDS]);
-        let peaks = vec![Node::Singleton { proof_id: proof_id.into(), order_id, root }];
-        db.set_batch_peaks(batch_id, peaks.clone()).await.unwrap();
-
-        let db_peaks = db.get_batch_peaks(batch_id).await.unwrap();
-        assert_eq!(db_peaks, peaks);
-    }
-
-    #[sqlx::test]
-    async fn get_batch_peak_count(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-
-        let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
-        db.add_batch(batch_id, batch.clone()).await.unwrap();
-        assert_eq!(db.get_batch_peak_count(batch_id).await.unwrap(), 0);
-
-        let proof_id = "test";
-        let order_id = U256::from(1);
-        let root = Digest::new([1; DIGEST_WORDS]);
-        let peaks = vec![Node::Singleton { proof_id: proof_id.into(), order_id, root }];
-        db.set_batch_peaks(batch_id, peaks.clone()).await.unwrap();
-
-        assert_eq!(db.get_batch_peak_count(batch_id).await.unwrap(), 1);
     }
 }

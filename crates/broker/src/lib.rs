@@ -204,89 +204,6 @@ impl Order {
     }
 }
 
-/// A node in the Merkle tree.
-#[derive(Serialize, PartialEq, Deserialize, Debug, Clone)]
-enum Node {
-    Singleton { proof_id: String, order_id: U256, root: Digest },
-    Join { proof_id: String, height: usize, left: Box<Node>, right: Box<Node>, root: Digest },
-}
-
-impl Node {
-    fn singleton(proof_id: String, order_id: U256, root: Digest) -> Self {
-        Node::Singleton { proof_id, order_id, root }
-    }
-    fn join(proof_id: String, height: usize, left: Node, right: Node, root: Digest) -> Self {
-        Node::Join { proof_id, height, left: left.into(), right: right.into(), root }
-    }
-
-    fn proof_id(&self) -> &str {
-        match self {
-            Node::Singleton { proof_id, .. } => proof_id,
-            Node::Join { proof_id, .. } => proof_id,
-        }
-    }
-    fn height(&self) -> usize {
-        match self {
-            Node::Singleton { .. } => 0,
-            Node::Join { height, .. } => *height,
-        }
-    }
-    fn root(&self) -> Digest {
-        match self {
-            Node::Singleton { root, .. } => *root,
-            Node::Join { root, .. } => *root,
-        }
-    }
-
-    fn order_ids(&self) -> Vec<U256> {
-        fn rec_order_ids(node: &Node, ids: &mut Vec<U256>) {
-            match node {
-                Node::Singleton { order_id, .. } => ids.push(*order_id),
-                Node::Join { left, right, .. } => {
-                    rec_order_ids(left, ids);
-                    rec_order_ids(right, ids);
-                }
-            }
-        }
-
-        let mut ids = vec![];
-        rec_order_ids(self, &mut ids);
-        ids
-    }
-
-    /// Recursively gets all paths for orderID's into `output`
-    fn get_order_paths(
-        &self,
-        mut path: Vec<Digest>,
-        mut output: &mut Vec<(U256, Vec<Digest>)>,
-    ) -> Result<()> {
-        match &self {
-            Node::Singleton { order_id, .. } => {
-                // TODO: This is kinda hacky, I would like a better way to flag this or
-                // disconnect the DB from this tree model a bit better
-                //
-                // Skips "extra" proofs in the batch, like assessor leafs
-                if *order_id != U256::ZERO {
-                    path.reverse();
-                    output.push((*order_id, path));
-                    // db.set_order_path(*order_id, path).await?;
-                }
-            }
-            Node::Join { left, right, .. } => {
-                let mut left_path = path.clone();
-                left_path.push(right.root());
-                left.get_order_paths(left_path, &mut output)?;
-
-                let mut right_path = path.clone();
-                right_path.push(left.root());
-                right.get_order_paths(right_path, &mut output)?;
-            }
-        };
-
-        Ok(())
-    }
-}
-
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 enum BatchStatus {
     #[default]
@@ -308,7 +225,6 @@ struct Batch {
     pub block_deadline: Option<u64>,
     pub fees: U256,
     pub error_msg: Option<String>,
-    pub peaks: Vec<Node>,
 }
 
 pub struct Broker<P> {

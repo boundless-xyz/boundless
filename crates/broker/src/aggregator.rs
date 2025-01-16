@@ -24,7 +24,6 @@ use crate::{
     db::DbObj,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    Node,
 };
 
 #[derive(Clone)]
@@ -85,12 +84,12 @@ where
         })
     }
 
-    async fn prove_sot(
+    async fn prove_set_builder(
         &self,
         job_type: &str,
         input: &impl serde::Serialize,
         assumptions: Vec<String>,
-    ) -> Result<(String, GuestOutput)> {
+    ) -> Result<(String, GuestState)> {
         let input_data = provers::encode_input(&input)
             .with_context(|| format!("Failed to encode {job_type} proof input"))?;
         let input_id = self
@@ -126,54 +125,8 @@ where
 
         Ok((
             proof_res.id,
-            GuestOutput::abi_decode(&journal, false).context("Failed to decode guest output")?,
+            GuestState::decode(&journal).context("Failed to decode guest output")?,
         ))
-    }
-
-    async fn prove_singleton(&self, order_id: U256, proof_id: String) -> Result<Node> {
-        let receipt = self
-            .prover
-            .get_receipt(&proof_id)
-            .await
-            .context("Failed to get proof receipt")?
-            .context("Proof receipt not found")?;
-        let claim = receipt
-            .claim()
-            .context("Receipt missing claims")?
-            .value()
-            .context("Receipt claims pruned")?;
-
-        let input = GuestInput::Singleton { self_image_id: self.set_builder_guest_id, claim };
-
-        let (new_id, output) = self.prove_sot("singleton", &input, vec![proof_id]).await?;
-        tracing::debug!("Singleton(order={order_id:x}): {}", output.root());
-
-        Ok(Node::singleton(new_id, order_id, output.root()))
-    }
-
-    async fn prove_join(&self, left: Node, right: Node) -> Result<Node> {
-        let input = GuestInput::Join {
-            self_image_id: self.set_builder_guest_id,
-            left_set_root: left.root(),
-            right_set_root: right.root(),
-        };
-
-        let (new_id, output) = self
-            .prove_sot(
-                "join",
-                &input,
-                vec![left.proof_id().to_string(), right.proof_id().to_string()],
-            )
-            .await?;
-
-        tracing::debug!(
-            "Join(left={}, right={}, root={})",
-            left.root(),
-            right.root(),
-            output.root()
-        );
-
-        Ok(Node::join(new_id, left.height() + 1, left, right, output.root()))
     }
 
     async fn prove_assessor(&self, order_ids: &[U256]) -> Result<String> {
@@ -271,6 +224,7 @@ where
         Ok(())
     }
 
+    // TODO(mmr) Remove this as an independent function and instead just set the finalize flag.
     async fn finalize_batch(&mut self, batch_id: usize) -> Result<()> {
         let mut peaks =
             self.db.get_batch_peaks(batch_id).await.context("Failed to get DB batch peaks")?;
@@ -307,6 +261,7 @@ where
         let assessor_proof_id =
             self.prove_assessor(&batch_order_ids).await.context("Failed to prove assessor")?;
 
+        /* TODO(victor)
         // now prove a singleton proof of the assessor
         let assessor_singleton = self
             .prove_singleton(U256::ZERO /* TODO ??!?! */, assessor_proof_id)
@@ -325,6 +280,7 @@ where
             )
             .await
             .context("Failed to prove batch root join")?;
+        */
 
         tracing::info!("Starting groth16 compression proof");
         let compress_proof_id = self
@@ -358,16 +314,14 @@ where
 
     /// Check if we should finalize the batch
     ///
-    /// - check current min-deadline and batch timer
-    /// - need to fetch current block, might be good to make that a long polling service with a
-    ///   Atomic everyone reads
+    /// Checks current min-deadline, batch timer, and current block.
     ///
-    /// if so:
+    /// If so:
     /// - finalize
     /// - snark proof
     /// - insert batch data in to DB for finalizer
     /// - mark all orders in batch as Aggregated
-    async fn check_finalize(&mut self, batch_id: usize) -> Result<()> {
+    async fn check_finalize(&mut self, batch_id: usize) -> Result<bool> {
         let (conf_batch_size, conf_batch_time, conf_batch_fees) = {
             let config = self.config.lock_all().context("Failed to lock config")?;
 
@@ -388,7 +342,7 @@ where
             .await
             .context("Failed to get db batch peak count")?;
         if peak_count == 0 {
-            return Ok(());
+            return Ok(false);
         }
 
         let mut finalize = false;
@@ -450,23 +404,26 @@ where
             }
         }
 
-        if finalize {
-            self.finalize_batch(batch_id).await.context("Failed to finalize batch")?;
-        }
-
-        Ok(())
+        Ok(finalize)
     }
 
     async fn aggregate_proofs(&mut self) -> Result<()> {
+        // Get the current batch. This aggregator service works on one batch at a time, including
+        // any proofs ready for aggregation into the current batch.
+        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
+
+        // Finalize the current batch before adding any new orders if the finalization conditions
+        // are already met.
+        if self.check_finalize(batch_id).await? {
+            self.finalize_batch(batch_id).await.context("Failed to finalize batch")?;
+        }
+
+        // Fetch all proofs that are pending aggregation from the DB.
         let new_proofs = self
             .db
             .get_aggregation_proofs()
             .await
             .context("Failed to get pending agg proofs from DB")?;
-
-        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
-
-        self.check_finalize(batch_id).await?;
 
         if new_proofs.is_empty() {
             return Ok(());
@@ -500,7 +457,9 @@ where
             }
         }
 
-        self.check_finalize(batch_id).await?;
+        if self.check_finalize(batch_id).await? {
+            self.finalize_batch(batch_id).await.context("Failed to finalize batch")?;
+        }
 
         Ok(())
     }
@@ -555,6 +514,7 @@ mod tests {
     use guest_util::{ECHO_ELF, ECHO_ID};
     use tracing_test::traced_test;
 
+    /* TODO(victor)
     #[tokio::test]
     #[traced_test]
     async fn set_order_path() {
@@ -607,6 +567,7 @@ mod tests {
         check_merkle_path(128);
         check_merkle_path(255);
     }
+    */
 
     #[tokio::test]
     #[traced_test]
