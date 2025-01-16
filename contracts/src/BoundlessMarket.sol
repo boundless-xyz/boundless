@@ -428,8 +428,8 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function unfreezeAccount() public {
         address addr = msg.sender;
-            accounts[addr].stakeBalance += frozenAccounts[addr];
-            frozenAccounts[addr] = 0;
+        accounts[addr].stakeBalance += frozenAccounts[addr];
+        frozenAccounts[addr] = 0;
     }
 
     function _accountIsFrozen(address addr) internal view returns (bool) {
@@ -437,8 +437,8 @@ contract BoundlessMarket is
     }
 
     function freezeAccount(address addr) internal {
-            frozenAccounts[addr] += accounts[addr].stakeBalance;
-            accounts[addr].stakeBalance = 0;
+        frozenAccounts[addr] += accounts[addr].stakeBalance;
+        accounts[addr].stakeBalance = 0;
     }
 
     /// Validates the request and records the price to transient storage such that it can be
@@ -681,9 +681,6 @@ contract BoundlessMarket is
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
         }
 
-        // Freeze the prover account's remaining stake.
-        freezeAccount(lock.prover);
-
         // Zero out the lock to prevent the same request from being slashed twice.
         requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
 
@@ -696,6 +693,10 @@ contract BoundlessMarket is
         // Return the price to the client, plus the transfer value. Then burn the burn value.
         accounts[client].balance += lock.price;
         accounts[client].stakeBalance += transferValue.toUint96();
+
+        // Freeze the prover account's remaining stake.
+        freezeAccount(lock.prover);
+
         // Transfer tokens from market to address zero.
         ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
 
