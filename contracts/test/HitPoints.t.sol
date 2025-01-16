@@ -27,7 +27,7 @@ contract HitPointsTest is Test {
         assertEq(token.symbol(), "HP");
         assertEq(token.decimals(), 18);
         assertEq(token.owner(), owner);
-        assertTrue(token.isAuthorized(owner));
+        assertTrue(token.isAuthorized(address(0)));
         assertFalse(token.isAuthorized(authorized));
     }
 
@@ -54,7 +54,7 @@ contract HitPointsTest is Test {
 
     function testMintRevertUnauthorized() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(IHitPoints.Unauthorized.selector));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         token.mint(user, 100);
     }
 

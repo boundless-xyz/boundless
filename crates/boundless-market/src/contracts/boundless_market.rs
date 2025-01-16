@@ -1023,6 +1023,7 @@ where
     }
 
     /// Deposit stake into the market to pay for lockin stake.
+    ///
     /// Before calling this method, the account owner must first approve
     /// the Boundless market contract as an allowed spender by calling `approve_deposit_stake`.    
     pub async fn deposit_stake(&self, value: U256) -> Result<(), MarketError> {
@@ -1040,6 +1041,7 @@ where
     }
 
     /// Permit and deposit stake into the market to pay for lockin stake.
+    ///
     /// This method will send a single transaction.
     pub async fn deposit_stake_with_permit(
         &self,
