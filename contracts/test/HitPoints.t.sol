@@ -58,14 +58,14 @@ contract HitPointsTest is Test {
         token.mint(user, 100);
     }
 
-    function testTransferToAuthorizedRecipient() public {
+    function testDirectTransferToAuthorizedRecipientRevert() public {
         token.mint(user, 100);
         token.authorize(authorized);
 
+        vm.expectRevert(abi.encodeWithSelector(IHitPoints.UnauthorizedTransfer.selector));
         vm.prank(user);
         token.transfer(authorized, 50);
-        assertEq(token.balanceOf(user), 50);
-        assertEq(token.balanceOf(authorized), 50);
+        assertEq(token.balanceOf(user), 100);
     }
 
     function testTransferFromAuthorizedRecipient() public {

@@ -64,6 +64,15 @@ contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, Ownable {
         if (!isAuthorized[from] && !isAuthorized[to]) {
             revert UnauthorizedTransfer();
         }
+
+        // Prevent direct transfers to authorized addresses
+        // Allow transfers only through allowance or permit
+        if (isAuthorized[to] && from != address(0)) {
+            if (allowance(from, msg.sender) < value && msg.sender != to && !isAuthorized[from]) {
+                revert UnauthorizedTransfer();
+            }
+        }
+
         super._update(from, to, value);
 
         // Ensure the recipient's balance didn't exceed MAX_BALANCE.
