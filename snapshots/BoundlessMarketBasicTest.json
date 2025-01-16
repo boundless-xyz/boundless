@@ -1,0 +1,18 @@
+{
+  "deposit: 1 ether": "12448",
+  "fulfill: a locked request": "24614",
+  "fulfill: a locked request (locked via prover signature)": "24614",
+  "fulfill: another prover fulfills without payment": "25019",
+  "fulfill: fulfilled by the locked prover for payment (request already fulfilled by another prover)": "22784",
+  "fulfillBatch: a batch of 8": "177654",
+  "lockinRequest: base case": "77605",
+  "lockinRequest: with prover signature": "81483",
+  "priceAndFulfillBatch: a single request": "53580",
+  "priceAndFulfillBatch: a single request that was not locked": "49580",
+  "priceAndFulfillBatch: a single request that was not locked fulfilled by prover not in allow-list": "49580",
+  "slash: base case": "37709",
+  "submitRequest: with maxPrice ether": "18433",
+  "submitRequest: without ether": "11653",
+  "submitRootAndFulfillBatch: a batch of 2 requests": "79971",
+  "withdraw: 1 ether": "9815"
+}

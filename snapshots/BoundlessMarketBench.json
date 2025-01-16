@@ -1,0 +1,10 @@
+{
+  "fulfillBatch: batch of 1": "27700",
+  "fulfillBatch: batch of 128": "3099447",
+  "fulfillBatch: batch of 16": "358681",
+  "fulfillBatch: batch of 2": "51288",
+  "fulfillBatch: batch of 32": "725682",
+  "fulfillBatch: batch of 4": "93665",
+  "fulfillBatch: batch of 64": "1489545",
+  "fulfillBatch: batch of 8": "180349"
+}
