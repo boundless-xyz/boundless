@@ -323,6 +323,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
     using BoundlessMarketLib for ProofRequest;
 
+    function _stringEquals(string memory a, string memory b) private pure returns (bool) {
+        return keccak256(abi.encodePacked(a)) == keccak256(abi.encodePacked(b));
+    }
+
     function testDeposit() public {
         vm.deal(address(testProver), 1 ether);
         // Deposit funds into the market
@@ -330,8 +334,25 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit IBoundlessMarket.Deposit(address(testProver), 1 ether);
         vm.prank(address(testProver));
         boundlessMarket.deposit{value: 1 ether}();
-        vm.snapshotGasLastCall("deposit: 1 ether");
         testProver.expectBalanceChange(1 ether);
+    }
+
+    function testDeposits() public {
+        address newUser = address(uint160(3));
+        vm.deal(newUser, 2 ether);
+
+        // Deposit funds into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(newUser, 1 ether);
+        vm.prank(newUser);
+        boundlessMarket.deposit{value: 1 ether}();
+        vm.snapshotGasLastCall("deposit: first ever deposit");
+        
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(newUser, 1 ether);
+        vm.prank(newUser);
+        boundlessMarket.deposit{value: 1 ether}();
+        vm.snapshotGasLastCall("deposit: second deposit");
     }
 
     function testWithdraw() public {
@@ -345,7 +366,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit IBoundlessMarket.Withdrawal(address(testProver), 1 ether);
         vm.prank(address(testProver));
         boundlessMarket.withdraw(1 ether);
-        vm.snapshotGasLastCall("withdraw: 1 ether");
         expectMarketBalanceUnchanged();
 
         // Attempt to withdraw extra funds from the market.
@@ -353,6 +373,31 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(testProver));
         boundlessMarket.withdraw(DEFAULT_BALANCE + 1);
         expectMarketBalanceUnchanged();
+    }
+
+    function testWithdrawals() public {
+        // Deposit funds into the market
+        vm.deal(address(testProver), 3 ether);
+        vm.prank(address(testProver));
+        boundlessMarket.deposit{value: 3 ether}();
+
+        // Withdraw funds from the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Withdrawal(address(testProver), 1 ether);
+        vm.prank(address(testProver));
+        boundlessMarket.withdraw(1 ether);
+        vm.snapshotGasLastCall("withdraw: 1 ether");
+
+        uint256 balance = boundlessMarket.balanceOf(address(testProver));
+        vm.prank(address(testProver));
+        boundlessMarket.withdraw(balance);
+        vm.snapshotGasLastCall("withdraw: full balance");
+        assertEq(boundlessMarket.balanceOf(address(testProver)), 0);
+
+        // Attempt to withdraw extra funds from the market.
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(testProver)));
+        vm.prank(address(testProver));
+        boundlessMarket.withdraw(DEFAULT_BALANCE + 1);
     }
 
     function testSubmitRequest() public {
@@ -399,7 +444,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             boundlessMarket.lockin(request, clientSignature);
         }
 
-        if (!stringEquals(snapshot, "")) {  
+        if (!_stringEquals(snapshot, "")) {  
             vm.snapshotGasLastCall(snapshot);
         }
 
@@ -723,10 +768,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return _testFulfill(requestIdx, lockinMethod, "");
     }
 
-    function stringEquals(string memory a, string memory b) private pure returns (bool) {
-        return keccak256(abi.encodePacked(a)) == keccak256(abi.encodePacked(b));
-    }
-
     // Base for fulfillment tests with different methods for lockin, including none. All paths should yield the same result.
     function _testFulfill(uint32 requestIdx, LockinMethod lockinMethod, string memory snapshot) private returns (Client, ProofRequest memory) {
         Client client = getClient(1);
@@ -759,7 +800,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.expectEmit(true, true, true, false);
             emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
             boundlessMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorSeal, address(testProver));
-            if (!stringEquals(snapshot, "")) {
+            if (!_stringEquals(snapshot, "")) {
                 vm.snapshotGasLastCall(snapshot);
             }
         } else {
@@ -768,7 +809,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.expectEmit(true, true, true, false);
             emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
             boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
-            if (!stringEquals(snapshot, "")) {
+            if (!_stringEquals(snapshot, "")) {
                 vm.snapshotGasLastCall(snapshot);
             }
         }
