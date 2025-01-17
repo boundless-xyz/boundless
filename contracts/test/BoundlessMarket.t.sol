@@ -1244,13 +1244,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 contract BoundlessMarketBench is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
 
-    function benchFulfillBatch(uint256 batchSize) public {
+    function benchFulfillBatch(uint256 batchSize, string memory snapshot) public {
         (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
         (Fulfillment[] memory fills, bytes memory assessorSeal) =
             fulfillRequestBatch(requests, journals, address(testProver));
 
         boundlessMarket.fulfillBatch(fills, assessorSeal, address(testProver));
-        vm.snapshotGasLastCall(string.concat("fulfillBatch: batch of ", vm.toString(batchSize)));
+        vm.snapshotGasLastCall(string.concat("fulfillBatch: batch of ", snapshot));
 
         for (uint256 j = 0; j < fills.length; j++) {
             assertTrue(boundlessMarket.requestIsFulfilled(fills[j].id), "Request should have fulfilled status");
@@ -1258,35 +1258,35 @@ contract BoundlessMarketBench is BoundlessMarketTest {
     }
 
     function testBenchFulfillBatch001() public {
-        benchFulfillBatch(1);
+        benchFulfillBatch(1, "001");
     }
 
     function testBenchFulfillBatch002() public {
-        benchFulfillBatch(2);
+        benchFulfillBatch(2, "002");
     }
 
     function testBenchFulfillBatch004() public {
-        benchFulfillBatch(4);
+        benchFulfillBatch(4, "004");
     }
 
     function testBenchFulfillBatch008() public {
-        benchFulfillBatch(8);
+        benchFulfillBatch(8, "008");
     }
 
     function testBenchFulfillBatch016() public {
-        benchFulfillBatch(16);
+        benchFulfillBatch(16, "016");
     }
 
     function testBenchFulfillBatch032() public {
-        benchFulfillBatch(32);
+        benchFulfillBatch(32, "032");
     }
 
     function testBenchFulfillBatch064() public {
-        benchFulfillBatch(64);
+        benchFulfillBatch(64, "064");
     }
 
     function testBenchFulfillBatch128() public {
-        benchFulfillBatch(128);
+        benchFulfillBatch(128, "128");
     }
 }
 
