@@ -35,7 +35,7 @@ jobs:
             foundry:
               - 'foundry.toml'
 
-  gas-comparison:
+  gas-snapshots-updated:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     needs: contracts-changed
     if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
