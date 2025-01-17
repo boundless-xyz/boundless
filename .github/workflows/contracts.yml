@@ -58,7 +58,7 @@ jobs:
       - name: print forge version
         run: forge --version
 
-      - name: Ensure gas snapshots have been updated
+      - name: Ensure gas snapshots have been updated. Reminder to run `forge test --isolate`.
         run: FORGE_SNAPSHOT_CHECK=true forge test --isolate
 
   upgradability:
