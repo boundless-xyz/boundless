@@ -1303,57 +1303,56 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 }
 
-// TODO: uncomment
-// contract BoundlessMarketBench is BoundlessMarketTest {
-//     using BoundlessMarketLib for Offer;
+contract BoundlessMarketBench is BoundlessMarketTest {
+    using BoundlessMarketLib for Offer;
 
-//     function benchFulfillBatch(uint256 batchSize, string memory snapshot) public {
-//         (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
-//         (Fulfillment[] memory fills, bytes memory assessorSeal) =
-//             fulfillRequestBatch(requests, journals, address(testProver));
-
-
-//         boundlessMarket.fulfillBatch(fills, assessorSeal, address(testProver));
-//         vm.snapshotGasLastCall(string.concat("fulfillBatch: batch of ", snapshot));
-
-//        for (uint256 j = 0; j < fills.length; j++) {
-//            expectRequestFulfilled(fills[j].id);
-//        }
-//    }
+    function benchFulfillBatch(uint256 batchSize, string memory snapshot) public {
+        (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
+        (Fulfillment[] memory fills, bytes memory assessorSeal) =
+            fulfillRequestBatch(requests, journals, address(testProver));
 
 
-//     function testBenchFulfillBatch001() public {
-//         benchFulfillBatch(1, "001");
-//     }
+        boundlessMarket.fulfillBatch(fills, assessorSeal, address(testProver));
+        vm.snapshotGasLastCall(string.concat("fulfillBatch: batch of ", snapshot));
 
-//     function testBenchFulfillBatch002() public {
-//         benchFulfillBatch(2, "002");
-//     }
+       for (uint256 j = 0; j < fills.length; j++) {
+           expectRequestFulfilled(fills[j].id);
+       }
+   }
 
-//     function testBenchFulfillBatch004() public {
-//         benchFulfillBatch(4, "004");
-//     }
 
-//     function testBenchFulfillBatch008() public {
-//         benchFulfillBatch(8, "008");
-//     }
+    function testBenchFulfillBatch001() public {
+        benchFulfillBatch(1, "001");
+    }
 
-//     function testBenchFulfillBatch016() public {
-//         benchFulfillBatch(16, "016");
-//     }
+    function testBenchFulfillBatch002() public {
+        benchFulfillBatch(2, "002");
+    }
 
-//     function testBenchFulfillBatch032() public {
-//         benchFulfillBatch(32, "032");
-//     }
+    function testBenchFulfillBatch004() public {
+        benchFulfillBatch(4, "004");
+    }
 
-//     function testBenchFulfillBatch064() public {
-//         benchFulfillBatch(64, "064");
-//     }
+    function testBenchFulfillBatch008() public {
+        benchFulfillBatch(8, "008");
+    }
 
-//     function testBenchFulfillBatch128() public {
-//         benchFulfillBatch(128, "128");
-//     }
-// }
+    function testBenchFulfillBatch016() public {
+        benchFulfillBatch(16, "016");
+    }
+
+    function testBenchFulfillBatch032() public {
+        benchFulfillBatch(32, "032");
+    }
+
+    function testBenchFulfillBatch064() public {
+        benchFulfillBatch(64, "064");
+    }
+
+    function testBenchFulfillBatch128() public {
+        benchFulfillBatch(128, "128");
+    }
+}
 
 contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
