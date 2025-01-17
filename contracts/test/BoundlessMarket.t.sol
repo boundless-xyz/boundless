@@ -252,7 +252,25 @@ contract BoundlessMarketTest is Test {
         require(address(0).balance == burnedBalance, "Burned balance did not go to the null address");
     }
 
-    // Creates a client account with the given index, gives it some Ether, and deposits from Ether in the market.
+    function expectRequestFulfilled(uint256 requestId) internal view {
+        require(boundlessMarket.requestIsFulfilled(requestId), "Request should be fulfilled");
+        require(!boundlessMarket.requestIsSlashed(requestId), "Request should not be slashed");
+    }
+
+    function expectRequestNotFulfilled(uint256 requestId) internal view {
+        require(!boundlessMarket.requestIsFulfilled(requestId), "Request should not be fulfilled");
+    }
+
+    function expectRequestSlashed(uint256 requestId) internal view {
+        require(boundlessMarket.requestIsSlashed(requestId), "Request should be slashed");
+        require(!boundlessMarket.requestIsFulfilled(requestId), "Request should not be fulfilled");
+    }
+
+    function expectRequestNotSlashed(uint256 requestId) internal view {
+        require(!boundlessMarket.requestIsSlashed(requestId), "Request should be slashed");
+    }
+
+    // Creates a client account with the given index, gives it some Ether, and deposits Ether in the market.
     function getClient(uint256 index) internal returns (Client) {
         if (address(clients[index]) != address(0)) {
             return clients[index];
@@ -782,7 +800,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         }
 
         // Check that the proof was submitted
-        assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+        expectRequestFulfilled(fill.id);
 
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
@@ -866,7 +884,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         for (uint256 i = 0; i < fills.length; i++) {
             // Check that the proof was submitted
-            assertTrue(boundlessMarket.requestIsFulfilled(fills[i].id), "Request should have fulfilled status");
+            expectRequestFulfilled(fills[i].id);
         }
 
         testProver.expectBalanceChange(int256(uint256(expectedRevenue)));
@@ -885,7 +903,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id));
         boundlessMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
 
-        assertFalse(boundlessMarket.requestIsFulfilled(fill.id), "Request should not have fulfilled status");
+        expectRequestNotFulfilled(fill.id);
 
         // Prover should have their original balance.
         testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
@@ -908,7 +926,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         );
         boundlessMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
 
-        assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+        expectRequestFulfilled(fill.id);
 
         // Prover should have their original balance.
         testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
@@ -928,7 +946,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, address(testProver));
         boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
 
-        assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+        expectRequestFulfilled(fill.id);
 
         // Prover should now have received back their stake plus payment for the request.
         testProver.expectBalanceChange(1 ether);
@@ -973,7 +991,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
         boundlessMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorSeal, address(testProver));
 
-        assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+        expectRequestFulfilled(fill.id);
 
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
@@ -1093,7 +1111,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         }
 
         // Check that the request ID is not marked as fulfilled.
-        assertTrue(!boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+        expectRequestNotFulfilled(fill.id);
 
         if (lockinMethod == LockinMethod.None) {
             client.expectBalanceChange(0 ether);
@@ -1129,7 +1147,45 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.expectBalanceChange(0 ether);
         testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
 
+        // Check that the request is slashed and is not fulfilled
+        expectRequestSlashed(request.id);
+
         return (client, request);
+    }
+
+    function testSlashRequestFulfilledByThirdParty() public {
+        // Handles case where a third-party that was not locked fulfills the request, and the locked prover does not.
+        // Once the locked prover is slashed, we expect the request to be both "fulfilled" and "slashed"
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+
+        // Lock to "testProver" but "prover2" fulfills the request
+        boundlessMarket.lockinWithSig(request, client.sign(request), testProver.sign(request));
+
+        Client testProver2 = getClient(2);
+        (address testProver2Address,,,) = testProver2.wallet();
+        (Fulfillment memory fill, bytes memory assessorSeal) = fulfillRequest(request, APP_JOURNAL, testProver2Address);
+        fill.requirePayment = false;
+
+        boundlessMarket.fulfill(fill, assessorSeal, testProver2Address);
+        expectRequestFulfilled(fill.id);
+
+        vm.roll(request.offer.deadline() + 1);
+
+        // Slash the original prover that locked and didnt deliver
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.ProverSlashed(request.id, request.offer.lockinStake, 0);
+        boundlessMarket.slash(request.id);
+
+        client.expectBalanceChange(0 ether);
+        testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver2.expectBalanceChange(0 ether);
+
+        expectMarketBalanceBurned(request.offer.lockinStake);
+
+        // We expect the request is both slashed and fulfilled
+        require(boundlessMarket.requestIsSlashed(request.id), "Request should be slashed");
+        require(boundlessMarket.requestIsFulfilled(request.id), "Request should be fulfilled");
     }
 
     function testSlashInvalidRequestID() public {
@@ -1157,22 +1213,28 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function _testSlashFulfilled(uint32 idx, LockinMethod lockinMethod) private {
         (, ProofRequest memory request) = _testFulfill(idx, lockinMethod);
 
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLocked.selector, request.id));
+        if (lockinMethod == LockinMethod.None) {
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLocked.selector, request.id));
+        } else {
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id));
+        }
+
         boundlessMarket.slash(request.id);
 
         expectMarketBalanceUnchanged();
     }
 
     function testSlashFulfilled() public {
-        _testFulfill(1, LockinMethod.Lockin);
-        _testFulfill(2, LockinMethod.LockinWithSig);
-        _testFulfill(3, LockinMethod.None);
+        _testSlashFulfilled(1, LockinMethod.Lockin);
+        _testSlashFulfilled(2, LockinMethod.LockinWithSig);
+        _testSlashFulfilled(3, LockinMethod.None);
     }
 
     function testSlashSlash() public {
         (, ProofRequest memory request) = testSlash();
+        expectRequestSlashed(request.id);
 
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLocked.selector, request.id));
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsSlashed.selector, request.id));
         boundlessMarket.slash(request.id);
     }
 
@@ -1186,7 +1248,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal, address(testProver));
 
         for (uint256 j = 0; j < fills.length; j++) {
-            assertTrue(boundlessMarket.requestIsFulfilled(fills[j].id), "Request should have fulfilled status");
+            expectRequestFulfilled(fills[j].id);
         }
     }
 }
@@ -1212,7 +1274,7 @@ contract BoundlessMarketBench is BoundlessMarketTest {
         );
 
         for (uint256 j = 0; j < fills.length; j++) {
-            assertTrue(boundlessMarket.requestIsFulfilled(fills[j].id), "Request should have fulfilled status");
+            expectRequestFulfilled(fills[j].id);
         }
     }
 

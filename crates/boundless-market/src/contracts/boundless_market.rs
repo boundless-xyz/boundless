@@ -665,6 +665,14 @@ where
         Ok(res._0)
     }
 
+    /// Checks if a request is slashed.
+    pub async fn is_slashed(&self, request_id: U256) -> Result<bool, MarketError> {
+        tracing::debug!("Calling requestIsSlashed({:x})", request_id);
+        let res = self.instance.requestIsSlashed(request_id).call().await?;
+
+        Ok(res._0)
+    }
+
     /// Returns the [ProofStatus] of a request.
     ///
     /// The `expires_at` parameter is the block number at which the request expires.
