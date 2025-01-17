@@ -1311,15 +1311,13 @@ contract BoundlessMarketBench is BoundlessMarketTest {
         (Fulfillment[] memory fills, bytes memory assessorSeal) =
             fulfillRequestBatch(requests, journals, address(testProver));
 
-
         boundlessMarket.fulfillBatch(fills, assessorSeal, address(testProver));
         vm.snapshotGasLastCall(string.concat("fulfillBatch: batch of ", snapshot));
 
-       for (uint256 j = 0; j < fills.length; j++) {
-           expectRequestFulfilled(fills[j].id);
-       }
-   }
-
+        for (uint256 j = 0; j < fills.length; j++) {
+            expectRequestFulfilled(fills[j].id);
+        }
+    }
 
     function testBenchFulfillBatch001() public {
         benchFulfillBatch(1, "001");
