@@ -77,6 +77,9 @@ library AccountLib {
     }
 }
 
+/// @notice Stores details about a request that has been locked, including the prover that locked it and the stake.
+/// @dev When a request is slashed, the deadline, stake, and fingerprint fields are cleared, but the
+/// prover and price fields are left untouched. When a request is fulfilled, the entire object is cleared.
 struct RequestLock {
     address prover;
     uint96 price;
@@ -215,6 +218,16 @@ contract BoundlessMarket is
         }
         (, bool fulfilled) = accounts[address(uint160(id >> 32))].requestFlags(uint32(id));
         return fulfilled;
+    }
+
+    function requestIsSlashed(uint256 id) external view returns (bool) {
+        if (id & (uint256(type(uint64).max) << 192) != 0) {
+            revert InvalidRequest();
+        }
+        RequestLock memory lock = requestLocks[id];
+        // Note, a stake and fingerprint of zero can exist on a valid request, however a deadline of zero cannot as
+        // the request would be immediately expired, and expired requests cannot be locked in.
+        return lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
     }
 
     function requestIsLocked(uint256 id) external view returns (bool) {
@@ -604,23 +617,29 @@ contract BoundlessMarket is
         uint32 idx = BoundlessMarketLib.requestIndex(requestId);
         (bool locked,) = accounts[client].requestFlags(idx);
 
-        // Ensure the request is locked, and fetch the lock.
+        // Ensure the request is locked, and fetch the lock into memory.
         if (!locked) {
             revert RequestIsNotLocked({requestId: requestId});
         }
-
         RequestLock memory lock = requestLocks[requestId];
 
-        // If the lock was cleared, the request is already finalized, either by fullfillment or slashing.
-        if (lock.prover == address(0)) {
-            revert RequestIsNotLocked({requestId: requestId});
-        }
         if (lock.deadline >= block.number) {
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
         }
 
-        // Zero out the lock to prevent the same request from being slashed twice.
-        requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
+        // If the lock was cleared, the request is already finalized, either by fulfillment or slashing.
+        if (lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0)) {
+            if (lock.prover == address(0)) {
+                revert RequestIsFulfilled({requestId: requestId});
+            }
+            revert RequestIsSlashed({requestId: requestId});
+        }
+
+        // Zero out deadline, stake and fingerprint in storage to indicate that the request has been slashed.
+        RequestLock storage lockStorage = requestLocks[requestId];
+        lockStorage.deadline = 0;
+        lockStorage.stake = 0;
+        lockStorage.fingerprint = bytes8(0);
 
         // Calculate the portion of stake that should be burned vs sent to the client.
         // NOTE: If the burn fraction is not properly set, this can overflow.

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) mod executor;
 pub(crate) mod finalize;
 pub(crate) mod join;
+pub(crate) mod keccak;
 pub(crate) mod prove;
 pub(crate) mod resolve;
 pub(crate) mod snark;
@@ -22,6 +23,9 @@ pub(crate) const SEGMENTS_PATH: &str = "segments";
 
 /// Receipts key prefix for redis
 pub(crate) const RECEIPT_PATH: &str = "receipts";
+
+/// Coprocessor callback prefix for redis
+pub(crate) const COPROC_CB_PATH: &str = "coproc";
 
 /// Reads the [`IMAGE_ID_FILE`] and returns a [Digest]
 pub(crate) fn read_image_id(image_id: &str) -> Result<Digest> {

@@ -18,7 +18,7 @@ clap = { workspace = true, features = ["env", "derive"] }
 deadpool-redis = { workspace = true }
 hex = { workspace = true }
 redis = { workspace = true, features = ["tokio-rustls-comp", "tokio-comp"] }
-risc0-zkvm = { workspace = true, default-features = false, features = ["prove"] }
+risc0-zkvm = { workspace = true, default-features = false, features = ["prove", "unstable"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 signal-hook = "0.3"

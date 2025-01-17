@@ -20,7 +20,7 @@ use std::{
 };
 use taskdb::ReadyTask;
 use tokio::time;
-use workflow_common::TaskType;
+use workflow_common::{TaskType, COPROC_WORK_TYPE};
 
 mod redis;
 mod tasks;
@@ -179,7 +179,10 @@ impl Agent {
         .context("Failed to initialize s3 client / bucket")?;
 
         let verifier_ctx = VerifierContext::default();
-        let prover = if args.task_stream == PROVE_WORK_TYPE || args.task_stream == JOIN_WORK_TYPE {
+        let prover = if args.task_stream == PROVE_WORK_TYPE
+            || args.task_stream == JOIN_WORK_TYPE
+            || args.task_stream == COPROC_WORK_TYPE
+        {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts).context("Failed to initialize prover server")?;
             Some(prover)
@@ -303,6 +306,10 @@ impl Agent {
                     .context("Snark failed")?,
             )
             .context("failed to serialize snark response")?,
+            TaskType::Keccak(req) => serde_json::to_value(
+                tasks::keccak::keccak(self, &task.job_id, &req).await.context("Keccak failed")?,
+            )
+            .context("failed to serialize keccak response")?,
         };
 
         taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, res)

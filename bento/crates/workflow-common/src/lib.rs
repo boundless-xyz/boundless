@@ -2,6 +2,7 @@
 //
 // All rights reserved.
 
+use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
 pub mod s3;
@@ -14,6 +15,9 @@ pub const EXEC_WORK_TYPE: &str = "exec";
 
 /// prove+lift worker stream identifier
 pub const PROVE_WORK_TYPE: &str = "prove";
+
+/// keccak/coproc worker stream identifier
+pub const COPROC_WORK_TYPE: &str = "coproc";
 
 /// join worker stream identifier
 pub const JOIN_WORK_TYPE: &str = "join";
@@ -118,6 +122,17 @@ pub struct SnarkResp {
     pub snark: String,
 }
 
+/// Keccak prove request
+#[derive(Serialize, Deserialize)]
+pub struct KeccakReq {
+    /// The digest of the claim that this keccak input is expected to produce.
+    pub claim_digest: Digest,
+    /// The requested size of the keccak proof, in powers of 2.
+    pub po2: usize,
+    /// The control root which identifies a particular keccak circuit revision.
+    pub control_root: Digest,
+}
+
 /// High level enum of different sub task types and data
 #[derive(Deserialize, Serialize)]
 pub enum TaskType {
@@ -133,6 +148,8 @@ pub enum TaskType {
     Finalize(FinalizeReq),
     /// Stark 2 Snark task
     Snark(SnarkReq),
+    /// Keccak coproc callback req
+    Keccak(KeccakReq),
 }
 
 impl TaskType {
@@ -146,6 +163,7 @@ impl TaskType {
             Self::Resolve(_) => "resolve".into(),
             Self::Finalize(_) => "finalize".into(),
             Self::Snark(_) => "snark".into(),
+            Self::Keccak(_) => "keccak".into(),
         }
     }
 }

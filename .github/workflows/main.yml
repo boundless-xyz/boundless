@@ -30,6 +30,7 @@ jobs:
       - docker
       - rust-pkg-check
       - docs-rs
+      - bento
 
     runs-on: ubuntu-latest
     steps:
@@ -41,13 +42,6 @@ jobs:
 
   rust:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
-    services:
-      postgres:
-        image: postgres:latest
-        ports:
-          - 5432:5432
-        env:
-          POSTGRES_PASSWORD: password
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -107,6 +101,60 @@ jobs:
         # check that these are not modified, which would indicate they need to be updated.
       - name: check for changes to files in git index
         run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
+
+      - name: cargo test
+        run: cargo test --workspace --all-targets -- ignored
+        env:
+          RISC0_DEV_MODE: true
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  bento:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    services:
+      postgres:
+        image: postgres:latest
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: password
+    defaults:
+      run:
+        working-directory: ./bento
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-1.2
+        with:
+          toolchain: '1.81'
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - name: install cargo-sort
+        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        with:
+          crate: cargo-sort
+          version: "=1.0.9"
+          locked: true
+
+      - name: cargo Sort
+        run: cargo sort --workspace --check
+
+      - name: cargo format
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        env:
+          RUSTFLAGS: "-Dwarnings"
+        run: cargo clippy --all-targets
+
+      - name: cargo doc
+        run: cargo doc
 
       - name: Install sqlx-cli
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3

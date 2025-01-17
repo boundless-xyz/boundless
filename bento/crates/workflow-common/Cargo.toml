@@ -14,4 +14,5 @@ release = false
 anyhow = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 bincode = { workspace = true }
+risc0-zkvm = { workspace = true }
 serde = { workspace = true }
