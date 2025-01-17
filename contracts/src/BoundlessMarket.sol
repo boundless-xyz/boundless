@@ -669,7 +669,7 @@ contract BoundlessMarket is
         // Transfer tokens from market to address zero.
         ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
 
-        emit ProverSlashed(requestId, uint256(lock.stake), 0);
+        emit ProverSlashed(requestId, burnValue, transferValue);
     }
 
     function imageInfo() external view returns (bytes32, string memory) {

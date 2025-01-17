@@ -26,7 +26,7 @@ import "./IHitPoints.sol";
 contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, Ownable {
     // Maximum allowed balance (uint96 max value)
     uint256 private constant MAX_BALANCE = type(uint96).max;
-    // Mapping for operators who can mint and can receive/send tokens from/to anyone
+    // Mapping for accounts that are authorized as either source or destination of a transfer.
     mapping(address => bool) public isAuthorized;
 
     constructor(address initialOwner) ERC20("HitPoints", "HP") ERC20Permit("HitPoints") Ownable(initialOwner) {
