@@ -95,6 +95,7 @@ contract Deploy is Script, RiscZeroCheats {
         if (deploymentConfig.stakeToken == address(0)) {
             // Deploy the HitPoints contract
             stakeToken = address(new HitPoints(boundlessMarketOwner));
+            HitPoints(stakeToken).grantMinterRole(boundlessMarketOwner);
             console2.log("Deployed HitPoints to", stakeToken);
         } else {
             stakeToken = deploymentConfig.stakeToken;
@@ -112,7 +113,7 @@ contract Deploy is Script, RiscZeroCheats {
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
 
-        HitPoints(stakeToken).authorize(boundlessMarketAddress);
+        HitPoints(stakeToken).grantAuthorizedTransferRole(boundlessMarketAddress);
 
         vm.stopBroadcast();
     }

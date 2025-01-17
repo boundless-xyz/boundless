@@ -51,6 +51,7 @@ contract DeployHitPoints is RiscZeroManagementScript {
         bytes32 salt = bytes32(0);
         // Deploy the HitPoints contract
         address stakeTokenAddress = address(new HitPoints{salt: salt}(marketOwner));
+        HitPoints(stakeTokenAddress).grantMinterRole(marketOwner);
         vm.stopBroadcast();
 
         console2.log("Deployed stake-token contract (HitPoints) at %s", stakeTokenAddress);
@@ -98,7 +99,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         vm.stopBroadcast();
 
         // Add the market address in the authorized list of the stake-token contract
-        HitPoints(stakeToken).authorize(marketAddress);
+        HitPoints(stakeToken).grantAuthorizedTransferRole(marketAddress);
 
         console2.log("Deployed BoundlessMarket proxy contract at %s", marketAddress);
     }

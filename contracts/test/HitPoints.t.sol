@@ -5,6 +5,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
+import "@openzeppelin/contracts/access/IAccessControl.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../src/HitPoints.sol";
 
@@ -13,6 +14,7 @@ contract HitPointsTest is Test {
     address public owner;
     address public authorized;
     address public user;
+    AccessControl public accessControl;
 
     function setUp() public {
         owner = address(this);
@@ -20,6 +22,8 @@ contract HitPointsTest is Test {
         user = makeAddr("user");
 
         token = new HitPoints(owner);
+        accessControl = AccessControl(address(token));
+        token.grantMinterRole(owner);
     }
 
     function testInitialState() public view {
@@ -27,22 +31,29 @@ contract HitPointsTest is Test {
         assertEq(token.symbol(), "HP");
         assertEq(token.decimals(), 18);
         assertEq(token.owner(), owner);
-        assertTrue(token.isAuthorized(address(0)));
-        assertFalse(token.isAuthorized(authorized));
+        assertTrue(accessControl.hasRole(accessControl.DEFAULT_ADMIN_ROLE(), owner));
+        assertTrue(accessControl.hasRole(token.MINTER(), owner));
+        assertTrue(accessControl.hasRole(token.AUTHORIZED_TRANSFER(), address(0)));
+        assertFalse(accessControl.hasRole(token.AUTHORIZED_TRANSFER(), authorized));
     }
 
-    function testAuthorization() public {
-        token.authorize(authorized);
-        assertTrue(token.isAuthorized(authorized));
-
-        token.deauthorize(authorized);
-        assertFalse(token.isAuthorized(authorized));
+    function testTransferOwnership() public {
+        token.transferOwnership(user);
+        assertEq(token.owner(), user);
+        assertTrue(accessControl.hasRole(accessControl.DEFAULT_ADMIN_ROLE(), user));
+        assertFalse(accessControl.hasRole(accessControl.DEFAULT_ADMIN_ROLE(), owner));
     }
 
-    function testAuthorizationRevertNotOwner() public {
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        token.authorize(authorized);
+    function testGrantRevokeRoles() public {
+        token.grantMinterRole(authorized);
+        assertTrue(accessControl.hasRole(token.MINTER(), authorized));
+        token.revokeMinterRole(authorized);
+        assertFalse(accessControl.hasRole(token.MINTER(), authorized));
+
+        token.grantAuthorizedTransferRole(authorized);
+        assertTrue(accessControl.hasRole(token.AUTHORIZED_TRANSFER(), authorized));
+        token.revokeAuthorizedTransferRole(authorized);
+        assertFalse(accessControl.hasRole(token.AUTHORIZED_TRANSFER(), authorized));
     }
 
     function testMint() public {
@@ -54,23 +65,24 @@ contract HitPointsTest is Test {
 
     function testMintRevertUnauthorized() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, keccak256("MINTER"))
+        );
         token.mint(user, 100);
     }
 
-    function testDirectTransferToAuthorizedRecipientRevert() public {
+    function testTransferToAuthorizedRecipient() public {
         token.mint(user, 100);
-        token.authorize(authorized);
+        token.grantAuthorizedTransferRole(authorized);
 
-        vm.expectRevert(abi.encodeWithSelector(IHitPoints.UnauthorizedTransfer.selector));
         vm.prank(user);
         token.transfer(authorized, 50);
-        assertEq(token.balanceOf(user), 100);
+        assertEq(token.balanceOf(user), 50);
     }
 
     function testTransferFromAuthorizedRecipient() public {
         token.mint(authorized, 100);
-        token.authorize(authorized);
+        token.grantAuthorizedTransferRole(authorized);
 
         vm.prank(authorized);
         token.transfer(user, 50);
@@ -88,7 +100,7 @@ contract HitPointsTest is Test {
 
     function testApproveAndTransferFrom() public {
         token.mint(user, 100);
-        token.authorize(authorized);
+        token.grantAuthorizedTransferRole(authorized);
 
         vm.prank(user);
         token.approve(authorized, 50);
@@ -149,7 +161,7 @@ contract HitPointsTest is Test {
         address recipient = makeAddr("recipient");
 
         // Authorize the sender
-        token.authorize(_from);
+        token.grantAuthorizedTransferRole(_from);
 
         // Mint tokens to the sender
         token.mint(_from, _amount);
@@ -169,8 +181,8 @@ contract HitPointsTest is Test {
         address _sender = makeAddr("sender");
 
         // Ensure authorized
-        token.authorize(_recipient);
-        token.authorize(_sender);
+        token.grantAuthorizedTransferRole(_recipient);
+        token.grantAuthorizedTransferRole(_sender);
 
         // Amount that would almost max out uint96
         uint256 existingBalance = type(uint96).max - 1;

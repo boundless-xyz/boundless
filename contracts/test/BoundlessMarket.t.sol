@@ -4,6 +4,7 @@
 
 pragma solidity ^0.8.20;
 
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Test} from "forge-std/Test.sol";
@@ -20,7 +21,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {HitPoints} from "../src/HitPoints.sol";
-import {IHitPoints} from "../src/IHitPoints.sol";
 
 import {
     BoundlessMarket,
@@ -208,8 +208,8 @@ contract BoundlessMarketTest is Test {
         );
         boundlessMarket = BoundlessMarket(proxy);
 
-        stakeToken.authorize(OWNER_WALLET.addr);
-        stakeToken.authorize(proxy);
+        stakeToken.grantMinterRole(OWNER_WALLET.addr);
+        stakeToken.grantAuthorizedTransferRole(proxy);
         vm.stopPrank();
 
         testProver = createClientContract("PROVER");
