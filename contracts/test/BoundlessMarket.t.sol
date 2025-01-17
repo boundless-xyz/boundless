@@ -1241,6 +1241,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 }
 
+// TODO: uncomment
 // contract BoundlessMarketBench is BoundlessMarketTest {
 //     using BoundlessMarketLib for Offer;
 
