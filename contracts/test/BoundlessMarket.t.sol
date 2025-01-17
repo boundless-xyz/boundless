@@ -244,14 +244,6 @@ contract BoundlessMarketTest is Test {
         require(finalBalance == initialBalance, "Contract balance changed during the test");
     }
 
-    function expectMarketBalanceBurned(uint256 burnedBalance) internal view {
-        uint256 finalBalance = address(boundlessMarket).balance;
-        //console2.log("Initial balance:", initialBalance);
-        //console2.log("Final balance:", finalBalance);
-        require(finalBalance == initialBalance - burnedBalance, "Contract balance changed during the test");
-        require(address(0).balance == burnedBalance, "Burned balance did not go to the null address");
-    }
-
     function expectRequestFulfilled(uint256 requestId) internal view {
         require(boundlessMarket.requestIsFulfilled(requestId), "Request should be fulfilled");
         require(!boundlessMarket.requestIsSlashed(requestId), "Request should not be slashed");
@@ -1178,10 +1170,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.slash(request.id);
 
         client.expectBalanceChange(0 ether);
-        testProver.expectBalanceChange(-int256(uint256(request.offer.lockinStake)));
-        testProver2.expectBalanceChange(0 ether);
-
-        expectMarketBalanceBurned(request.offer.lockinStake);
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver2.expectStakeBalanceChange(0 ether);
 
         // We expect the request is both slashed and fulfilled
         require(boundlessMarket.requestIsSlashed(request.id), "Request should be slashed");
