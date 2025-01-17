@@ -40,6 +40,17 @@ const SIDEBAR_CONFIG = [
       {
         text: "Request a Proof",
         link: "/build/request-a-proof",
+        collapsed: false,
+        items: [
+          {
+            text: "Pricing a Request",
+            link: "/build/pricing-a-request",
+          },
+          {
+            text: "Troubleshooting",
+            link: "/build/troubleshooting-a-request",
+          },
+        ]
       },
       {
         text: "Use a Proof",

@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ use alloy::{
     primitives::{Address, Bytes, B256, U256},
     providers::Provider,
     rpc::types::{Log, TransactionReceipt},
-    signers::{Signer, SignerSync},
+    signers::Signer,
     transports::Transport,
 };
 use alloy_sol_types::SolEvent;
@@ -33,33 +33,50 @@ use thiserror::Error;
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, RequestError, TxnErr,
+    TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
 #[derive(Error, Debug)]
 pub enum MarketError {
+    /// Transaction error.
     #[error("Transaction error: {0}")]
     TxnError(#[from] TxnErr),
 
+    /// Request not fulfilled.
     #[error("Request is not fulfilled 0x{0:x}")]
     RequestNotFulfilled(U256),
 
+    /// Request has expired.
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
 
+    /// Request malformed.
+    #[error("Request error {0}")]
+    RequestError(#[from] RequestError),
+
+    /// Request address does not match with signer.
+    #[error("Request address does not match with signer {0} - {0}")]
+    AddressMismatch(Address, Address),
+
+    /// Proof not found.
     #[error("Proof not found for request in events logs 0x{0:x}")]
     ProofNotFound(U256),
 
+    /// Request not found.
     #[error("Request not found in event logs 0x{0:x}")]
     RequestNotFound(U256),
 
+    /// Lockin reverted, possibly outbid.
     #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
     LockRevert(B256),
 
+    /// General market error.
     #[error("Market error: {0}")]
     Error(#[from] anyhow::Error),
 
+    /// Timeout reached.
     #[error("Timeout: 0x{0:x}")]
     TimeoutReached(U256),
 }
@@ -88,8 +105,8 @@ where
         Self {
             instance: self.instance.clone(),
             chain_id: self.chain_id.load(Ordering::Relaxed).into(),
-            caller: self.caller.clone(),
-            timeout: self.timeout.clone(),
+            caller: self.caller,
+            timeout: self.timeout,
             event_query_config: self.event_query_config.clone(),
         }
     }
@@ -135,7 +152,7 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
     let logs = receipt
         .inner
         .logs()
-        .into_iter()
+        .iter()
         .filter_map(|log| {
             if log.topic0().map(|topic| E::SIGNATURE_HASH == *topic).unwrap_or(false) {
                 Some(
@@ -288,13 +305,18 @@ where
     pub async fn submit_request_with_value(
         &self,
         request: &ProofRequest,
-        signer: &(impl Signer + SignerSync),
+        signer: &impl Signer,
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
         tracing::debug!("calling submitRequest({:x?})", request);
+        let client_address = request.client_address()?;
+        if client_address != signer.address() {
+            return Err(MarketError::AddressMismatch(client_address, signer.address()));
+        };
         let chain_id = self.get_chain_id().await.context("failed to get chain ID")?;
         let client_sig = request
             .sign_request(signer, *self.instance.address(), chain_id)
+            .await
             .context("failed to sign request")?;
         let call = self
             .instance
@@ -321,7 +343,7 @@ where
     pub async fn submit_request(
         &self,
         request: &ProofRequest,
-        signer: &(impl Signer + SignerSync),
+        signer: &impl Signer,
     ) -> Result<U256, MarketError> {
         let balance = self
             .balance_of(signer.address())
@@ -564,6 +586,8 @@ where
         Ok(logs)
     }
 
+    /// Combined function to submit a new merkle root to the set-verifier and call `fulfillBatch`.
+    /// Useful to reduce the transaction count for fulfillments
     pub async fn submit_merkle_and_fulfill(
         &self,
         root: B256,
@@ -591,6 +615,9 @@ where
         Ok(())
     }
 
+    /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     pub async fn price_and_fulfill_batch(
         &self,
         requests: Vec<ProofRequest>,
@@ -665,6 +692,14 @@ where
     pub async fn is_fulfilled(&self, request_id: U256) -> Result<bool, MarketError> {
         tracing::debug!("Calling requestIsFulfilled({:x})", request_id);
         let res = self.instance.requestIsFulfilled(request_id).call().await?;
+
+        Ok(res._0)
+    }
+
+    /// Checks if a request is slashed.
+    pub async fn is_slashed(&self, request_id: U256) -> Result<bool, MarketError> {
+        tracing::debug!("Calling requestIsSlashed({:x})", request_id);
+        let res = self.instance.requestIsSlashed(request_id).call().await?;
 
         Ok(res._0)
     }
@@ -938,7 +973,7 @@ where
         let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
         let request_id = request_id(&self.caller, id);
         match self.get_status(request_id, None).await? {
-            ProofStatus::Unknown => return Ok(id),
+            ProofStatus::Unknown => Ok(id),
             _ => Err(MarketError::Error(anyhow!("index already in use"))),
         }
     }

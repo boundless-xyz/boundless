@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -99,7 +99,9 @@ pub(crate) async fn websocket_handler(
         match state.db.connect_broker(client_addr).await {
             Err(OrderDbErr::MaxConnections) => {
                 tracing::warn!("{client_addr} at max connections");
-                return Ok((StatusCode::CONFLICT, format!("Max connections hit")).into_response());
+                return Ok(
+                    (StatusCode::CONFLICT, "Max connections hit".to_string()).into_response()
+                );
             }
             Err(err) => return Err(AppError::InternalErr(anyhow::anyhow!(err))),
             _ => {}
@@ -155,7 +157,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
     let connections_list = {
         let connections = state.connections.lock().await;
         let mut connections_list: Vec<_> =
-            connections.iter().map(|(addr, conn)| (addr.clone(), conn.sender.clone())).collect();
+            connections.iter().map(|(addr, conn)| (*addr, conn.sender.clone())).collect();
         connections_list.shuffle(&mut thread_rng());
         connections_list
     };
@@ -170,7 +172,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 tracing::warn!("Client {}'s message queue is closed, removing client", address);
                 // Add the client to the list of clients to remove
-                clients_to_remove.push(address.clone());
+                clients_to_remove.push(address);
             }
         }
     }

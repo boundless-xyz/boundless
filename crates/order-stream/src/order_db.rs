@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -90,7 +90,7 @@ impl OrderDb {
 
     fn create_nonce() -> String {
         let rand_bytes: [u8; 16] = rand::random();
-        hex::encode(rand_bytes.to_vec())
+        hex::encode(rand_bytes.as_slice())
     }
 
     /// Add a new broker to the database
@@ -307,7 +307,7 @@ mod tests {
 
     use super::*;
 
-    fn create_order() -> Order {
+    async fn create_order() -> Order {
         let signer = LocalSigner::random();
         let req = ProofRequest {
             id: U256::ZERO,
@@ -329,7 +329,7 @@ mod tests {
                 lockinStake: U256::from(0),
             },
         };
-        let signature = req.sign_request(&signer, Address::ZERO, 31337).unwrap();
+        let signature = req.sign_request(&signer, Address::ZERO, 31337).await.unwrap();
 
         Order::new(req, signature)
     }
@@ -414,7 +414,7 @@ mod tests {
     async fn add_order(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
 
-        let order = create_order();
+        let order = create_order().await;
         let order_id = db.add_order(order).await.unwrap();
         assert_eq!(order_id, 1);
     }
@@ -423,7 +423,7 @@ mod tests {
     async fn del_order(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
 
-        let order = create_order();
+        let order = create_order().await;
         let order_id = db.add_order(order).await.unwrap();
         db.delete_order(order_id).await.unwrap();
     }
@@ -432,7 +432,7 @@ mod tests {
     async fn list_orders_simple(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
 
-        let order = create_order();
+        let order = create_order().await;
         let order_id = db.add_order(order.clone()).await.unwrap();
 
         let orders = db.list_orders(1, 1).await.unwrap();
@@ -443,7 +443,7 @@ mod tests {
     #[sqlx::test]
     async fn list_orders_page_forward(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
-        let order = create_order();
+        let order = create_order().await;
         let _order_id = db.add_order(order.clone()).await.unwrap();
         let order_id = db.add_order(order.clone()).await.unwrap();
 
@@ -455,7 +455,7 @@ mod tests {
     #[sqlx::test]
     async fn list_after_del(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
-        let order = create_order();
+        let order = create_order().await;
         let order_id_1 = db.add_order(order.clone()).await.unwrap();
         let order_id_2 = db.add_order(order.clone()).await.unwrap();
 
@@ -481,7 +481,7 @@ mod tests {
 
         rx.await.unwrap(); // Wait for stream setup
 
-        let order = create_order();
+        let order = create_order().await;
         let order_id = db.add_order(order).await.unwrap();
         let db_order = task.await.unwrap().unwrap();
         assert_eq!(db_order.id, order_id);

@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -9,7 +9,7 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
@@ -31,6 +31,7 @@ use tokio::task::JoinSet;
 use url::Url;
 
 pub(crate) mod aggregator;
+pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
 pub(crate) mod market_monitor;
@@ -310,18 +311,16 @@ struct Batch {
     pub peaks: Vec<Node>,
 }
 
-pub struct Broker<T, P> {
+pub struct Broker<P> {
     args: Args,
     provider: Arc<P>,
     db: DbObj,
     config_watcher: ConfigWatcher,
-    _phantom_t: std::marker::PhantomData<T>,
 }
 
-impl<T, P> Broker<T, P>
+impl<P> Broker<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
 {
     pub async fn new(args: Args, provider: P) -> Result<Self> {
         let config_watcher =
@@ -330,13 +329,7 @@ where
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
 
-        Ok(Self {
-            args,
-            db,
-            provider: Arc::new(provider),
-            config_watcher,
-            _phantom_t: Default::default(),
-        })
+        Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
     }
 
     async fn get_assessor_image(&self) -> Result<(Digest, Vec<u8>)> {
@@ -416,12 +409,27 @@ where
             config.market.lookback_blocks
         };
 
+        let chain_monitor = Arc::new(
+            chain_monitor::ChainMonitorService::new(self.provider.clone())
+                .await
+                .context("Failed to initialize chain monitor")?,
+        );
+
+        let cloned_chain_monitor = chain_monitor.clone();
+        supervisor_tasks.spawn(async move {
+            task::supervisor(1, cloned_chain_monitor)
+                .await
+                .context("Failed to start chain monitor")?;
+            Ok(())
+        });
+
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
             self.args.boundless_market_addr,
             self.provider.clone(),
             self.db.clone(),
+            chain_monitor.clone(),
         ));
 
         let block_times =
@@ -435,20 +443,18 @@ where
         });
 
         let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client = self.args.order_stream_url.clone().map(|url| {
-            OrderStreamClient::new(
-                url,
-                self.args.private_key.clone(),
-                self.args.boundless_market_addr,
-                chain_id,
-            )
-        });
+        let client = self
+            .args
+            .order_stream_url
+            .clone()
+            .map(|url| OrderStreamClient::new(url, self.args.boundless_market_addr, chain_id));
         // spin up a supervisor for the offchain market monitor
         if let Some(client) = client {
             let offchain_market_monitor =
                 Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
                     self.db.clone(),
                     client.clone(),
+                    self.args.private_key.clone(),
                 ));
             supervisor_tasks.spawn(async move {
                 task::supervisor(1, offchain_market_monitor)
@@ -500,6 +506,7 @@ where
             block_times,
             self.args.boundless_market_addr,
             self.provider.clone(),
+            chain_monitor.clone(),
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
@@ -509,6 +516,7 @@ where
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
             self.provider.clone(),
+            chain_monitor.clone(),
             self.config_watcher.config.clone(),
             block_times,
             self.args.boundless_market_addr,
@@ -543,6 +551,7 @@ where
             aggregator::AggregatorService::new(
                 self.db.clone(),
                 self.provider.clone(),
+                chain_monitor.clone(),
                 set_builder_img_data.0,
                 set_builder_img_data.1,
                 assessor_img_data.0,
@@ -696,7 +705,6 @@ pub mod test_utils {
         rpc_url: Url,
     ) -> Result<
         Broker<
-            BoxTransport,
             FillProvider<
                 JoinFill<
                     JoinFill<

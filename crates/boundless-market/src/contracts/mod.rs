@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ use std::str::FromStr;
 use alloy::{
     contract::Error as ContractErr,
     primitives::{PrimitiveSignature, SignatureError},
-    signers::{Signature, SignerSync},
+    signers::{Signature, Signer},
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
@@ -44,6 +44,7 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // boundless_market.rs is a copy of IBoundlessMarket.sol with alloy derive statements added.
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market.rs"));
+pub use boundless_market_contract::*;
 
 /// Status of a proof request
 #[derive(Debug, PartialEq)]
@@ -63,14 +64,20 @@ pub enum ProofStatus {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+/// EIP-712 domain separator without the salt field.
 pub struct EIP721DomainSaltless {
+    /// The name of the domain.
     pub name: Cow<'static, str>,
+    /// The protocol version.
     pub version: Cow<'static, str>,
+    /// The chain ID.
     pub chain_id: u64,
+    /// The address of the verifying contract.
     pub verifying_contract: Address,
 }
 
 impl EIP721DomainSaltless {
+    /// Returns the EIP-712 domain with the salt field set to zero.
     pub fn alloy_struct(&self) -> Eip712Domain {
         eip712_domain! {
             name: self.name.clone(),
@@ -82,30 +89,49 @@ impl EIP721DomainSaltless {
 }
 
 pub(crate) fn request_id(addr: &Address, id: u32) -> U256 {
+    #[allow(clippy::unnecessary_fallible_conversions)] // U160::from does not compile
     let addr = U160::try_from(*addr).unwrap();
     (U256::from(addr) << 32) | U256::from(id)
 }
 
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
+/// Errors that can occur when creating a proof request.
 pub enum RequestError {
+    /// The request ID is malformed.
     #[error("malformed request ID")]
     MalformedRequestId,
+
+    /// The signature is invalid.
     #[cfg(not(target_os = "zkvm"))]
     #[error("signature error: {0}")]
     SignatureError(#[from] alloy::signers::Error),
+
+    /// The image URL is empty.
     #[error("image URL must not be empty")]
     EmptyImageUrl,
+
+    /// The image URL is malformed.
     #[error("malformed image URL: {0}")]
     MalformedImageUrl(#[from] url::ParseError),
+
+    /// The image ID is zero.
     #[error("image ID must not be ZERO")]
     ImageIdIsZero,
+
+    /// The offer timeout is zero.
     #[error("offer timeout must be greater than 0")]
     OfferTimeoutIsZero,
+
+    /// The offer max price is zero.
     #[error("offer maxPrice must be greater than 0")]
     OfferMaxPriceIsZero,
+
+    /// The offer max price is less than the min price.
     #[error("offer maxPrice must be greater than or equal to minPrice")]
     OfferMaxPriceIsLessThanMin,
+
+    /// The offer bidding start is zero.
     #[error("offer biddingStart must be greater than 0")]
     OfferBiddingStartIsZero,
 }
@@ -212,15 +238,15 @@ impl ProofRequest {
 impl ProofRequest {
     /// Signs the request with the given signer and EIP-712 domain derived from the given
     /// contract address and chain ID.
-    pub fn sign_request(
+    pub async fn sign_request(
         &self,
-        signer: &impl SignerSync,
+        signer: &impl Signer,
         contract_addr: Address,
         chain_id: u64,
     ) -> Result<PrimitiveSignature, RequestError> {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
-        Ok(signer.sign_hash_sync(&hash)?)
+        Ok(signer.sign_hash(&hash).await?)
     }
 
     /// Verifies the request signature with the given signer and EIP-712 domain derived from
@@ -364,6 +390,7 @@ impl Default for ProofRequest {
     }
 }
 
+#[allow(clippy::derivable_impls)] // struct defined in generated code
 impl Default for Requirements {
     fn default() -> Self {
         Self { imageId: Default::default(), predicate: Default::default() }
@@ -401,28 +428,37 @@ impl Predicate {
 }
 
 #[cfg(not(target_os = "zkvm"))]
+/// The Boundless market module.
 pub mod boundless_market;
 #[cfg(not(target_os = "zkvm"))]
+/// The Set Verifier module.
 pub mod set_verifier;
 
 #[cfg(not(target_os = "zkvm"))]
 #[derive(Error, Debug)]
+/// Errors that can occur when interacting with the contracts.
 pub enum TxnErr {
+    /// Error from the SetVerifier contract.
     #[error("SetVerifier error: {0:?}")]
     SetVerifierErr(IRiscZeroSetVerifierErrors),
 
+    /// Error from the BoundlessMarket contract.
     #[error("BoundlessMarket Err: {0:?}")]
     BoundlessMarketErr(IBoundlessMarket::IBoundlessMarketErrors),
 
+    /// Missing data while decoding the error response from the contract.
     #[error("decoding err, missing data, code: {0} msg: {1}")]
     MissingData(i64, String),
 
+    /// Error decoding the error response from the contract.
     #[error("decoding err: bytes decoding")]
     BytesDecode,
 
+    /// Error from the contract.
     #[error("contract error: {0}")]
     ContractErr(ContractErr),
 
+    /// ABI decoder error.
     #[error("abi decoder error: {0} - {1}")]
     DecodeErr(DecoderErr, Bytes),
 }
@@ -445,7 +481,7 @@ impl From<ContractErr> for TxnErr {
 
                 // Trial deocde the error with each possible contract ABI. Right now, there are two.
                 if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data, true) {
-                    return Self::BoundlessMarketErr(decoded_error.into());
+                    return Self::BoundlessMarketErr(decoded_error);
                 }
                 match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
                     Ok(decoded_error) => Self::SetVerifierErr(decoded_error),
@@ -486,7 +522,7 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
 
 #[cfg(not(target_os = "zkvm"))]
 impl IBoundlessMarketErrors {
-    pub fn decode_error(err: ContractErr) -> TxnErr {
+    pub(crate) fn decode_error(err: ContractErr) -> TxnErr {
         match decode_contract_err(err) {
             Ok(res) => TxnErr::BoundlessMarketErr(res),
             Err(decode_err) => decode_err,
@@ -495,6 +531,7 @@ impl IBoundlessMarketErrors {
 }
 
 #[cfg(not(target_os = "zkvm"))]
+/// The EIP-712 domain separator for the Boundless Market contract.
 pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
     EIP721DomainSaltless {
         name: "IBoundlessMarket".into(),
@@ -505,6 +542,8 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
 }
 
 #[cfg(feature = "test-utils")]
+#[allow(missing_docs)]
+/// Module for testing utilities.
 pub mod test_utils {
     use alloy::{
         network::{Ethereum, EthereumWallet},
@@ -823,8 +862,8 @@ mod tests {
     use super::*;
     use alloy::signers::local::PrivateKeySigner;
 
-    fn create_order(
-        signer: &impl SignerSync,
+    async fn create_order(
+        signer: &impl Signer,
         signer_addr: Address,
         order_id: u32,
         contract_addr: Address,
@@ -853,13 +892,13 @@ mod tests {
             },
         };
 
-        let client_sig = req.sign_request(&signer, contract_addr, chain_id).unwrap();
+        let client_sig = req.sign_request(signer, contract_addr, chain_id).await.unwrap();
 
         (req, client_sig.as_bytes())
     }
 
-    #[test]
-    fn validate_sig() {
+    #[tokio::test]
+    async fn validate_sig() {
         let signer: PrivateKeySigner =
             "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
         let order_id: u32 = 1;
@@ -868,14 +907,14 @@ mod tests {
         let signer_addr = signer.address();
 
         let (req, client_sig) =
-            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id).await;
 
         req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "SignatureError")]
-    fn invalid_sig() {
+    async fn invalid_sig() {
         let signer: PrivateKeySigner =
             "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
         let order_id: u32 = 1;
@@ -884,7 +923,7 @@ mod tests {
         let signer_addr = signer.address();
 
         let (req, mut client_sig) =
-            create_order(&signer, signer_addr, order_id, contract_addr, chain_id);
+            create_order(&signer, signer_addr, order_id, contract_addr, chain_id).await;
 
         client_sig[0] = 1;
         req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();

@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,6 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//! The Boundless CLI is a command-line interface for interacting with the Boundless Market API.
+
+#![deny(missing_docs)]
 
 use alloy::{
     primitives::Address,
@@ -37,11 +41,17 @@ use boundless_market::{
 
 alloy::sol!(
     #[sol(all_derives)]
+    /// The fulfillment of an order.
     struct OrderFulfilled {
+        /// The root of the set.
         bytes32 root;
+        /// The seal of the root.
         bytes seal;
+        /// The fulfillments of the order.
         BoundlessFulfillment[] fills;
+        /// The seal of the assessor.
         bytes assessorSeal;
+        /// The prover address.
         address prover;
     }
 );
@@ -231,11 +241,12 @@ impl DefaultProver {
         let order_elf = fetch_url(&request.imageUrl).await?;
         let order_input: Vec<u8> = match request.input.inputType {
             InputType::Inline => request.input.data.into(),
-            InputType::Url => fetch_url(
-                std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
-            )
-            .await?
-            .into(),
+            InputType::Url => {
+                fetch_url(
+                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
+                )
+                .await?
+            }
             _ => bail!("Unsupported input type"),
         };
         let order_receipt =
@@ -306,7 +317,7 @@ mod tests {
     use guest_util::{ECHO_ID, ECHO_PATH};
     use risc0_zkvm::VerifierContext;
 
-    fn setup_proving_request_and_signature(
+    async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
     ) -> (ProofRequest, PrimitiveSignature) {
         let request = ProofRequest::new(
@@ -321,7 +332,7 @@ mod tests {
             Offer::default(),
         );
 
-        let signature = request.sign_request(signer, Address::ZERO, 1).unwrap();
+        let signature = request.sign_request(signer, Address::ZERO, 1).await.unwrap();
         (request, signature)
     }
 
@@ -329,7 +340,7 @@ mod tests {
     #[tokio::test]
     async fn test_fulfill() {
         let signer = PrivateKeySigner::random();
-        let (request, signature) = setup_proving_request_and_signature(&signer);
+        let (request, signature) = setup_proving_request_and_signature(&signer).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
         let prover = DefaultProver::new(

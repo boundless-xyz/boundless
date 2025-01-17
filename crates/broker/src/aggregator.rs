@@ -1,15 +1,15 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     network::Ethereum,
     primitives::{utils, Address, U256},
     providers::Provider,
     sol_types::SolValue,
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
@@ -19,6 +19,7 @@ use risc0_aggregation::{GuestInput, GuestOutput};
 use risc0_zkvm::sha::Digest;
 
 use crate::{
+    chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::DbObj,
     provers::{self, ProverObj},
@@ -27,28 +28,27 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct AggregatorService<T, P> {
+pub struct AggregatorService<P> {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
-    provider: Arc<P>,
+    chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     set_builder_guest_id: Digest,
     assessor_guest_id: Digest,
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
-    _phantom_t: PhantomData<T>,
 }
 
-impl<T, P> AggregatorService<T, P>
+impl<P> AggregatorService<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
     pub async fn new(
         db: DbObj,
         provider: Arc<P>,
+        chain_monitor: Arc<ChainMonitorService<P>>,
         set_builder_guest_id: Digest,
         set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
@@ -74,7 +74,7 @@ where
         Ok(Self {
             db,
             config,
-            provider,
+            chain_monitor,
             block_time,
             prover,
             set_builder_guest_id,
@@ -82,7 +82,6 @@ where
             market_addr,
             prover_addr,
             chain_id,
-            _phantom_t: Default::default(),
         })
     }
 
@@ -427,10 +426,7 @@ where
                 let config = self.config.lock_all().context("Failed to lock config")?;
                 config.batcher.block_deadline_buffer_secs
             };
-            // TODO: this will trigger quite frequently so we should
-            // try and move the "current_block" to a atomic managed by a sub-service
-            let block_number =
-                self.provider.get_block_number().await.context("Failed to get current block")?;
+            let block_number = self.chain_monitor.current_block_number().await?;
 
             let Some(block_deadline) = batch.block_deadline else {
                 tracing::warn!("batch does not yet have a block_deadline");
@@ -510,10 +506,9 @@ where
     }
 }
 
-impl<T, P> RetryTask for AggregatorService<T, P>
+impl<P> RetryTask for AggregatorService<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let mut self_clone = self.clone();
@@ -623,7 +618,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -647,9 +644,12 @@ mod tests {
         let proof_res_2 =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let _handle = tokio::spawn(chain_monitor.spawn());
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
+            chain_monitor.clone(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -692,6 +692,7 @@ mod tests {
 
         let client_sig = order_request
             .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
             .unwrap()
             .as_bytes();
 
@@ -749,6 +750,7 @@ mod tests {
 
         let client_sig = order_request
             .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
             .unwrap()
             .as_bytes()
             .into();
@@ -789,7 +791,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -812,9 +816,12 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
+            chain_monitor,
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -856,6 +863,7 @@ mod tests {
 
         let client_sig = order_request
             .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
             .unwrap()
             .as_bytes();
 
@@ -895,7 +903,9 @@ mod tests {
             ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_http(anvil.endpoint().parse().unwrap()),
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
         );
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -918,16 +928,21 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+
+        let _handle = tokio::spawn(chain_monitor.spawn());
+
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.clone(),
+            chain_monitor,
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
             signer.address(),
-            config,
+            config.clone(),
             prover,
             2,
         )
@@ -962,6 +977,7 @@ mod tests {
 
         let client_sig = order_request
             .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
             .unwrap()
             .as_bytes();
 

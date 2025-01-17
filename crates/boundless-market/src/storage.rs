@@ -37,7 +37,9 @@ use sha2::{Digest as _, Sha256};
 use tempfile::TempDir;
 
 #[async_trait]
+/// A trait for uploading risc0-zkvm ELF binaries and input files to a storage provider.
 pub trait StorageProvider {
+    /// Error type for the storage provider.
     type Error: Debug;
 
     // TODO(victor): Should this be upload_elf?
@@ -56,36 +58,51 @@ pub trait StorageProvider {
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
+/// A storage provider that can be used to upload images and inputs to a public URL.
 pub enum BuiltinStorageProvider {
+    /// S3 storage provider.
     S3(S3StorageProvider),
+    /// Pinata storage provider.
     Pinata(PinataStorageProvider),
+    /// Temporary file storage provider, used for local testing.
     File(TempFileStorageProvider),
 }
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
+/// Error type for the builtin storage providers.
 pub enum BuiltinStorageProviderError {
+    /// Error type for the S3 storage provider.
     #[error("S3 storage provider error")]
     S3(#[from] S3StorageProviderError),
+    /// Error type for the Pinata storage provider.
     #[error("Pinata storage provider error")]
     Pinata(#[from] PinataStorageProviderError),
+    /// Error type for the temporary file storage provider.
     #[error("temp file storage provider error")]
     File(#[from] TempFileStorageProviderError),
+    /// Error type for an invalid storage provider.
     #[error("Invalid storage provider: {0}")]
     InvalidProvider(String),
+    /// Error type for when no storage provider is configured.
     #[error("no storage provider is configured")]
     NoProvider,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
 #[non_exhaustive]
+/// The type of storage provider to use.
 pub enum StorageProviderType {
+    /// S3 storage provider.
     S3,
+    /// Pinata storage provider.
     Pinata,
+    /// Temporary file storage provider.
     File,
 }
 
 #[derive(Clone, Debug, Parser)]
+/// Configuration for the storage provider.
 pub struct StorageProviderConfig {
     /// Storage provider to use [possible values: s3, pinata, file]
     ///
@@ -132,6 +149,7 @@ pub struct StorageProviderConfig {
 }
 
 impl StorageProviderConfig {
+    /// Create a new configuration for a [StorageProviderType::File].
     pub fn dev_mode() -> Self {
         Self {
             storage_provider: StorageProviderType::File,
@@ -202,19 +220,25 @@ pub struct PinataStorageProvider {
 }
 
 #[derive(thiserror::Error, Debug)]
+/// Error type for the Pinata storage provider.
 pub enum PinataStorageProviderError {
+    /// Error type for reqwest errors.
     #[error("request error: {0}")]
     Reqwest(#[from] reqwest::Error),
 
+    /// Error type for URL parsing errors.
     #[error("url parse error: {0}")]
     UrlParse(#[from] url::ParseError),
 
+    /// Error type for environment variable errors.
     #[error("environment variable error: {0}")]
     EnvVar(#[from] VarError),
 
+    /// Error type for missing configuration parameters.
     #[error("missing config parameter: {0}")]
     Config(String),
 
+    /// Error type for other errors.
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
@@ -223,6 +247,7 @@ const DEFAULT_PINATA_API_URL: &str = "https://api.pinata.cloud";
 const DEFAULT_GATEWAY_URL: &str = "https://gateway.pinata.cloud";
 
 impl PinataStorageProvider {
+    /// Creates a new Pinata storage provider from the environment variables.
     pub async fn from_env() -> Result<Self, PinataStorageProviderError> {
         let jwt = std::env::var("PINATA_JWT")
             .context("failed to fetch environment variable 'PINATA_JWT'")?;
@@ -253,6 +278,7 @@ impl PinataStorageProvider {
         Ok(Self { pinata_jwt: jwt, pinata_api_url: api_url, ipfs_gateway_url: gateway_url, client })
     }
 
+    /// Creates a new Pinata storage provider from the given parts.
     pub async fn from_parts(
         jwt: String,
         api_url: String,
@@ -265,6 +291,7 @@ impl PinataStorageProvider {
         Ok(Self { pinata_jwt: jwt, pinata_api_url: api_url, ipfs_gateway_url: gateway_url, client })
     }
 
+    /// Creates a new Pinata storage provider from the given configuration.
     pub async fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, PinataStorageProviderError> {
@@ -345,30 +372,38 @@ impl StorageProvider for PinataStorageProvider {
 }
 
 #[derive(Clone, Debug)]
+/// Storage provider that uploads ELFs and inputs to S3.
 pub struct S3StorageProvider {
     s3_bucket: String,
     client: aws_sdk_s3::Client,
 }
 
 #[derive(thiserror::Error, Debug)]
+/// Error type for the S3 storage provider.
 pub enum S3StorageProviderError {
+    /// Error type for S3 errors.
     #[error("AWS S3 error: {0}")]
     S3Error(#[from] S3Error),
 
+    /// Error type for S3 presigning errors.
     #[error("S3 presigning error: {0}")]
     PresigningConfigError(#[from] PresigningConfigError),
 
+    /// Error type for environment variable errors.
     #[error("environment variable error: {0}")]
     EnvVar(#[from] VarError),
 
+    /// Error type for missing configuration parameters.
     #[error("missing config parameter: {0}")]
     Config(String),
 
+    /// Error type for other errors.
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
 
 impl S3StorageProvider {
+    /// Creates a new S3 storage provider from the environment variables.
     pub async fn from_env() -> Result<Self, S3StorageProviderError> {
         let access_key = std::env::var("S3_ACCESS_KEY")?;
         let secret_key = std::env::var("S3_SECRET_KEY")?;
@@ -379,6 +414,7 @@ impl S3StorageProvider {
         Self::from_parts(access_key, secret_key, bucket, url, region).await
     }
 
+    /// Creates a new S3 storage provider from the given parts.
     pub async fn from_parts(
         access_key: String,
         secret_key: String,
@@ -424,6 +460,7 @@ impl S3StorageProvider {
         Ok(Self { s3_bucket: bucket, client })
     }
 
+    /// Creates a new S3 storage provider from the given configuration.
     pub async fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, S3StorageProviderError> {
@@ -503,31 +540,39 @@ impl StorageProvider for S3StorageProvider {
 }
 
 #[derive(Clone, Debug)]
+/// Storage provider that uploads ELFs and inputs to a temporary directory.
 pub struct TempFileStorageProvider {
     temp_dir: Arc<TempDir>,
 }
 
 #[derive(thiserror::Error, Debug)]
+/// Error type for the temporary file storage provider.
 pub enum TempFileStorageProviderError {
+    /// Error type for IO errors.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Error type for URL parsing errors.
     #[error("URL parse error: {0}")]
     UrlParse(#[from] url::ParseError),
 
+    /// Error type for other errors.
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
 
 impl TempFileStorageProvider {
+    /// Creates a new temporary file storage provider.
     pub fn new() -> Result<Self, TempFileStorageProviderError> {
         Ok(Self { temp_dir: Arc::new(tempfile::tempdir()?) })
     }
 
+    /// Creates a new temporary file storage provider from the given parts.
     pub fn from_parts(path: &PathBuf) -> Result<Self, TempFileStorageProviderError> {
         Ok(Self { temp_dir: Arc::new(tempfile::tempdir_in(path)?) })
     }
 
+    /// Creates a new temporary file storage provider from the given configuration.
     pub fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, TempFileStorageProviderError> {
@@ -570,6 +615,7 @@ impl StorageProvider for TempFileStorageProvider {
     }
 }
 
+/// Creates a storage provider based on the given configuration.
 pub async fn storage_provider_from_config(
     config: &StorageProviderConfig,
 ) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {

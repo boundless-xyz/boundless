@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 use alloy::{
     primitives::{Address, PrimitiveSignature, U256},
-    signers::{k256::ecdsa::SigningKey, local::LocalSigner, Error as SignerErr, Signer},
+    signers::{Error as SignerErr, Signer},
 };
 use anyhow::{Context, Result};
 use async_stream::stream;
@@ -35,10 +35,15 @@ use utoipa::ToSchema;
 
 use crate::contracts::{ProofRequest, RequestError};
 
+/// Order stream submission API path.
 pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
+/// Order stream order list API path.
 pub const ORDER_LIST_PATH: &str = "/api/orders";
+/// Order stream nonce API path.
 pub const AUTH_GET_NONCE: &str = "/api/nonce/";
+/// Order stream health check API path.
 pub const HEALTH_CHECK: &str = "/api/health";
+/// Order stream websocket path.
 pub const ORDER_WS_PATH: &str = "/ws/orders";
 
 /// Error body for API responses
@@ -50,6 +55,7 @@ pub struct ErrMsg {
     pub msg: String,
 }
 impl ErrMsg {
+    /// Create a new error message.
     pub fn new(r#type: &str, msg: &str) -> Self {
         Self { r#type: r#type.into(), msg: msg.into() }
     }
@@ -65,8 +71,10 @@ impl std::fmt::Display for ErrMsg {
 #[non_exhaustive]
 pub enum OrderError {
     #[error("invalid signature: {0}")]
+    /// Invalid signature error.
     InvalidSignature(SignerErr),
     #[error("request error: {0}")]
+    /// Request error.
     RequestError(#[from] RequestError),
 }
 
@@ -163,7 +171,6 @@ impl AuthMsg {
             domain: Some(domain.parse().context("Invalid domain")?),
             nonce: Some(nonce.into()),
             timestamp: Some(OffsetDateTime::now_utc()),
-            ..Default::default()
         };
 
         self.message
@@ -185,8 +192,6 @@ pub struct Client {
     pub client: reqwest::Client,
     /// Base URL of the order stream server
     pub base_url: Url,
-    /// Signer for signing requests
-    pub signer: LocalSigner<SigningKey>,
     /// Address of the market contract
     pub boundless_market_address: Address,
     /// Chain ID of the network
@@ -195,26 +200,19 @@ pub struct Client {
 
 impl Client {
     /// Create a new client
-    pub fn new(
-        base_url: Url,
-        signer: LocalSigner<SigningKey>,
-        boundless_market_address: Address,
-        chain_id: u64,
-    ) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            base_url,
-            signer,
-            boundless_market_address,
-            chain_id,
-        }
+    pub fn new(base_url: Url, boundless_market_address: Address, chain_id: u64) -> Self {
+        Self { client: reqwest::Client::new(), base_url, boundless_market_address, chain_id }
     }
 
     /// Submit a proof request to the order stream server
-    pub async fn submit_request(&self, request: &ProofRequest) -> Result<Order> {
+    pub async fn submit_request(
+        &self,
+        request: &ProofRequest,
+        signer: &impl Signer,
+    ) -> Result<Order> {
         let url = self.base_url.join(ORDER_SUBMISSION_PATH)?;
         let signature =
-            request.sign_request(&self.signer, self.boundless_market_address, self.chain_id)?;
+            request.sign_request(signer, self.boundless_market_address, self.chain_id).await?;
         let order = Order { request: request.clone(), signature };
         order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;
@@ -242,8 +240,8 @@ impl Client {
     }
 
     /// Get the nonce from the order stream service for websocket auth
-    pub async fn get_nonce(&self) -> Result<Nonce> {
-        let url = self.base_url.join(AUTH_GET_NONCE)?.join(&self.signer.address().to_string())?;
+    pub async fn get_nonce(&self, address: Address) -> Result<Nonce> {
+        let url = self.base_url.join(AUTH_GET_NONCE)?.join(&address.to_string())?;
         let res = self.client.get(url).send().await?;
         if !res.status().is_success() {
             anyhow::bail!("Http error {} fetching nonce", res.status())
@@ -259,10 +257,16 @@ impl Client {
     /// The authentication message must contain a valid claim of an address holding a (pre-configured)
     /// minimum balance on the boundless market in order to connect to the server.
     /// Only one connection per address is allowed.
-    pub async fn connect_async(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-        let nonce = self.get_nonce().await.context("Failed to fetch nonce from order-stream")?;
+    pub async fn connect_async(
+        &self,
+        signer: &impl Signer,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+        let nonce = self
+            .get_nonce(signer.address())
+            .await
+            .context("Failed to fetch nonce from order-stream")?;
 
-        let auth_msg = AuthMsg::new(nonce, &self.base_url, &self.signer).await?;
+        let auth_msg = AuthMsg::new(nonce, &self.base_url, signer).await?;
 
         // Serialize the `AuthMsg` to JSON
         let auth_json =
@@ -289,7 +293,7 @@ impl Client {
             Ok(res) => res,
             Err(tokio_tungstenite::tungstenite::Error::Http(err)) => {
                 let http_err = if let Some(http_body) = err.body() {
-                    String::from_utf8_lossy(&http_body)
+                    String::from_utf8_lossy(http_body)
                 } else {
                     "Empty http error body".into()
                 };
@@ -308,10 +312,11 @@ impl Client {
 /// This function takes a WebSocket stream and returns a stream of `Order` messages.
 /// Example usage:
 /// ```no_run
+/// use alloy::signers::Signer;
 /// use boundless_market::order_stream_client::{Client, order_stream, OrderData};
 /// use futures_util::StreamExt;
-/// async fn example_stream(client: Client) {
-///     let socket = client.connect_async().await.unwrap();
+/// async fn example_stream(client: Client, signer: &impl Signer) {
+///     let socket = client.connect_async(signer).await.unwrap();
 ///     let mut order_stream = order_stream(socket);
 ///     while let Some(order) = order_stream.next().await {
 ///         match order {
@@ -351,6 +356,7 @@ pub fn order_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::signers::local::LocalSigner;
 
     #[tokio::test]
     async fn auth_msg_verify() {

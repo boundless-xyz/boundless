@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -67,7 +67,7 @@ struct Offer {
     uint256 maxPrice;
     /// Block number at which bidding starts.
     uint64 biddingStart;
-    /// Length of the "ramp-up period," measured in blocks.
+    /// Length of the "ramp-up period," measured in blocks since bidding start.
     /// Once bidding starts, the price begins to "ramp-up." During this time,
     /// the price rises each block until it reaches maxPrice.
     uint32 rampUpPeriod;
@@ -164,8 +164,10 @@ interface IBoundlessMarket {
     error RequestIsNotPriced(uint256 requestId);
     /// Request is not locked when it was required to be.
     error RequestIsNotLocked(uint256 requestId);
-    /// Request is fulfilled when it was not required to be.
+    /// Request is fulfilled when it was not expected to be.
     error RequestIsFulfilled(uint256 requestId);
+    /// Request is slashed when it was not expected to be.
+    error RequestIsSlashed(uint256 requestId);
     /// Request is no longer valid, as the deadline has passed.
     error RequestIsExpired(uint256 requestId, uint64 deadline);
     /// Request is still valid, as the deadline has yet to pass.
@@ -200,6 +202,9 @@ interface IBoundlessMarket {
     function requestIsLocked(uint256 requestId) external view returns (bool);
     /// @notice Check if the given request has been fulfilled (i.e. a proof was delivered).
     function requestIsFulfilled(uint256 requestId) external view returns (bool);
+    /// @notice Check if the given request resulted in the prover being slashed
+    /// (i.e. request was locked in but proof was not delivered)
+    function requestIsSlashed(uint256 requestId) external view returns (bool);
     /// @notice Return when the given request expires.
     function requestDeadline(uint256 requestId) external view returns (uint64);
 

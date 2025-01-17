@@ -1,8 +1,8 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     network::Ethereum,
@@ -10,7 +10,7 @@ use alloy::{
     providers::Provider,
     rpc::types::Filter,
     sol_types::SolEvent,
-    transports::Transport,
+    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
@@ -19,6 +19,7 @@ use boundless_market::contracts::{
 use futures_util::StreamExt;
 
 use crate::{
+    chain_monitor::ChainMonitorService,
     db::DbError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, Order,
@@ -26,27 +27,31 @@ use crate::{
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
 
-pub struct MarketMonitor<T, P> {
+pub struct MarketMonitor<P> {
     lookback_blocks: u64,
     market_addr: Address,
     provider: Arc<P>,
     db: DbObj,
-    _phantom_t: PhantomData<T>,
+    chain_monitor: Arc<ChainMonitorService<P>>,
 }
 
-impl<T, P> MarketMonitor<T, P>
+impl<P> MarketMonitor<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
-    pub fn new(lookback_blocks: u64, market_addr: Address, provider: Arc<P>, db: DbObj) -> Self {
-        Self { lookback_blocks, market_addr, provider, db, _phantom_t: Default::default() }
+    pub fn new(
+        lookback_blocks: u64,
+        market_addr: Address,
+        provider: Arc<P>,
+        db: DbObj,
+        chain_monitor: Arc<ChainMonitorService<P>>,
+    ) -> Self {
+        Self { lookback_blocks, market_addr, provider, db, chain_monitor }
     }
 
     /// Queries chain history to sample for the median block time
     pub async fn get_block_time(&self) -> Result<u64> {
-        let current_block =
-            self.provider.get_block_number().await.context("failed to get current block")?;
+        let current_block = self.chain_monitor.current_block_number().await?;
 
         let mut timestamps = vec![];
         let sample_start = current_block - std::cmp::min(current_block, BLOCK_TIME_SAMPLE_SIZE);
@@ -73,9 +78,9 @@ where
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
+        chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Result<u64> {
-        let current_block =
-            provider.get_block_number().await.context("Failed to get current block numb")?;
+        let current_block = chain_monitor.current_block_number().await?;
 
         let start_block = current_block.saturating_sub(lookback_blocks);
 
@@ -224,23 +229,32 @@ where
     }
 }
 
-impl<T, P> RetryTask for MarketMonitor<T, P>
+impl<P> RetryTask for MarketMonitor<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let lookback_blocks = self.lookback_blocks;
         let market_addr = self.market_addr;
         let provider = self.provider.clone();
         let db = self.db.clone();
+        let chain_monitor = self.chain_monitor.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up market monitor");
 
-            Self::find_open_orders(lookback_blocks, market_addr, provider.clone(), db.clone())
-                .await
-                .map_err(SupervisorErr::Fault)?;
+            Self::find_open_orders(
+                lookback_blocks,
+                market_addr,
+                provider.clone(),
+                db.clone(),
+                chain_monitor,
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("Monitor failed to find open orders on startup: {err:?}");
+                SupervisorErr::Recover(err)
+            })?;
 
             Self::monitor_orders(market_addr, provider, db).await.map_err(|err| {
                 tracing::error!("Monitor for new blocks failed, restarting: {err:?}");
@@ -275,10 +289,14 @@ mod tests {
     async fn find_orders() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .wallet(EthereumWallet::from(signer.clone()))
-            .on_http(anvil.endpoint().parse().unwrap());
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer.clone()))
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
 
         let market_address = deploy_boundless_market(
             &signer,
@@ -325,10 +343,14 @@ mod tests {
 
         // tx_receipt.inner.logs().into_iter().map(|log| Ok((decode_log(&log)?, log))).collect()
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
+
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let orders = MarketMonitor::find_open_orders(2, market_address, Arc::new(provider), db)
-            .await
-            .unwrap();
+        let orders =
+            MarketMonitor::find_open_orders(2, market_address, provider, db, chain_monitor)
+                .await
+                .unwrap();
         assert_eq!(orders, 1);
     }
 
@@ -336,15 +358,21 @@ mod tests {
     async fn block_times() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .wallet(EthereumWallet::from(signer))
-            .on_http(anvil.endpoint().parse().unwrap());
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer))
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
 
         provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
 
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let market_monitor = MarketMonitor::new(1, Address::ZERO, Arc::new(provider), db);
+        let market_monitor = MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor);
 
         let block_time = market_monitor.get_block_time().await.unwrap();
         assert_eq!(block_time, 2);

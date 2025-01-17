@@ -1852,6 +1852,7 @@ dependencies = [
  "risc0-zkvm",
  "serde",
  "test-log",
+ "tokio",
 ]
 
 [[package]]

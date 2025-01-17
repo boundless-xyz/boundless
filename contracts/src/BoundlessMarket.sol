@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -77,6 +77,9 @@ library AccountLib {
     }
 }
 
+/// @notice Stores details about a request that has been locked, including the prover that locked it and the stake.
+/// @dev When a request is slashed, the deadline, stake, and fingerprint fields are cleared, but the
+/// prover and price fields are left untouched. When a request is fulfilled, the entire object is cleared.
 struct RequestLock {
     address prover;
     uint96 price;
@@ -215,6 +218,16 @@ contract BoundlessMarket is
         }
         (, bool fulfilled) = accounts[address(uint160(id >> 32))].requestFlags(uint32(id));
         return fulfilled;
+    }
+
+    function requestIsSlashed(uint256 id) external view returns (bool) {
+        if (id & (uint256(type(uint64).max) << 192) != 0) {
+            revert InvalidRequest();
+        }
+        RequestLock memory lock = requestLocks[id];
+        // Note, a stake and fingerprint of zero can exist on a valid request, however a deadline of zero cannot as
+        // the request would be immediately expired, and expired requests cannot be locked in.
+        return lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
     }
 
     function requestIsLocked(uint256 id) external view returns (bool) {
@@ -393,7 +406,6 @@ contract BoundlessMarket is
         // Record the price in transient storage, such that the order can be filled in this same transaction.
         // NOTE: Since transient storage is cleared at the end of the transaction, we know that this
         // price will not become stale, and the request cannot expire, while this price is recorded.
-        // TODO(#165): Also record a requirements checksum here when solving #165.
         uint256 packed = TransientPrice({valid: true, price: price}).pack();
         assembly {
             tstore(requestDigest, packed)
@@ -402,7 +414,6 @@ contract BoundlessMarket is
 
     /// Verify the application and assessor receipts, ensuring that the provided fulfillment
     /// satisfies the request.
-    // TODO(#165) Return or check the request checksum here.
     function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
         // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
@@ -426,7 +437,7 @@ contract BoundlessMarket is
         public
         view
     {
-        // TODO(victor): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
+        // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
@@ -448,9 +459,6 @@ contract BoundlessMarket is
         verifyDelivery(fill, assessorSeal, prover);
         _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
 
-        // TODO(victor): Potentially this should be (re)combined with RequestFulfilled. It would make
-        // the logic to watch for a proof a bit more complex, but the gas usage a little less (by
-        // about 1000 gas per fulfill based on benchmarks)
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
 
@@ -609,23 +617,29 @@ contract BoundlessMarket is
         uint32 idx = BoundlessMarketLib.requestIndex(requestId);
         (bool locked,) = accounts[client].requestFlags(idx);
 
-        // Ensure the request is locked, and fetch the lock.
+        // Ensure the request is locked, and fetch the lock into memory.
         if (!locked) {
             revert RequestIsNotLocked({requestId: requestId});
         }
-
         RequestLock memory lock = requestLocks[requestId];
 
-        // If the lock was cleared, the request is already finalized, either by fullfillment or slashing.
-        if (lock.prover == address(0)) {
-            revert RequestIsNotLocked({requestId: requestId});
-        }
         if (lock.deadline >= block.number) {
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
         }
 
-        // Zero out the lock to prevent the same request from being slashed twice.
-        requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
+        // If the lock was cleared, the request is already finalized, either by fulfillment or slashing.
+        if (lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0)) {
+            if (lock.prover == address(0)) {
+                revert RequestIsFulfilled({requestId: requestId});
+            }
+            revert RequestIsSlashed({requestId: requestId});
+        }
+
+        // Zero out deadline, stake and fingerprint in storage to indicate that the request has been slashed.
+        RequestLock storage lockStorage = requestLocks[requestId];
+        lockStorage.deadline = 0;
+        lockStorage.stake = 0;
+        lockStorage.fingerprint = bytes8(0);
 
         // Calculate the portion of stake that should be burned vs sent to the client.
         // NOTE: If the burn fraction is not properly set, this can overflow.
@@ -654,7 +668,7 @@ contract BoundlessMarket is
         bytes calldata assessorSeal,
         address prover
     ) external {
-        // TODO(victor): This will break when we change VERIFIER to point to the router.
+        // TODO(#243): This will break when we change VERIFIER to point to the router.
         IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
         setVerifier.submitMerkleRoot(root, seal);
         fulfillBatch(fills, assessorSeal, prover);
