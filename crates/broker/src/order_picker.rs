@@ -421,6 +421,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Add;
+
     use super::*;
     use crate::{
         db::SqliteDb,
@@ -903,4 +905,101 @@ mod tests {
     // TODO: Test
     // need to test the non-ASAP path for pricing, aka picking a block ahead in time to make sure
     // that price calculator is working correctly.
+
+    #[tokio::test]
+    #[traced_test]
+    async fn cannot_overcommit_stake() {
+        let signer_inital_balance_eth = 2;
+        let lockin_stake_wei = U256::from_str_radix("1500000000000000000", 10).unwrap(); // 1.5 eth
+
+        let anvil =
+            Anvil::new().args(["--balance", &format!("{}", signer_inital_balance_eth)]).spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer.clone()))
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+
+        provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
+
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.max_stake = "10".into();
+        }
+
+        let prover: ProverObj = Arc::new(MockProver::default());
+        let image_id = Digest::from(ECHO_ID);
+        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
+
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
+        let picker = OrderPicker::new(
+            db.clone(),
+            config,
+            prover,
+            2,
+            Address::ZERO,
+            provider.clone(),
+            chain_monitor,
+        );
+
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/image");
+            then.status(200).body(ECHO_ELF);
+        });
+        let image_uri = format!("http://{}/image", server.address());
+
+        let order = Order::new(
+            ProofRequest::new(
+                0,
+                &signer.address(),
+                Requirements {
+                    imageId: <[u8; 32]>::from(image_id).into(),
+                    predicate: Predicate {
+                        predicateType: PredicateType::PrefixMatch,
+                        data: Default::default(),
+                    },
+                },
+                &image_uri,
+                Input { inputType: InputType::Inline, data: input_buf.clone().into() },
+                Offer {
+                    minPrice: U256::from(200000000000u64),
+                    maxPrice: U256::from(400000000000u64),
+                    biddingStart: 0,
+                    timeout: 100,
+                    rampUpPeriod: 1,
+                    lockinStake: lockin_stake_wei,
+                },
+            ),
+            Bytes::new(),
+        );
+
+        let orders = std::iter::repeat(order).take(2).collect::<Vec<_>>();
+
+        for (order_id, order) in orders.iter().enumerate() {
+            db.add_order(U256::from(order_id), order.clone()).await.unwrap();
+        }
+
+        for (order_id, order) in orders.iter().enumerate() {
+            picker.price_order(U256::from(order_id), order).await.unwrap();
+        }
+
+        // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient stake
+        assert_eq!(
+            db.get_order(U256::from(0)).await.unwrap().unwrap().status,
+            OrderStatus::Locking
+        );
+        assert_eq!(
+            db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            OrderStatus::Skipped
+        );
+    }
 }
