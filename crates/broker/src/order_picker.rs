@@ -132,11 +132,11 @@ where
         }
 
         // Check that we have the funds to handle this
-        // TODO: with two parallel price_orders() running we could hit an issue
-        // were we over commit on stake. Need to probably sync the stake
-        if lockin_stake + self.estimate_gas_to_lock(order).await?
-            >= self.available_balance().await?
-        {
+        let gas_price = self.provider.get_gas_price().await.context("Failed to get gas price")?;
+        let gas_to_lock_order =
+            U256::from(gas_price) * U256::from(self.estimate_gas_to_lock(order).await?);
+
+        if lockin_stake + gas_to_lock_order >= self.available_balance().await? {
             tracing::warn!("Stake is higher than available balance on order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(());
@@ -374,7 +374,7 @@ where
     }
 
     /// Estimate of gas for locking a single order
-    async fn estimate_gas_to_lock(&self, order: &Order) -> Result<U256> {
+    async fn estimate_gas_to_lock(&self, order: &Order) -> Result<u64> {
         let conf_priority_gas = {
             let conf = self.config.lock_all().expect("Failed to lock config");
             conf.market.lockin_priority_gas
@@ -383,12 +383,22 @@ where
             .market
             .build_lockin_call(&order.request, &order.client_sig, conf_priority_gas)
             .await?;
-        Ok(lockin_call.estimate_gas().await.map(U256::from)?)
+
+        let gas = match lockin_call.estimate_gas().await {
+            Ok(gas) => gas,
+            Err(err) => {
+                tracing::error!(
+                    "Failed to estimate gas for lockin call: {err}. Using default from config"
+                );
+                self.config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate
+            }
+        };
+        Ok(gas)
     }
 
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
-    async fn estimate_gas_to_lock_pending(&self) -> Result<U256> {
-        let mut gas = U256::ZERO;
+    async fn estimate_gas_to_lock_pending(&self) -> Result<u64> {
+        let mut gas = 0;
         for (_, order) in self.db.get_pending_lock_orders(0).await?.iter() {
             gas += self.estimate_gas_to_lock(order).await?;
         }
@@ -396,9 +406,16 @@ where
     }
 
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
-    async fn estimate_gas_to_fulfill(&self) -> Result<U256> {
+    async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         // TODO: Figure out a good way to estimate the gas for fulfilling taking into account batching
-        Ok(U256::ZERO)
+        Ok(self.config.lock_all().context("Failed to read config")?.market.fulfil_gas_estimate)
+    }
+
+    async fn eth_reserved_for_gas(&self) -> Result<U256> {
+        let gas_price = self.provider.get_gas_price().await.context("Failed to get gas price")?;
+        let lock_pending_gas = self.estimate_gas_to_lock_pending().await?;
+        let fulfill_pending_gas = self.estimate_gas_to_fulfill_pending().await?;
+        Ok(U256::from(gas_price) * U256::from(lock_pending_gas + fulfill_pending_gas))
     }
 
     /// Return available balance.
@@ -412,17 +429,16 @@ where
             .context("Failed to get current wallet balance")?;
 
         let pending_locked_stake = self.pending_locked_stake().await?;
-        let est_lockin_gas = self.estimate_gas_to_lock_pending().await?;
-        let est_fulfill_gas = self.estimate_gas_to_fulfill().await?;
+        let eth_reserved_for_gas = self.eth_reserved_for_gas().await?;
 
         tracing::debug!(
             "Available Balance = account_balance({}) - pending_locked({}) - expected_future_gas({})",
             format_ether(balance),
             format_ether(pending_locked_stake),
-            format_ether(est_lockin_gas + est_fulfill_gas)
+            format_ether(eth_reserved_for_gas)
         );
 
-        Ok(balance - pending_locked_stake - est_lockin_gas - est_fulfill_gas)
+        Ok(balance - pending_locked_stake - eth_reserved_for_gas)
     }
 }
 

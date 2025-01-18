@@ -59,6 +59,12 @@ pub struct MarketConf {
     pub max_file_size: usize,
     /// Max retries for fetching input / image contents from URLs
     pub max_fetch_retries: Option<u8>,
+    /// Gas Estimation
+    ///
+    /// Gas estimate for lockin call to use if it cannot be estimated using the node RPC
+    pub lockin_gas_estimate: u64,
+    /// Gas estimate for fulfil call to use if it cannot be estimated using the node RPC
+    pub fulfil_gas_estimate: u64,
 }
 
 impl Default for MarketConf {
@@ -76,6 +82,8 @@ impl Default for MarketConf {
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
             max_fetch_retries: Some(2),
+            lockin_gas_estimate: 1_000_000,
+            fulfil_gas_estimate: 300_000_000,
         }
     }
 }
@@ -322,6 +330,8 @@ lookback_blocks = 100
 max_stake = "0.1"
 skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
+lockin_gas_estimate = 1_000_000
+fulfil_gas_estimate = 300_000_000
 
 [prover]
 status_poll_ms = 1000
@@ -348,6 +358,8 @@ max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
 lockin_priority_gas = 100
 max_mcycle_limit = 10
+lockin_gas_estimate = 1_000_000
+fulfil_gas_estimate = 300_000_000
 
 [prover]
 status_poll_ms = 1000
