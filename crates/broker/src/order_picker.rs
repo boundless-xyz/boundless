@@ -131,17 +131,13 @@ where
             return Ok(());
         }
 
-        let current_balance = self
-            .provider
-            .get_balance(self.provider.default_signer_address())
-            .await
-            .context("Failed to get current wallet balance")?;
-
         // Check that we have the funds to handle this
         // TODO: with two parallel price_orders() running we could hit an issue
         // were we over commit on stake. Need to probably sync the stake
-        if lockin_stake >= current_balance {
-            tracing::warn!("Stake is higher than current balance on order {order_id:x}");
+        if lockin_stake + self.estimate_gas_to_lock(order).await?
+            >= self.available_balance().await?
+        {
+            tracing::warn!("Stake is higher than available balance on order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(());
         }
@@ -365,6 +361,69 @@ where
 
         Ok(())
     }
+
+    /// Return the total amount of stake that is marked locally in the DB to be locked
+    /// but has not yet been locked in the market contract thus has not been deducted from the account balance
+    async fn pending_locked_stake(&self) -> Result<U256> {
+        let pending_locks = self.db.get_pending_lock_orders(0).await?;
+        let stake = pending_locks
+            .iter()
+            .map(|(_, order)| order.request.offer.lockinStake)
+            .fold(U256::ZERO, |acc, x| acc + x);
+        Ok(stake)
+    }
+
+    /// Estimate of gas for locking a single order
+    async fn estimate_gas_to_lock(&self, order: &Order) -> Result<U256> {
+        let conf_priority_gas = {
+            let conf = self.config.lock_all().expect("Failed to lock config");
+            conf.market.lockin_priority_gas
+        };
+        let lockin_call = self
+            .market
+            .build_lockin_call(&order.request, &order.client_sig, conf_priority_gas)
+            .await?;
+        Ok(lockin_call.estimate_gas().await.map(U256::from)?)
+    }
+
+    /// Estimate of gas for locking in any pending locks and submitting any pending proofs
+    async fn estimate_gas_to_lock_pending(&self) -> Result<U256> {
+        let mut gas = U256::ZERO;
+        for (_, order) in self.db.get_pending_lock_orders(0).await?.iter() {
+            gas += self.estimate_gas_to_lock(order).await?;
+        }
+        Ok(gas)
+    }
+
+    /// Estimate of gas for locking in any pending locks and submitting any pending proofs
+    async fn estimate_gas_to_fulfill(&self) -> Result<U256> {
+        // TODO: Figure out a good way to estimate the gas for fulfilling taking into account batching
+        Ok(U256::ZERO)
+    }
+
+    /// Return available balance.
+    /// This is defined as the balance of the signer account minus any stake
+    /// that has been marked to be locked but not yet locked in the market contract
+    async fn available_balance(&self) -> Result<U256> {
+        let balance = self
+            .provider
+            .get_balance(self.provider.default_signer_address())
+            .await
+            .context("Failed to get current wallet balance")?;
+
+        let pending_locked_stake = self.pending_locked_stake().await?;
+        let est_lockin_gas = self.estimate_gas_to_lock_pending().await?;
+        let est_fulfill_gas = self.estimate_gas_to_fulfill().await?;
+
+        tracing::debug!(
+            "Available Balance = account_balance({}) - pending_locked({}) - expected_future_gas({})",
+            format_ether(balance),
+            format_ether(pending_locked_stake),
+            format_ether(est_lockin_gas + est_fulfill_gas)
+        );
+
+        Ok(balance - pending_locked_stake - est_lockin_gas - est_fulfill_gas)
+    }
 }
 
 impl<P> RetryTask for OrderPicker<P>
@@ -421,8 +480,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Add;
-
     use super::*;
     use crate::{
         db::SqliteDb,
@@ -432,7 +489,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Address, Bytes, B256, U256},
+        primitives::{utils::parse_ether, Address, Bytes, B256, U256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -910,7 +967,7 @@ mod tests {
     #[traced_test]
     async fn cannot_overcommit_stake() {
         let signer_inital_balance_eth = 2;
-        let lockin_stake_wei = U256::from_str_radix("1500000000000000000", 10).unwrap(); // 1.5 eth
+        let lockin_stake_wei = parse_ether("1.5").unwrap();
 
         let anvil =
             Anvil::new().args(["--balance", &format!("{}", signer_inital_balance_eth)]).spawn();
@@ -986,9 +1043,6 @@ mod tests {
 
         for (order_id, order) in orders.iter().enumerate() {
             db.add_order(U256::from(order_id), order.clone()).await.unwrap();
-        }
-
-        for (order_id, order) in orders.iter().enumerate() {
             picker.price_order(U256::from(order_id), order).await.unwrap();
         }
 

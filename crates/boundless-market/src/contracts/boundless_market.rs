@@ -14,11 +14,13 @@
 
 use std::{
     fmt::Debug,
+    marker::PhantomData,
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
 use alloy::{
+    contract::CallBuilder,
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
     providers::Provider,
@@ -354,6 +356,31 @@ where
         self.submit_request_with_value(request, signer, value).await
     }
 
+    /// Build but do not submit a lockin call
+    pub async fn build_lockin_call(
+        &self,
+        request: &ProofRequest,
+        client_sig: &Bytes,
+        priority_gas: Option<u64>,
+    ) -> Result<CallBuilder<T, &P, PhantomData<IBoundlessMarket::lockinCall>>, MarketError> {
+        let mut call = self.instance.lockin(request.clone(), client_sig.clone()).from(self.caller);
+
+        if let Some(gas) = priority_gas {
+            let priority_fee = self
+                .instance
+                .provider()
+                .estimate_eip1559_fees(None)
+                .await
+                .context("Failed to get priority gas fee")?;
+
+            call = call
+                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
+                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
+        }
+
+        Ok(call)
+    }
+
     /// Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
@@ -375,20 +402,7 @@ where
 
         tracing::debug!("Calling lockin({:x?}, {:x?})", request, client_sig);
 
-        let mut call = self.instance.lockin(request.clone(), client_sig.clone()).from(self.caller);
-
-        if let Some(gas) = priority_gas {
-            let priority_fee = self
-                .instance
-                .provider()
-                .estimate_eip1559_fees(None)
-                .await
-                .context("Failed to get priority gas fee")?;
-
-            call = call
-                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
-                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
-        }
+        let call = self.build_lockin_call(request, client_sig, priority_gas).await?;
 
         let pending_tx = call.send().await?;
 
@@ -485,6 +499,19 @@ where
         Ok(log.inner.data)
     }
 
+    /// Build but do not submit a fulfill call
+    pub fn build_fulfill_call(
+        &self,
+        fulfillment: &Fulfillment,
+        assessor_seal: &Bytes,
+        prover_address: Address,
+    ) -> Result<CallBuilder<T, &P, PhantomData<IBoundlessMarket::fulfillCall>>, MarketError> {
+        Ok(self
+            .instance
+            .fulfill(fulfillment.clone(), assessor_seal.clone(), prover_address)
+            .from(self.caller))
+    }
+
     /// Fulfill a request by delivering the proof for the application.
     ///
     /// Upon proof verification, the prover is paid as long as the requirements are met, including:
@@ -504,10 +531,7 @@ where
         prover_address: Address,
     ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         tracing::debug!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_seal);
-        let call = self
-            .instance
-            .fulfill(fulfillment.clone(), assessor_seal.clone(), prover_address)
-            .from(self.caller);
+        let call = self.build_fulfill_call(fulfillment, assessor_seal, prover_address)?;
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
