@@ -862,7 +862,8 @@ pub mod test_utils {
                 deployer_provider.clone(),
                 deployer_signer.address(),
             );
-            hit_points_service.authorize(proxy).await?;
+            hit_points_service.grant_minter_role(hit_points_service.caller()).await?;
+            hit_points_service.grant_authorized_transfer_role(proxy).await?;
             if let Some(prover) = allowed_prover {
                 hit_points_service.mint(prover, default_allowance()).await?;
             }

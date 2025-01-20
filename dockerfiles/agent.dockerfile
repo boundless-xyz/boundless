@@ -28,11 +28,10 @@ ARG CUDA_OPT_LEVEL=1
 ARG S3_CACHE_PREFIX
 
 WORKDIR /src/
-COPY Cargo.toml .
-COPY Cargo.lock .
-COPY crates/ ./crates/
+COPY bento/ ./bento/
 COPY rust-toolchain.toml .
-COPY .sqlx/ ./.sqlx/
+
+WORKDIR /src/bento/
 
 ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}
@@ -53,8 +52,8 @@ RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc \
     source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
-    cargo build --release -F cuda -p workflow --bin agent && \
-    cp /src/target/release/agent /src/agent && \
+    cargo build --release -p workflow -F cuda --bin agent && \
+    cp /src/bento/target/release/agent /src/agent && \
     sccache --show-stats
 
 FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries

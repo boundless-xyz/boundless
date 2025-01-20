@@ -17,20 +17,28 @@ pragma solidity ^0.8.20;
 /// @title IHitPoints ERC20
 /// @notice Interface of a restricted transfer token using ERC20
 interface IHitPoints {
-    /// @dev Thrown when a caller is not authorized for an operation
-    error Unauthorized();
     /// @dev Thrown when trying to transfer tokens from/to an unauthorized address
     error UnauthorizedTransfer();
     /// @dev Thrown when balance exceeds uint96 max
     error BalanceExceedsLimit(address account, uint256 currentBalance, uint256 addedAmount);
 
-    /// @notice Adds a new address to the authorized list
-    /// @param account The address to authorize
-    function authorize(address account) external;
+    /// @notice Grants the MINTER role to an account
+    /// @dev This role is used to allow minting new tokens
+    /// @param account The address that will receive the minter role
+    function grantMinterRole(address account) external;
 
-    /// @notice Removes an address from the authorized list
-    /// @param account The address to remove authorization from
-    function deauthorize(address account) external;
+    /// @notice Revokes the MINTER role from an account
+    /// @param account The address that will lose the minter role
+    function revokeMinterRole(address account) external;
+
+    /// @notice Grants the AUTHORIZED_TRANSFER role to an account
+    /// @dev This role is used to allow transfers from/to an address
+    /// @param account The address that will receive the authorized transfer role
+    function grantAuthorizedTransferRole(address account) external;
+
+    /// @notice Revokes the AUTHORIZED_TRANSFER role from an account
+    /// @param account The address that will lose the authorized transfer role
+    function revokeAuthorizedTransferRole(address account) external;
 
     /// @notice Creates new tokens and assigns them to an account
     /// @param account The address that will receive the minted tokens

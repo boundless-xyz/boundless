@@ -1,9 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/api",
     "crates/assessor",
-    "crates/bento-client",
     "crates/boundless-cli",
     "crates/boundless-market",
     "crates/broker",
@@ -11,10 +9,7 @@ members = [
     "crates/guest/util",
     "crates/order-generator",
     "crates/order-stream",
-    "crates/taskdb",
-    "crates/workflow",
-    "crates/workflow-common",
-    "documentation/doc-test"
+    "documentation/doc-test",
 ]
 
 [workspace.package]
@@ -25,16 +20,12 @@ repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
 async-stream = "0.3"
-bento-client = { path = "crates/bento-client" }
 boundless-assessor = { version = "0.5.0", path = "crates/assessor" }
 boundless-cli = { version = "0.5.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.5.0", path = "crates/boundless-market" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
-taskdb = { path = "crates/taskdb" }
-workflow = { path = "crates/workflow" }
-workflow-common = { path = "crates/workflow-common" }
 
 alloy = { version = "0.6" }
 alloy-primitives = { version = "0.8" }
@@ -50,16 +41,14 @@ bs58 = "0.5"
 bytemuck = "1.16"
 clap = { version = "4.5", features = ["derive", "env"] }
 chrono = { version = "0.4", features = ["serde"] }
-deadpool-redis = "0.15"
 dotenvy = "0.15"
 futures-util = "0.3"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 postcard = { version = "1.0" }
 rand = { version = "0.8" }
-redis = { version = "0.25", features = ["tokio-comp"] }
 reqwest = "0.12"
 risc0-aggregation = { version = "0.1.0" }
-risc0-binfmt = "1.2"
+risc0-binfmt = { version = "1.2" }
 risc0-build = { version = "1.2", features = ["docker"] }
 risc0-build-ethereum = { version = "1.2" }
 risc0-ethereum-contracts = { version = "1.2" }
@@ -90,10 +79,6 @@ opt-level = 3
 [profile.release]
 debug = 1
 lto = true
-
-# Possibly faster runtime config:
-# [build]
-# rustflags = ["-Ctarget-cpu=native", "-C lto"]
 
 # [profile.release]
 # lto = "fat"

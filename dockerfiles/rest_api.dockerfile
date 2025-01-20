@@ -10,11 +10,10 @@ ARG S3_CACHE_PREFIX
 
 
 WORKDIR /src/
-COPY Cargo.toml .
-COPY Cargo.lock .
-COPY crates/ ./crates/
+COPY bento/ ./bento/
 COPY rust-toolchain.toml .
-COPY .sqlx/ ./.sqlx/
+
+WORKDIR /src/bento/
 
 COPY ./dockerfiles/sccache-setup.sh .
 RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
@@ -29,7 +28,7 @@ RUN \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_api_sccache \
     source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p api --bin rest_api && \
-    cp /src/target/release/rest_api /src/rest_api && \
+    cp /src/bento/target/release/rest_api /src/rest_api && \
     sccache --show-stats
 
 FROM rust:1.81.0-bookworm AS runtime

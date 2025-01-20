@@ -54,15 +54,20 @@ where
         &self.instance
     }
 
+    /// Returns the caller address.
+    pub fn caller(&self) -> Address {
+        self.caller
+    }
+
     /// Sets the timeout for transaction confirmation.
     pub fn with_timeout(self, tx_timeout: Duration) -> Self {
         Self { tx_timeout, ..self }
     }
 
-    /// Add an account to the authorized list.
-    pub async fn authorize(&self, account: Address) -> Result<()> {
-        tracing::debug!("Calling authorize({:?})", account);
-        let call = self.instance.authorize(account).from(self.caller);
+    /// Grant `MINTER` role to the given account.
+    pub async fn grant_minter_role(&self, account: Address) -> Result<()> {
+        tracing::debug!("Calling grantMinterRole({:?})", account);
+        let call = self.instance().grantMinterRole(account).from(self.caller);
         let pending_tx = call.send().await.map_err(IHitPointsErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -71,7 +76,24 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Authorized {}: {}", account, tx_hash);
+        tracing::info!("Role `MINTER` granted to {}: {}", account, tx_hash);
+
+        Ok(())
+    }
+
+    /// Grant `AUTHORIZED_TRANSFER` role to the given account.
+    pub async fn grant_authorized_transfer_role(&self, account: Address) -> Result<()> {
+        tracing::debug!("Calling grantAuthorizedTransferRole({:?})", account);
+        let call = self.instance().grantAuthorizedTransferRole(account).from(self.caller);
+        let pending_tx = call.send().await.map_err(IHitPointsErrors::decode_error)?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.tx_timeout))
+            .watch()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Role `AUTHORIZED_TRANSFER` granted to {}: {}", account, tx_hash);
 
         Ok(())
     }

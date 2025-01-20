@@ -14,6 +14,7 @@
 
 pragma solidity ^0.8.20;
 
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
@@ -23,34 +24,49 @@ import "./IHitPoints.sol";
 
 /// @title HitPoints ERC20
 /// @notice Implementation of a restricted transfer token using ERC20
-contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, Ownable {
+contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, AccessControl, Ownable {
     // Maximum allowed balance (uint96 max value)
-    uint256 private constant MAX_BALANCE = type(uint96).max;
-    // Mapping for operators who can mint and can receive/send tokens from/to anyone
-    mapping(address => bool) public isAuthorized;
+    uint256 constant MAX_BALANCE = type(uint96).max;
+    // Role identifier for minting operation
+    bytes32 public constant MINTER = keccak256("MINTER");
+    // Role identifier for authorized transfer
+    bytes32 public constant AUTHORIZED_TRANSFER = keccak256("AUTHORIZED_TRANSFER");
 
     constructor(address initialOwner) ERC20("HitPoints", "HP") ERC20Permit("HitPoints") Ownable(initialOwner) {
+        _grantRole(DEFAULT_ADMIN_ROLE, initialOwner);
         // Authorize address(0) as a sender and receiver to simplify mints and burns.
-        isAuthorized[address(0)] = true;
+        _grantRole(AUTHORIZED_TRANSFER, address(0));
     }
 
-    modifier onlyAuthorized() {
-        if (!isAuthorized[msg.sender] && msg.sender != owner()) revert Unauthorized();
-        _;
-    }
-
-    /// @inheritdoc IHitPoints
-    function authorize(address operator) external onlyOwner {
-        isAuthorized[operator] = true;
+    /// @inheritdoc Ownable
+    function transferOwnership(address newOwner) public override onlyOwner {
+        _revokeRole(DEFAULT_ADMIN_ROLE, owner());
+        _grantRole(DEFAULT_ADMIN_ROLE, newOwner);
+        super.transferOwnership(newOwner);
     }
 
     /// @inheritdoc IHitPoints
-    function deauthorize(address operator) external onlyOwner {
-        isAuthorized[operator] = false;
+    function grantMinterRole(address account) external onlyOwner {
+        _grantRole(MINTER, account);
     }
 
     /// @inheritdoc IHitPoints
-    function mint(address account, uint256 value) external onlyOwner {
+    function revokeMinterRole(address account) external onlyOwner {
+        _revokeRole(MINTER, account);
+    }
+
+    /// @inheritdoc IHitPoints
+    function grantAuthorizedTransferRole(address account) external onlyOwner {
+        _grantRole(AUTHORIZED_TRANSFER, account);
+    }
+
+    /// @inheritdoc IHitPoints
+    function revokeAuthorizedTransferRole(address account) external onlyOwner {
+        _revokeRole(AUTHORIZED_TRANSFER, account);
+    }
+
+    /// @inheritdoc IHitPoints
+    function mint(address account, uint256 value) external onlyRole(MINTER) {
         // Ensure the new balance won't exceed uint96 max
         uint256 newBalance = balanceOf(account) + value;
         if (newBalance > MAX_BALANCE) {
@@ -61,16 +77,8 @@ contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, Ownable {
 
     function _update(address from, address to, uint256 value) internal virtual override {
         // Either the sender or the receiver must be authorized.
-        if (!isAuthorized[from] && !isAuthorized[to]) {
+        if (!hasRole(AUTHORIZED_TRANSFER, from) && !hasRole(AUTHORIZED_TRANSFER, to)) {
             revert UnauthorizedTransfer();
-        }
-
-        // Prevent direct transfers to authorized addresses
-        // Allow transfers only through allowance or permit
-        if (isAuthorized[to] && from != address(0)) {
-            if (allowance(from, msg.sender) < value && msg.sender != to && !isAuthorized[from]) {
-                revert UnauthorizedTransfer();
-            }
         }
 
         super._update(from, to, value);
