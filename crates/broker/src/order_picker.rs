@@ -468,6 +468,7 @@ mod tests {
             &signer,
             provider.clone(),
             Address::ZERO,
+            Address::ZERO,
             Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
@@ -579,6 +580,7 @@ mod tests {
         let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
+            Address::ZERO,
             Address::ZERO,
             Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
@@ -694,6 +696,7 @@ mod tests {
             &signer,
             provider.clone(),
             Address::ZERO,
+            Address::ZERO,
             Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
@@ -796,6 +799,7 @@ mod tests {
         let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
+            Address::ZERO,
             Address::ZERO,
             Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),

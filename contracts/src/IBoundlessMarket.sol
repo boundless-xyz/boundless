@@ -145,6 +145,10 @@ interface IBoundlessMarket {
     event Deposit(address indexed account, uint256 value);
     /// Event when a withdrawal is made from the market.
     event Withdrawal(address indexed account, uint256 value);
+    /// Event when a stake deposit is made to the market.
+    event StakeDeposit(address indexed account, uint256 value);
+    /// Event when a stake withdrawal is made from the market.
+    event StakeWithdrawal(address indexed account, uint256 value);
     /// Contract upgraded to a new version.
     event Upgraded(uint64 indexed version);
     /// @notice Event emitted during fulfillment if a request was fulfilled, but payment was not
@@ -185,17 +189,6 @@ interface IBoundlessMarket {
     error InvalidRequest();
     /// Error when transfer of funds to an external address fails.
     error TransferFailed();
-    /// @notice Error for when a prover not on the allowed lists tries to lock-in an order.
-    /// In order to focus on application developers, public prover participation is limited. In
-    /// particular, only the provers in the allow-list are able to lock-in jobs. This restriction
-    /// will be lifted, and this error removed, during the public testnet.
-    error ProverNotInAppnetLockinAllowList(address account);
-
-    /// Add a prover to the lock-in allowlist, for use during the appnet phase of testing.
-    function addProverToAppnetAllowlist(address prover) external;
-
-    /// Remove a prover from the lock-in allowlist, for use during the appnet phase of testing.
-    function removeProverFromAppnetAllowlist(address prover) external;
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
@@ -208,7 +201,7 @@ interface IBoundlessMarket {
     /// @notice Return when the given request expires.
     function requestDeadline(uint256 requestId) external view returns (uint64);
 
-    /// @notice Deposit Ether into the market to pay for proof and/or lockin stake.
+    /// @notice Deposit Ether into the market to pay for proof.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
     function deposit() external payable;
     /// @notice Withdraw Ether from the market.
@@ -216,6 +209,17 @@ interface IBoundlessMarket {
     function withdraw(uint256 value) external;
     /// @notice Check the deposited balance, in Ether, of the given account.
     function balanceOf(address addr) external view returns (uint256);
+
+    /// @notice Deposit stake into the market to pay for lockin stake.
+    /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
+    function depositStake(uint256 value) external;
+    /// @notice Permit and deposit stake into the market to pay for lockin stake.
+    /// @dev This method requires a valid EIP-712 signature from the account owner.
+    function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    /// @notice Withdraw stake from the market.
+    function withdrawStake(uint256 value) external;
+    /// @notice Check the deposited balance, in HP, of the given account.
+    function balanceOfStake(address addr) external view returns (uint256);
 
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     ///         Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
@@ -295,4 +299,8 @@ interface IBoundlessMarket {
 
     /// Returns the assessor imageId and its url.
     function imageInfo() external view returns (bytes32, string memory);
+
+    /// Returns the address of the token used for stake deposits.
+    // solhint-disable-next-line func-name-mixedcase
+    function STAKE_TOKEN_CONTRACT() external view returns (address);
 }
