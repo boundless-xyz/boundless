@@ -31,6 +31,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 #[cfg(not(target_os = "zkvm"))]
 use thiserror::Error;
+#[cfg(not(target_os = "zkvm"))]
+use token::IHitPoints::{self, IHitPointsErrors};
 use url::Url;
 
 use risc0_zkvm::sha::Digest;
@@ -45,6 +47,71 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market.rs"));
 pub use boundless_market_contract::*;
+
+#[allow(missing_docs)]
+#[cfg(not(target_os = "zkvm"))]
+pub mod token {
+    use alloy::{
+        primitives::{Address, PrimitiveSignature},
+        signers::Signer,
+        sol_types::SolStruct,
+    };
+    use alloy_sol_types::eip712_domain;
+    use anyhow::Result;
+    use serde::Serialize;
+
+    alloy::sol!(
+        #![sol(rpc, all_derives)]
+        "src/contracts/artifacts/IHitPoints.sol"
+    );
+
+    alloy::sol! {
+        #[derive(Debug, Serialize)]
+        struct Permit {
+            address owner;
+            address spender;
+            uint256 value;
+            uint256 nonce;
+            uint256 deadline;
+        }
+    }
+
+    alloy::sol! {
+        #[sol(rpc)]
+        interface IERC20 {
+            function approve(address spender, uint256 value) external returns (bool);
+            function balanceOf(address account) external view returns (uint256);
+        }
+    }
+
+    alloy::sol! {
+        #[sol(rpc)]
+        interface IERC20Permit {
+            function nonces(address owner) external view returns (uint256);
+            function DOMAIN_SEPARATOR() external view returns (bytes32);
+        }
+    }
+
+    impl Permit {
+        /// Signs the [Permit] with the given signer and EIP-712 domain derived from the given
+        /// contract address and chain ID.
+        pub async fn sign(
+            &self,
+            signer: &impl Signer,
+            contract_addr: Address,
+            chain_id: u64,
+        ) -> Result<PrimitiveSignature> {
+            let domain = eip712_domain! {
+                name: "HitPoints",
+                version: "1",
+                chain_id: chain_id,
+                verifying_contract: contract_addr,
+            };
+            let hash = self.eip712_signing_hash(&domain);
+            Ok(signer.sign_hash(&hash).await?)
+        }
+    }
+}
 
 /// Status of a proof request
 #[derive(Debug, PartialEq)]
@@ -431,6 +498,9 @@ impl Predicate {
 /// The Boundless market module.
 pub mod boundless_market;
 #[cfg(not(target_os = "zkvm"))]
+/// The Hit Points module.
+pub mod hit_points;
+#[cfg(not(target_os = "zkvm"))]
 /// The Set Verifier module.
 pub mod set_verifier;
 
@@ -445,6 +515,10 @@ pub enum TxnErr {
     /// Error from the BoundlessMarket contract.
     #[error("BoundlessMarket Err: {0:?}")]
     BoundlessMarketErr(IBoundlessMarket::IBoundlessMarketErrors),
+
+    /// Error from the HitPoints contract.
+    #[error("HitPoints Err: {0:?}")]
+    HitPointsErr(IHitPoints::IHitPointsErrors),
 
     /// Missing data while decoding the error response from the contract.
     #[error("decoding err, missing data, code: {0} msg: {1}")]
@@ -482,6 +556,9 @@ impl From<ContractErr> for TxnErr {
                 // Trial deocde the error with each possible contract ABI. Right now, there are two.
                 if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data, true) {
                     return Self::BoundlessMarketErr(decoded_error);
+                }
+                if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data, true) {
+                    return Self::HitPointsErr(decoded_error);
                 }
                 match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
                     Ok(decoded_error) => Self::SetVerifierErr(decoded_error),
@@ -531,6 +608,16 @@ impl IBoundlessMarketErrors {
 }
 
 #[cfg(not(target_os = "zkvm"))]
+impl IHitPointsErrors {
+    pub(crate) fn decode_error(err: ContractErr) -> TxnErr {
+        match decode_contract_err(err) {
+            Ok(res) => TxnErr::HitPointsErr(res),
+            Err(decode_err) => decode_err,
+        }
+    }
+}
+
+#[cfg(not(target_os = "zkvm"))]
 /// The EIP-712 domain separator for the Boundless Market contract.
 pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
     EIP721DomainSaltless {
@@ -566,7 +653,9 @@ pub mod test_utils {
     use std::sync::Arc;
 
     use crate::contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService,
+        boundless_market::BoundlessMarketService,
+        hit_points::{default_allowance, HitPointsService},
+        set_verifier::SetVerifierService,
     };
 
     // Bytecode for the contracts is copied from the contract build output by the build script. It
@@ -593,7 +682,7 @@ pub mod test_utils {
     alloy::sol! {
         #![sol(rpc)]
         contract BoundlessMarket {
-            constructor(address verifier, bytes32 assessorId) {}
+            constructor(address verifier, bytes32 assessorId, address stakeTokenContract) {}
             function initialize(address initialOwner, string calldata imageUrl) {}
         }
     }
@@ -603,6 +692,14 @@ pub mod test_utils {
         #![sol(rpc)]
         contract ERC1967Proxy {
             constructor(address implementation, bytes memory data) payable {}
+        }
+    }
+
+    const HIT_POINTS_BYTECODE: &str = include_str!("./artifacts/HitPoints.hex");
+    alloy::sol! {
+        #![sol(rpc)]
+        contract HitPoints {
+            constructor(address initialOwner) payable {}
         }
     }
 
@@ -623,6 +720,7 @@ pub mod test_utils {
     pub struct TestCtx {
         pub verifier_addr: Address,
         pub set_verifier_addr: Address,
+        pub hit_points_addr: Address,
         pub boundless_market_addr: Address,
         pub prover_signer: PrivateKeySigner,
         pub customer_signer: PrivateKeySigner,
@@ -631,6 +729,7 @@ pub mod test_utils {
         pub customer_provider: ProviderWallet,
         pub customer_market: BoundlessMarketService<BoxTransport, ProviderWallet>,
         pub set_verifier: SetVerifierService<BoxTransport, ProviderWallet>,
+        pub hit_points_service: HitPointsService<BoxTransport, ProviderWallet>,
     }
 
     pub async fn deploy_mock_verifier<T, P>(deployer_provider: P) -> Result<Address>
@@ -680,10 +779,34 @@ pub mod test_utils {
         .context("failed to deploy RiscZeroSetVerifier")
     }
 
+    pub async fn deploy_hit_points<T, P>(
+        deployer_signer: &PrivateKeySigner,
+        deployer_provider: P,
+    ) -> Result<Address>
+    where
+        T: Transport + Clone,
+        P: Provider<T, Ethereum> + 'static + Clone,
+    {
+        let deployer_address = deployer_signer.address();
+        alloy::contract::RawCallBuilder::new_raw_deploy(
+            deployer_provider,
+            [
+                hex::decode(HIT_POINTS_BYTECODE).unwrap(),
+                HitPoints::constructorCall { initialOwner: deployer_address }.abi_encode(),
+            ]
+            .concat()
+            .into(),
+        )
+        .deploy()
+        .await
+        .context("failed to deploy HitPoints contract")
+    }
+
     pub async fn deploy_boundless_market<T, P>(
         deployer_signer: &PrivateKeySigner,
         deployer_provider: P,
         set_verifier: Address,
+        hit_points: Address,
         assessor_guest_id: Digest,
         allowed_prover: Option<Address>,
     ) -> Result<Address>
@@ -700,6 +823,7 @@ pub mod test_utils {
                 BoundlessMarket::constructorCall {
                     verifier: set_verifier,
                     assessorId: <[u8; 32]>::from(assessor_guest_id).into(),
+                    stakeTokenContract: hit_points,
                 }
                 .abi_encode(),
             ]
@@ -732,14 +856,17 @@ pub mod test_utils {
         .await
         .context("failed to deploy BoundlessMarket proxy")?;
 
-        if let Some(prover) = allowed_prover {
-            BoundlessMarketService::new(
-                proxy,
+        if hit_points != Address::ZERO {
+            let hit_points_service = HitPointsService::new(
+                hit_points,
                 deployer_provider.clone(),
                 deployer_signer.address(),
-            )
-            .add_prover_to_appnet_allowlist(prover)
-            .await?;
+            );
+            hit_points_service.grant_minter_role(hit_points_service.caller()).await?;
+            hit_points_service.grant_authorized_transfer_role(proxy).await?;
+            if let Some(prover) = allowed_prover {
+                hit_points_service.mint(prover, default_allowance()).await?;
+            }
         }
 
         Ok(proxy)
@@ -750,7 +877,7 @@ pub mod test_utils {
             anvil: &AnvilInstance,
             set_builder_id: Digest,
             assessor_guest_id: Digest,
-        ) -> Result<(Address, Address, Address)> {
+        ) -> Result<(Address, Address, Address, Address)> {
             let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
             let deployer_provider = Arc::new(
                 ProviderBuilder::new()
@@ -766,10 +893,13 @@ pub mod test_utils {
             let set_verifier =
                 deploy_set_verifier(Arc::clone(&deployer_provider), verifier, set_builder_id)
                     .await?;
+            let hit_points =
+                deploy_hit_points(&deployer_signer, Arc::clone(&deployer_provider)).await?;
             let boundless_market = deploy_boundless_market(
                 &deployer_signer,
                 Arc::clone(&deployer_provider),
                 set_verifier,
+                hit_points,
                 assessor_guest_id,
                 None,
             )
@@ -779,7 +909,7 @@ pub mod test_utils {
             deployer_provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
             deployer_provider.anvil_set_interval_mining(2).await.unwrap();
 
-            Ok((verifier, set_verifier, boundless_market))
+            Ok((verifier, set_verifier, hit_points, boundless_market))
         }
 
         pub async fn new(
@@ -787,7 +917,7 @@ pub mod test_utils {
             set_builder_id: Digest,
             assessor_guest_id: Digest,
         ) -> Result<Self> {
-            let (verifier_addr, set_verifier_addr, boundless_market_addr) =
+            let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
                 TestCtx::deploy_contracts(anvil, set_builder_id, assessor_guest_id).await.unwrap();
 
             let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
@@ -831,19 +961,18 @@ pub mod test_utils {
                 verifier_signer.address(),
             );
 
-            // Add the prover to the allowlist for lockin. Note that verifier_signer is the owner
-            // of the contracts. This code will be removed after the appnet phase is over.
-            BoundlessMarketService::new(
-                boundless_market_addr,
+            let hit_points_service = HitPointsService::new(
+                hit_points_addr,
                 verifier_provider.clone(),
                 verifier_signer.address(),
-            )
-            .add_prover_to_appnet_allowlist(prover_signer.address())
-            .await?;
+            );
+
+            hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
 
             Ok(TestCtx {
                 verifier_addr,
                 set_verifier_addr,
+                hit_points_addr,
                 boundless_market_addr,
                 prover_signer,
                 customer_signer,
@@ -852,6 +981,7 @@ pub mod test_utils {
                 customer_provider,
                 customer_market,
                 set_verifier,
+                hit_points_service,
             })
         }
     }

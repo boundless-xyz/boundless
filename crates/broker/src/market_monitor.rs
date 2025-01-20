@@ -302,6 +302,7 @@ mod tests {
             &signer,
             provider.clone(),
             Address::ZERO,
+            Address::ZERO,
             Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )

@@ -317,7 +317,10 @@ mod tests {
         primitives::{B256, U256},
     };
     use boundless_market::{
-        contracts::{test_utils::TestCtx, Input, Offer, Predicate, ProofRequest, Requirements},
+        contracts::{
+            hit_points::default_allowance, test_utils::TestCtx, Input, Offer, Predicate,
+            ProofRequest, Requirements,
+        },
         order_stream_client::Client,
     };
     use futures_util::StreamExt;
@@ -360,7 +363,10 @@ mod tests {
                 .await
                 .unwrap();
 
-        ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
+        ctx.prover_market
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .await
+            .unwrap();
 
         let config = Config {
             rpc_url,
