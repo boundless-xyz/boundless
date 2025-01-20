@@ -431,50 +431,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-    function testStakeDeposit() public {
-        // Mint some tokens
-        vm.prank(OWNER_WALLET.addr);
-        stakeToken.mint(address(testProver), 1);
-
-        // Approve the market to spend the testProver's stakeToken
-        vm.prank(address(testProver));
-        ERC20(address(stakeToken)).approve(address(boundlessMarket), 1);
-
-        // Deposit stake into the market
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
-        vm.prank(address(testProver));
-        boundlessMarket.depositStake(1);
-        testProver.expectStakeBalanceChange(1);
-    }
-
-    function testStakeDepositWithPermit() public {
-        // Mint some tokens
-        vm.prank(OWNER_WALLET.addr);
-        stakeToken.mint(address(testProver), 1);
-
-        // Approve the market to spend the testProver's stakeToken
-        uint256 deadline = block.timestamp + 1 hours;
-        (uint8 v, bytes32 r, bytes32 s) = testProver.signPermit(address(boundlessMarket), 1, deadline);
-
-        // Deposit stake into the market
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
-        vm.prank(address(testProver));
-        boundlessMarket.depositStakeWithPermit(1, deadline, v, r, s);
-        testProver.expectStakeBalanceChange(1);
-    }
-
-    function testStakeWithdraw() public {
-        // Withdraw stake from the market
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.StakeWithdrawal(address(testProver), 1);
-        vm.prank(address(testProver));
-        boundlessMarket.withdrawStake(1);
-        testProver.expectStakeBalanceChange(-1);
-        assertEq(stakeToken.balanceOf(address(testProver)), 1, "TestProver should have 1 hitPoint after withdrawing");
-    }
-    
     function testWithdrawals() public {
         // Deposit funds into the market
         vm.deal(address(testProver), 3 ether);
@@ -498,6 +454,92 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(testProver)));
         vm.prank(address(testProver));
         boundlessMarket.withdraw(DEFAULT_BALANCE + 1);
+    }
+
+    function testStakeDeposit() public {
+        // Mint some tokens
+        vm.prank(OWNER_WALLET.addr);
+        stakeToken.mint(address(testProver), 2);
+
+        // Approve the market to spend the testProver's stakeToken
+        vm.prank(address(testProver));
+        ERC20(address(stakeToken)).approve(address(boundlessMarket), 2);
+        vm.snapshotGasLastCall("ERC20 approve: required for depositStake");
+
+        // Deposit stake into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.depositStake(1);
+        vm.snapshotGasLastCall("depositStake: 1 HP (tops up market account)");
+        testProver.expectStakeBalanceChange(1);
+
+        // Deposit stake into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.depositStake(1);
+        vm.snapshotGasLastCall("depositStake: full (drains testProver account)");
+        testProver.expectStakeBalanceChange(2);
+    }
+
+    function testStakeDepositWithPermit() public {
+        // Mint some tokens
+        vm.prank(OWNER_WALLET.addr);
+        stakeToken.mint(address(testProver), 2);
+
+        // Approve the market to spend the testProver's stakeToken
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = testProver.signPermit(address(boundlessMarket), 1, deadline);
+
+        // Deposit stake into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.depositStakeWithPermit(1, deadline, v, r, s);
+        vm.snapshotGasLastCall("depositStakeWithPermit: 1 HP (tops up market account)");
+        testProver.expectStakeBalanceChange(1);
+
+        // Approve the market to spend the testProver's stakeToken
+        (v, r, s) = testProver.signPermit(address(boundlessMarket), 1, deadline);
+
+        // Deposit stake into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeDeposit(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.depositStakeWithPermit(1, deadline, v, r, s);
+        vm.snapshotGasLastCall("depositStakeWithPermit: full (drains testProver account)");
+        testProver.expectStakeBalanceChange(2);
+    }
+
+    function testStakeWithdraw() public {
+        // Withdraw stake from the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeWithdrawal(address(testProver), 1);
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawStake(1);
+        vm.snapshotGasLastCall("withdrawStake: 1 HP balance");
+        testProver.expectStakeBalanceChange(-1);
+        assertEq(stakeToken.balanceOf(address(testProver)), 1, "TestProver should have 1 hitPoint after withdrawing");
+
+        // Withdraw full stake from the market
+        uint256 remainingBalance = boundlessMarket.balanceOfStake(address(testProver));
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeWithdrawal(address(testProver), remainingBalance);
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawStake(remainingBalance);
+        vm.snapshotGasLastCall("withdrawStake: full balance");
+        testProver.expectStakeBalanceChange(-int256(DEFAULT_BALANCE));
+        assertEq(
+            stakeToken.balanceOf(address(testProver)),
+            DEFAULT_BALANCE,
+            "TestProver should have DEFAULT_BALANCE hitPoint after withdrawing"
+        );
+
+        // Attempt to withdraw extra funds from the market.
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(testProver)));
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawStake(1);
     }
 
     function testSubmitRequest() public {
