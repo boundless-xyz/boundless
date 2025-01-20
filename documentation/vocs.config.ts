@@ -73,22 +73,26 @@ const SIDEBAR_CONFIG = [
             link: "/prove/quick-start",
           },
           {
-            text: "Bento",
+            text: "Bento Technical Specification", 
             link: "/prove/bento",
           },
           {
-            text: "Broker",
+            text: "Broker Operation & Configuration",
             link: "/prove/broker",
+          },
+          {
+            text: "Monitoring",
+            link: "/prove/monitoring",
           },
         ]
       },
       {
-        text: "Testing & Monitoring",
-        link: "/prove/testing-monitoring",
-      },
-      {
         text: "Performance Optimization",
         link: "/prove/performance-optimization",
+      },
+      {
+        text: "Monitoring",
+        link: "/prove/monitoring",
       },
     ],
   },

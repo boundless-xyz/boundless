@@ -6,16 +6,16 @@ At the core of the Boundless proving software is *Bento*, which fundamentally bu
 
 *Bento* is a highly configurable proving cluster for Boundless provers and features:
 
-- [multi GPU support]().
+- [multi GPU support](/prove/performance-optimization#multiple-agents-and-gpus).
 - multi machine support.
 - support for proofs of any size.
 - safe cache/storage for all proof data.
 - a robust retry system.
 - an API for proof management.
 
-## [Bento](/prove/bento)
+## What is Bento?
 
-Bento is a semi multi-tenant proving cluster for the [RISC0 zkVM](https://dev.risczero.com/api/zkvm/). Concretely, Bento is a Docker compose stack which contains all the services needed to run a Bento cluster.
+[Bento](/prove/bento) is a semi multi-tenant proving cluster for the [RISC0 zkVM](https://dev.risczero.com/api/zkvm/). Concretely, Bento is a Docker compose stack which contains all the services needed to run a Bento cluster.
 
 <a href="/bento.png" class="lightgallery">
   <img src="/bento.png" alt="Boundless Protocol" />
@@ -23,20 +23,19 @@ Bento is a semi multi-tenant proving cluster for the [RISC0 zkVM](https://dev.ri
 
 The [Prover Quick Start](/prove/quick-start) has information about getting started with Bento, a recommended initial configuration and how to run basic sample proof workloads. For a deeper dive into Bento's technical design, components and configuration, please see [Bento](/prove/bento). 
 
-## [Broker](/prove/broker)
+## What is the Broker?
 
 :::warning
 For all provers, a balance is *necessary* to be able to cover stake upon proof request lock-in, otherwise the prover will not be able to participate in the market. The Broker service provides a straightforward way to [deposit funds](/prove/broker#deposit-to-the-market) to the market.
 :::
 
-The Broker is an important service that runs within the Bento docker compose stack. It is responsible for market interactions (see steps **2b.** and **4a.** in *Figure 1*) including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain. Broker configuration is primarily managed through the [`broker.toml`]() file in the Boundless directory. 
+The [Broker](/prove/broker) is an important service that runs within the Bento docker compose stack. It is responsible for market interactions (see steps **2b.** and **4a.** in *Figure 1*) including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain. Broker configuration is primarily managed through the [`broker.toml`](/prove/broker#settings) file in the Boundless directory. 
 
 <a href="/proof-lifecycle.png" class="lightgallery">
   <img src="/proof-lifecycle.png" alt="Proof Lifecycle" />
 </a>
 
 *Figure 1: [Proof Lifecycle](/introduction/proof-lifecycle) of a Boundless Proof.*
-
 
 To get started with the Broker, please see [Broker](/prove/broker). 
 
