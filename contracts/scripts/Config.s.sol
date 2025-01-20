@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -14,6 +14,7 @@ struct DeploymentConfig {
     address verifier;
     address setVerifier;
     address boundlessMarket;
+    address stakeToken;
     bytes32 assessorImageId;
     string assessorGuestUrl;
 }
@@ -69,6 +70,7 @@ library ConfigParser {
         deploymentConfig.verifier = stdToml.readAddress(config, string.concat(chain, ".verifier"));
         deploymentConfig.setVerifier = stdToml.readAddress(config, string.concat(chain, ".set-verifier"));
         deploymentConfig.boundlessMarket = stdToml.readAddress(config, string.concat(chain, ".boundless-market"));
+        deploymentConfig.stakeToken = stdToml.readAddress(config, string.concat(chain, ".stake-token"));
         deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));
         deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
 

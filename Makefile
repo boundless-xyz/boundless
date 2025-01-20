@@ -12,7 +12,7 @@ RUST_LOG = info,broker=debug,boundless_market=debug
 DEPLOYER_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ADMIN_ADDRESS = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-DEPOSIT_AMOUNT = 10
+DEPOSIT_AMOUNT = 100
 
 LOGS_DIR = logs
 PID_FILE = $(LOGS_DIR)/devnet.pid
@@ -45,18 +45,20 @@ devnet-up: check-deps
 	{ \
 		SET_VERIFIER_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
 		BOUNDLESS_MARKET_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json); \
+		HIT_POINTS_ADDRESS=$$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1); \
 		echo "Contract deployed at addresses:"; \
 		echo "SET_VERIFIER_ADDRESS=$$SET_VERIFIER_ADDRESS"; \
 		echo "BOUNDLESS_MARKET_ADDRESS=$$BOUNDLESS_MARKET_ADDRESS"; \
+		echo "HIT_POINTS_ADDRESS=$$HIT_POINTS_ADDRESS"; \
 		echo "Updating .env file..."; \
 		sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$$SET_VERIFIER_ADDRESS/" .env && \
 		sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$$BOUNDLESS_MARKET_ADDRESS/" .env && \
 		rm .env.bak; \
 		echo ".env file updated successfully."; \
-		echo "Registering prover address to allowed list."; \
+		echo "Minting HP for prover address."; \
         cast send --private-key $(DEPLOYER_PRIVATE_KEY) \
             --rpc-url http://localhost:$(ANVIL_PORT) \
-            $$BOUNDLESS_MARKET_ADDRESS "addProverToAppnetAllowlist(address)" $(ADMIN_ADDRESS); \
+            $$HIT_POINTS_ADDRESS "mint(address, uint256)" $(ADMIN_ADDRESS) $(DEPOSIT_AMOUNT); \
 		echo "Starting Broker service..."; \
 		RISC0_DEV_MODE=$(RISC0_DEV_MODE) RUST_LOG=$(RUST_LOG) ./target/debug/broker \
 			--private-key $(PRIVATE_KEY) \

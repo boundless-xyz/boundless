@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -225,11 +225,11 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::Address,
+        primitives::{Address, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
-    use boundless_market::contracts::test_utils::TestCtx;
+    use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
     use broker::test_utils::broker_from_test_ctx;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
@@ -269,6 +269,10 @@ mod tests {
             TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
                 .await
                 .unwrap();
+        ctx.prover_market
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .await
+            .unwrap();
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
 
         // Start a broker

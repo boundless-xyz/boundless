@@ -121,6 +121,22 @@ Then, in the instructions below, pass the `--fireblocks` (`-f`) flag to the `man
 
 The Boundless market is deployed and upgraded using the **UUPS (Universal Upgradeable Proxy Standard)** proxy pattern.
 
+### Deploy the HitPoints contract
+
+1. Dry run deployment of the HitPoints contract:
+
+   ```zsh
+   BOUNDLESS_MARKET_OWNER=${ADMIN_ADDRESS:?} \
+   bash contracts/scripts/manage DeployHitPoints
+   ```
+
+2. Send deployment transactions for the HitPoints contract by running the command again with `--broadcast`.
+
+   > [!NOTE]
+   > When using Fireblocks, sending a transaction to a particular address may require allow-listing it.
+
+3. Update the `stake-token` field with the HitPoints address of the newly deployed contract to the `deployment.toml` file.
+
 ### Deploy the market contract
 
 1. Make available for download the `assessor` elf and set its image ID and url in the `deployment.toml` file.
