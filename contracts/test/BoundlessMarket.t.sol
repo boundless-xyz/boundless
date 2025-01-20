@@ -645,6 +645,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Unfreeze the account
         vm.prank(address(testProver));
         boundlessMarket.unfreezeAccount();
+        vm.snapshotGasLastCall("unfreezeAccount");
 
         // Expect the event to be emitted
         vm.expectEmit(true, true, true, true);
@@ -1307,7 +1308,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // NOTE: This should be updated if not all the stake burned.
         client.expectBalanceChange(0 ether);
-        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        // sttake funds are frozen
+        testProver.expectStakeBalanceChange(-int256(DEFAULT_BALANCE));
+        assertEq(
+            stakeToken.balanceOf(address(boundlessMarket)),
+            marketStakeBalance - request.offer.lockinStake,
+            "Market stake balance should decrease"
+        );
 
         // Check that the request is slashed and is not fulfilled
         expectRequestSlashed(request.id);
@@ -1336,11 +1343,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Slash the original prover that locked and didnt deliver
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, request.offer.lockinStake, 0);
+        emit IBoundlessMarket.ProverSlashed(request.id, address(testProver), request.offer.lockinStake);
         boundlessMarket.slash(request.id);
 
         client.expectBalanceChange(0 ether);
-        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        // stake funds are frozen
+        testProver.expectStakeBalanceChange(-int256(DEFAULT_BALANCE));
         testProver2.expectStakeBalanceChange(0 ether);
 
         // We expect the request is both slashed and fulfilled
