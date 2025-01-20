@@ -6,7 +6,6 @@ import { defineConfig } from "vocs";
 const SIDEBAR_CONFIG = [
   {
     text: "✨ Introduction",
-    collapsed: false,
     items: [
       {
         text: "Why Boundless?",
@@ -15,7 +14,7 @@ const SIDEBAR_CONFIG = [
       {
         text: "What is Boundless?",
         link: "/introduction/what-is-boundless",
-        collapsed: false,
+        collapsed: true,
         items: [
           {
             text: "Extensions",
@@ -31,7 +30,6 @@ const SIDEBAR_CONFIG = [
   },
   {
     text: "🏋️ Build",
-    collapsed: false,
     items: [
       {
         text: "Build a Program",
@@ -40,7 +38,7 @@ const SIDEBAR_CONFIG = [
       {
         text: "Request a Proof",
         link: "/build/request-a-proof",
-        collapsed: false,
+        collapsed: true,
         items: [
           {
             text: "Pricing a Request",
@@ -60,7 +58,6 @@ const SIDEBAR_CONFIG = [
   },
   {
     text: "🧪 Prove",
-    collapsed: false,
     items: [
       {
         text: "Requirements",
@@ -69,7 +66,7 @@ const SIDEBAR_CONFIG = [
       {
         text: "Running a Prover",
         link: "/prove/running-a-prover",
-        collapsed: false,
+        collapsed: true,
         items: [
           {
             text: "Quick Start",
@@ -97,7 +94,6 @@ const SIDEBAR_CONFIG = [
   },
   {
     text: "🧠 Advanced & References",
-    collapsed: false,
     items: [
       {
         text: "Deployments",
