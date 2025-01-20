@@ -1,0 +1,20 @@
+{
+  "deposit: first ever deposit": "50634",
+  "deposit: second deposit": "33534",
+  "fulfill: a locked request": "69843",
+  "fulfill: a locked request (locked via prover signature)": "69843",
+  "fulfill: another prover fulfills without payment": "69211",
+  "fulfill: fulfilled by the locked prover for payment (request already fulfilled by another prover)": "65213",
+  "fulfillBatch: a batch of 8": "285028",
+  "lockinRequest: base case": "113138",
+  "lockinRequest: with prover signature": "118460",
+  "priceAndFulfillBatch: a single request": "100070",
+  "priceAndFulfillBatch: a single request that was not locked": "100070",
+  "priceAndFulfillBatch: a single request that was not locked fulfilled by prover not in allow-list": "100070",
+  "slash: base case": "69720",
+  "submitRequest: with maxPrice ether": "49969",
+  "submitRequest: without ether": "43189",
+  "submitRootAndFulfillBatch: a batch of 2 requests": "133975",
+  "withdraw: 1 ether": "40379",
+  "withdraw: full balance": "35591"
+}

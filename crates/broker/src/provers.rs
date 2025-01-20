@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -17,9 +17,22 @@ use risc0_zkvm::{
     compute_image_id, sha::Digestible, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     ReceiptClaim,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-use workflow_common::ExecutorResp;
+
+/// Executor output
+#[derive(Clone, Deserialize, Serialize)]
+pub struct ExecutorResp {
+    /// Total segments output
+    pub segments: u64,
+    /// risc0-zkvm user cycles
+    pub user_cycles: u64,
+    /// risc0-zkvm total cycles
+    pub total_cycles: u64,
+    /// Count of assumptions included
+    pub assumption_count: u64,
+}
 
 // For mock prover:
 use risc0_zkvm::{default_executor, ExecutorEnv};

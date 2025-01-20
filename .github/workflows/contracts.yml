@@ -34,8 +34,10 @@ jobs:
               - 'contracts/src/**'
             foundry:
               - 'foundry.toml'
+            test:
+              - 'contracts/test/**'
 
-  gas-comparison:
+  gas-snapshots-check:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     needs: contracts-changed
     if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' }}
@@ -53,74 +55,11 @@ jobs:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Run gas report on PR branch
-        run: |
-          set -o pipefail
-          forge test -vv --gas-report | grep -iE "\| |gas used" > pr-gas-report.txt
+      - name: print forge version
+        run: forge --version
 
-      - name: Upload PR Gas Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-gas-report
-          path: pr-gas-report.txt
-
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          submodules: recursive
-
-      - name: Run gas report on main branch
-        run: |
-          set -o pipefail
-          forge test -vv --gas-report | grep -iE "\| |gas used" > main-gas-report.txt
-
-      - name: Download PR Gas Report
-        uses: actions/download-artifact@v4
-        with:
-          name: pr-gas-report
-          path: .
-        
-      - name: Compare Gas Reports
-        run: |
-          echo "# Gas Cost Comparison for \`${GITHUB_HEAD_REF}\` vs \`main\`" > gas-comparison.md
-          echo "" >> gas-comparison.md
-          echo '```diff' >> gas-comparison.md
-
-          # Use diff to capture changes in gas costs
-          diff -u main-gas-report.txt pr-gas-report.txt >> gas-comparison.md || true
-
-          echo '```' >> gas-comparison.md
-          echo "" >> gas-comparison.md
-          cat gas-comparison.md
-
-      - name: Delete previous gas comparison comments
-        run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          
-          # Get all comments on the PR
-          COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/comments")
-          
-          # Find and delete comments that contain our gas comparison header
-          echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("# Gas Cost Comparison")) | .id' | while read -r comment_id; do
-            if [ ! -z "$comment_id" ]; then
-              curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                -X DELETE \
-                "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-            fi
-          done
-
-      - name: Post Comment on Pull Request
-        run: |
-          COMMENT_BODY=$(cat gas-comparison.md)
-          COMMENT_PAYLOAD=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          curl -s -H "Authorization: token $GITHUB_TOKEN" \
-               -H "Content-Type: application/json" \
-               -X POST \
-               -d "$COMMENT_PAYLOAD" \
-               "https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/comments"
+      - name: Ensure gas snapshots have been updated. Reminder to run `forge test --isolate`.
+        run: FORGE_SNAPSHOT_CHECK=true forge test --isolate
 
   upgradability:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
