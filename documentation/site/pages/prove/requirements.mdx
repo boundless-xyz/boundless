@@ -1,0 +1,32 @@
+# Requirements
+
+## Hardware
+
+The minimimum specifications for a Boundless prover on a single machine with a single GPU with as low as 4GB of VRAM, but this would only be recommended for testing purposes. 
+Below is a minimum configuration for reasonable proving performance:
+
+* CPU - 16 threads, reasonable single core boost performance (>3Ghz)
+* Memory - 32 GB
+* Disk - 200 GB of solid state storage, NVME / SSD preferred
+* GPU - NVIDIA RTX 3080 or T4, minimum VRAM 8GB
+
+Ultimately, the more GPU power you have, the better the proving performance. The better the proving performance, the more jobs you can succesfully fulfill in the market. Therefore, the proving software for Boundless natively supports multi GPU proving; please see multi GPU [configuration]() and [performance benchmarking]() for more details.
+
+## Operating System
+
+At this time, Ubuntu is the only supported operating system. Other operating systems *could* work, but driver support (such as Nvidia drivers), compiling dependencies, and general testing will be the responsbility of the prover operator.
+
+## Software
+
+At the core of the Boundless proving software is [Bento](). To run Bento, the following dependencies are required:
+
+* [Docker Compose](https://docs.docker.com/compose/)
+* [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) 
+
+**To get started with Bento, please follow the [prover quick start]().**
+
+## Stake
+
+The Boundless Market works via an escrow system. When provers win a bid on a [proof request](/introduction/proof-lifecycle#3-provers-bid-on-the-request), they require funds (ETH/SepETH) to cover staking during lock-in. The recommended way to carry out market interactions, such as depositing funds, is to use the Broker, an optional service which runs within the [Bento]() docker compose stack. 
+
+**To get started with the Broker and deposit funds to the market contract, please see [Broker]().**

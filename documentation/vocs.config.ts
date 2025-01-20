@@ -59,6 +59,43 @@ const SIDEBAR_CONFIG = [
     ],
   },
   {
+    text: "🧪 Prove",
+    collapsed: false,
+    items: [
+      {
+        text: "Requirements",
+        link: "/prove/requirements",
+      },
+      {
+        text: "Running a Prover",
+        link: "/prove/running-a-prover",
+        collapsed: false,
+        items: [
+          {
+            text: "Quick Start",
+            link: "/prove/quick-start",
+          },
+          {
+            text: "Bento",
+            link: "/prove/bento",
+          },
+          {
+            text: "Broker",
+            link: "/prove/broker",
+          },
+        ]
+      },
+      {
+        text: "Testing & Monitoring",
+        link: "/prove/testing-monitoring",
+      },
+      {
+        text: "Performance Optimization",
+        link: "/prove/performance-optimization",
+      },
+    ],
+  },
+  {
     text: "🧠 Advanced & References",
     collapsed: false,
     items: [
