@@ -1,6 +1,6 @@
 # Running a Prover
 
-At the core of the Boundless proving software is *Bento*, which fundamentally builds upon the [RISC Zero zkVM](https://dev.risczero.com/api/zkvm/). The Boundless team shipped *Bento* after 2+ years of operating a highly parallelized and highly performant remote proving cluster, known as [Bonsai](https://dev.risczero.com/api/generating-proofs/remote-proving). Bento encapsulates this practical experience and learnings into a stack built for the Boundless market. Bento scales from single GPU machines to large clusters which makes it ideal for provers in the Boundless protocol.
+At the core of the Boundless proving software is *Bento*, which fundamentally builds upon the [RISC Zero zkVM](https://dev.risczero.com/api/zkvm/). The Boundless team shipped *Bento* after 2+ years of operating a highly parallelized and highly performant remote proving cluster, known as [Bonsai](https://dev.risczero.com/api/generating-proofs/remote-proving). Bento is intended to be a drop in replacement for Bonsai, including being partially Bonsai API compatible [^1]. Bento encapsulates this practical experience and learnings into a stack built for the Boundless market. Bento scales from single GPU machines to large clusters which makes it ideal for provers in the Boundless protocol.
 
 ### Why Bento?
 
@@ -41,12 +41,6 @@ To get started with the Broker, please see [Broker](/prove/broker).
 
 ## How are Bento and the Broker related?
 
-:::note
-A wise man once said "Bento can thrive without a broker, but a broker can not survive without Bento".
-
-Parker, 2k24
-:::
-
 Bento is responsible for:
 
 * the API for managing proof requests.
@@ -57,9 +51,14 @@ Bento is responsible for:
 
 Bento is **not** responsible for interaction with the Boundless market.
 
-The recommended service for market interaction for provers is the [Broker](/prove/broker) service. The Broker is responsible for both interacting with the Boundless Market i.e. bidding and locking-in proof jobs *and* sending job requests to the Bento proving cluster.
+The recommended service for market interaction for provers is the [Broker](/prove/broker) service. The Broker is responsible for both interacting with the Boundless Market i.e. bidding and locking-in proof jobs *and* sending job requests to the Bento proving cluster. 
 
 <a href="/bento_broker.png" class="lightgallery">
   <img src="/bento_broker.png" alt="Boundless Protocol" />
 </a>
 
+:::note
+As Bento is intended to be a drop in replacement for Bonsai, the Broker can run by sending requests either to Bento *or* to Bonsai. 
+:::
+
+[^1]: Please refer to the Bonsai API docs: https://api.bonsai.xyz/swagger-ui/ 

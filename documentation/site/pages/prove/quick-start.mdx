@@ -19,6 +19,10 @@ git clone https://github.com/boundless-xyz/boundless
 
 ## Host Setup
 
+:::tip
+This stage can be skipped if you already have docker and docker-nvidia installed.
+:::
+
 Ubuntu is currently the only supported Operating system. Other operating systems _should_ work, but driver support (host Nvidia drivers matching container drivers etc.), compile dependencies, and testing fall to the user to complete.
 
 For a quick set up of Boundless host dependencies on Ubuntu 22.04 LTS, please run:
@@ -41,6 +45,7 @@ Services can be run on other hosts, as long as the IP addresses for things link 
 To build and spin up a Bento cluster locally using Docker:
 
 ```sh
+cd bento/
 docker compose --env-file ./.env-compose up --build
 ```
 
