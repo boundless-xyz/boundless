@@ -100,6 +100,7 @@ jobs:
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
+          RISC0_SKIP_BUILD: 1
         run: cargo clippy --all-targets
 
         # build script for boundless-market copies Solidity build artifacts.
