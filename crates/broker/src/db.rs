@@ -1322,10 +1322,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let batch = Batch {
-            start_time: Utc::now(),
-            ..Default::default()
-        };
+        let batch = Batch { start_time: Utc::now(), ..Default::default() };
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
         let batch = db.get_batch(batch_id).await.unwrap();
