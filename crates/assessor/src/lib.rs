@@ -127,7 +127,7 @@ mod tests {
                     data: prefix.into(),
                 },
             },
-            &"test".to_string(),
+            "test",
             Input { inputType: InputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
@@ -186,7 +186,7 @@ mod tests {
     }
 
     fn echo(input: &str) -> Receipt {
-        let env = ExecutorEnv::builder().write_slice(&input.as_bytes()).build().unwrap();
+        let env = ExecutorEnv::builder().write_slice(input.as_bytes()).build().unwrap();
 
         // TODO: Change this to use SessionInfo::claim or another method.
         // See https://github.com/risc0/risc0/issues/2267.

@@ -148,7 +148,7 @@ A proof request consists of four essential components that specify which program
 # use risc0_zkvm::sha::{Digest, Digestible};
 # fn create_proof_request(
 # ECHO_ID: Digest,
-# image_url: &str,
+# image_url: String,
 # input_url: String,
 # mcycles_count: u64,
 # journal: Vec<u8>) -> Result<ProofRequest> {

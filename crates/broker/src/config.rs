@@ -450,7 +450,7 @@ error = ?"#;
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
             assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
-            assert_eq!(config.batcher.single_txn_fulfill, true);
+            assert!(config.batcher.single_txn_fulfill);
         }
         tracing::debug!("closing...");
     }

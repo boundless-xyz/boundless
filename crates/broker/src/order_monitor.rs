@@ -307,7 +307,7 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            "http://risczero.com/image".into(),
+            "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
@@ -420,7 +420,7 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            "http://risczero.com/image".into(),
+            "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),

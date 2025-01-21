@@ -165,8 +165,7 @@ impl SqliteDb {
     }
 
     async fn new_batch(&self) -> Result<usize, DbError> {
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
+        let batch = Batch { start_time: Utc::now(), ..Default::default() };
 
         let res: i64 = sqlx::query_scalar("INSERT INTO batches (data) VALUES ($1) RETURNING id")
             .bind(sqlx::types::Json(&batch))
@@ -459,9 +458,7 @@ impl BrokerDb for SqliteDb {
 
         let block_str: String = row.try_get("block")?;
 
-        Ok(Some(
-            u64::from_str_radix(&block_str, 10).map_err(|_err| DbError::BadBlockNumb(block_str))?,
-        ))
+        Ok(Some(block_str.parse().map_err(|_err| DbError::BadBlockNumb(block_str))?))
     }
 
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError> {
@@ -832,7 +829,7 @@ impl BrokerDb for SqliteDb {
                 id = $4"#,
         )
         .bind(format!("0x{order_id:x}"))
-        .bind(new_deadline as i64)
+        .bind(new_deadline)
         .bind(format!("0x{new_fees:x}"))
         .bind(batch_id as i64)
         .execute(&mut *txn)
@@ -1325,8 +1322,10 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
+        let batch = Batch {
+            start_time: Utc::now(),
+            ..Default::default()
+        };
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
         let batch = db.get_batch(batch_id).await.unwrap();
@@ -1356,9 +1355,8 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
-        batch.status = BatchStatus::Complete;
+        let batch =
+            Batch { start_time: Utc::now(), status: BatchStatus::Complete, ..Default::default() };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
@@ -1410,10 +1408,12 @@ mod tests {
 
         let base_fees = U256::from(10);
         let new_fees = U256::from(5);
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
-        batch.block_deadline = Some(100);
-        batch.fees = base_fees;
+        let batch = Batch {
+            start_time: Utc::now(),
+            block_deadline: Some(100),
+            fees: base_fees,
+            ..Default::default()
+        };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
         db.update_batch(batch_id, order_id, expire_block, new_fees).await.unwrap();
@@ -1428,8 +1428,7 @@ mod tests {
     async fn set_batch_peaks(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
+        let batch = Batch { start_time: Utc::now(), ..Default::default() };
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
         let proof_id = "test";
@@ -1448,8 +1447,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
+        let batch = Batch { start_time: Utc::now(), ..Default::default() };
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
         let proof_id = "test";
@@ -1467,8 +1465,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
+        let batch = Batch { start_time: Utc::now(), ..Default::default() };
         db.add_batch(batch_id, batch.clone()).await.unwrap();
         assert_eq!(db.get_batch_peak_count(batch_id).await.unwrap(), 0);
 
