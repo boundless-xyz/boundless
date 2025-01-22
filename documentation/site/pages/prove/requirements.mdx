@@ -2,15 +2,16 @@
 
 ## Hardware
 
-The minimum specifications for a Boundless prover on a single machine with a single GPU with as low as 4GB of VRAM, but this would only be recommended for testing purposes. 
-Below is a minimum configuration for reasonable proving performance:
+A minimum configuration for reasonable proving performance:
 
 * CPU - 16 threads, reasonable single core boost performance (>3Ghz)
 * Memory - 32 GB
 * Disk - 200 GB of solid state storage, NVME / SSD preferred
 * GPU - NVIDIA RTX 3080 or T4, minimum VRAM 8GB
 
-Ultimately, the more GPU power you have, the better the proving performance. The better the proving performance, the more jobs you can successfully fulfill in the market. Therefore, the proving software for Boundless natively supports multi GPU proving; please see multi GPU [configuration](/prove/performance-optimization#multiple-agents-and-gpus) and [performance optimization](/prove/performance-optimization) for more details.
+For testing purposes **only**, the minimum specifications of the GPU VRAM is 4GB.
+
+Ultimately, the more GPU power you have, the better the proving performance. The better the proving performance, the more jobs you can successfully fulfill in the market. Boundless' proving stack supports multi GPU proving as a first class citizen; please see multi GPU [configuration](/prove/performance-optimization#multiple-agents-and-gpus) and [performance optimization](/prove/performance-optimization#multiple-agents-and-gpus) for more details.
 
 ## Operating System
 
@@ -19,7 +20,7 @@ At this time, Ubuntu is the only supported operating system. Other operating sys
 ## Software
 
 :::tip
-To get started with Bento, please follow the [prover quick start](/prove/quick-start).
+To get started with the Boundless proving stack, please follow the prover [quick start](/prove/quick-start).
 :::
 
 At the core of the Boundless proving software is [Bento](/prove/proving-stack#what-is-bento). To run Bento, the following dependencies are required:
@@ -30,10 +31,10 @@ At the core of the Boundless proving software is [Bento](/prove/proving-stack#wh
 ## Stake
 
 :::tip
-To get started with the Broker and deposit funds to the market contract, please see [Broker](/prove/broker).
+To get started with the Broker and deposit funds to the market contract, please see [Broker](/prove/broker#broker-configuration).
 :::
 
-The Boundless Market works via an escrow system. When provers win a bid on a [proof request](/introduction/proof-lifecycle#3-provers-bid-on-the-request), they require funds (ETH/SepETH) to cover staking during lock-in. The recommended way to carry out market interactions, such as depositing funds, is to use the [Broker](/prove/broker), an optional service which runs within the Bento docker compose stack. 
+The Boundless Market works via an escrow system. When provers win a bid on a [proof request](/introduction/proof-lifecycle#3-provers-bid-on-the-request), they require funds (ETH/SepETH) to cover staking during lock-in. The recommended way to carry out market interactions, such as depositing funds, is to use the [Broker](/prove/broker#broker-configuration), an optional service which runs within the Bento docker compose stack. 
 
 
 

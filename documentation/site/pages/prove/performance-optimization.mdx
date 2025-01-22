@@ -130,7 +130,7 @@ In the final table, the effective Hz is the primary metric for consideration. Th
 In the `job_status.sh` output above, the Hz is only accurate if the job has completed with no error conditions. Failed and in-progress jobs will have an inflated Hz value.
 :::
 
-## Finding a Maximum `SEGMENT_SIZE` for GPU VRAM
+## Finding the Maximum `SEGMENT_SIZE` for GPU VRAM
 
 We will start by optimizing the GPU workers. This is because the bulk of the RISC Zero workload is executed by the `gpu-agent` and GPU resources are most often the performance bottleneck.
 
