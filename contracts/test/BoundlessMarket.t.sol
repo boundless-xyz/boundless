@@ -1287,13 +1287,21 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfillRepeatIndex(LockinMethod.None);
     }
 
-    function testFreezeAccount() public {
+    function _testFreezeAccount(bool withSig) public {
         testSlash();
 
         bool frozen = boundlessMarket.accountIsFrozen(address(testProver));
         assertTrue(frozen, "Prover account should be frozen");
 
-        _testLockinAfterFreeze(false);
+        _testLockinAfterFreeze(withSig);
+    }
+
+    function testFreezeAccount() public {
+        _testFreezeAccount(false);
+    }
+
+    function testFreezeAccountWithSig() public {
+        _testFreezeAccount(true);
     }
 
     function testSlash() public returns (Client, ProofRequest memory) {
@@ -1302,7 +1310,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Slash the request
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, address(testProver), request.offer.lockinStake);
+        emit IBoundlessMarket.ProverSlashed(request.id, address(testProver), request.offer.lockinStake, 0);
         boundlessMarket.slash(request.id);
         vm.snapshotGasLastCall("slash: base case");
 
@@ -1342,7 +1350,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Slash the original prover that locked and didnt deliver
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, address(testProver), request.offer.lockinStake);
+        emit IBoundlessMarket.ProverSlashed(request.id, address(testProver), request.offer.lockinStake, 0);
         boundlessMarket.slash(request.id);
 
         client.expectBalanceChange(0 ether);

@@ -31,14 +31,14 @@ struct Account {
     uint96 balance;
     /// @dev Balance of HP tokens.
     uint96 stakeBalance;
+    /// @dev flags is a bitfield for account-wide flags. Currently only the least significant
+    /// bit is used to indicate that the account is frozen.
+    uint8 flags;
     /// @notice 28 pairs of 2 bits representing the status of a request. One bit is for lock-in and
     /// the other is for fulfillment.
     /// @dev Request state flags are packed into a uint64 to make balance and flags for the first
     /// 28 requests fit in one slot.
     uint56 requestFlagsInitial;
-    /// @dev flags is a bitfield for account-wide flags. Currently only the least significant
-    /// bit is used to indicate that the account is frozen.
-    uint8 flags;
     /// @dev Flags for the remaining requests are in a storage array. Each uint256 holds the packed
     /// flags for 128 requests, indexed in a linear fashion. Note that this struct cannot be
     /// instantiated in memory.
@@ -723,7 +723,7 @@ contract BoundlessMarket is
         // Transfer tokens from market to address zero.
         ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
 
-        emit ProverSlashed(requestId, lock.prover, uint256(lock.stake));
+        emit ProverSlashed(requestId, lock.prover, burnValue, transferValue);
     }
 
     function imageInfo() external view returns (bytes32, string memory) {

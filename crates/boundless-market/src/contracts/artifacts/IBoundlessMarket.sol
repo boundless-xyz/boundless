@@ -140,7 +140,9 @@ interface IBoundlessMarket {
     event ProofDelivered(uint256 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is slashed for failing to fulfill a request by the deadline.
     /// Part of the stake is burned, and part is transferred to the client as compensation.
-    event ProverSlashed(uint256 indexed requestId, address indexed prover, uint256 stakeBurned);
+    event ProverSlashed(
+        uint256 indexed requestId, address indexed prover, uint256 stakeBurned, uint256 stakeTransferred
+    );
     /// Event when a deposit is made to the market.
     event Deposit(address indexed account, uint256 value);
     /// Event when a withdrawal is made from the market.

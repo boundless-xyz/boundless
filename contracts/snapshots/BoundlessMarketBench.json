@@ -1,10 +1,10 @@
 {
-  "fulfillBatch: batch of 001": "73641",
-  "fulfillBatch: batch of 002": "104082",
-  "fulfillBatch: batch of 004": "166828",
-  "fulfillBatch: batch of 008": "287180",
-  "fulfillBatch: batch of 016": "532132",
-  "fulfillBatch: batch of 032": "1038457",
-  "fulfillBatch: batch of 064": "2086100",
-  "fulfillBatch: batch of 128": "4273176"
+  "fulfillBatch: batch of 001": "73626",
+  "fulfillBatch: batch of 002": "104052",
+  "fulfillBatch: batch of 004": "166768",
+  "fulfillBatch: batch of 008": "287084",
+  "fulfillBatch: batch of 016": "531940",
+  "fulfillBatch: batch of 032": "1038073",
+  "fulfillBatch: batch of 064": "2085332",
+  "fulfillBatch: batch of 128": "4271640"
 }
