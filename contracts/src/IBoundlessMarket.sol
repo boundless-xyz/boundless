@@ -287,8 +287,16 @@ interface IBoundlessMarket {
         address prover
     ) external;
 
-    /// @notice Combined function to submit a new merkle root to the set-verifier and call fulfillBatch.
+    /// @notice Submit a new root to a set-verifier.
+    /// @dev Consider using `submitRootAndFulfillBatch` to submit the root and fulfill in one transaction.
+    /// @param setVerifier The address of the set-verifier contract.
+    /// @param root The new merkle root.
+    /// @param seal The seal of the new merkle root.
+    function submitRoot(address setVerifier, bytes32 root, bytes calldata seal) external;
+
+    /// @notice Combined function to submit a new root to a set-verifier and call fulfillBatch.
     /// @dev Useful to reduce the transaction count for fulfillments.
+    /// @param setVerifier The address of the set-verifier contract.
     /// @param root The new merkle root.
     /// @param seal The seal of the new merkle root.
     /// @param fills The array of fulfillment information.
@@ -296,6 +304,7 @@ interface IBoundlessMarket {
     /// request's requirements are met.
     /// @param prover The address of the prover that produced the fulfillment.
     function submitRootAndFulfillBatch(
+        address setVerifier,
         bytes32 root,
         bytes calldata seal,
         Fulfillment[] calldata fills,

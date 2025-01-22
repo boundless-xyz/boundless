@@ -588,6 +588,7 @@ where
     /// Useful to reduce the transaction count for fulfillments
     pub async fn submit_merkle_and_fulfill(
         &self,
+        verifier_address: Address,
         root: B256,
         seal: Bytes,
         fulfillments: Vec<Fulfillment>,
@@ -597,7 +598,14 @@ where
         tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_seal:x})");
         let call = self
             .instance
-            .submitRootAndFulfillBatch(root, seal, fulfillments, assessor_seal, prover_address)
+            .submitRootAndFulfillBatch(
+                verifier_address,
+                root,
+                seal,
+                fulfillments,
+                assessor_seal,
+                prover_address,
+            )
             .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
@@ -1535,6 +1543,7 @@ mod tests {
         // publish the committed root + fulfillments
         ctx.prover_market
             .submit_merkle_and_fulfill(
+                ctx.set_verifier_addr,
                 root,
                 set_verifier_seal,
                 fulfillments.clone(),
