@@ -115,9 +115,6 @@ where
             return Ok(());
         }
 
-        let expire_block: u64 =
-            expire_block.try_into().context("Failed to cast U256 block to u64")?;
-
         // Check if the stake is sane and if we can afford it
         let max_stake = {
             let config = self.config.lock_all().context("Failed to read config")?;
@@ -316,9 +313,7 @@ where
             let target_block: u64 = self
                 .market
                 .block_at_price(&order.request.offer, target_min_price)
-                .context("Failed to get target price block")?
-                .try_into()
-                .context("Block number unable to cast to u64")?;
+                .context("Failed to get target price block")?;
             tracing::info!(
                 "Selecting order {order_id:x} at price {} - at block {}",
                 format_ether(target_min_price),

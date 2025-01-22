@@ -1177,7 +1177,7 @@ mod tests {
     use url::Url;
 
     fn ether(value: &str) -> U256 {
-        parse_ether(value).unwrap().try_into().unwrap()
+        parse_ether(value).unwrap()
     }
 
     fn test_offer() -> Offer {
@@ -1237,7 +1237,7 @@ mod tests {
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
         let assessor_claim_digest = assesor_receipt_claim.digest();
 
-        let root = merkle_root(&vec![app_claim_digest, assessor_claim_digest]);
+        let root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
         let set_builder_journal = GuestOutput::new(Digest::from(SET_BUILDER_ID), root);
         let set_builder_receipt_claim =
             ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.abi_encode());
