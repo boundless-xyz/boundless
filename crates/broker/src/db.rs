@@ -24,6 +24,9 @@ pub enum DbError {
     #[error("Batch key {0} not found in DB")]
     BatchNotFound(usize),
 
+    #[error("Batch key {0} has no aggreagtion state")]
+    BatchAggregationStateIsNone(usize),
+
     #[cfg(test)]
     #[error("Batch insert failed {0}")]
     BatchInsertFailure(usize),
@@ -624,6 +627,11 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn complete_batch(&self, batch_id: usize, g16_proof_id: String) -> Result<(), DbError> {
+        let batch = self.get_batch(batch_id).await?;
+        if batch.aggregation_state.is_none() {
+            return Err(DbError::BatchAggregationStateIsNone(batch_id));
+        }
+
         let res = sqlx::query(
             r#"
             UPDATE batches
@@ -781,7 +789,7 @@ impl BrokerDb for SqliteDb {
                        json_set(data,
                        '$.block_deadline', $1),
                        '$.fees', $2),
-                       '$.aggregation_state', $3)
+                       '$.aggregation_state', json($3))
             WHERE
                 id = $4"#,
         )
@@ -821,7 +829,7 @@ impl BrokerDb for SqliteDb {
                 r#"
                 UPDATE batches
                 SET
-                    data = json_set(data, '$.assessor_claim_digest', $1)
+                    data = json_set(data, '$.assessor_claim_digest', json($1))
                 WHERE
                     id = $2"#,
             )
@@ -1269,10 +1277,16 @@ mod tests {
     async fn complete_batch(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = 1;
+        let mut batch = Batch::default();
+        batch.aggregation_state = Some(AggregationState {
+            guest_state: GuestState::initial([1u32; 8]),
+            claim_digests: vec![],
+            groth16_proof_id: None,
+            proof_id: "a".to_string(),
+        });
+        db.add_batch(batch_id, batch).await.unwrap();
 
-        let root = Digest::new([1; DIGEST_WORDS]);
-        let orders_root = Digest::new([2; DIGEST_WORDS]);
         let g16_proof_id = "Testg16";
         db.complete_batch(batch_id, g16_proof_id.into()).await.unwrap();
 
@@ -1349,11 +1363,14 @@ mod tests {
                 fee: U256::from(10),
             },
         ];
+        let claim_digests = vec![[1u32; 8].into(), [2u32; 8].into()];
+        let mut guest_state = GuestState::initial([3u32; 8]);
+        guest_state.mmr.extend(&claim_digests);
         let agg_state = AggregationState {
-            guest_state: GuestState::initial(Digest::ZERO),
+            guest_state,
             proof_id: "c".to_string(),
-            claim_digests: vec![[1u32; 8].into(), [2u32; 8].into()],
-            groth16_proof_id: Some("d".to_string()),
+            claim_digests: claim_digests.clone(),
+            groth16_proof_id: None,
         };
 
         let base_fees = U256::from(10);
@@ -1363,7 +1380,7 @@ mod tests {
         batch.fees = base_fees;
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
-        db.update_batch(batch_id, &agg_state, &agg_proofs, Some(Digest::ZERO)).await.unwrap();
+        db.update_batch(batch_id, &agg_state, &agg_proofs, Some([4u32; 8].into())).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.orders, vec![U256::from(11), U256::from(12)]);
@@ -1371,9 +1388,9 @@ mod tests {
         assert_eq!(db_batch.fees, U256::from(25));
         assert!(db_batch.aggregation_state.is_some());
         let agg_state = db_batch.aggregation_state.unwrap();
-        assert_eq!(agg_state.groth16_proof_id.as_ref(), Some(&"d".to_string()));
-        assert!(agg_state.guest_state.is_initial());
+        assert_eq!(agg_state.groth16_proof_id.as_ref(), None);
+        assert!(!agg_state.guest_state.is_initial());
         assert_eq!(&agg_state.proof_id, "c");
-        assert_eq!(&agg_state.claim_digests, &[[1u32; 8].into(), [2u32; 8].into()]);
+        assert_eq!(&agg_state.claim_digests, &claim_digests);
     }
 }
