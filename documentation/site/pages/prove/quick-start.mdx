@@ -1,78 +1,85 @@
 # Quick Start
 
-:::note
-To become a prover on Boundless requires significant hardware, software setup and a good maintenance pipeline to avoid downtime. Before continuing, make sure you are familiar with the prover [requirements](/prove/requirements).
-:::
-
-Bento is a Docker compose stack containing all the services to run a proving cluster for the Boundless Market.
-
-You'll need the following dependencies:
-
-* [Docker compose](https://docs.docker.com/compose)
-* [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) 
-
-## Clone the Boundless repo
-
-To get started, first clone the Boundless monorepo on your proving machine:
-
-```sh
-git clone https://github.com/boundless-xyz/boundless
-```
-
-### Host Setup
+## Dependencies
 
 :::tip[Tip]
 This stage can be skipped if you already have docker and docker-nvidia installed.
 :::
 
-Ubuntu is currently the only supported Operating system. Other operating systems _should_ work, but driver support (host Nvidia drivers matching container drivers etc.), compile dependencies, and testing fall to the user to complete.
+To run a Boundless prover, you'll need the following dependencies:
 
-For a quick set up of Boundless host dependencies on Ubuntu 22.04 LTS, please run:
+* [Docker compose](https://docs.docker.com/compose)
+* [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) 
+
+For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating System Requirements](/prove/requirements#operating-system)), please run:
 
 ```sh
+/scripts/setup.sh
+```
+
+## Setup
+
+### Clone the Boundless repo
+
+To get started, first clone the Boundless monorepo on your proving machine, and change directory locally:
+
+```sh
+git clone https://github.com/boundless-xyz/boundless
 cd boundless
-chmod +x scripts/setup.sh && ./scripts/setup.sh
+```
+
+### Running Bento + Broker
+
+The recommended place to start is the `scripts/boundless_service.sh` script. This script which will run everything you need to start proving on Boundless:
+
+```sh [Terminal]
+Usage: scripts/boundless_service.sh [command] [options]
+
+Commands:
+  start   Start Docker Compose services
+  stop    Stop and remove Docker Compose services
+
+Options:
+  -e, --env-file FILE    Specify a custom environment file (default: ./.env-compose)
+  -h, --help             Display this help message
+
+Examples:
+  scripts/boundless_service.sh start
+  scripts/boundless_service.sh start --env-file ./.env.production
+  scripts/boundless_service.sh stop
+  scripts/boundless_service.sh stop --env-file ./.env.production
+
 ```
 
 ## Configuration
 
-The `compose.yml` file defines all the services within the Bento. Here you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
+The `compose.yml` file defines all services within Bento. The Boundless repo includes a starter `compose.yml` which you can see [here](https://github.com/boundless-xyz/boundless/blob/main/compose.yml).
 
-Under the `exec_agent` service you can configure the segment size with the `--segment-po2` flag. Bigger segments are preferable for performance but do impact the proving systems conjectured security bits slightly. In order to pick the right segment po2 for your GPU VRAM see [reports.risczero.com](https://reports.risczero.com) for details.
+### Multi GPU
+
+It is here that you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
+
+### Multi Host
 
 Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host. **See the `.env-compose` \*\_HOST configuration options here to adjust them.**
 
-## Running Bento
+### Segment Size
 
-To build and spin up a Bento cluster locally using Docker:
+Under the `exec_agent` service you can configure the segment size with the `--segment-po2` flag. Bigger segments are preferable for performance but do impact the proving systems conjectured security bits slightly. In order to pick the right segment po2 for your GPU VRAM see [reports.risczero.com](https://reports.risczero.com) for details.
 
-```sh
-cd bento/
-docker compose --env-file ./.env-compose up --build
-```
 
-Optionally you can use the startup script included in this repo:
+## Sending a Test Proof to Bento
 
-```sh 
-scripts/boundless_service.sh start
-```
+Once everything is up, you can send a test proof to Bento to see if everything works. There are two options for test proofs:
 
-To stop the Boundless service:
+1. The Bento CLI allows for a simple test vector with a specified cycle count via the `-c` flag:
 
-```sh 
-scripts/boundless_service.sh stop
-```
-
-## Sending a Sample Proof to the Cluster
-
-Using a simple test vector for testing different cycle counts (via the -c flag):
-
-```sh 
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
-Or with a existing ELF / input file:
+2. The Bento CLI also accepts existing ELF / input files for [Boundless programs](/build/build-a-program):
 
-```sh 
+```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin
 ```
