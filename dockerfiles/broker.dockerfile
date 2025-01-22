@@ -23,8 +23,8 @@ COPY Cargo.toml .
 COPY Cargo.lock .
 COPY crates/ ./crates/
 COPY rust-toolchain.toml .
-COPY .sqlx/ ./.sqlx/
 COPY contracts/ ./contracts/
+COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .

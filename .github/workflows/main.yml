@@ -97,6 +97,12 @@ jobs:
       - name: cargo doc
         run: cargo doc
 
+      - name: cargo clippy
+        env:
+          RUSTFLAGS: "-Dwarnings"
+          RISC0_SKIP_BUILD: 1
+        run: cargo clippy --all-targets
+
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
       - name: check for changes to files in git index
