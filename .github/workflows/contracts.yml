@@ -72,7 +72,7 @@ jobs:
           node-version: 20
 
       - name: install @openzeppelin/upgrades-core@1.41.0
-        run: npm install @openzeppelin/upgrades-core@1.41.0
+        run: npm install -g @openzeppelin/upgrades-core@1.41.0
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
