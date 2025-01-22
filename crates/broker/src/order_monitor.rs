@@ -245,13 +245,13 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{utils, Address, B256, U256},
+        primitives::{Address, B256, U256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
-        ProofRequest, Requirements,
+        test_utils::{deploy_boundless_market, deploy_hit_points},
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -272,10 +272,13 @@ mod tests {
                 .unwrap(),
         );
 
+        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+
         let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
             Address::ZERO,
+            hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
@@ -286,11 +289,6 @@ mod tests {
             provider.clone(),
             provider.default_signer_address(),
         );
-        boundless_market
-            .add_prover_to_appnet_allowlist(provider.default_signer_address())
-            .await
-            .unwrap();
-        boundless_market.deposit(utils::parse_ether("10").unwrap()).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -309,7 +307,7 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            "http://risczero.com/image".into(),
+            "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
@@ -387,10 +385,13 @@ mod tests {
                 .unwrap(),
         );
 
+        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+
         let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
             Address::ZERO,
+            hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
             Some(signer.address()),
         )
@@ -401,7 +402,6 @@ mod tests {
             provider.clone(),
             provider.default_signer_address(),
         );
-        boundless_market.deposit(utils::parse_ether("10").unwrap()).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -420,7 +420,7 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            "http://risczero.com/image".into(),
+            "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),

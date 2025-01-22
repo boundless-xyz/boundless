@@ -16,7 +16,7 @@
 
 #![deny(missing_docs)]
 
-use alloy_primitives::{Address, Signature};
+use alloy_primitives::{Address, PrimitiveSignature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
 use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest};
@@ -45,7 +45,7 @@ impl Fulfillment {
     /// Verifies the signature of the request.
     pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32]> {
         let hash = self.request.eip712_signing_hash(domain);
-        let signature = Signature::try_from(self.signature.as_slice())?;
+        let signature = PrimitiveSignature::try_from(self.signature.as_slice())?;
         // NOTE: This could be optimized by accepting the public key as input, checking it against
         // the address, and using it to verify the signature instead of recovering the
         // public key. It would save ~1M cycles.
@@ -127,7 +127,7 @@ mod tests {
                     data: prefix.into(),
                 },
             },
-            &"test".to_string(),
+            "test",
             Input { inputType: InputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
@@ -186,7 +186,7 @@ mod tests {
     }
 
     fn echo(input: &str) -> Receipt {
-        let env = ExecutorEnv::builder().write_slice(&input.as_bytes()).build().unwrap();
+        let env = ExecutorEnv::builder().write_slice(input.as_bytes()).build().unwrap();
 
         // TODO: Change this to use SessionInfo::claim or another method.
         // See https://github.com/risc0/risc0/issues/2267.

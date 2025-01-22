@@ -17,18 +17,25 @@ import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket, ProofRequest, Offer, Fulfillment, AssessorJournal} from "./IBoundlessMarket.sol";
 import {BoundlessMarketLib} from "./BoundlessMarketLib.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
+uint256 constant REQUEST_FLAGS_INITIAL_BITS = 64;
 
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
 struct Account {
     /// @dev uint96 is enough to represent the entire token supply of Ether.
     uint96 balance;
-    /// @notice 80 pairs of 2 bits representing the status of a request. One bit is for lock-in and
+    /// @dev Balance of HP tokens.
+    uint96 stakeBalance;
+    /// @notice 32 pairs of 2 bits representing the status of a request. One bit is for lock-in and
     /// the other is for fulfillment.
-    /// @dev Request state flags are packed into a uint160 to make balance and flags for the first
-    /// 80 requests fit in one slot.
-    uint160 requestFlagsInitial;
+    /// @dev Request state flags are packed into a uint64 to make balance and flags for the first
+    /// 32 requests fit in one slot.
+    uint64 requestFlagsInitial;
     /// @dev Flags for the remaining requests are in a storage array. Each uint256 holds the packed
     /// flags for 128 requests, indexed in a linear fashion. Note that this struct cannot be
     /// instantiated in memory.
@@ -38,14 +45,14 @@ struct Account {
 library AccountLib {
     /// Gets the locked and fulfilled request flags for the request with the given index.
     function requestFlags(Account storage account, uint32 idx) internal view returns (bool locked, bool fulfilled) {
-        if (idx < 160 / REQUEST_FLAGS_BITWIDTH) {
-            uint160 masked = (
+        if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
+            uint64 masked = (
                 account.requestFlagsInitial
-                    & (uint160((1 << REQUEST_FLAGS_BITWIDTH) - 1) << uint160(idx * REQUEST_FLAGS_BITWIDTH))
+                    & (uint64((1 << REQUEST_FLAGS_BITWIDTH) - 1) << uint64(idx * REQUEST_FLAGS_BITWIDTH))
             ) >> (idx * REQUEST_FLAGS_BITWIDTH);
-            return (masked & uint160(1) != 0, masked & uint160(2) != 0);
+            return (masked & uint64(1) != 0, masked & uint64(2) != 0);
         } else {
-            uint256 idxShifted = idx - (160 / REQUEST_FLAGS_BITWIDTH);
+            uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
             uint256 packed = account.requestFlagsExtended[(idxShifted * REQUEST_FLAGS_BITWIDTH) / 256];
             uint256 maskShift = (idxShifted * REQUEST_FLAGS_BITWIDTH) % 256;
             uint256 masked = (packed & (uint256((1 << REQUEST_FLAGS_BITWIDTH) - 1) << maskShift)) >> maskShift;
@@ -58,11 +65,11 @@ library AccountLib {
     /// Least significant bit is locked, second-least significant is fulfilled.
     function setRequestFlags(Account storage account, uint32 idx, uint8 flags) internal {
         assert(flags < (1 << REQUEST_FLAGS_BITWIDTH));
-        if (idx < 160 / REQUEST_FLAGS_BITWIDTH) {
-            uint160 mask = uint160(flags) << uint160(idx * REQUEST_FLAGS_BITWIDTH);
+        if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
+            uint64 mask = uint64(flags) << uint64(idx * REQUEST_FLAGS_BITWIDTH);
             account.requestFlagsInitial |= mask;
         } else {
-            uint256 idxShifted = idx - (160 / REQUEST_FLAGS_BITWIDTH);
+            uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
             uint256 mask = uint256(flags) << (uint256(idxShifted * REQUEST_FLAGS_BITWIDTH) % 256);
             account.requestFlagsExtended[(idxShifted * REQUEST_FLAGS_BITWIDTH) / 256] |= mask;
         }
@@ -77,6 +84,9 @@ library AccountLib {
     }
 }
 
+/// @notice Stores details about a request that has been locked, including the prover that locked it and the stake.
+/// @dev When a request is slashed, the deadline, stake, and fingerprint fields are cleared, but the
+/// prover and price fields are left untouched. When a request is fulfilled, the entire object is cleared.
 struct RequestLock {
     address prover;
     uint96 price;
@@ -133,6 +143,7 @@ contract BoundlessMarket is
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for uint256;
     using TransientPriceLib for TransientPrice;
+    using SafeERC20 for IERC20;
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
@@ -150,6 +161,8 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 public immutable ASSESSOR_ID;
     string private imageUrl;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable STAKE_TOKEN_CONTRACT;
 
     /// In order to fulfill a request, the prover must provide a proof that can be verified with at
     /// most the amount of gas specified by this constant. This requirement exists to ensure the
@@ -161,12 +174,6 @@ contract BoundlessMarket is
     // NOTE: Currently set to burn the entire stake. Can be changed via contract upgrade.
     uint256 public constant SLASHING_BURN_FRACTION_NUMERATOR = 1;
     uint256 public constant SLASHING_BURN_FRACTION_DENOMINATOR = 1;
-
-    /// @notice Allow list for the lock-in action for use in the appnet phase of public testing.
-    /// In order to focus on application developers, public prover participation is limited. In
-    /// particular, only the provers in this allow-list are able to lock-in jobs. This restriction
-    /// will be lifted, and this mapping removed, during the public testnet.
-    mapping(address => bool) appnetProverLockinAllowlist;
 
     /// @notice When an order is fulfilled, the market takes a fee based on the price of the order.
     /// This fraction is multiplied by the price to decide the fee.
@@ -181,9 +188,10 @@ contract BoundlessMarket is
     uint256 internal marketBalance;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId) {
+    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
+        STAKE_TOKEN_CONTRACT = stakeTokenContract;
 
         _disableInitializers();
     }
@@ -201,20 +209,22 @@ contract BoundlessMarket is
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    function addProverToAppnetAllowlist(address prover) external onlyOwner {
-        appnetProverLockinAllowlist[prover] = true;
-    }
-
-    function removeProverFromAppnetAllowlist(address prover) external onlyOwner {
-        appnetProverLockinAllowlist[prover] = false;
-    }
-
     function requestIsFulfilled(uint256 id) external view returns (bool) {
         if (id & (uint256(type(uint64).max) << 192) != 0) {
             revert InvalidRequest();
         }
         (, bool fulfilled) = accounts[address(uint160(id >> 32))].requestFlags(uint32(id));
         return fulfilled;
+    }
+
+    function requestIsSlashed(uint256 id) external view returns (bool) {
+        if (id & (uint256(type(uint64).max) << 192) != 0) {
+            revert InvalidRequest();
+        }
+        RequestLock memory lock = requestLocks[id];
+        // Note, a stake and fingerprint of zero can exist on a valid request, however a deadline of zero cannot as
+        // the request would be immediately expired, and expired requests cannot be locked in.
+        return lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
     }
 
     function requestIsLocked(uint256 id) external view returns (bool) {
@@ -271,6 +281,45 @@ contract BoundlessMarket is
     // Get the current balance of an account.
     function balanceOf(address addr) public view returns (uint256) {
         return uint256(accounts[addr].balance);
+    }
+
+    function _depositStake(address from, uint256 value) internal {
+        IERC20(STAKE_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
+        accounts[from].stakeBalance += value.toUint96();
+        emit StakeDeposit(from, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function depositStake(uint256 value) external {
+        // Transfer tokens from user to market
+        _depositStake(msg.sender, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+        // Transfer tokens from user to market
+        try IERC20Permit(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
+        _depositStake(msg.sender, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function withdrawStake(uint256 value) public {
+        if (accounts[msg.sender].stakeBalance < value.toUint96()) {
+            revert InsufficientBalance(msg.sender);
+        }
+        unchecked {
+            accounts[msg.sender].stakeBalance -= value.toUint96();
+        }
+        // Transfer tokens from market to user
+        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        if (!success) revert TransferFailed();
+
+        emit StakeWithdrawal(msg.sender, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function balanceOfStake(address addr) public view returns (uint256) {
+        return uint256(accounts[addr].stakeBalance);
     }
 
     // NOTE: We could verify the client signature here, but this adds about 18k gas (with a naive
@@ -348,24 +397,21 @@ contract BoundlessMarket is
         uint32 idx,
         address prover
     ) internal {
-        if (!appnetProverLockinAllowlist[prover]) {
-            revert ProverNotInAppnetLockinAllowList({account: prover});
-        }
-
         (uint96 price, uint64 deadline) = _validateRequestForLockin(request, client, idx);
 
-        // Deduct funds from the client and prover accounts.
+        // Deduct funds from the client account and prover HP account.
         Account storage clientAccount = accounts[client];
         if (clientAccount.balance < price) {
             revert InsufficientBalance(client);
         }
         Account storage proverAccount = accounts[prover];
-        if (proverAccount.balance < request.offer.lockinStake) {
+        if (proverAccount.stakeBalance < request.offer.lockinStake.toUint96()) {
             revert InsufficientBalance(prover);
         }
+
         unchecked {
             clientAccount.balance -= price;
-            proverAccount.balance -= request.offer.lockinStake.toUint96();
+            proverAccount.stakeBalance -= request.offer.lockinStake.toUint96();
         }
 
         // Record the lock for the request and emit an event.
@@ -542,13 +588,15 @@ contract BoundlessMarket is
         // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
         requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
 
-        uint96 valueToProver = lock.price + lock.stake;
+        uint96 valueToProver = lock.price;
         if (MARKET_FEE_NUMERATOR > 0) {
             uint256 fee = uint256(lock.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
             valueToProver -= fee.toUint96();
             marketBalance += fee;
         }
-        accounts[lock.prover].balance += valueToProver;
+        Account storage proverAccount = accounts[lock.prover];
+        proverAccount.balance += valueToProver;
+        proverAccount.stakeBalance += lock.stake;
     }
 
     function _fulfillVerifiedUnlocked(
@@ -604,23 +652,29 @@ contract BoundlessMarket is
         uint32 idx = BoundlessMarketLib.requestIndex(requestId);
         (bool locked,) = accounts[client].requestFlags(idx);
 
-        // Ensure the request is locked, and fetch the lock.
+        // Ensure the request is locked, and fetch the lock into memory.
         if (!locked) {
             revert RequestIsNotLocked({requestId: requestId});
         }
-
         RequestLock memory lock = requestLocks[requestId];
 
-        // If the lock was cleared, the request is already finalized, either by fullfillment or slashing.
-        if (lock.prover == address(0)) {
-            revert RequestIsNotLocked({requestId: requestId});
-        }
         if (lock.deadline >= block.number) {
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
         }
 
-        // Zero out the lock to prevent the same request from being slashed twice.
-        requestLocks[requestId] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
+        // If the lock was cleared, the request is already finalized, either by fulfillment or slashing.
+        if (lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0)) {
+            if (lock.prover == address(0)) {
+                revert RequestIsFulfilled({requestId: requestId});
+            }
+            revert RequestIsSlashed({requestId: requestId});
+        }
+
+        // Zero out deadline, stake and fingerprint in storage to indicate that the request has been slashed.
+        RequestLock storage lockStorage = requestLocks[requestId];
+        lockStorage.deadline = 0;
+        lockStorage.stake = 0;
+        lockStorage.fingerprint = bytes8(0);
 
         // Calculate the portion of stake that should be burned vs sent to the client.
         // NOTE: If the burn fraction is not properly set, this can overflow.
@@ -629,11 +683,10 @@ contract BoundlessMarket is
         uint256 transferValue = uint256(lock.stake) - burnValue;
 
         // Return the price to the client, plus the transfer value. Then burn the burn value.
-        accounts[client].balance += lock.price + transferValue.toUint96();
-        (bool sent,) = payable(address(0)).call{value: uint256(burnValue)}("");
-        if (!sent) {
-            revert TransferFailed();
-        }
+        accounts[client].balance += lock.price;
+        accounts[client].stakeBalance += transferValue.toUint96();
+        // Transfer tokens from market to address zero.
+        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
 
         emit ProverSlashed(requestId, burnValue, transferValue);
     }

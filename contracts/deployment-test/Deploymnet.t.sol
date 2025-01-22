@@ -24,6 +24,7 @@ import {
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/BoundlessMarketLib.sol";
 import {ConfigLoader, DeploymentConfig} from "../scripts/Config.s.sol";
+import {IHitPoints} from "../src/HitPoints.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 bytes32 constant APP_IMAGE_ID = 0x257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d;
@@ -40,6 +41,7 @@ contract DeploymentTest is Test {
     IRiscZeroVerifier internal verifier;
     IRiscZeroSetVerifier internal setVerifier;
     IBoundlessMarket internal boundlessMarket;
+    IHitPoints internal stakeToken;
 
     mapping(uint256 => Client) internal clients;
 
@@ -85,6 +87,7 @@ contract DeploymentTest is Test {
         verifier = IRiscZeroVerifier(deployment.verifier);
         setVerifier = IRiscZeroSetVerifier(deployment.setVerifier);
         boundlessMarket = IBoundlessMarket(deployment.boundlessMarket);
+        stakeToken = IHitPoints(deployment.stakeToken);
     }
 
     function testAdminIsSet() external view {
@@ -104,6 +107,11 @@ contract DeploymentTest is Test {
     function testBoundlessMarketIsDeployed() external view {
         require(address(boundlessMarket) != address(0), "no boundless market address is set");
         require(keccak256(address(boundlessMarket).code) != keccak256(bytes("")), "boundless market code is empty");
+    }
+
+    function testStakeTokenIsDeployed() external view {
+        require(address(stakeToken) != address(0), "no stake token address is set");
+        require(keccak256(address(stakeToken).code) != keccak256(bytes("")), "stake token code is empty");
     }
 
     function testBoundlessMarketOwner() external view {

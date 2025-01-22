@@ -1,0 +1,141 @@
+#!/bin/bash
+
+set -eo pipefail
+
+# Default mint amount (can be overridden by environment variable)
+DEFAULT_MINT_AMOUNT="${DEFAULT_MINT_AMOUNT:-100}"
+
+# Check if required environment variables are set
+check_env_vars() {
+    local vars=("PRIVATE_KEY" "RPC_URL" "HIT_POINTS_ADDRESS")
+    for var in "${vars[@]}"; do
+        if [ -z "${!var}" ]; then
+            echo "Error: $var environment variable is not set"
+            exit 1
+        fi
+    done
+}
+
+# Mint tokens
+mint() {
+    local target_address=$1
+    local amount=${2:-$DEFAULT_MINT_AMOUNT}
+    
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 mint <target_address> [amount]"
+        echo "Default amount: $DEFAULT_MINT_AMOUNT"
+        exit 1
+    fi
+    
+    echo "Minting HP for $target_address with amount $amount"
+    cast send --private-key "$PRIVATE_KEY" \
+        --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "mint(address, uint256)" "$target_address" "$amount"
+}
+
+# Grant `MINTER` role to an address
+grant_minter_role() {
+    local target_address=$1
+    
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 grant-minter-role <target_address>"
+        exit 1
+    fi
+    
+    echo "Granting MINTER role to $target_address"
+    cast send --private-key "$PRIVATE_KEY" \
+        --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "grantMinterRole(address)" "$target_address"
+}
+
+# Grant `AUTHORIZED_TRANSFER` role to an address
+grant_auth_transfer_role() {
+    local target_address=$1
+    
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 grant-auth-transfer-role <target_address>"
+        exit 1
+    fi
+    
+    echo "Granting AUTHORIZED_TRANSFER role to $target_address"
+    cast send --private-key "$PRIVATE_KEY" \
+        --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "grantAuthorizedTransferRole(address)" "$target_address"
+}
+
+# Revoke `MINTER` role from an address
+revoke_minter_role() {
+    local target_address=$1
+    
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 revoke-minter-role <target_address>"
+        exit 1
+    fi
+    
+    echo "Revoking `MINTER` role from $target_address"
+    cast send --private-key "$PRIVATE_KEY" \
+        --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "revokeMinterRole(address)" "$target_address"
+}
+
+# Revoke `AUTHORIZED_TRANSFER` role from an address
+revoke_auth_transfer_role() {
+    local target_address=$1
+    
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 revoke-auth-transfer-role <target_address>"
+        exit 1
+    fi
+    
+    echo "Revoking `AUTHORIZED_TRANSFER` role from $target_address"
+    cast send --private-key "$PRIVATE_KEY" \
+        --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "revokeAuthorizedTransferRole(address)" "$target_address"
+}
+
+# Get token balance
+balance() {
+    local target_address=$1
+    if [ -z "$target_address" ]; then
+        echo "Usage: $0 balance <target_address>"
+        exit 1
+    fi
+    echo "Checking HP balance for $target_address"
+    cast call --rpc-url "$RPC_URL" \
+        "$HIT_POINTS_ADDRESS" "balanceOf(address)(uint256)" "$target_address"
+}
+
+# Main script logic
+check_env_vars
+
+case "$1" in
+    mint)
+        mint "$2" "$3"
+        ;;
+    grant-minter-role)
+        grant_minter_role "$2"
+        ;;
+    revoke-minter-role)
+        revoke_minter_role "$2"
+        ;;
+    grant-auth-transfer-role)
+        grant_auth_transfer_role "$2"
+        ;;
+    revoke-auth-transfer-role)
+        revoke_auth_transfer_role "$2"
+        ;;
+    balance)
+        balance "$2"
+        ;;
+    *)
+        echo "Usage: $0 {mint|grant-minter-role|revoke-minter-role|grant-auth-transfer-role|revoke-auth-transfer-role|balance} [arguments]"
+        echo "Examples:"
+        echo "  $0 mint 0x1234... 100"
+        echo "  $0 grant-minter-role 0x5678..."
+        echo "  $0 revoke-minter-role 0x9abc..."
+        echo "  $0 grant-auth-transfer-role 0x5678..."
+        echo "  $0 revoke-auth-transfer-role 0x9abc..."
+        echo "  $0 balance 0x1234..."
+        exit 1
+        ;;
+esac

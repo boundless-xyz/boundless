@@ -5,4 +5,4 @@ maxPrice: 2000000000000000
 biddingStart: 0 # if set to 0, gets overwritten by the current block height
 rampUpPeriod: 1000
 timeout: 2000
-lockinStake: 100000000000000
+lockinStake: 10 # Amount of HP tokens (set between 1 and 100)

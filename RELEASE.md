@@ -50,8 +50,8 @@ When publishing a new release, you can use the following process.
 
    The currently published crates are:
 
-   - `boundless-assessor`
    - `boundless-market`
+   - `boundless-assessor`
    - `boundless-cli`
 
    > NOTE: When publishing a new crate, make sure to add github:risc0:maintainers as an owner.

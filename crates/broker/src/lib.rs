@@ -96,9 +96,9 @@ pub struct Args {
 
     /// Pre deposit amount
     ///
-    /// Amount of ETH to pre-deposit into the contract for staking eg: 0.1 ETH
+    /// Amount of HP tokens to pre-deposit into the contract for staking eg: 100
     #[clap(short, long)]
-    pub deposit_amount: Option<String>,
+    pub deposit_amount: Option<U256>,
 
     /// RPC HTTP retry rate limit max retry
     ///
@@ -258,7 +258,7 @@ impl Node {
     fn get_order_paths(
         &self,
         mut path: Vec<Digest>,
-        mut output: &mut Vec<(U256, Vec<Digest>)>,
+        output: &mut Vec<(U256, Vec<Digest>)>,
     ) -> Result<()> {
         match &self {
             Node::Singleton { order_id, .. } => {
@@ -275,11 +275,11 @@ impl Node {
             Node::Join { left, right, .. } => {
                 let mut left_path = path.clone();
                 left_path.push(right.root());
-                left.get_order_paths(left_path, &mut output)?;
+                left.get_order_paths(left_path, output)?;
 
                 let mut right_path = path.clone();
                 right_path.push(left.root());
-                right.get_order_paths(right_path, &mut output)?;
+                right.get_order_paths(right_path, output)?;
             }
         };
 
@@ -487,7 +487,7 @@ where
             Arc::new(
                 provers::Bonsai::new(
                     self.config_watcher.config.clone(),
-                    &bento_api_url.to_string(),
+                    bento_api_url.as_ref(),
                     "",
                 )
                 .context("Failed to initialize Bento client")?,
