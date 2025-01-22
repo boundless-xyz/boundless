@@ -290,6 +290,9 @@ interface IBoundlessMarket {
         address prover
     ) external;
 
+    /// @notice Wraps the `IRiscZeroSetVerifier.submitMerkleRoot` method.
+    function submitMerkleRoot(address setVerifierAddress, bytes32 root, bytes calldata seal) external;
+
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
     function slash(uint256 requestId) external;

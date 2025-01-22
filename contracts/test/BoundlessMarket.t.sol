@@ -5,6 +5,7 @@
 pragma solidity ^0.8.20;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Test} from "forge-std/Test.sol";
@@ -1360,6 +1361,28 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
         boundlessMarket.submitRootAndFulfillBatch(root, seal, fills, assessorSeal, address(testProver));
         vm.snapshotGasLastCall("submitRootAndFulfillBatch: a batch of 2 requests");
+
+        for (uint256 j = 0; j < fills.length; j++) {
+            expectRequestFulfilled(fills[j].id);
+        }
+    }
+
+    function testSubmitRootAndFulfillBatchMulticall() public {
+        (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(2);
+        (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) =
+            createFills(requests, journals, address(testProver), true);
+
+        bytes memory seal =
+            verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
+
+        bytes[] memory data = new bytes[](2);
+        data[0] = abi.encodeCall(IBoundlessMarket.submitMerkleRoot, (address(setVerifier), root, seal));
+        data[1] = abi.encodeCall(IBoundlessMarket.fulfillBatch, (fills, assessorSeal, address(testProver)));
+
+        Multicall multi = Multicall(address(boundlessMarket));
+        multi.multicall(data);
+
+        vm.snapshotGasLastCall("multicall: submitMerkleRoot + fulfillBatch");
 
         for (uint256 j = 0; j < fills.length; j++) {
             expectRequestFulfilled(fills[j].id);

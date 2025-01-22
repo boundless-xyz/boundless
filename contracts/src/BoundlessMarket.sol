@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MulticallUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/MulticallUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -134,6 +135,7 @@ contract BoundlessMarket is
     IBoundlessMarket,
     Initializable,
     EIP712Upgradeable,
+    MulticallUpgradeable,
     Ownable2StepUpgradeable,
     UUPSUpgradeable
 {
@@ -706,6 +708,11 @@ contract BoundlessMarket is
         IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
         setVerifier.submitMerkleRoot(root, seal);
         fulfillBatch(fills, assessorSeal, prover);
+    }
+
+    function submitMerkleRoot(address setVerifierAddress, bytes32 root, bytes calldata seal) external {
+        IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(setVerifierAddress));
+        setVerifier.submitMerkleRoot(root, seal);
     }
 
     /// Internal utility function to revert with a pre-encoded error.
