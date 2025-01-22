@@ -2,13 +2,11 @@
 
 ## Grafana
 
-The Bento / Broker Docker compose including a grafana instance with some template dashboards.
-
-In order to access them, grafana is hosted at `http://localhost:3000`. Default credentials are defined in `.env-compose` as `admin:admin`.
+The Bento / Broker Docker compose stack includes a [Grafana](https://grafana.com/) instance with some template dashboards. To access them, Grafana is hosted at `http://localhost:3000`. Default credentials are defined in `.env-compose` as `admin:admin`.
 
 ### Bento Dashboard
 
-The Bento dashboard connects to the TaskDB postgresql instance to get live data for the status of different proofs flowing through the proving cluster. It is useful to monitor performance and queue depth.
+The Bento dashboard connects to the TaskDB PostgreSQL instance to get live data for the status of different proofs flowing through the proving cluster. It is useful to monitor performance and queue depth.
 
 ### Broker Dashboard
 

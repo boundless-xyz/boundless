@@ -1,6 +1,6 @@
 # Broker Operation & Configuration
 
-The Broker is an optional service that runs within the [Bento](/prove/bento) docker compose stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
+The Broker is an optional service that runs within the [Bento](/prove/proving-stack#what-is-bento) docker compose stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
 
 ## Broker Configuration
 
@@ -59,7 +59,7 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 ### Make sure Bento is running
 
 :::warning[Warning]
-A Broker needs a [Bento](/prove/bento) instance to operate. Please follow the [quick start](/prove/quick-start) guide to get Bento up and running. 
+A Broker needs a [Bento](/prove/proving-stack#what-is-bento) instance to operate. Please follow the [quick start](/prove/quick-start) guide to get Bento up and running. 
 :::
 
 To check Bento is running correctly, you can send a sample proof workload:

@@ -64,17 +64,16 @@ const SIDEBAR_CONFIG = [
         link: "/prove/requirements",
       },
       {
-        text: "Running a Prover",
-        link: "/prove/running-a-prover",
+        text: "Quick Start",
+        link: "/prove/quick-start",
+      },
+      {
+        text: "Running a Boundless Prover",
         collapsed: true,
         items: [
           {
-            text: "Quick Start",
-            link: "/prove/quick-start",
-          },
-          {
-            text: "Bento Technical Specification", 
-            link: "/prove/bento",
+            text: "The Boundless Proving Stack", 
+            link: "/prove/proving-stack",
           },
           {
             text: "Broker Operation & Configuration",
@@ -84,11 +83,11 @@ const SIDEBAR_CONFIG = [
             text: "Monitoring",
             link: "/prove/monitoring",
           },
+          {
+            text: "Performance Optimization",
+            link: "/prove/performance-optimization",
+          },
         ]
-      },
-      {
-        text: "Performance Optimization",
-        link: "/prove/performance-optimization",
       },
     ],
   },
@@ -107,6 +106,11 @@ const SIDEBAR_CONFIG = [
         text: "Terminology",
         link: "/terminology",
       },
+      {
+        text: "Bento Technical Design", 
+        link: "/prove/bento",
+      },
+      
     ],
   },
 ];
