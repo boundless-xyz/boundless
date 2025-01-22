@@ -189,6 +189,8 @@ interface IBoundlessMarket {
     error InvalidRequest();
     /// Error when transfer of funds to an external address fails.
     error TransferFailed();
+    /// Error when attempting to lock a request with a frozen account.
+    error AccountFrozen(address account);
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.

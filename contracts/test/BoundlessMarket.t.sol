@@ -634,7 +634,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory proverSignature = testProver.sign(request);
 
         // Attempt to lock in the request
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(testProver)));
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.AccountFrozen.selector, address(testProver)));
         if (withSig) {
             boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
         } else {
@@ -1308,8 +1308,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // NOTE: This should be updated if not all the stake burned.
         client.expectBalanceChange(0 ether);
-        // sttake funds are frozen
-        testProver.expectStakeBalanceChange(-int256(DEFAULT_BALANCE));
+        testProver.expectStakeBalanceChange(-int256(request.offer.lockinStake));
         assertEq(
             stakeToken.balanceOf(address(boundlessMarket)),
             marketStakeBalance - request.offer.lockinStake,
@@ -1347,8 +1346,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.slash(request.id);
 
         client.expectBalanceChange(0 ether);
-        // stake funds are frozen
-        testProver.expectStakeBalanceChange(-int256(DEFAULT_BALANCE));
+        testProver.expectStakeBalanceChange(-int256(request.offer.lockinStake));
         testProver2.expectStakeBalanceChange(0 ether);
 
         // We expect the request is both slashed and fulfilled
