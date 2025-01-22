@@ -10,16 +10,30 @@ The Bento dashboard connects to the TaskDB PostgreSQL instance to get live data 
 
 ### Broker Dashboard
 
-The broker dashboard connects to the broker's sqlite database to see the status of different orders and batches moving through the broker's workflows.
+The broker dashboard connects to the broker's SQLite database to see the status of different orders and batches moving through the broker's workflows.
 
 ## On-chain
 
-Using the [Boundless market indexer](https://indexer.beboundless.xyz) is one of the best ways to monitor your broker's activity / health.
+The recommended method to monitor your broker's activity and health is via the [Boundless Indexer](https://indexer.beboundless.xyz). 
 
 ### Balances
 
-When running the broker it is critical to monitor both your hot wallet balance of ETH and the market balance. If your broker runs out of ETH balance it will be unable to cover gas costs for transactions to locking / fulfill orders. If you run out of balance on the market contract the broker will be unable to lock-in orders with higher stakes. It is strongly recommended to keep your market balance above the brokers configured `max_stake` parameter.
+For smooth broker operation, it is critical to monitor both your hot wallet balance of ETH and the market balance. If your broker runs out of ETH balance, it will be unable to cover gas costs for transactions and as such it will be unable to lock and fulfill orders. If you running low of funds on the broker account on the market contract, the broker will be unable to lock-in orders with higher stake values. It is strongly recommended to keep your market balance above the brokers configured `max_stake` parameter.
 
 ### Broker Logs
 
-The logs from the broker service are the most helpful for monitoring what your prover is doing when interacting with the market. It is designed with the intention that DEBUG / INFO / WARN log should not require manual intervention, but anything logged at a ERROR level should be looked at by a operator.
+The broker logs are the very helpful for monitoring broker interactions with the market. It is designed with the intention that `DEBUG` / `INFO` / `WARN` log should not require manual intervention, but anything logged at an `ERROR` level should be a cause of concern.
+
+To see a live stream of the broker logs:
+
+```sh [Terminal]
+docker compose logs -f broker
+```
+
+and to see the last 100 lines of the logs:
+
+```sh [Terminal]
+docker compose logs --tail=100 broker
+```
+
+

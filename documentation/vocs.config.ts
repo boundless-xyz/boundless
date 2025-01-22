@@ -69,6 +69,7 @@ const SIDEBAR_CONFIG = [
       },
       {
         text: "Running a Boundless Prover",
+        link: "/prove/proving-stack",
         collapsed: true,
         items: [
           {
@@ -76,7 +77,7 @@ const SIDEBAR_CONFIG = [
             link: "/prove/proving-stack",
           },
           {
-            text: "Broker Operation & Configuration",
+            text: "Broker Configuration & Operation",
             link: "/prove/broker",
           },
           {
@@ -108,7 +109,7 @@ const SIDEBAR_CONFIG = [
       },
       {
         text: "Bento Technical Design", 
-        link: "/prove/bento",
+        link: "/bento-technical-design",
       },
       
     ],
