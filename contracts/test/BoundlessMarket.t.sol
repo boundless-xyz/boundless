@@ -627,6 +627,44 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    function _testLockinAfterFreeze(bool withSig) private {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(2);
+        bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
+
+        // Attempt to lock in the request
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.AccountFrozen.selector, address(testProver)));
+        if (withSig) {
+            boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            boundlessMarket.lockin(request, clientSignature);
+        }
+
+        // Unfreeze the account
+        vm.prank(address(testProver));
+        boundlessMarket.unfreezeAccount();
+        vm.snapshotGasLastCall("unfreezeAccount");
+
+        // Expect the event to be emitted
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestLockedin(request.id, address(testProver));
+        if (withSig) {
+            boundlessMarket.lockinWithSig(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(address(testProver));
+            boundlessMarket.lockin(request, clientSignature);
+        }
+
+        // Ensure the balances are correct
+        client.expectBalanceChange(-1 ether);
+        testProver.expectStakeBalanceChange(-2 ether);
+
+        // Verify the lockin
+        assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
+    }
+
     function testLockinAlreadyLocked() public {
         return _testLockinAlreadyLocked(true);
     }
@@ -1249,18 +1287,41 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfillRepeatIndex(LockinMethod.None);
     }
 
+    function _testFreezeAccount(bool withSig) public {
+        testSlash();
+
+        bool frozen = boundlessMarket.accountIsFrozen(address(testProver));
+        assertTrue(frozen, "Prover account should be frozen");
+
+        _testLockinAfterFreeze(withSig);
+    }
+
+    function testFreezeAccount() public {
+        _testFreezeAccount(false);
+    }
+
+    function testFreezeAccountWithSig() public {
+        _testFreezeAccount(true);
+    }
+
     function testSlash() public returns (Client, ProofRequest memory) {
         (Client client, ProofRequest memory request) = testFulfillExpired();
+        uint256 marketStakeBalance = stakeToken.balanceOf(address(boundlessMarket));
 
         // Slash the request
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, request.offer.lockinStake, 0);
+        emit IBoundlessMarket.ProverSlashed(request.id, address(testProver), request.offer.lockinStake, 0);
         boundlessMarket.slash(request.id);
         vm.snapshotGasLastCall("slash: base case");
 
         // NOTE: This should be updated if not all the stake burned.
         client.expectBalanceChange(0 ether);
-        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(request.offer.lockinStake));
+        assertEq(
+            stakeToken.balanceOf(address(boundlessMarket)),
+            marketStakeBalance - request.offer.lockinStake,
+            "Market stake balance should decrease"
+        );
 
         // Check that the request is slashed and is not fulfilled
         expectRequestSlashed(request.id);
@@ -1289,11 +1350,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Slash the original prover that locked and didnt deliver
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, request.offer.lockinStake, 0);
+        emit IBoundlessMarket.ProverSlashed(request.id, address(testProver), request.offer.lockinStake, 0);
         boundlessMarket.slash(request.id);
 
         client.expectBalanceChange(0 ether);
-        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockinStake)));
+        testProver.expectStakeBalanceChange(-int256(request.offer.lockinStake));
         testProver2.expectStakeBalanceChange(0 ether);
 
         // We expect the request is both slashed and fulfilled
