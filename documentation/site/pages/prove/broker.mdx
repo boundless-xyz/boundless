@@ -2,13 +2,13 @@
 
 The Broker is an optional service that runs within the [Bento](/prove/bento) docker compose stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
 
-# Broker Configuration
+## Broker Configuration
 
-Broker configuration is primarily managed through the `broker.toml` file in the Boundless directory. This file is mounted into the Broker container and is used to configure the Broker daemon. This allows for dynamic configuration of the Broker without needing to restart the daemon as in most cases variables are refreshed. If you have changed a `broker.toml` configuration, and it does not appear to take effect you can restart the Broker service to apply the changes.
+Broker configuration is primarily managed through the `broker.toml` file in the Boundless directory. This file is mounted into the Broker container and it is used to configure the Broker daemon. This allows for dynamic configuration of the Broker without needing to restart the daemon as in most cases variables are refreshed. If you have changed a `broker.toml` configuration, and it does not appear to take effect you can restart the Broker service manually to apply the changes.
 
-## Deposit / Balance
+### Deposit / Balance
 
-The Boundless market works via a escrow system. Brokers must first deposit some ETH (or SepETH) into the market contract to cover staking during lock-in. It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
+The Boundless market works via an escrow system. Brokers must first deposit some ETH (or SepETH) into the market contract to fund their account. These funds cover staking during lock-in. It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
 
 ### Deposit to the Market
 
@@ -31,9 +31,13 @@ export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
 RUST_LOG=info cargo run --bin cli -- balance [wallet_address]
 ```
 
-You can omit the `PRIVATE_KEY` env var here and specify your `wallet_address` as a optional param to the `balance` command, ex: `balance 0x000....`
+You can omit the `PRIVATE_KEY` environment variable here and specify your `wallet_address` as a optional parameter to the `balance` command, i.e. `balance 0x000....`
 
-## Settings
+### Settings in Broker.toml
+
+:::warning[Warning]
+Quotation marks matter in TOML so please pay particular attention to the quotation marks for config values.
+:::
 
 `broker.toml` contains the following settings for the market:
 
@@ -47,38 +51,18 @@ You can omit the `PRIVATE_KEY` env var here and specify your `wallet_address` as
 | max\_stake               | `"0.5"`       | The maximum amount used to lock in a job for any single order.                                                 |
 | skip\_preflight\_ids     | `[]`          | A list of `imageID`s that the Broker should skip preflight checks in format `["0xID1","0xID2"]`.               |
 | max\_file\_size          | `50_000_000`  | The maximum guest image size in bytes that the Broker will accept.                                             |
-| allow\_client\_addresses | `[]`          | When defined, acts as a firewall to limit proving only to specific client addresses.                           |
+| allow\_client\_addresses | `[]`          | When defined, this acts as a firewall to limit proving only to specific client addresses.                           |
 | lockin\_priority\_gas    | `100`         | Additional gas to add to the base price when locking in stake on a contract to increase priority.              |
 
-:::warning[Warning]
-Pay particular attention to quotation for config values, as they matter in TOML.
+## Broker Operation
+
+### Make sure Bento is running
+
+:::warning
+A Broker needs a [Bento](/prove/bento) instance to operate. Please follow the [quick start](/prove/quick-start) guide to get Bento up and running. 
 :::
 
-## Increasing Lock-in Rate
-
-The following examples would be methods of making your Broker more competitive in the market, thus more likely to lock-in on orders, either economically or accelerating the bidding process:
-
-1. Decreasing the `mcycle_price` would tune your Broker to bid at lower prices for proofs.
-2. Increasing `lockin_priority_gas` would expedite your market operations by consuming more has which could outrun other bidders.
-3. Adding known `imageID`s from market observation to `skip_preflight_ids` would reduce the delay of preflight/execution on a binary allow you to beat other Brokers to transmitting a bid.
-
-Before running Broker you will need to ensure you have setup and are able to run Bento, the documentation for that can be found in [Running Bento][page-bento-running].
-
-```sh [Terminal]
-docker compose --profile broker --env-file ./.env-compose up --build
-```
-
-## Tuning Service Settings
-
-The `[prover]` settings in `broker.toml` are used to configure the prover service and largely impact the operation of the service rather than the market dynamics.
-
-The most important one to monitor/tune on initial configuration is `txn_timeout`. This is the number of seconds to wait for a transaction to be mined before timing out, if you see timeouts in your logs this can be increased to enable TX operations to chain to finish.
-
-# Broker Operation
-
-## Connect a Bento Instance
-
-A Broker requires a [running Bento instance][page-bento-run], that can be affirmed with a test proof fulfillment:
+To check Bento is running correctly, you can send a sample proof workload:
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 32
@@ -93,14 +77,13 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 32
 2024-10-23T14:37:43.375780Z  INFO bento_cli: Job done!
 ```
 
-## Funding Your Broker on the Proving Market
+### Funding Your Broker on the Proving Market
 
-To have the Broker interact with a [market deployment][page-deployments], an account for the network you wish to operate on is required, with sufficient native token (`ETH` typically) to pay for gas fees.
-
-:::warning[Warning]
-For market v0 Sepolia testnet purposes, we recommend around 1-2 Sepolia ETH.
-Gas costs for market operation in future market versions should be significantly less.
+:::warning
+For the current Sepolia testnet phase, we recommend funding your broker account around 1-2 Sepolia ETH. We are striving to make gas costs for market interactions in future significantly less.
 :::
+
+For the broker to interact with a [market contract](/deployments), it needs to have an associated account with a sufficient $ETH balance to pay for gas fees.
 
 The following process will guide you through setting up a new wallet and funding it with testnet ETH:
 
@@ -119,15 +102,15 @@ RPC_URL="https://rpc.sepolia.org" # This is the RPC URL of the target chain.
 ....
 ```
 
-##### Load the `.env-compose` file into the environment
+##### Source the `.env-compose` file
 
 ```sh [Terminal]
 source .env-compose
 ```
 
-##### The Broker needs to have funds deposited on the Boundless market contract to cover lock-in stake on requests. Run the following command to deposit an initial amount of ETH into the market contract
+##### The Broker account needs funds deposited on the Boundless market contract to cover lock-in stake on requests. Run the following command to deposit an initial amount of ETH into the market contract:
 
-```sh [Terminal]
+```sh 
 # Set amount in ETH denominated units
 # 0.5 Sepolia ETH should be OK for basic testing
 # BOUNDLESS_DEPOSIT=0.5
@@ -144,28 +127,55 @@ RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS
 
 ::::
 
+### Running the Broker service
+
+:::warning
+Before running the Broker, make sure you have connected to a running instance of Bento.
+:::
+
+```sh [Terminal]
+docker compose --profile broker --env-file ./.env-compose up --build
+```
+
+## Broker Optimization
+
+### Increasing Lock-in Rate
+
+Once your broker is running, there are a few methods to optimize the lock-in rate. These methods are aimed at making your broker service more competitive in the market through different means:
+
+1. Decreasing the `mcycle_price` would tune your Broker to bid at lower prices for proofs.
+2. Increasing `lockin_priority_gas` expedites your market operations by consuming more gas which could help outrun other bidders.
+3. Adding known a `imageID` to `skip_preflight_ids` would reduce the delay of preflight/execution on a binary. This would allow you to beat other Brokers by submitting bids quicker.
+
+### Tuning Service Settings
+
+The `[prover]` settings in `broker.toml` are used to configure the prover service and significantly impact the operation of the service. The most important configuration variable to monitor and iteratively tune is `txn_timeout`. This is the number of seconds to wait for a transaction to be confirmed before timing out. Therefore, if you see timeouts in your logs, `txn_timeout` can be increased to wait longer for transaction confirmations on-chain.
+
+
 ## Debugging
 
 ### Orders Stuck in 'Lockin' or `submit_merkle` Confirmation Timeouts
 
-If on the [indexer](https://indexer.beboundless.xyz) you see your broker having a high number of orders locked-in but not being fulfilled it might be due to TXN confirmation timeouts. Initially increasing the `txn_timeout` in the `broker.toml` file is a good start to try and ensure the fulfillment completes.
+You may notice on the [indexer](https://indexer.beboundless.xyz) that the broker has a high number of orders locked-in, but the fulfillment rate is low or even zero. This could be due to transaction confirmation timeouts. A good place to start would be to increase the `txn_timeout` in the `broker.toml` file iteratively, and see how that affects the broker's fulfillment rate.
 
-Additionally it is possible to re-drive orders that are "stuck" via the following:
+If you need a manual way to restart orders that are "stuck", please follow:
 
 ::::steps
 
-##### Manually connect to the sqlite DB for broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` Docker volume
+##### First, you'll need to manually connect to the SQLite database for the broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` Docker volume
 
-##### Finding the batch that contains the order:
+##### Next, you'll need to find the batch that contains the order:
 
 ```sql [Terminal]
 SELECT id FROM batches WHERE data->>'orders' LIKE '%"TARGET_ORDER_ID"%';
 -- Example: SELECT id FROM batches WHERE data->>'orders' LIKE '%"0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000caa"%';
 ```
 
-##### Trigger a rerun of the submitter task:
+##### Finally, you can trigger a rerun of the submitter task:
 
 ```sql [Terminal]
 UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = YOUR_BATCH_ID_FROM_STEP_2;
 -- Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
 ```
+
+

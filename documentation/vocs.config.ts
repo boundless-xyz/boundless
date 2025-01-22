@@ -90,10 +90,6 @@ const SIDEBAR_CONFIG = [
         text: "Performance Optimization",
         link: "/prove/performance-optimization",
       },
-      {
-        text: "Monitoring",
-        link: "/prove/monitoring",
-      },
     ],
   },
   {
