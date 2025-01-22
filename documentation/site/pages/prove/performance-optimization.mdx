@@ -1,29 +1,29 @@
 # Performance Optimization
 
-:::warning[Warning]
-Bento performance is tightly couples to the specific environment, equipment, and provider's requirements. Recommendations in this guide should be used as reference rather than a concrete recommendation on configuration.
+:::tip[Tip]
+Bento performance is tightly coupled to the specific environment, equipment, and compute provider's requirements. Recommendations in this guide should be used as reference rather than a concrete recommendation on configuration.
 :::
-
-This guide offers practical techniques for optimizing your Bento deployment.
-
-## Build Configuration
-
-The `NVCC_APPEND_FLAGS` Docker build arg (found in `compose.yml -> services -> exec_agent -> build -> args`) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards).
-
-You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the exec\_agent build args. A value of `3` might yield slightly better performance (a few %) but much longer build times.
 
 ## Recommended Tools
 
-Prior to starting we recommend the following tools monitor performance and resource use:
+We recommend the following tools to monitor performance and resource use:
 
 - [nvtop](https://github.com/Syllo/nvtop) - A tool to monitor GPU utilization.
 - [htop](https://htop.dev) - A tool to monitor CPU utilization, system memory, and process status.
 
 Both of these tools warrant a decent size terminal window on your desktop to monitor the performance during experiments.
 
-## Isolating Tests
+## Build Configuration
 
-Operating competing workloads on the same system as your Bento deployment can lead to unpredictable results. We recommend isolating your test system from other workloads to ensure that the performance tuning results are consistent and reliable. This includes stopping configured [Broker][page-broker] services:
+The `NVCC_APPEND_FLAGS` Docker build arg (found in `compose.yml -> services -> exec_agent -> build -> args`) should be set to match your specific GPU architecture, a good reference for GPU -> SM version can be [found here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards).
+
+You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the `exec_agent` build args. A value of `3` might yield slightly better performance (a few %) but at the cost of much longer build times.
+
+## Testing
+
+### Isolating Tests
+
+Operating competing workloads can lead to unpredictable results. We recommend isolating your test system from other workloads to ensure that the performance tuning results are consistent and reliable. This includes stopping configured [Broker](/prove/broker#stopping-the-broker-service) services:
 
 ```sh [Terminal]
 docker ps
@@ -48,21 +48,23 @@ start_services() {
 }
 ```
 
-## Defining a Test Harness
+### Defining a Test Harness
 
-It is preferable to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate. To try a realistic example:
+It is recommended to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate. 
+
+To try a realistic example:
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -f /path/to/elf -i /path/to/input`
 ```
 
-If you intend to operate across a variety of different workloads (such as those that may be fed by [Broker][page-broker]) you can also use the following command to generate a synthetic workload:
+If you intend to operate across a variety of different workloads (such as those that may be fed by the [Broker](/prove/broker)), you can also use the following command to generate a synthetic workload:
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c <ITERATION_COUNT>
 ```
 
-Where iteration count is the number of times the synthetic guest is executed. A value of 4096 is a good starting point, however on smaller or less performant you may want to reduce this to 2048 or 1024 while performing some of your experiments. For functional testing, 32 is sufficient.
+where `<ITERATION_COUNT>` is the number of times the synthetic guest is executed. A value of 4096 is a good starting point, however on smaller or less performant hosts, you may want to reduce this to 2048 or 1024 while performing some of your experiments. For functional testing, 32 is sufficient.
 
 The typical test process will be:
 
@@ -70,7 +72,7 @@ The typical test process will be:
 2. Execute the test harness above and copy the job id
 3. Upon completion of the job use the [`script/job_status.sh`](https://github.com/boundless-xyz/boundless/blob/main/scripts/job_status.sh) to view the results
 
-Example test run of 1024 iterations:
+#### Example test run of 1024 iterations:
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 1024
@@ -122,19 +124,21 @@ Effective Hz:
 (1 row)
 ```
 
+In the final table, the effective Hz is the primary metric for consideration. This represents the (number of cycles) / (elapsed wallclock time). In the example above, the effective Hz is roughly 400kHz.
+
 :::tip[Note]
 In the `job_status.sh` output above, the Hz is only accurate if the job has completed with no error conditions. Failed and in-progress jobs will have an inflated Hz value.
 :::
 
-In the final table, the effective Hz is the primary metric for consideration. This represents the (number of cycles) / (elapsed wallclock time). In the example above, the effective Hz is roughly 400kHz.
-
 ## Finding a Maximum `SEGMENT_SIZE` for GPU VRAM
 
-In most scenarios it makes sense to start by optimizing our GPU workers. This is because the bulk of the RISC Zero workload is executed by the `gpu-agent` and GPU resources a most often the performance bottleneck.
+We will start by optimizing the GPU workers. This is because the bulk of the RISC Zero workload is executed by the `gpu-agent` and GPU resources are most often the performance bottleneck.
 
-A critical concept to understand as we begin this testing is related to [RISC Zero's continuations][r0-term-continuations]. [Continuations](https://dev.risczero.com/api/recursion) are the key mechanism that allow RISC Zero to scale to effectively handle arbitrarily large proofs.
+### What is the Segment Size?
 
-The CPU first runs the workload in a pre-flight stage where it doesn't engage in proving, while doing so it divides the program trace into a series of [segments][r0-term-segment]. In Bento these segments are then dispatched to various workers for proving, and are combined back together in the final stage to produce the proof.
+An important concept to understand for testing is [RISC Zero's continuations](https://dev.risczero.com/api/recursion). Continuations are the key mechanism that allow RISC Zero's zkVM to scale to effectively handle arbitrarily large proofs.
+
+The CPU first runs the workload in a pre-flight stage where it doesn't engage in proving, while doing so it divides the program trace into a series of [segments](https://dev.risczero.com/terminology#segment). In Bento ,these segments are then dispatched to various workers for proving, and are combined back together in the final stage to produce the proof.
 
 The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env-compose` file. A proof is divided into `(2^SEGMENT_SIZE)` sized segments. The default value is 20, which means that a proof is composed of the number of required segments of approximately 1M cycles `(2^20 = 1048576)`.
 
@@ -146,13 +150,15 @@ The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env-compose
 | 16GB | 20                 |
 | 20GB | 21                 |
 
+### Testing the GPU has enough memory to handle the Segment Size
+
+:::tip[Note]
+Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker](/prove/broker#stopping-the-broker-service) is not running.
+:::
+
 Once you have selected a `MAXIMUM` segment size you should verify that the GPU does in fact have enough memory to complete.
 
 In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` Docker logs to determine the cause of the failure.
-
-:::tip[Note]
-Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker][page-broker] is not running.
-:::
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
@@ -194,11 +200,11 @@ If you have a multi-GPU system, your `SEGMENT_SIZE` should be set to the lowest 
 If a job fails to complete due to OOM, it may be resumed after Bento has been restarted. It's important to ensure that resumed jobs are not in progress during the test harness execution.
 :::
 
-## Benchmark Single GPU's `SEGMENT_SIZE`
+## How to Benchmark an Individual GPU's `SEGMENT_SIZE`
 
 ::::steps
 
-### Configure a Single GPU Instance
+#### Configure a Single GPU Instance
 
 ```yml [compose.yml]
 gpu_agent0: &gpu
@@ -215,23 +221,23 @@ gpu_agent0: &gpu
     cpu_count: 4
 ```
 
-### Verify that No Other GPU Definitions Are Present in the Compose File
+#### Verify that No Other GPU Definitions Are Present in the Compose File
 
-### Confirm the `SEGMENT_SIZE` Is Set to the Maximum as Determined Above in the `.env-compose` File
+#### Confirm the `SEGMENT_SIZE` Is Set to the Maximum as Determined Above in the `.env-compose` File
 
-### Execute the Test Harness
+#### Execute the Test Harness
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 ```
 
-### Confirm Single GPU Utilization Using `nvtop`
-
-![Bento diagram](/nvtop-1.png)
+#### Confirm Single GPU Utilization Using `nvtop`
 
 > Monitoring Bento with [nvtop](https://github.com/Syllo/nvtop)
+![Nvtop diagram](/nvtop.png)
 
-### Review the Effective Hz
+
+#### Review the Effective Hz
 
 ```sh [Terminal]
 echo <JOB_ID> | bash scripts/job_status.sh
@@ -312,11 +318,8 @@ In this case, we see that the effective Hz has increased to 431kHz, which is a s
 
 This means that our example system is bound by some other factor such as bus bandwidth, memory, etc.
 
-In this case we suggest:
+Some further suggestions:
 
-- Reconfigure the system back to higher PO2 with single agent per GPU and establish a new baseline performance level to compare against.
-- In lower `SEGMENT_SIZE` configurations experiment with `cpu_count` and `mem_limit` (removing, increasing, or decreasing) to see if the performance can be improved. In cases where bus contention is the limiting factor, running fewer agents at higher maximum `SEGMENT_SIZE` may be optimal. Systems in this configuration should avoid GPU expansion, and instead opt to expand into remote workers.
-
-[page-broker]: /prover-manual/broker/introduction
-[r0-term-continuations]: https://dev.risczero.com/terminology#continuations
-[r0-term-segment]: https://dev.risczero.com/terminology#segment
+- Reconfigure the system back to higher `PO2` with single agent per GPU and establish a new baseline performance level to compare against.
+- For lower `SEGMENT_SIZE` configurations, experiment with `cpu_count` and `mem_limit` (removing, increasing, or decreasing) to see if the performance can be improved. 
+- In cases where bus contention is the limiting factor, running fewer agents at higher maximum `SEGMENT_SIZE` may be optimal. Systems in this configuration should avoid GPU expansion, and instead opt to expand into remote workers.

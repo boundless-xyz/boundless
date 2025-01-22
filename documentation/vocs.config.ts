@@ -186,7 +186,7 @@ export default defineConfig({
     },
   ],
   rootDir: "site",
-  title: "Boundless Documentation",
+  title: "Boundless Docs",
   /*logoUrl: {
     light: "/logo.png",
     dark: "/logo-dark.png",
