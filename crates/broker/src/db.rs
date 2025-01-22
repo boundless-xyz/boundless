@@ -14,7 +14,7 @@ use sqlx::{
 };
 use thiserror::Error;
 
-use crate::{Batch, BatchStatus, Order, OrderStatus, ProofRequest};
+use crate::{AggregationState, Batch, BatchStatus, Order, OrderStatus, ProofRequest};
 
 #[derive(Error, Debug)]
 pub enum DbError {
@@ -56,7 +56,9 @@ pub enum DbError {
     MaxConnEnvVar(#[from] std::num::ParseIntError),
 }
 
-pub struct AggregationProofs {
+/// Struct containing the information about an order used by the aggregation worker.
+#[derive(Clone, Debug)]
+pub struct AggregationOrder {
     pub order_id: U256,
     pub proof_id: String,
     pub expire_block: u64,
@@ -83,7 +85,6 @@ pub trait BrokerDb {
     async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError>;
     async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError>;
     async fn set_order_complete(&self, id: U256) -> Result<(), DbError>;
-    async fn set_order_path(&self, id: U256, path: Vec<Digest>) -> Result<(), DbError>;
     async fn skip_order(&self, id: U256) -> Result<(), DbError>;
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
@@ -98,24 +99,21 @@ pub trait BrokerDb {
         input_id: &str,
     ) -> Result<(), DbError>;
     async fn set_aggregation_status(&self, id: U256) -> Result<(), DbError>;
-    async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationProofs>, DbError>;
-    async fn complete_batch(
-        &self,
-        batch_id: usize,
-        root: Digest,
-        orders_root: Digest,
-        g16_proof_id: String,
-    ) -> Result<(), DbError>;
+    async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
+    async fn complete_batch(&self, batch_id: usize, g16_proof_id: String) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;
     async fn set_batch_failure(&self, batch_id: usize, err: String) -> Result<(), DbError>;
     async fn get_current_batch(&self) -> Result<usize, DbError>;
+    /// Update a batch with the results of an aggregation step. Sets the aggreagtion state, and
+    /// adds the given orders to the batch, updating the batch fees and deadline. During
+    /// finalization, the assessor_claim_digest is recorded as well.
     async fn update_batch(
         &self,
         batch_id: usize,
-        order_id: U256,
-        expire_block: u64,
-        fees: U256,
+        aggreagtion_state: &AggregationState,
+        orders: &[AggregationOrder],
+        assessor_claim_digest: Option<Digest>,
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
 
@@ -392,33 +390,6 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
-    async fn set_order_path(&self, id: U256, path: Vec<Digest>) -> Result<(), DbError> {
-        let res = sqlx::query(
-            r#"
-            UPDATE orders
-            SET data = json_set(
-                       json_set(
-                       json_set(data,
-                       '$.status', $1),
-                       '$.updated_at', $2),
-                       '$.path', json($3))
-            WHERE
-                id = $4"#,
-        )
-        .bind(OrderStatus::PendingSubmission)
-        .bind(Utc::now().timestamp())
-        .bind(sqlx::types::Json(path))
-        .bind(format!("{id:x}"))
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
-        }
-
-        Ok(())
-    }
-
     async fn skip_order(&self, id: U256) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
@@ -614,7 +585,7 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
-    async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationProofs>, DbError> {
+    async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -635,7 +606,7 @@ impl BrokerDb for SqliteDb {
 
         let mut agg_orders = vec![];
         for order in orders.into_iter() {
-            agg_orders.push(AggregationProofs {
+            agg_orders.push(AggregationOrder {
                 order_id: U256::from_str_radix(&order.id, 16)?,
                 proof_id: order
                     .data
@@ -652,30 +623,18 @@ impl BrokerDb for SqliteDb {
         Ok(agg_orders)
     }
 
-    async fn complete_batch(
-        &self,
-        batch_id: usize,
-        root: Digest,
-        orders_root: Digest,
-        g16_proof_id: String,
-    ) -> Result<(), DbError> {
+    async fn complete_batch(&self, batch_id: usize, g16_proof_id: String) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE batches
             SET data = json_set(
-                       json_set(
-                       json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.root', json($2)),
-                       '$.orders_root', json($3)),
-                       '$.groth16_proof_id', $4)
+                       '$.aggregation_state.groth16_proof_id', $2)
             WHERE
-                id = $5"#,
+                id = $3"#,
         )
         .bind(BatchStatus::Complete)
-        .bind(sqlx::types::Json(root))
-        .bind(sqlx::types::Json(orders_root))
         .bind(g16_proof_id)
         .bind(batch_id as i64)
         .execute(&self.pool)
@@ -784,9 +743,9 @@ impl BrokerDb for SqliteDb {
     async fn update_batch(
         &self,
         batch_id: usize,
-        order_id: U256,
-        expire_block: u64,
-        fees: U256,
+        aggreagtion_state: &AggregationState,
+        orders: &[AggregationOrder],
+        assessor_claim_digest: Option<Digest>,
     ) -> Result<(), DbError> {
         let mut txn = self.pool.begin().await?;
 
@@ -800,21 +759,19 @@ impl BrokerDb for SqliteDb {
         };
 
         let db_fees: String = rows.try_get("fees")?;
-        let db_deadline_res: Option<i64> = rows.try_get("deadline")?;
+        let db_deadline: Option<i64> = rows.try_get("deadline")?;
 
-        let new_deadline: i64 = if let Some(db_deadline) = db_deadline_res {
-            if (expire_block as i64) < db_deadline {
-                expire_block as i64
-            } else {
-                db_deadline
-            }
-        } else {
-            expire_block as i64
-        };
+        let new_deadline = orders
+            .iter()
+            .fold(db_deadline, |min, order| {
+                Some(i64::min(min.unwrap_or(i64::MAX), order.expire_block as i64))
+            })
+            .unwrap_or(i64::MAX);
 
         let db_fees = U256::from_str(&db_fees)?;
-        let new_fees = db_fees + fees;
+        let new_fees = orders.iter().fold(db_fees, |sum, order| sum + order.fee);
 
+        // Update the batch fees, deadline, and aggregation state.
         let res = sqlx::query(
             r#"
             UPDATE batches
@@ -822,21 +779,60 @@ impl BrokerDb for SqliteDb {
                 data = json_set(
                        json_set(
                        json_set(data,
-                       '$.orders', json_insert(data->>'orders', '$[#]', $1)),
-                       '$.block_deadline', $2),
-                       '$.fees', $3)
+                       '$.block_deadline', $1),
+                       '$.fees', $2),
+                       '$.aggregation_state', $3)
             WHERE
                 id = $4"#,
         )
-        .bind(format!("0x{order_id:x}"))
-        .bind(new_deadline as i64)
+        .bind(new_deadline)
         .bind(format!("0x{new_fees:x}"))
+        .bind(sqlx::types::Json(aggreagtion_state))
         .bind(batch_id as i64)
         .execute(&mut *txn)
         .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
+        }
+
+        // Insert all the new orders.
+        for order in orders {
+            let res = sqlx::query(
+                r#"
+                UPDATE batches
+                SET
+                    data = json_set(data, '$.orders', json_insert(data->>'orders', '$[#]', $1))
+                WHERE
+                    id = $2"#,
+            )
+            .bind(format!("0x{:x}", order.order_id))
+            .bind(batch_id as i64)
+            .execute(&mut *txn)
+            .await?;
+
+            if res.rows_affected() == 0 {
+                return Err(DbError::BatchNotFound(batch_id));
+            }
+        }
+
+        if let Some(assessor_claim_digest) = assessor_claim_digest {
+            let res = sqlx::query(
+                r#"
+                UPDATE batches
+                SET
+                    data = json_set(data, '$.assessor_claim_digest', $1)
+                WHERE
+                    id = $2"#,
+            )
+            .bind(sqlx::types::Json(assessor_claim_digest))
+            .bind(batch_id as i64)
+            .execute(&mut *txn)
+            .await?;
+
+            if res.rows_affected() == 0 {
+                return Err(DbError::BatchNotFound(batch_id));
+            }
         }
 
         txn.commit().await?;
@@ -881,6 +877,7 @@ mod tests {
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, Requirements,
     };
+    use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::DIGEST_WORDS;
 
     fn create_order() -> Order {
@@ -1073,21 +1070,6 @@ mod tests {
 
         let db_order = db.get_order(id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Done);
-    }
-
-    #[sqlx::test]
-    async fn set_order_path(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
-
-        let path = vec![Digest::new([1; DIGEST_WORDS])];
-        db.set_order_path(id, path.clone()).await.unwrap();
-
-        let db_order = db.get_order(id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::PendingSubmission);
-        assert_eq!(db_order.path, Some(path));
     }
 
     #[sqlx::test]
@@ -1292,13 +1274,11 @@ mod tests {
         let root = Digest::new([1; DIGEST_WORDS]);
         let orders_root = Digest::new([2; DIGEST_WORDS]);
         let g16_proof_id = "Testg16";
-        db.complete_batch(batch_id, root, orders_root, g16_proof_id.into()).await.unwrap();
+        db.complete_batch(batch_id, g16_proof_id.into()).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::Complete);
-        assert_eq!(db_batch.root, Some(root));
-        assert_eq!(db_batch.orders_root, Some(orders_root));
-        assert_eq!(db_batch.groth16_proof_id, g16_proof_id);
+        assert_eq!(db_batch.aggregation_state.unwrap().groth16_proof_id.unwrap(), g16_proof_id);
     }
 
     #[sqlx::test]
@@ -1355,22 +1335,45 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let order_id = U256::from(1);
-        let expire_block = 20;
+        let agg_proofs = [
+            AggregationOrder {
+                proof_id: "a".to_string(),
+                order_id: U256::from(11),
+                expire_block: 20,
+                fee: U256::from(5),
+            },
+            AggregationOrder {
+                proof_id: "b".to_string(),
+                order_id: U256::from(12),
+                expire_block: 25,
+                fee: U256::from(10),
+            },
+        ];
+        let agg_state = AggregationState {
+            guest_state: GuestState::initial(Digest::ZERO),
+            proof_id: "c".to_string(),
+            claim_digests: vec![[1u32; 8].into(), [2u32; 8].into()],
+            groth16_proof_id: Some("d".to_string()),
+        };
 
         let base_fees = U256::from(10);
-        let new_fees = U256::from(5);
         let mut batch = Batch::default();
         batch.start_time = Utc::now();
         batch.block_deadline = Some(100);
         batch.fees = base_fees;
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
-        db.update_batch(batch_id, order_id, expire_block, new_fees).await.unwrap();
+        db.update_batch(batch_id, &agg_state, &agg_proofs, Some(Digest::ZERO)).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
-        assert_eq!(db_batch.orders, vec![order_id]);
-        assert_eq!(db_batch.block_deadline, Some(expire_block));
-        assert_eq!(db_batch.fees, base_fees + new_fees);
+        assert_eq!(db_batch.orders, vec![U256::from(11), U256::from(12)]);
+        assert_eq!(db_batch.block_deadline, Some(20));
+        assert_eq!(db_batch.fees, U256::from(25));
+        assert!(db_batch.aggregation_state.is_some());
+        let agg_state = db_batch.aggregation_state.unwrap();
+        assert_eq!(agg_state.groth16_proof_id.as_ref(), Some(&"d".to_string()));
+        assert!(agg_state.guest_state.is_initial());
+        assert_eq!(&agg_state.proof_id, "c");
+        assert_eq!(&agg_state.claim_digests, &[[1u32; 8].into(), [2u32; 8].into()]);
     }
 }

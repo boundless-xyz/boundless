@@ -20,7 +20,7 @@ use std::str::FromStr;
 use alloy::{
     contract::Error as ContractErr,
     primitives::{PrimitiveSignature, SignatureError},
-    signers::{Signature, Signer},
+    signers::Signer,
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
@@ -324,7 +324,7 @@ impl ProofRequest {
         contract_addr: Address,
         chain_id: u64,
     ) -> Result<(), RequestError> {
-        let sig = Signature::try_from(signature.as_ref())?;
+        let sig = PrimitiveSignature::try_from(signature.as_ref())?;
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         let addr = sig.recover_address_from_prehash(&hash)?;

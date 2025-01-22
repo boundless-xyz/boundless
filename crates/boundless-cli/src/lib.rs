@@ -23,8 +23,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
-    merkle_path, GuestInput, GuestOutput, SetInclusionReceipt,
-    SetInclusionReceiptVerifierParameters,
+    merkle_path, GuestInput, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
 use risc0_ethereum_contracts::encode_seal;
 use risc0_zkvm::{
@@ -64,6 +63,8 @@ impl OrderFulfilled {
         assessor_receipt: SetInclusionReceipt<ReceiptClaim>,
         prover: Address,
     ) -> Result<Self> {
+        todo!("TODO(mmr)")
+        /*
         let root = <GuestOutput>::abi_decode(&root_receipt.journal.bytes, true)?.root();
         let root_seal = encode_seal(&root_receipt)?;
         let assessor_seal = assessor_receipt.abi_encode_seal()?;
@@ -75,6 +76,7 @@ impl OrderFulfilled {
             assessorSeal: assessor_seal.into(),
             prover,
         })
+        */
     }
 }
 
@@ -174,7 +176,9 @@ impl DefaultProver {
     //       that the join is the last operation in the set builder, and so we use the
     //       [ProverOpts::groth16] options.
     pub(crate) async fn join(&self, left: Receipt, right: Receipt) -> Result<Receipt> {
-        let left_output = <GuestOutput>::abi_decode(&left.journal.bytes, true)?;
+        todo!("TODO(mmr)")
+        /*
+        let left_output = <GuestState>::abi_decode(&left.journal.bytes, true)?;
         let right_output = <GuestOutput>::abi_decode(&right.journal.bytes, true)?;
         let input = GuestInput::Join {
             self_image_id: self.set_builder_image_id,
@@ -189,10 +193,13 @@ impl DefaultProver {
             ProverOpts::groth16(),
         )
         .await
+        */
     }
 
     // Proves a singleton set.
     pub(crate) async fn singleton(&self, receipt: Receipt) -> Result<Receipt> {
+        todo!("TODO(mmr)")
+        /*
         let claim = receipt.inner.claim()?.value()?;
         let input = GuestInput::Singleton { self_image_id: self.set_builder_image_id, claim };
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
@@ -203,6 +210,7 @@ impl DefaultProver {
             ProverOpts::succinct(),
         )
         .await
+        */
     }
 
     // Proves the assessor.

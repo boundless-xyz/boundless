@@ -214,15 +214,32 @@ enum BatchStatus {
     Failed,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct AggregationState {
+    pub guest_state: risc0_aggregation::GuestState,
+    /// All claim digests in this aggregation.
+    /// This collection can be used to construct the aggregation Merkle tree and Merkle paths.
+    pub claim_digests: Vec<Digest>,
+    /// Proof ID for the STARK proof that compresses the root of the aggregation tree.
+    pub proof_id: String,
+    /// Proof ID for the Groth16 proof that compresses the root of the aggregation tree.
+    pub groth16_proof_id: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Default, Clone)]
 struct Batch {
     pub status: BatchStatus,
+    /// Orders from the market that are included in this batch.
     pub orders: Vec<U256>,
-    pub root: Option<Digest>,
-    pub orders_root: Option<Digest>,
-    pub groth16_proof_id: String,
+    pub assessor_claim_digest: Digest,
+    /// Tuple of the current aggregation state, as committed by the set builder guest, and the
+    /// proof ID for the receipt that attests to the correctness of this state.
+    pub aggregation_state: Option<AggregationState>,
+    /// When the batch was initially created.
     pub start_time: DateTime<Utc>,
+    /// The deadline for the batch, which is the earliest deadline for any order in the batch.
     pub block_deadline: Option<u64>,
+    /// The total fees for the batch, which is the sum of fees from all orders.
     pub fees: U256,
     pub error_msg: Option<String>,
 }

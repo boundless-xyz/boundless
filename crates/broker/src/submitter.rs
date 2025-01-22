@@ -11,7 +11,7 @@ use alloy::{
     sol_types::SolStruct,
     transports::BoxTransport,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use boundless_market::contracts::{
     boundless_market::BoundlessMarketService, encode_seal, set_verifier::SetVerifierService,
     Fulfillment,
@@ -105,8 +105,9 @@ where
         tracing::info!("Submitting batch {batch_id}");
 
         // Collect the needed parts for the new merkle root:
-        let batch_seal = self.fetch_encode_g16(&batch.groth16_proof_id).await?;
-        let batch_root = batch.root.context("Batch missing root digest")?;
+        let groth16_proof_id = batch.aggregation_state.as_ref().map(|s| s.groth16_proof_id.clone()).flatten().context("Batch missing groth16_proof_id")?;
+        let batch_seal = self.fetch_encode_g16(&groth16_proof_id).await?;
+        let batch_root: Digest = todo!("TODO(mmr) compute root from agg state");
         let root = B256::from_slice(batch_root.as_bytes());
 
         // Collect the needed parts for the fulfillBatch:
@@ -198,7 +199,7 @@ where
             });
         }
 
-        let orders_root = batch.orders_root.context("Batch missing orders root digest")?;
+        let orders_root = todo!("TODO(mmr): compute these from the agg state");
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
             // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
             // derived from the claim. So instead of constructing the journal, we simply use the
@@ -364,7 +365,7 @@ mod tests {
     use crate::{
         db::SqliteDb,
         provers::{encode_input, MockProver},
-        Batch, BatchStatus, Order, OrderStatus,
+        AggregationState, Batch, BatchStatus, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
@@ -372,7 +373,6 @@ mod tests {
         primitives::{B256, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
-        sol_types::SolValue,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
@@ -386,7 +386,7 @@ mod tests {
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use risc0_aggregation::{GuestInput, GuestOutput};
+    use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
@@ -492,25 +492,6 @@ mod tests {
             .unwrap()
             .as_bytes();
 
-        let set_builder_input = prover
-            .upload_input(
-                encode_input(&GuestInput::Singleton {
-                    self_image_id: set_builder_id,
-                    claim: echo_receipt.claim().unwrap().as_value().unwrap().clone(),
-                })
-                .unwrap(),
-            )
-            .await
-            .unwrap();
-        let echo_singleton = prover
-            .prove_and_monitor_stark(
-                &set_builder_id_str,
-                &set_builder_input,
-                vec![echo_proof.id.clone()],
-            )
-            .await
-            .unwrap();
-
         let assessor_input = prover
             .upload_input(
                 AssessorInput {
@@ -518,7 +499,7 @@ mod tests {
                     fills: vec![Fulfillment {
                         request: order_request.clone(),
                         signature: client_sig.into(),
-                        journal: echo_receipt.journal.bytes,
+                        journal: echo_receipt.journal.bytes.clone(),
                         require_payment: true,
                     }],
                     prover_address: prover_addr,
@@ -534,54 +515,37 @@ mod tests {
             .unwrap();
         let assessor_receipt = prover.get_receipt(&assessor_proof.id).await.unwrap().unwrap();
 
+        // Build and finalize the aggregation in one execution.
         let set_builder_input = prover
             .upload_input(
-                encode_input(&GuestInput::Singleton {
-                    self_image_id: set_builder_id,
-                    claim: assessor_receipt.claim().unwrap().as_value().unwrap().clone(),
-                })
+                encode_input(
+                    &GuestState::initial(set_builder_id)
+                        .into_input(
+                            vec![
+                                echo_receipt.claim().unwrap().value().unwrap(),
+                                assessor_receipt.claim().unwrap().value().unwrap(),
+                            ],
+                            true,
+                        )
+                        .unwrap(),
+                )
                 .unwrap(),
             )
             .await
             .unwrap();
 
-        let assessor_singleton = prover
+        let aggregation_proof = prover
             .prove_and_monitor_stark(
                 &set_builder_id_str,
                 &set_builder_input,
-                vec![assessor_proof.id.clone()],
+                vec![echo_proof.id.clone(), assessor_proof.id.clone()],
             )
             .await
             .unwrap();
-        let assessor_singleton_journal =
-            prover.get_journal(&assessor_singleton.id).await.unwrap().unwrap();
-        let assessor_output = GuestOutput::abi_decode(&assessor_singleton_journal, false).unwrap();
 
-        let singleton_journal = prover.get_journal(&echo_singleton.id).await.unwrap().unwrap();
-        let tree_output = GuestOutput::abi_decode(&singleton_journal, false).unwrap();
-
-        let join_input = prover
-            .upload_input(
-                encode_input(&GuestInput::Join {
-                    self_image_id: set_builder_id,
-                    left_set_root: tree_output.root(),
-                    right_set_root: assessor_output.root(),
-                })
-                .unwrap(),
-            )
-            .await
-            .unwrap();
-        let batch_root_proof = prover
-            .prove_and_monitor_stark(
-                &set_builder_id_str,
-                &join_input,
-                vec![echo_singleton.id.clone(), assessor_singleton.id.clone()],
-            )
-            .await
-            .unwrap();
-        let batch_g16 = prover.compress(&batch_root_proof.id).await.unwrap();
-        let batch_journal = prover.get_journal(&batch_root_proof.id).await.unwrap().unwrap();
-        let batch_output = GuestOutput::abi_decode(&batch_journal, false).unwrap();
+        let batch_g16 = prover.compress(&aggregation_proof.id).await.unwrap();
+        let batch_journal = prover.get_journal(&aggregation_proof.id).await.unwrap().unwrap();
+        let batch_guest_state = GuestState::decode(&batch_journal).unwrap();
 
         let order = Order {
             status: OrderStatus::PendingSubmission,
@@ -592,7 +556,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(echo_proof.id.clone()),
             expire_block: Some(100),
-            path: Some(vec![assessor_output.root()]),
+            path: Some(vec![assessor_receipt.claim().unwrap().digest()]),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),
             error_msg: None,
@@ -603,17 +567,23 @@ mod tests {
         let batch_id = 0;
         let batch = Batch {
             status: BatchStatus::Complete,
-            root: Some(batch_output.root()),
-            orders_root: Some(tree_output.root()),
+            assessor_claim_digest: assessor_receipt.claim().unwrap().digest(),
             orders: vec![order_id],
-            groth16_proof_id: batch_g16,
             fees: U256::ZERO,
             start_time: Utc::now(),
             block_deadline: Some(
                 order.request.offer.biddingStart + order.request.offer.timeout as u64,
             ),
             error_msg: None,
-            peaks: vec![],
+            aggregation_state: Some(AggregationState {
+                guest_state: batch_guest_state,
+                proof_id: aggregation_proof.id,
+                groth16_proof_id: Some(batch_g16),
+                claim_digests: vec![
+                    echo_receipt.claim().unwrap().digest(),
+                    assessor_receipt.claim().unwrap().digest(),
+                ],
+            }),
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
