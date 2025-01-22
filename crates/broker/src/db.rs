@@ -76,7 +76,7 @@ pub trait BrokerDb {
     async fn get_submission_order(
         &self,
         id: U256,
-    ) -> Result<(ProofRequest, String, B256, Vec<Digest>, U256), DbError>;
+    ) -> Result<(ProofRequest, String, B256, U256), DbError>;
     async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
@@ -221,14 +221,13 @@ impl BrokerDb for SqliteDb {
     async fn get_submission_order(
         &self,
         id: U256,
-    ) -> Result<(ProofRequest, String, B256, Vec<Digest>, U256), DbError> {
+    ) -> Result<(ProofRequest, String, B256, U256), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             Ok((
                 order.request.clone(),
                 order.proof_id.ok_or(DbError::MissingElm("proof_id"))?,
                 order.request.requirements.imageId,
-                order.path.ok_or(DbError::MissingElm("path"))?,
                 order.lock_price.ok_or(DbError::MissingElm("lock_price"))?,
             ))
         } else {
@@ -822,6 +821,26 @@ impl BrokerDb for SqliteDb {
             if res.rows_affected() == 0 {
                 return Err(DbError::BatchNotFound(batch_id));
             }
+
+            let res = sqlx::query(
+                r#"
+                UPDATE orders
+                SET data = json_set(
+                           json_set(data,
+                           '$.status', $1),
+                           '$.updated_at', $2)
+                WHERE
+                    id = $3"#,
+            )
+            .bind(OrderStatus::PendingSubmission)
+            .bind(Utc::now().timestamp())
+            .bind(format!("{:x}", order.order_id))
+            .execute(&mut *txn)
+            .await?;
+
+            if res.rows_affected() == 0 {
+                return Err(DbError::OrderNotFound(order.order_id));
+            }
         }
 
         if let Some(assessor_claim_digest) = assessor_claim_digest {
@@ -886,7 +905,6 @@ mod tests {
         Input, InputType, Offer, Predicate, PredicateType, Requirements,
     };
     use risc0_aggregation::GuestState;
-    use risc0_zkvm::sha::DIGEST_WORDS;
 
     fn create_order() -> Order {
         Order {
@@ -918,7 +936,6 @@ mod tests {
             input_id: None,
             proof_id: None,
             expire_block: None,
-            path: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,
@@ -966,7 +983,6 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
         let mut order = create_order();
-        order.path = Some(vec![Digest::default()]);
         order.proof_id = Some("test".to_string());
         order.lock_price = Some(U256::from(10));
         db.add_order(id, order.clone()).await.unwrap();
@@ -975,8 +991,7 @@ mod tests {
         assert_eq!(submit_order.0, order.request);
         assert_eq!(submit_order.1, order.proof_id.unwrap());
         assert_eq!(submit_order.2, order.request.requirements.imageId);
-        assert_eq!(submit_order.3, order.path.unwrap());
-        assert_eq!(submit_order.4, order.lock_price.unwrap());
+        assert_eq!(submit_order.3, order.lock_price.unwrap());
     }
 
     #[sqlx::test]
@@ -1347,6 +1362,13 @@ mod tests {
         // sqlx::migrate!("./migrations").run(&tmp_pool).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        db.add_order(U256::from(11), Order::new(Default::default(), Default::default()))
+            .await
+            .unwrap();
+        db.add_order(U256::from(12), Order::new(Default::default(), Default::default()))
+            .await
+            .unwrap();
 
         let batch_id = 1;
         let agg_proofs = [

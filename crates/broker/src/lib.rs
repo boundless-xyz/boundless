@@ -173,10 +173,6 @@ struct Order {
     ///
     /// Populated during order picking
     expire_block: Option<u64>,
-    /// Order merkle inclusion path
-    ///
-    /// Populated after batch including order completes
-    path: Option<Vec<Digest>>,
     /// Client Signature
     client_sig: Bytes,
     /// Price the lockin was set at
@@ -196,7 +192,6 @@ impl Order {
             input_id: None,
             proof_id: None,
             expire_block: None,
-            path: None,
             client_sig,
             lock_price: None,
             error_msg: None,
@@ -223,6 +218,7 @@ struct AggregationState {
     /// Proof ID for the STARK proof that compresses the root of the aggregation tree.
     pub proof_id: String,
     /// Proof ID for the Groth16 proof that compresses the root of the aggregation tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub groth16_proof_id: Option<String>,
 }
 
@@ -231,16 +227,20 @@ struct Batch {
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.
     pub orders: Vec<U256>,
-    pub assessor_claim_digest: Digest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assessor_claim_digest: Option<Digest>,
     /// Tuple of the current aggregation state, as committed by the set builder guest, and the
     /// proof ID for the receipt that attests to the correctness of this state.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregation_state: Option<AggregationState>,
     /// When the batch was initially created.
     pub start_time: DateTime<Utc>,
     /// The deadline for the batch, which is the earliest deadline for any order in the batch.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub block_deadline: Option<u64>,
     /// The total fees for the batch, which is the sum of fees from all orders.
     pub fees: U256,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_msg: Option<String>,
 }
 

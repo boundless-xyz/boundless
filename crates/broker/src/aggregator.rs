@@ -247,6 +247,7 @@ where
     /// Checks current min-deadline, batch timer, and current block.
     async fn check_finalize(
         &mut self,
+        batch_id: usize,
         batch: &Batch,
         pending_orders: &[AggregationOrder],
     ) -> Result<bool> {
@@ -272,10 +273,21 @@ where
 
         // Finalize the batch whenever it exceeds a target size.
         // Add any pending jobs into the batch along with the finalization run.
+        let batch_size = batch.orders.len() + pending_orders.len();
         if let Some(batch_target_size) = conf_batch_size {
-            if batch.orders.len() + pending_orders.len() >= batch_target_size as usize {
-                tracing::info!("Batch size target hit, finalizing");
+            if batch_size >= batch_target_size as usize {
+                tracing::info!(
+                    "Finalizing batch {batch_id}: size target hit {} - {}",
+                    batch_size,
+                    batch_target_size
+                );
                 return Ok(true);
+            } else {
+                tracing::debug!(
+                    "Batch {batch_id} below size target hit {} - {}",
+                    batch_size,
+                    batch_target_size
+                );
             }
         }
 
@@ -284,32 +296,45 @@ where
             let time_delta = Utc::now() - batch.start_time;
             if time_delta.num_seconds() as u64 >= batch_time {
                 tracing::info!(
-                    "Batch time limit hit {} - {}, finalizing",
+                    "Finalizing batch {batch_id}: time limit hit {} - {}",
                     time_delta.num_seconds(),
                     batch.start_time
                 );
                 return Ok(true);
+            } else {
+                tracing::debug!("Batch {batch_id} below time limit");
             }
         }
 
         // Finalize whenever a batch hits the target fee total.
-        // TODO(mmr): Count the pending orders towards the target.
         if let Some(batch_target_fees) = conf_batch_fees {
-            if batch.fees >= batch_target_fees {
-                tracing::info!("Batch fee target hit, finalizing");
+            let fees = pending_orders
+                .iter()
+                .map(|order| order.fee)
+                .fold(batch.fees, |sum, fee| sum + fee);
+
+            if fees >= batch_target_fees {
+                tracing::info!("Finalizing batch {batch_id}: fee target hit");
                 return Ok(true);
+            } else {
+                tracing::debug!("Batch {batch_id} below fee target");
             }
         }
 
         // Finalize whenever a deadline is approaching.
-        // TODO(mmr): Count the pending orders towards the deadline.
         let conf_block_deadline_buf = {
             let config = self.config.lock_all().context("Failed to lock config")?;
             config.batcher.block_deadline_buffer_secs
         };
         let block_number = self.chain_monitor.current_block_number().await?;
 
-        if let Some(block_deadline) = batch.block_deadline {
+        let block_deadline = pending_orders
+            .iter()
+            .map(|order| order.expire_block)
+            .chain(batch.block_deadline)
+            .reduce(|min, exp| u64::min(min, exp));
+
+        if let Some(block_deadline) = block_deadline {
             let remaining_secs = (block_deadline - block_number) * self.block_time;
             let buffer_secs = conf_block_deadline_buf;
             // tracing::info!(
@@ -322,11 +347,15 @@ where
             // );
 
             if remaining_secs <= buffer_secs {
-                tracing::info!("Batch getting close to deadline {remaining_secs}, finalizing");
+                tracing::info!(
+                    "Finalizing batch {batch_id}: getting close to deadline {remaining_secs}"
+                );
                 return Ok(true);
+            } else {
+                tracing::debug!("Batch {batch_id} not too close to deadline {remaining_secs}");
             }
         } else {
-            tracing::warn!("batch does not yet have a block_deadline");
+            tracing::warn!("Batch {batch_id} does not yet have a block_deadline");
         };
 
         Ok(false)
@@ -352,7 +381,7 @@ where
 
         // Finalize the current batch before adding any new orders if the finalization conditions
         // are already met.
-        let finalize = self.check_finalize(&batch, &new_proofs).await?;
+        let finalize = self.check_finalize(batch_id, &batch, &new_proofs).await?;
 
         // If we don't need to finalize, and there are no new proofs, there is no work to do.
         if !finalize && new_proofs.is_empty() {
@@ -368,13 +397,13 @@ where
                 batch.orders.iter().copied().chain(new_proofs.iter().map(|p| p.order_id)).collect();
 
             tracing::debug!(
-                "Running assessor for {batch_id} with orders {:x?}",
+                "Running assessor for batch {batch_id} with orders {:x?}",
                 assessor_order_ids
             );
 
             let assessor_proof_id =
                 self.prove_assessor(&assessor_order_ids).await.with_context(|| {
-                    format!("Failed to prove assessor with orders {:?}", assessor_order_ids)
+                    format!("Failed to prove assessor with orders {:x?}", assessor_order_ids)
                 })?;
 
             Some(assessor_proof_id)
@@ -426,7 +455,7 @@ where
                 .compress(&aggregation_state.proof_id)
                 .await
                 .context("Failed to complete compression")?;
-            tracing::info!("Completed groth16 compression");
+            tracing::info!("Completed groth16 compression for batch {batch_id}");
 
             self.db
                 .complete_batch(batch_id, compress_proof_id)
@@ -475,7 +504,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Keccak256, B256, U256},
+        primitives::{B256, U256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -486,61 +515,6 @@ mod tests {
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
     use tracing_test::traced_test;
-
-    /* TODO(victor)
-    #[tokio::test]
-    #[traced_test]
-    async fn set_order_path() {
-        fn check_merkle_path(n: u8) {
-            let mut leaves = Vec::new();
-            for i in 0..n {
-                let order_id: u32 = (i + 1).into();
-                leaves.push(Node::singleton(i.to_string(), U256::from(order_id), [i; 32].into()));
-            }
-
-            // compute the Merkle root
-            fn hash(a: Digest, b: Digest) -> Digest {
-                let mut h = Keccak256::new();
-                if a < b {
-                    h.update(a);
-                    h.update(b);
-                } else {
-                    h.update(b);
-                    h.update(a);
-                }
-                h.finalize().0.into()
-            }
-            fn merkle_root(set: &[Node]) -> Node {
-                match set {
-                    [] => unreachable!(),
-                    [n] => n.clone(),
-                    _ => {
-                        let (a, b) = set.split_at(set.len().next_power_of_two() / 2);
-                        let (left, right) = (merkle_root(a), merkle_root(b));
-                        let digest = hash(left.root(), right.root());
-                        Node::join("join".to_string(), left.height() + 1, left, right, digest)
-                    }
-                }
-            }
-            let exp_root = merkle_root(&leaves);
-
-            // verify Merkle path
-
-            let mut outputs = vec![];
-            exp_root.get_order_paths(vec![], &mut outputs).unwrap();
-            for (i, (_order_id, path)) in outputs.into_iter().enumerate() {
-                let root = path.into_iter().fold([i as u8; 32].into(), hash);
-                assert_eq!(root, exp_root.root());
-            }
-        }
-
-        check_merkle_path(1);
-        check_merkle_path(2);
-        check_merkle_path(5);
-        check_merkle_path(128);
-        check_merkle_path(255);
-    }
-    */
 
     #[tokio::test]
     #[traced_test]
@@ -599,9 +573,9 @@ mod tests {
 
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
         let chain_id = provider.get_chain_id().await.unwrap();
-
         let min_price = 2;
-        // Order 0
+
+        // First order
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
@@ -630,18 +604,6 @@ mod tests {
             .unwrap()
             .as_bytes();
 
-        // let signature = alloy::signers::Signature::try_from(client_sig.as_slice()).unwrap();
-        // use alloy::sol_types::SolStruct;
-        // let recovered = signature
-        //     .recover_address_from_prehash(&order_request.eip712_signing_hash(
-        //         &boundless_market::contracts::eip712_domain(
-        //             Address::ZERO,
-        //             provider.get_chain_id().await.unwrap(),
-        //         ),
-        //     ))
-        //     .unwrap();
-        // assert_eq!(recovered, customer_signer.address());
-
         let order = Order {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
@@ -651,7 +613,6 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
             expire_block: Some(100),
-            path: None,
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -659,7 +620,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        // Order 1
+        // Second order
         let order_request = ProofRequest::new(
             1,
             &customer_signer.address(),
@@ -697,7 +658,6 @@ mod tests {
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
             expire_block: Some(100),
-            path: None,
             client_sig,
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -810,7 +770,6 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             expire_block: Some(100),
-            path: None,
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -924,7 +883,6 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             expire_block: Some(100),
-            path: None,
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -942,6 +900,6 @@ mod tests {
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
         assert!(!batch.orders.is_empty());
         assert_eq!(batch.status, BatchStatus::PendingSubmission);
-        assert!(logs_contain("Batch getting close to deadline"));
+        assert!(logs_contain("getting close to deadline"));
     }
 }

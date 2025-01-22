@@ -11,7 +11,7 @@ use alloy::{
     sol_types::SolStruct,
     transports::BoxTransport,
 };
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
     boundless_market::BoundlessMarketService, encode_seal, set_verifier::SetVerifierService,
     Fulfillment,
@@ -104,10 +104,24 @@ where
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<()> {
         tracing::info!("Submitting batch {batch_id}");
 
+        let Some(ref aggregation_state) = batch.aggregation_state else {
+            bail!("Cannot submit batch with no recorded aggregation state");
+        };
+        let Some(ref groth16_proof_id) = aggregation_state.groth16_proof_id else {
+            bail!("Cannot submit batch with no recorded Groth16 proof ID");
+        };
+        ensure!(
+            !aggregation_state.claim_digests.is_empty(),
+            "Cannot submit batch with no claim digests"
+        );
+        ensure!(
+            batch.assessor_claim_digest.is_some(),
+            "Cannot submit batch with no assessor claim digest"
+        );
+
         // Collect the needed parts for the new merkle root:
-        let groth16_proof_id = batch.aggregation_state.as_ref().map(|s| s.groth16_proof_id.clone()).flatten().context("Batch missing groth16_proof_id")?;
-        let batch_seal = self.fetch_encode_g16(&groth16_proof_id).await?;
-        let batch_root: Digest = todo!("TODO(mmr) compute root from agg state");
+        let batch_seal = self.fetch_encode_g16(groth16_proof_id).await?;
+        let batch_root: Digest = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
         // Collect the needed parts for the fulfillBatch:
@@ -120,93 +134,80 @@ where
         for order_id in batch.orders.iter() {
             tracing::info!("Submitting order {order_id:x}");
 
-            let (order_request, order_proof_id, order_img_id, order_path, lock_price) = match self
-                .db
-                .get_submission_order(*order_id)
-                .await
-            {
-                Ok(res) => res,
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to order {order_id:x} path from DB, order NOT finalized: {err:?}"
-                    );
-                    if let Err(db_err) =
-                        self.db.set_order_failure(*order_id, format!("{err:?}")).await
-                    {
-                        tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
-                        continue;
-                    }
-                    continue;
-                }
+            let res = async {
+                let (order_request, order_proof_id, order_img_id, lock_price) =
+                    self.db.get_submission_order(*order_id).await.context(
+                        "Failed to get order from DB for submission, order NOT finalized",
+                    )?;
+
+                order_prices.insert(order_id, lock_price);
+
+                let order_journal = self
+                    .prover
+                    .get_journal(&order_proof_id)
+                    .await
+                    .context("Failed to get order journal from prover")?
+                    .context("Order proof Journal missing")?;
+
+                // NOTE: We assume here that the order execution ended with exit code 0.
+                let order_claim =
+                    ReceiptClaim::ok(order_img_id.0, MaybePruned::Pruned(order_journal.digest()));
+                let order_claim_index = aggregation_state
+                    .claim_digests
+                    .iter()
+                    .position(|claim| *claim == order_claim.digest())
+                    .ok_or(anyhow!(
+                        "Failed to find order claim {order_claim:x?} in aggregated claims"
+                    ))?;
+                let order_path = risc0_aggregation::merkle_path(
+                    &aggregation_state.claim_digests,
+                    order_claim_index,
+                );
+                tracing::debug!("Order path for order {order_id:x} : {order_path:x?}");
+                let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+                    order_claim,
+                    order_path,
+                    inclusion_params.digest(),
+                );
+                let seal =
+                    set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?;
+
+                let request_digest = order_request
+                    .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
+                fulfillments.push(Fulfillment {
+                    id: *order_id,
+                    requestDigest: request_digest,
+                    imageId: order_img_id,
+                    journal: order_journal.into(),
+                    seal: seal.into(),
+                    requirePayment: true,
+                });
+                anyhow::Ok(())
             };
 
-            order_prices.insert(order_id, lock_price);
-
-            let order_journal = match self.prover.get_journal(&order_proof_id).await {
-                Ok(res) => res,
-                Err(err) => {
-                    tracing::error!("Failed to order journal {order_id:x} from prover: {err:?}");
-                    if let Err(db_err) =
-                        self.db.set_order_failure(*order_id, format!("{err:?}")).await
-                    {
-                        tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
-                    }
-                    continue;
-                }
-            };
-
-            let Some(order_journal) = order_journal else {
-                tracing::error!("Order proof Journal missing");
-                if let Err(db_err) =
-                    self.db.set_order_failure(*order_id, "Order proof Journal missing".into()).await
-                {
+            if let Err(err) = res.await {
+                tracing::error!("Failed to submit {order_id:x}: {err}");
+                if let Err(db_err) = self.db.set_order_failure(*order_id, err.to_string()).await {
                     tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
                 }
-                continue;
-            };
-
-            tracing::debug!("Order path {order_id:x} - {order_path:x?}");
-            let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
-                ReceiptClaim::ok(order_img_id.0, MaybePruned::Pruned(order_journal.digest())),
-                order_path,
-                inclusion_params.digest(),
-            );
-            let seal = match set_inclusion_receipt
-                .abi_encode_seal()
-                .context("ABI encode set inclusion receipt")
-            {
-                Ok(seal) => seal,
-                Err(err) => {
-                    tracing::error!("Failed to encode seal for {order_id:x}: {err:?}");
-                    if let Err(db_err) =
-                        self.db.set_order_failure(*order_id, format!("{err:?}")).await
-                    {
-                        tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
-                    }
-                    continue;
-                }
-            };
-
-            let request_digest = order_request
-                .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
-            fulfillments.push(Fulfillment {
-                id: *order_id,
-                requestDigest: request_digest,
-                imageId: order_img_id,
-                journal: order_journal.into(),
-                seal: seal.into(),
-                requirePayment: true,
-            });
+            }
         }
 
-        let orders_root = todo!("TODO(mmr): compute these from the agg state");
+        let assessor_claim_index = aggregation_state
+            .claim_digests
+            .iter()
+            .position(|claim| *claim == batch.assessor_claim_digest.unwrap())
+            .ok_or(anyhow!("Failed to find order claim assessor claim in aggregated claims"))?;
+        let assessor_path =
+            risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
+
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
             // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
             // should make an explicit way to encode an inclusion proof without the claim.
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
-            vec![orders_root],
+            assessor_path,
             inclusion_params.digest(),
         );
         let assessor_seal =
@@ -556,7 +557,6 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(echo_proof.id.clone()),
             expire_block: Some(100),
-            path: Some(vec![assessor_receipt.claim().unwrap().digest()]),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),
             error_msg: None,
@@ -567,7 +567,7 @@ mod tests {
         let batch_id = 0;
         let batch = Batch {
             status: BatchStatus::Complete,
-            assessor_claim_digest: assessor_receipt.claim().unwrap().digest(),
+            assessor_claim_digest: Some(assessor_receipt.claim().unwrap().digest()),
             orders: vec![order_id],
             fees: U256::ZERO,
             start_time: Utc::now(),
