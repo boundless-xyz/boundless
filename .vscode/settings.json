@@ -11,7 +11,7 @@
     "--target-dir=target/analyzer"
   ],
   "rust-analyzer.linkedProjects": [
-    "bento/Cargo.toml", 
+    "./bento/Cargo.toml", 
     "./Cargo.toml",
     "./crates/guest/assessor/Cargo.toml",
     "./crates/guest/assessor/assessor-guest/Cargo.toml",
