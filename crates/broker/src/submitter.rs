@@ -95,8 +95,6 @@ where
         let groth16_receipt: Receipt =
             bincode::deserialize(&groth16_receipt).context("Failed to deserialize g16 receipt")?;
 
-        tracing::debug!("B: {}", groth16_receipt.claim().unwrap().digest());
-
         let encoded_seal =
             encode_seal(&groth16_receipt).context("Failed to encode g16 receipt seal")?;
 
@@ -133,12 +131,6 @@ where
         ensure!(
             aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
             "Guest state finalized root is inconsistent with claim digests"
-        );
-        tracing::debug!("A0: {}", batch_root);
-        tracing::debug!("A1: {}", alloy::hex::encode(&aggregation_state.guest_state.encode()));
-        tracing::debug!(
-            "A2: {}",
-            risc0_zkvm::sha::Impl::hash_bytes(&aggregation_state.guest_state.encode())
         );
 
         // Collect the needed parts for the fulfillBatch:
