@@ -308,10 +308,8 @@ where
 
         // Finalize whenever a batch hits the target fee total.
         if let Some(batch_target_fees) = conf_batch_fees {
-            let fees = pending_orders
-                .iter()
-                .map(|order| order.fee)
-                .fold(batch.fees, |sum, fee| sum + fee);
+            let fees =
+                pending_orders.iter().map(|order| order.fee).fold(batch.fees, |sum, fee| sum + fee);
 
             if fees >= batch_target_fees {
                 tracing::info!("Finalizing batch {batch_id}: fee target hit");
@@ -385,7 +383,7 @@ where
 
         // If we don't need to finalize, and there are no new proofs, there is no work to do.
         if !finalize && new_proofs.is_empty() {
-            tracing::debug!("No aggregation work to do for {batch_id}");
+            tracing::debug!("No aggregation work to do for batch {batch_id}");
             return Ok(());
         }
 
@@ -431,13 +429,13 @@ where
                 .prover
                 .get_receipt(&proof_id)
                 .await
-                .with_context(|| format!("Failed to get proof receipt for {proof_id}"))?
-                .with_context(|| format!("Proof receipt not found for {proof_id}"))?;
+                .with_context(|| format!("Failed to get proof receipt for proof {proof_id}"))?
+                .with_context(|| format!("Proof receipt not found for proof {proof_id}"))?;
             let claim = receipt
                 .claim()
-                .with_context(|| format!("Receipt for {proof_id} missing claim"))?
+                .with_context(|| format!("Receipt for proof {proof_id} missing claim"))?
                 .value()
-                .with_context(|| format!("Receipt for {proof_id} claims pruned"))?;
+                .with_context(|| format!("Receipt for proof {proof_id} claims pruned"))?;
             Some(claim.digest())
         } else {
             None

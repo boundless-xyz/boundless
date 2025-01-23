@@ -598,16 +598,6 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
 }
 
 #[cfg(not(target_os = "zkvm"))]
-impl IBoundlessMarketErrors {
-    pub(crate) fn decode_error(err: ContractErr) -> TxnErr {
-        match decode_contract_err(err) {
-            Ok(res) => TxnErr::BoundlessMarketErr(res),
-            Err(decode_err) => decode_err,
-        }
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
 impl IHitPointsErrors {
     pub(crate) fn decode_error(err: ContractErr) -> TxnErr {
         match decode_contract_err(err) {

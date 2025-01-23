@@ -19,7 +19,7 @@ use boundless_market::contracts::{
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_zkvm::{
-    sha::{Digest, Digestible},
+    sha::{Digest, Digestible, Sha256},
     MaybePruned, Receipt, ReceiptClaim,
 };
 
@@ -95,6 +95,8 @@ where
         let groth16_receipt: Receipt =
             bincode::deserialize(&groth16_receipt).context("Failed to deserialize g16 receipt")?;
 
+        tracing::debug!("B: {}", groth16_receipt.claim().unwrap().digest());
+
         let encoded_seal =
             encode_seal(&groth16_receipt).context("Failed to encode g16 receipt seal")?;
 
@@ -118,11 +120,23 @@ where
             batch.assessor_claim_digest.is_some(),
             "Cannot submit batch with no assessor claim digest"
         );
+        ensure!(
+            aggregation_state.guest_state.mmr.is_finalized(),
+            "Cannot submit guest state that is not finalized"
+        );
 
         // Collect the needed parts for the new merkle root:
         let batch_seal = self.fetch_encode_g16(groth16_proof_id).await?;
         let batch_root: Digest = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
+
+        ensure!(
+            aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
+            "Guest state finalized root is inconsistent with claim digests"
+        );
+        tracing::debug!("A0: {}", batch_root);
+        tracing::debug!("A1: {}", alloy::hex::encode(&aggregation_state.guest_state.encode()));
+        tracing::debug!("A2: {}", risc0_zkvm::sha::Impl::hash_bytes(&aggregation_state.guest_state.encode()));
 
         // Collect the needed parts for the fulfillBatch:
         let inclusion_params =
@@ -163,7 +177,10 @@ where
                     &aggregation_state.claim_digests,
                     order_claim_index,
                 );
-                tracing::debug!("Order path for order {order_id:x} : {order_path:x?}");
+                tracing::debug!(
+                    "Merkle path for order {order_id:x} : {:x?} : {order_path:x?}",
+                    order_claim.digest()
+                );
                 let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                     order_claim,
                     order_path,
@@ -200,6 +217,10 @@ where
             .ok_or(anyhow!("Failed to find order claim assessor claim in aggregated claims"))?;
         let assessor_path =
             risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
+        tracing::debug!(
+            "Merkle path for assessor : {:x?} : {assessor_path:x?}",
+            batch.assessor_claim_digest
+        );
 
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
             // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
@@ -230,7 +251,7 @@ where
                 )
                 .await
             {
-                tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
+                tracing::error!("Failed to submit proofs for batch {batch_id}: {err:?}");
                 for fulfillment in fulfillments.iter() {
                     if let Err(db_err) = self
                         .db
@@ -547,6 +568,14 @@ mod tests {
         let batch_g16 = prover.compress(&aggregation_proof.id).await.unwrap();
         let batch_journal = prover.get_journal(&aggregation_proof.id).await.unwrap().unwrap();
         let batch_guest_state = GuestState::decode(&batch_journal).unwrap();
+        assert!(batch_guest_state.mmr.is_finalized());
+        assert_eq!(
+            batch_guest_state.mmr.clone().finalized_root().unwrap(),
+            risc0_aggregation::merkle_root(&vec![
+                echo_receipt.claim().unwrap().digest(),
+                assessor_receipt.claim().unwrap().digest(),
+            ])
+        );
 
         let order = Order {
             status: OrderStatus::PendingSubmission,

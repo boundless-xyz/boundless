@@ -37,8 +37,7 @@ use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, RequestError, TxnErr,
-    TXN_CONFIRM_TIMEOUT,
+    Offer, ProofRequest, ProofStatus, RequestError, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -87,7 +86,7 @@ pub enum MarketError {
 
 impl From<alloy::contract::Error> for MarketError {
     fn from(err: alloy::contract::Error) -> Self {
-        MarketError::Error(IBoundlessMarketErrors::decode_error(err).into())
+        MarketError::Error(TxnErr::from(err).into())
     }
 }
 
