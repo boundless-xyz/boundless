@@ -122,6 +122,8 @@ pub trait BrokerDb {
 
     #[cfg(test)]
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
+    #[cfg(test)]
+    async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError>;
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
@@ -734,8 +736,9 @@ impl BrokerDb for SqliteDb {
             self.new_batch().await
         } else {
             let cur_batch: Option<DbBatch> =
-                sqlx::query_as("SELECT * FROM batches WHERE data->>'status' = $1 LIMIT 1")
+                sqlx::query_as("SELECT * FROM batches WHERE data->>'status' IN ($1, $2) LIMIT 1")
                     .bind(BatchStatus::Aggregating)
+                    .bind(BatchStatus::PendingCompression)
                     .fetch_optional(&self.pool)
                     .await?;
 
@@ -848,10 +851,14 @@ impl BrokerDb for SqliteDb {
                 r#"
                 UPDATE batches
                 SET
-                    data = json_set(data, '$.assessor_claim_digest', json($1))
+                    data = json_set(
+                           json_set(data,
+                           '$.status', $1),
+                           '$.assessor_claim_digest', json($2))
                 WHERE
-                    id = $2"#,
+                    id = $3"#,
             )
+            .bind(BatchStatus::PendingCompression)
             .bind(sqlx::types::Json(assessor_claim_digest))
             .bind(batch_id as i64)
             .execute(&mut *txn)
@@ -890,6 +897,29 @@ impl BrokerDb for SqliteDb {
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchInsertFailure(batch_id));
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError> {
+        let res = sqlx::query(
+            r#"
+                UPDATE batches
+                SET
+                    data = json_set(data,
+                           '$.status', $1)
+                WHERE
+                    id = $2"#,
+        )
+        .bind(status)
+        .bind(batch_id as i64)
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::BatchNotFound(batch_id));
         }
 
         Ok(())
@@ -1273,6 +1303,14 @@ mod tests {
 
         let batch_id = db.get_current_batch().await.unwrap();
         assert_eq!(batch_id, 1);
+
+        db.set_batch_status(1, BatchStatus::PendingCompression).await.unwrap();
+
+        let batch = db.get_batch(batch_id).await.unwrap();
+        assert_eq!(batch.status, BatchStatus::PendingCompression);
+
+        let batch_id = db.get_current_batch().await.unwrap();
+        assert_eq!(batch_id, 1);
     }
 
     #[sqlx::test]
@@ -1405,6 +1443,7 @@ mod tests {
         db.update_batch(batch_id, &agg_state, &agg_proofs, Some([4u32; 8].into())).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
+        assert_eq!(db_batch.status, BatchStatus::PendingCompression);
         assert_eq!(db_batch.orders, vec![U256::from(11), U256::from(12)]);
         assert_eq!(db_batch.block_deadline, Some(20));
         assert_eq!(db_batch.fees, U256::from(25));

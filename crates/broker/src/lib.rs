@@ -203,6 +203,7 @@ impl Order {
 enum BatchStatus {
     #[default]
     Aggregating,
+    PendingCompression,
     Complete,
     PendingSubmission,
     Submitted,

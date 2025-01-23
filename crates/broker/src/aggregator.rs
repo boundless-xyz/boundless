@@ -10,7 +10,7 @@ use alloy::{
     providers::Provider,
     transports::BoxTransport,
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::contracts::eip712_domain;
 use chrono::Utc;
@@ -26,7 +26,7 @@ use crate::{
     db::{AggregationOrder, DbObj},
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    AggregationState, Batch,
+    AggregationState, Batch, BatchStatus,
 };
 
 #[derive(Clone)]
@@ -89,11 +89,11 @@ where
 
     async fn prove_set_builder(
         &self,
-        aggregation_state: Option<AggregationState>,
+        aggregation_state: Option<&AggregationState>,
         proofs: &[String],
         finalize: bool,
     ) -> Result<AggregationState> {
-        // TODO(mmr): Handle failure to get an individual order.
+        // TODO: Handle failure to get an individual order.
         let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
         for proof_id in proofs {
             let receipt = self
@@ -111,7 +111,6 @@ where
         }
 
         let input = aggregation_state
-            .as_ref()
             .map_or(GuestState::initial(self.set_builder_guest_id), |s| s.guest_state.clone())
             .into_input(claims.clone(), finalize)
             .context("Failed to build set builder input")?;
@@ -119,7 +118,6 @@ where
         // Gather the proof IDs for the assumptions we will need: any pending proofs, and the proof
         // for the current aggregation state.
         let assumption_ids: Vec<String> = aggregation_state
-            .as_ref()
             .map(|s| s.proof_id.clone())
             .into_iter()
             .chain(proofs.iter().cloned())
@@ -164,7 +162,6 @@ where
 
         let guest_state = GuestState::decode(&journal).context("Failed to decode guest output")?;
         let claim_digests = aggregation_state
-            .as_ref()
             .map(|s| s.claim_digests.clone())
             .unwrap_or_default()
             .into_iter()
@@ -359,37 +356,13 @@ where
         Ok(false)
     }
 
-    // TODO: If this gets into a bad state (e.g. a "bad proof" gets included in the batch) this
-    // currently has no way of recovering. It will simply keep trying to aggregate the batch over
-    // and over again. It would be good to have something like a failure counter or a recovery
-    // routine that attempts to right the system if it goes sideways.
-    async fn aggregate_proofs(&mut self) -> Result<()> {
-        // Get the current batch. This aggregator service works on one batch at a time, including
-        // any proofs ready for aggregation into the current batch.
-        let batch_id =
-            self.db.get_current_batch().await.context("Failed to get current batch ID")?;
-        let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
-
-        // Fetch all proofs that are pending aggregation from the DB.
-        let new_proofs = self
-            .db
-            .get_aggregation_proofs()
-            .await
-            .context("Failed to get pending agg proofs from DB")?;
-
-        // Finalize the current batch before adding any new orders if the finalization conditions
-        // are already met.
-        let finalize = self.check_finalize(batch_id, &batch, &new_proofs).await?;
-
-        // If we don't need to finalize, and there are no new proofs, there is no work to do.
-        if !finalize && new_proofs.is_empty() {
-            tracing::debug!("No aggregation work to do for batch {batch_id}");
-            return Ok(());
-        }
-
-        // TODO(mmr): If the aggregation state is finalized already, skip adding new proofs to the
-        // batch. This can happen if the groth16 compression fails.
-
+    async fn aggregate_proofs(
+        &mut self,
+        batch_id: usize,
+        batch: &Batch,
+        new_proofs: &[AggregationOrder],
+        finalize: bool,
+    ) -> Result<String> {
         let assessor_proof_id = if finalize {
             let assessor_order_ids: Vec<U256> =
                 batch.orders.iter().copied().chain(new_proofs.iter().map(|p| p.order_id)).collect();
@@ -418,7 +391,7 @@ where
 
         tracing::debug!("Running set builder for {batch_id} with proofs {:x?}", proof_ids);
         let aggregation_state = self
-            .prove_set_builder(batch.aggregation_state, &proof_ids, finalize)
+            .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize)
             .await
             .context("Failed to prove set builder for batch {batch_id}")?;
 
@@ -446,11 +419,62 @@ where
             .await
             .with_context(|| format!("Failed to update batch {batch_id} in the DB"))?;
 
-        if finalize {
+        Ok(aggregation_state.proof_id)
+    }
+
+    // TODO: If this gets into a bad state (e.g. a "bad proof" gets included in the batch) this
+    // currently has no way of recovering. It will simply keep trying to aggregate the batch over
+    // and over again. It would be good to have something like a failure counter or a recovery
+    // routine that attempts to right the system if it goes sideways.
+    async fn aggregate(&mut self) -> Result<()> {
+        // Get the current batch. This aggregator service works on one batch at a time, including
+        // any proofs ready for aggregation into the current batch.
+        let batch_id =
+            self.db.get_current_batch().await.context("Failed to get current batch ID")?;
+        let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
+
+        let (aggregation_proof_id, compress) = match batch.status {
+            BatchStatus::Aggregating => {
+                // Fetch all proofs that are pending aggregation from the DB.
+                let new_proofs = self
+                    .db
+                    .get_aggregation_proofs()
+                    .await
+                    .context("Failed to get pending agg proofs from DB")?;
+
+                // Finalize the current batch before adding any new orders if the finalization conditions
+                // are already met.
+                let finalize = self.check_finalize(batch_id, &batch, &new_proofs).await?;
+
+                // If we don't need to finalize, and there are no new proofs, there is no work to do.
+                if !finalize && new_proofs.is_empty() {
+                    tracing::debug!("No aggregation work to do for batch {batch_id}");
+                    return Ok(());
+                }
+
+                let aggregation_proof_id =
+                    self.aggregate_proofs(batch_id, &batch, &new_proofs, finalize).await?;
+                (aggregation_proof_id, finalize)
+            }
+            BatchStatus::PendingCompression => {
+                let Some(aggregation_state) = batch.aggregation_state else {
+                    bail!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None");
+                };
+                (aggregation_state.proof_id, true)
+            }
+            status @ _ => bail!("Unexpected batch status {status:?}"),
+        };
+
+        // TODO: If the step above failed, the proofs are effectively dropped since they won't be
+        // picked up again by `get_current_batch`. This should be made more robust by reseting them
+        // to the pending aggregation status, possibly with some retry logic for pruning orders
+        // after a certain number of attempts.
+
+        if compress {
             tracing::info!("Starting groth16 compression proof for batch {batch_id}");
             let compress_proof_id = self
                 .prover
-                .compress(&aggregation_state.proof_id)
+                .compress(&aggregation_proof_id)
                 .await
                 .context("Failed to complete compression")?;
             tracing::info!("Completed groth16 compression for batch {batch_id}");
@@ -484,7 +508,7 @@ where
                     config.batcher.batch_poll_time_ms.unwrap_or(1000)
                 };
 
-                self_clone.aggregate_proofs().await.map_err(SupervisorErr::Recover)?;
+                self_clone.aggregate().await.map_err(SupervisorErr::Recover)?;
                 tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
             }
         })
@@ -663,7 +687,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        aggregator.aggregate_proofs().await.unwrap();
+        aggregator.aggregate().await.unwrap();
 
         let db_order = db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -775,7 +799,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        aggregator.aggregate_proofs().await.unwrap();
+        aggregator.aggregate().await.unwrap();
 
         let db_order = db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -890,7 +914,7 @@ mod tests {
 
         provider.anvil_mine(Some(U256::from(51)), Some(U256::from(2))).await.unwrap();
 
-        aggregator.aggregate_proofs().await.unwrap();
+        aggregator.aggregate().await.unwrap();
 
         let db_order = db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
