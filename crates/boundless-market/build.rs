@@ -42,7 +42,9 @@ fn insert_derives(contents: &mut String, find_str: &str, insert_str: &str) {
     }
 }
 
-TODO: This is a bit fragile (e.g. it breaks if there is an unmatched brace in a comment). Using alloy's `syn-solidity` would be the robust way of doing this. (It may also be over-engineering, as we'd like to deprecate this whole script)
+// TODO: This is a bit fragile (e.g. it breaks if there is an unmatched brace in a comment). 
+// Using alloy's `syn-solidity` would be the robust way of doing this. 
+// (It may also be over-engineering, as we'd like to deprecate this whole script)
 fn find_matching_brace(contents: &str) -> Option<usize> {
     let mut stack = Vec::new();
     for (i, c) in contents.char_indices() {
