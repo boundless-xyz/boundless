@@ -1316,7 +1316,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFreezeAccountWithSig() public {
         _testFreezeAccount(true);
     }
-    
+
     function testSubmitRootAndFulfillBatch() public {
         (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(2);
         (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) =
