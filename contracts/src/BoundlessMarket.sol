@@ -23,7 +23,7 @@ import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC2
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
-uint256 constant REQUEST_FLAGS_INITIAL_BITS = 64;
+uint256 constant REQUEST_FLAGS_INITIAL_BITS = 56;
 
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
 struct Account {
@@ -31,11 +31,14 @@ struct Account {
     uint96 balance;
     /// @dev Balance of HP tokens.
     uint96 stakeBalance;
-    /// @notice 32 pairs of 2 bits representing the status of a request. One bit is for lock-in and
+    /// @dev flags is a bitfield for account-wide flags. Currently only the least significant
+    /// bit is used to indicate that the account is frozen.
+    uint8 flags;
+    /// @notice 28 pairs of 2 bits representing the status of a request. One bit is for lock-in and
     /// the other is for fulfillment.
     /// @dev Request state flags are packed into a uint64 to make balance and flags for the first
-    /// 32 requests fit in one slot.
-    uint64 requestFlagsInitial;
+    /// 28 requests fit in one slot.
+    uint56 requestFlagsInitial;
     /// @dev Flags for the remaining requests are in a storage array. Each uint256 holds the packed
     /// flags for 128 requests, indexed in a linear fashion. Note that this struct cannot be
     /// instantiated in memory.
@@ -66,7 +69,7 @@ library AccountLib {
     function setRequestFlags(Account storage account, uint32 idx, uint8 flags) internal {
         assert(flags < (1 << REQUEST_FLAGS_BITWIDTH));
         if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
-            uint64 mask = uint64(flags) << uint64(idx * REQUEST_FLAGS_BITWIDTH);
+            uint56 mask = uint56(flags) << uint56(idx * REQUEST_FLAGS_BITWIDTH);
             account.requestFlagsInitial |= mask;
         } else {
             uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
@@ -81,6 +84,18 @@ library AccountLib {
 
     function setRequestFulfilled(Account storage account, uint32 idx) internal {
         setRequestFlags(account, idx, 2);
+    }
+
+    function setFrozen(Account storage account) internal {
+        account.flags |= 1;
+    }
+
+    function unsetFrozen(Account storage account) internal {
+        account.flags &= ~uint8(1);
+    }
+
+    function isFrozen(Account storage account) internal view returns (bool) {
+        return account.flags & 1 != 0;
     }
 }
 
@@ -405,6 +420,9 @@ contract BoundlessMarket is
             revert InsufficientBalance(client);
         }
         Account storage proverAccount = accounts[prover];
+        if (proverAccount.isFrozen()) {
+            revert AccountFrozen(prover);
+        }
         if (proverAccount.stakeBalance < request.offer.lockinStake.toUint96()) {
             revert InsufficientBalance(prover);
         }
@@ -425,6 +443,18 @@ contract BoundlessMarket is
 
         clientAccount.setRequestLocked(idx);
         emit RequestLockedin(request.id, prover);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function accountIsFrozen(address addr) external view returns (bool) {
+        Account storage prover = accounts[addr];
+        return prover.isFrozen();
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function unfreezeAccount() public {
+        Account storage prover = accounts[msg.sender];
+        prover.unsetFrozen();
     }
 
     /// Validates the request and records the price to transient storage such that it can be
@@ -685,10 +715,15 @@ contract BoundlessMarket is
         // Return the price to the client, plus the transfer value. Then burn the burn value.
         accounts[client].balance += lock.price;
         accounts[client].stakeBalance += transferValue.toUint96();
+
+        // Freeze the prover account.
+        Account storage proverAccount = accounts[lock.prover];
+        proverAccount.setFrozen();
+
         // Transfer tokens from market to address zero.
         ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
 
-        emit ProverSlashed(requestId, burnValue, transferValue);
+        emit ProverSlashed(requestId, lock.prover, burnValue, transferValue);
     }
 
     function imageInfo() external view returns (bytes32, string memory) {

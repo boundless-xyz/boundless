@@ -149,7 +149,7 @@ checksum = "c1fd03a028ef38ba2276dce7e33fcd6369c158a1bca17946c4b1b701891c1ff7"
 
 [[package]]
 name = "api"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -778,7 +778,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "bento-client"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "bonsai-sdk",
@@ -4675,7 +4675,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "taskdb"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5598,7 +5598,7 @@ dependencies = [
 
 [[package]]
 name = "workflow"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -5623,7 +5623,7 @@ dependencies = [
 
 [[package]]
 name = "workflow-common"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "aws-sdk-s3",

@@ -140,7 +140,9 @@ interface IBoundlessMarket {
     event ProofDelivered(uint256 indexed requestId, bytes journal, bytes seal);
     /// Event when prover stake is slashed for failing to fulfill a request by the deadline.
     /// Part of the stake is burned, and part is transferred to the client as compensation.
-    event ProverSlashed(uint256 indexed requestId, uint256 stakeBurned, uint256 stakeTransferred);
+    event ProverSlashed(
+        uint256 indexed requestId, address indexed prover, uint256 stakeBurned, uint256 stakeTransferred
+    );
     /// Event when a deposit is made to the market.
     event Deposit(address indexed account, uint256 value);
     /// Event when a withdrawal is made from the market.
@@ -189,6 +191,8 @@ interface IBoundlessMarket {
     error InvalidRequest();
     /// Error when transfer of funds to an external address fails.
     error TransferFailed();
+    /// Error when attempting to lock a request with a frozen account.
+    error AccountFrozen(address account);
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
@@ -293,6 +297,14 @@ interface IBoundlessMarket {
     /// When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
     function slash(uint256 requestId) external;
+
+    /// Returns the frozen state of an account.
+    /// @dev An account gets frozen after a slash occurred. A frozen account cannot lock-in requests.
+    /// To unlock the account, its owner must call `unfreezeAccount`.
+    function accountIsFrozen(address addr) external view returns (bool);
+
+    /// Clear the frozen state of an account, transferring the frozen stake back to the prover's available balance.
+    function unfreezeAccount() external;
 
     /// EIP 712 domain separator getter
     function eip712DomainSeparator() external view returns (bytes32);
