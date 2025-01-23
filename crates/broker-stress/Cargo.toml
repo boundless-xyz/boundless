@@ -1,0 +1,25 @@
+[package]
+name = "broker-stress"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[dependencies]
+alloy = { workspace = true, features = ["node-bindings"] }
+anyhow = { workspace = true }
+axum = { workspace = true }
+boundless-market = { workspace = true }
+broker = { path = "../broker", features = ["test-utils"] }
+clap = { workspace = true, features = ["derive"] }
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
+guest-util = { workspace = true }
+rand = { workspace = true }
+risc0-zkp = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

@@ -699,29 +699,26 @@ pub mod test_utils {
 
     use crate::{config::Config, Args, Broker};
 
-    /// Create a new broker from a test context.
-    pub async fn broker_from_test_ctx(
-        ctx: &TestCtx,
-        rpc_url: Url,
-    ) -> Result<
-        Broker<
-            FillProvider<
+    type TestBroker = Broker<
+        FillProvider<
+            JoinFill<
                 JoinFill<
+                    Identity,
                     JoinFill<
-                        Identity,
-                        JoinFill<
-                            GasFiller,
-                            JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>,
-                        >,
+                        GasFiller,
+                        JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>,
                     >,
-                    WalletFiller<EthereumWallet>,
                 >,
-                RootProvider<BoxTransport>,
-                BoxTransport,
-                Ethereum,
+                WalletFiller<EthereumWallet>,
             >,
+            RootProvider<BoxTransport>,
+            BoxTransport,
+            Ethereum,
         >,
-    > {
+    >;
+
+    /// Create a new broker from a test context.
+    pub async fn broker_from_test_ctx(ctx: &TestCtx, rpc_url: Url) -> Result<(TestBroker, NamedTempFile)> {
         let config_file = NamedTempFile::new().unwrap();
         let mut config = Config::default();
         config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -746,7 +743,8 @@ pub mod test_utils {
             rpc_retry_backoff: 200,
             rpc_retry_cu: 1000,
         };
-        Broker::new(args, ctx.prover_provider.clone()).await
+        let broker = Broker::new(args, ctx.prover_provider.clone()).await?;
+        Ok((broker, config_file))
     }
 }
 

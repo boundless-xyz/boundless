@@ -276,7 +276,7 @@ mod tests {
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
 
         // Start a broker
-        let broker = broker_from_test_ctx(&ctx, anvil.endpoint_url()).await.unwrap();
+        let (broker, _config_file) = broker_from_test_ctx(&ctx, anvil.endpoint_url()).await.unwrap();
         let broker_task = tokio::spawn(async move {
             broker.start_service().await.unwrap();
         });
