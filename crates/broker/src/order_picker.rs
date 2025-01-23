@@ -374,26 +374,9 @@ where
     }
 
     /// Estimate of gas for locking a single order
-    async fn estimate_gas_to_lock(&self, order: &Order) -> Result<u64> {
-        let conf_priority_gas = {
-            let conf = self.config.lock_all().expect("Failed to lock config");
-            conf.market.lockin_priority_gas
-        };
-        let lockin_call = self
-            .market
-            .build_lockin_call(&order.request, &order.client_sig, conf_priority_gas)
-            .await?;
-
-        let gas = match lockin_call.estimate_gas().await {
-            Ok(gas) => gas,
-            Err(err) => {
-                tracing::error!(
-                    "Failed to estimate gas for lockin call: {err}. Using default from config"
-                );
-                self.config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate
-            }
-        };
-        Ok(gas)
+    /// Currently just uses the config estimate but this may change in the future
+    async fn estimate_gas_to_lock(&self, _order: &Order) -> Result<u64> {
+        Ok(self.config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate)
     }
 
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
@@ -405,10 +388,11 @@ where
         Ok(gas)
     }
 
-    /// Estimate of gas for locking in any pending locks and submitting any pending proofs
+    /// Estimate of gas for fulfilling any orders either pending lock or locked
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
-        // TODO: Figure out a good way to estimate the gas for fulfilling taking into account batching
-        Ok(self.config.lock_all().context("Failed to read config")?.market.fulfil_gas_estimate)
+        let pending_fulfil_orders = self.db.get_orders_committed_to_fulfil().await?.len();
+        Ok((pending_fulfil_orders as u64)
+            * self.config.lock_all().context("Failed to read config")?.market.fulfil_gas_estimate)
     }
 
     async fn eth_reserved_for_gas(&self) -> Result<U256> {
@@ -809,6 +793,125 @@ mod tests {
     // TODO: Test
     // need to test the non-ASAP path for pricing, aka picking a block ahead in time to make sure
     // that price calculator is working correctly.
+
+    #[tokio::test]
+    #[traced_test]
+    async fn pending_locked_stake() {
+        let lockin_stake_wei = parse_ether("0.5").unwrap();
+
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.max_stake = "10".into();
+        }
+
+        let ctx = TestCtx::builder().with_config(config).build().await;
+        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
+
+        let (order_id, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake_wei)
+            .await;
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+        // order is pending lock so stake is counted
+        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lockin_stake_wei);
+
+        ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
+        // order no longer pending lock so stake no longer counted
+        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn use_gas_to_lock_estimate_from_config() {
+        let lockin_gas = 123_456;
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.lockin_gas_estimate = lockin_gas;
+        }
+
+        let ctx = TestCtx::builder().with_config(config).build().await;
+        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
+
+        let (order_id, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::ZERO)
+            .await;
+        assert_eq!(ctx.picker.estimate_gas_to_lock(&order).await.unwrap(), lockin_gas);
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        assert_eq!(ctx.picker.estimate_gas_to_lock_pending().await.unwrap(), lockin_gas);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn use_gas_to_fulfil_estimate_from_config() {
+        let fulfil_gas = 123_456;
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.fulfil_gas_estimate = fulfil_gas;
+        }
+
+        let ctx = TestCtx::builder().with_config(config).build().await;
+        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
+
+        let (_, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::ZERO)
+            .await;
+        ctx.db.add_order(U256::from(0), order.clone()).await.unwrap();
+        ctx.picker.price_order(U256::from(0), &order).await.unwrap();
+
+        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), fulfil_gas);
+
+        // add another order
+        let (_, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::ZERO)
+            .await;
+        ctx.db.add_order(U256::from(1), order.clone()).await.unwrap();
+        ctx.picker.price_order(U256::from(1), &order).await.unwrap();
+
+        // gas estimate stacks (until estimates factor in bundling)
+        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), 2 * fulfil_gas);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn pending_order_gas_estimation() {
+        let lockin_gas = 1000;
+        let fulfil_gas = 50000;
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.fulfil_gas_estimate = fulfil_gas;
+            config.load_write().unwrap().market.lockin_gas_estimate = lockin_gas;
+        }
+
+        let ctx = TestCtx::builder().with_config(config).build().await;
+        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
+
+        let (order_id, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::ZERO)
+            .await;
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let gas_price = ctx.provider.get_gas_price().await.unwrap();
+        assert_eq!(
+            ctx.picker.eth_reserved_for_gas().await.unwrap(),
+            U256::from(gas_price) * U256::from(fulfil_gas + lockin_gas)
+        );
+        // lock the order
+        ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
+        // only fulfillment gas now reserved
+        assert_eq!(
+            ctx.picker.eth_reserved_for_gas().await.unwrap(),
+            U256::from(gas_price) * U256::from(fulfil_gas)
+        );
+    }
 
     #[tokio::test]
     #[traced_test]

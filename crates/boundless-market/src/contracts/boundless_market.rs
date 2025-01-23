@@ -14,14 +14,12 @@
 
 use std::{
     fmt::Debug,
-    marker::PhantomData,
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
 use alloy::{
     consensus::BlockHeader,
-    contract::CallBuilder,
     eips::BlockNumberOrTag,
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
@@ -325,31 +323,6 @@ where
         self.submit_request_with_value(request, signer, value).await
     }
 
-    /// Build but do not submit a lockin call
-    pub async fn build_lockin_call(
-        &self,
-        request: &ProofRequest,
-        client_sig: &Bytes,
-        priority_gas: Option<u64>,
-    ) -> Result<CallBuilder<T, &P, PhantomData<IBoundlessMarket::lockinCall>>, MarketError> {
-        let mut call = self.instance.lockin(request.clone(), client_sig.clone()).from(self.caller);
-
-        if let Some(gas) = priority_gas {
-            let priority_fee = self
-                .instance
-                .provider()
-                .estimate_eip1559_fees(None)
-                .await
-                .context("Failed to get priority gas fee")?;
-
-            call = call
-                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
-                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
-        }
-
-        Ok(call)
-    }
-
     /// Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
@@ -371,7 +344,20 @@ where
 
         tracing::debug!("Calling lockin({:x?}, {:x?})", request, client_sig);
 
-        let call = self.build_lockin_call(request, client_sig, priority_gas).await?;
+        let mut call = self.instance.lockin(request.clone(), client_sig.clone()).from(self.caller);
+
+        if let Some(gas) = priority_gas {
+            let priority_fee = self
+                .instance
+                .provider()
+                .estimate_eip1559_fees(None)
+                .await
+                .context("Failed to get priority gas fee")?;
+
+            call = call
+                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
+                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
+        }
 
         let pending_tx = call.send().await?;
 
@@ -468,19 +454,6 @@ where
         Ok(log.inner.data)
     }
 
-    /// Build but do not submit a fulfill call
-    pub fn build_fulfill_call(
-        &self,
-        fulfillment: &Fulfillment,
-        assessor_seal: &Bytes,
-        prover_address: Address,
-    ) -> Result<CallBuilder<T, &P, PhantomData<IBoundlessMarket::fulfillCall>>, MarketError> {
-        Ok(self
-            .instance
-            .fulfill(fulfillment.clone(), assessor_seal.clone(), prover_address)
-            .from(self.caller))
-    }
-
     /// Fulfill a request by delivering the proof for the application.
     ///
     /// Upon proof verification, the prover is paid as long as the requirements are met, including:
@@ -500,7 +473,10 @@ where
         prover_address: Address,
     ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         tracing::debug!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_seal);
-        let call = self.build_fulfill_call(fulfillment, assessor_seal, prover_address)?;
+        let call = self
+            .instance
+            .fulfill(fulfillment.clone(), assessor_seal.clone(), prover_address)
+            .from(self.caller);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -1177,7 +1153,7 @@ mod tests {
     use url::Url;
 
     fn ether(value: &str) -> U256 {
-        parse_ether(value).unwrap().try_into().unwrap()
+        parse_ether(value).unwrap()
     }
 
     fn test_offer() -> Offer {
@@ -1237,7 +1213,7 @@ mod tests {
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
         let assessor_claim_digest = assesor_receipt_claim.digest();
 
-        let root = merkle_root(&vec![app_claim_digest, assessor_claim_digest]);
+        let root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
         let set_builder_journal = GuestOutput::new(Digest::from(SET_BUILDER_ID), root);
         let set_builder_receipt_claim =
             ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.abi_encode());
