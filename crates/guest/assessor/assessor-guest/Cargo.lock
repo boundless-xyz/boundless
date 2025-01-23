@@ -1764,7 +1764,7 @@ dependencies = [
  "hex",
  "rand",
  "reqwest",
- "risc0-aggregation 0.2.0",
+ "risc0-aggregation 0.2.1",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
  "serde",
@@ -4085,8 +4085,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.2.0"
-source = "git+https://github.com/risc0/risc0-ethereum?rev=74c9b6808f77796446f322f64138912fc97f0106#74c9b6808f77796446f322f64138912fc97f0106"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca0507e7e17924138e2d29aa9f976c8ed8898dece8d310c44ae8a95d8d944ccf"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
