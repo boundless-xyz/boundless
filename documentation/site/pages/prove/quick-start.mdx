@@ -1,6 +1,15 @@
 # Quick Start
 
-## Dependencies
+## Clone the Boundless repo
+
+To get started, first clone the Boundless monorepo on your proving machine, and change directory locally:
+
+```sh
+git clone https://github.com/boundless-xyz/boundless
+cd boundless
+```
+
+## Setup Dependencies
 
 :::tip[Tip]
 This stage can be skipped if you already have docker and docker-nvidia installed.
@@ -17,18 +26,7 @@ For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating
 /scripts/setup.sh
 ```
 
-## Setup
-
-### Clone the Boundless repo
-
-To get started, first clone the Boundless monorepo on your proving machine, and change directory locally:
-
-```sh
-git clone https://github.com/boundless-xyz/boundless
-cd boundless
-```
-
-### Running Bento + Broker
+## Running Bento + Broker
 
 The recommended place to start is the `scripts/boundless_service.sh` script. This script which will run everything you need to start proving on Boundless:
 
