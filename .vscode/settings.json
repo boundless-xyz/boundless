@@ -10,7 +10,10 @@
   "rust-analyzer.check.extraArgs": [
     "--target-dir=target/analyzer"
   ],
-  "rust-analyzer.linkedProjects": ["./bento/Cargo.toml"],
+  "rust-analyzer.linkedProjects": [
+    "./Cargo.toml",
+    "./bento/Cargo.toml"
+  ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",
     "editor.codeActionsOnSave": {
