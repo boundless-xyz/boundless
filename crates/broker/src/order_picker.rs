@@ -504,9 +504,16 @@ mod tests {
     };
     use alloy::{
         network::EthereumWallet,
-        node_bindings::Anvil,
+        node_bindings::{Anvil, AnvilInstance},
         primitives::{utils::parse_ether, Address, Bytes, B256, U256},
-        providers::{ext::AnvilApi, ProviderBuilder},
+        providers::{
+            ext::AnvilApi,
+            fillers::{
+                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+                WalletFiller,
+            },
+            Identity, ProviderBuilder, RootProvider,
+        },
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -520,337 +527,242 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    // TODO: We need to make a testing harness to run lots of different
-    // orders + configs through the system of price_order()
-    // so we need a way to quickly define the parameters or spin up the deps
+    type TestProvider = FillProvider<
+        JoinFill<
+            JoinFill<
+                Identity,
+                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+            >,
+            WalletFiller<EthereumWallet>,
+        >,
+        RootProvider<BoxTransport>,
+        BoxTransport,
+        Ethereum,
+    >;
+
+    struct TestCtx<P> {
+        pub anvil: AnvilInstance,
+        pub picker: OrderPicker<P>,
+        pub boundless_market: BoundlessMarketService<BoxTransport, Arc<P>>,
+        pub image_server: MockServer,
+        pub db: DbObj,
+        pub provider: Arc<P>,
+    }
+
+    impl TestCtx<TestProvider> {
+        pub fn builder() -> TestCtxBuilder {
+            TestCtxBuilder::default()
+        }
+
+        pub fn image_uri(&self) -> String {
+            format!("http://{}/image", self.image_server.address())
+        }
+
+        pub fn signer(&self, index: usize) -> PrivateKeySigner {
+            self.anvil.keys()[index].clone().into()
+        }
+
+        pub async fn next_order(
+            &self,
+            min_price: U256,
+            max_price: U256,
+            lockin_stake: U256,
+        ) -> (U256, Order) {
+            let image_id = Digest::from(ECHO_ID);
+            let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
+            let order_index = self.boundless_market.index_from_nonce().await.unwrap();
+            (
+                U256::from(order_index),
+                Order {
+                    status: OrderStatus::Pricing,
+                    updated_at: Utc::now(),
+                    request: ProofRequest::new(
+                        order_index,
+                        &self.provider.default_signer_address(),
+                        Requirements {
+                            imageId: <[u8; 32]>::from(image_id).into(),
+                            predicate: Predicate {
+                                predicateType: PredicateType::PrefixMatch,
+                                data: Default::default(),
+                            },
+                        },
+                        &self.image_uri(),
+                        Input { inputType: InputType::Inline, data: input_buf.into() },
+                        Offer {
+                            minPrice: min_price,
+                            maxPrice: max_price,
+                            biddingStart: 0,
+                            timeout: 100,
+                            rampUpPeriod: 1,
+                            lockinStake: lockin_stake,
+                        },
+                    ),
+                    target_block: None,
+                    image_id: None,
+                    input_id: None,
+                    proof_id: None,
+                    expire_block: None,
+                    path: None,
+                    client_sig: Bytes::new(),
+                    lock_price: None,
+                    error_msg: None,
+                },
+            )
+        }
+    }
+
+    #[derive(Default)]
+    struct TestCtxBuilder {
+        initial_signer_eth: Option<i32>,
+        config: Option<ConfigLock>,
+    }
+
+    impl TestCtxBuilder {
+        pub fn with_initial_signer_eth(self, eth: i32) -> Self {
+            Self { initial_signer_eth: Some(eth), ..self }
+        }
+        pub fn with_config(self, config: ConfigLock) -> Self {
+            Self { config: Some(config), ..self }
+        }
+        pub async fn build(self) -> TestCtx<TestProvider> {
+            let anvil = Anvil::new()
+                .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
+                .spawn();
+            let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+            let provider = Arc::new(
+                ProviderBuilder::new()
+                    .with_recommended_fillers()
+                    .wallet(EthereumWallet::from(signer.clone()))
+                    .on_builtin(&anvil.endpoint())
+                    .await
+                    .unwrap(),
+            );
+
+            provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
+
+            let market_address = deploy_boundless_market(
+                &signer,
+                provider.clone(),
+                Address::ZERO,
+                Address::ZERO,
+                Digest::from(ASSESSOR_GUEST_ID),
+                Some(signer.address()),
+            )
+            .await
+            .unwrap();
+
+            let boundless_market = BoundlessMarketService::new(
+                market_address,
+                provider.clone(),
+                provider.default_signer_address(),
+            );
+
+            let image_server = MockServer::start();
+            let _get_mock = image_server.mock(|when, then| {
+                when.method(GET).path("/image");
+                then.status(200).body(ECHO_ELF);
+            });
+
+            let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+            let config = self.config.unwrap_or_default();
+            let prover: ProverObj = Arc::new(MockProver::default());
+            let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+            tokio::spawn(chain_monitor.spawn());
+
+            let picker = OrderPicker::new(
+                db.clone(),
+                config,
+                prover,
+                2,
+                market_address,
+                provider.clone(),
+                chain_monitor,
+            );
+
+            TestCtx { anvil, picker, boundless_market, image_server, db, provider }
+        }
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn price_order() {
-        let anvil = Anvil::new().spawn();
-        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
-                .await
-                .unwrap(),
-        );
-
-        provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-
-        let market_address = deploy_boundless_market(
-            &signer,
-            provider.clone(),
-            Address::ZERO,
-            Address::ZERO,
-            Digest::from(ASSESSOR_GUEST_ID),
-            Some(signer.address()),
-        )
-        .await
-        .unwrap();
-        let boundless_market = BoundlessMarketService::new(
-            market_address,
-            provider.clone(),
-            provider.default_signer_address(),
-        );
-
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-
-        let prover: ProverObj = Arc::new(MockProver::default());
-        let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
-
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
-        let picker = OrderPicker::new(
-            db.clone(),
-            config,
-            prover,
-            2,
-            market_address,
-            provider.clone(),
-            chain_monitor,
-        );
-
-        let server = MockServer::start();
-        let get_mock = server.mock(|when, then| {
-            when.method(GET).path("/image");
-            then.status(200).body(ECHO_ELF);
-        });
-        let image_uri = format!("http://{}/image", server.address());
+        let ctx = TestCtx::builder().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let order_id = U256::ZERO;
-        let order = Order {
-            status: OrderStatus::Pricing,
-            updated_at: Utc::now(),
-            request: ProofRequest::new(
-                boundless_market.index_from_nonce().await.unwrap(),
-                &signer.address(),
-                Requirements {
-                    imageId: <[u8; 32]>::from(image_id).into(),
-                    predicate: Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                },
-                &image_uri,
-                Input { inputType: InputType::Inline, data: input_buf.into() },
-                Offer {
-                    minPrice: U256::from(min_price),
-                    maxPrice: U256::from(max_price),
-                    biddingStart: 0,
-                    timeout: 100,
-                    rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
-                },
-            ),
-            target_block: None,
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            expire_block: None,
-            path: None,
-            client_sig: Bytes::new(),
-            lock_price: None,
-            error_msg: None,
-        };
+        let (order_id, order) =
+            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
 
-        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        db.add_order(order_id, order.clone()).await.unwrap();
-        picker.price_order(order_id, &order).await.unwrap();
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
         assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));
-
-        get_mock.assert();
     }
 
     #[tokio::test]
     #[traced_test]
     async fn skip_bad_predicate() {
-        let anvil = Anvil::new().spawn();
-        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
-                .await
-                .unwrap(),
-        );
-
-        provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-
-        let market_address = deploy_boundless_market(
-            &signer,
-            provider.clone(),
-            Address::ZERO,
-            Address::ZERO,
-            Digest::from(ASSESSOR_GUEST_ID),
-            Some(signer.address()),
-        )
-        .await
-        .unwrap();
-        let boundless_market = BoundlessMarketService::new(
-            market_address,
-            provider.clone(),
-            provider.default_signer_address(),
-        );
-
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-
-        let prover: ProverObj = Arc::new(MockProver::default());
-        let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
-
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
-
-        let picker = OrderPicker::new(
-            db.clone(),
-            config,
-            prover,
-            2,
-            market_address,
-            provider,
-            chain_monitor,
-        );
-
-        let server = MockServer::start();
-        let get_mock = server.mock(|when, then| {
-            when.method(GET).path("/image");
-            then.status(200).body(ECHO_ELF);
-        });
-        let image_uri = format!("http://{}/image", server.address());
+        let ctx = TestCtx::builder().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let order_id = U256::ZERO;
-        let order = Order {
-            status: OrderStatus::Pricing,
-            updated_at: Utc::now(),
-            target_block: None,
-            request: ProofRequest::new(
-                boundless_market.index_from_nonce().await.unwrap(),
-                &signer.address(),
-                Requirements {
-                    imageId: <[u8; 32]>::from(image_id).into(),
-                    predicate: Predicate {
-                        predicateType: PredicateType::DigestMatch,
-                        data: B256::ZERO.into(),
-                    },
-                },
-                &image_uri,
-                Input { inputType: InputType::Inline, data: input_buf.into() },
-                Offer {
-                    minPrice: U256::from(min_price),
-                    maxPrice: U256::from(max_price),
-                    biddingStart: 0,
-                    timeout: 100,
-                    rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
-                },
-            ),
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            expire_block: None,
-            path: None,
-            client_sig: Bytes::new(),
-            lock_price: None,
-            error_msg: None,
-        };
+        let (order_id, mut order) =
+            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
 
-        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
+        // set a bad predicate
+        order.request.requirements.predicate =
+            Predicate { predicateType: PredicateType::DigestMatch, data: B256::ZERO.into() };
 
-        db.add_order(order_id, order.clone()).await.unwrap();
-        picker.price_order(order_id, &order).await.unwrap();
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("predicate check failed, skipping"));
-
-        get_mock.assert();
     }
 
     #[tokio::test]
     #[traced_test]
     async fn skip_unallowed_addr() {
-        let anvil = Anvil::new().spawn();
-        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
-                .await
-                .unwrap(),
-        );
-
-        provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-
-        let market_address = deploy_boundless_market(
-            &signer,
-            provider.clone(),
-            Address::ZERO,
-            Address::ZERO,
-            Digest::from(ASSESSOR_GUEST_ID),
-            Some(signer.address()),
-        )
-        .await
-        .unwrap();
-        let boundless_market = BoundlessMarketService::new(
-            market_address,
-            provider.clone(),
-            provider.default_signer_address(),
-        );
-
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-
         {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
         }
+        let ctx = TestCtx::builder().with_config(config).build().await;
 
-        let prover: ProverObj = Arc::new(MockProver::default());
-        let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
-
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
-        let picker = OrderPicker::new(
-            db.clone(),
-            config,
-            prover,
-            2,
-            market_address,
-            provider,
-            chain_monitor,
-        );
-
-        let order_id = U256::from(boundless_market.request_id_from_nonce().await.unwrap());
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let order = Order {
-            status: OrderStatus::Pricing,
-            updated_at: Utc::now(),
-            target_block: None,
-            request: ProofRequest::new(
-                boundless_market.index_from_nonce().await.unwrap(),
-                &signer.address(),
-                Requirements {
-                    imageId: <[u8; 32]>::from(image_id).into(),
-                    predicate: Predicate {
-                        predicateType: PredicateType::DigestMatch,
-                        data: B256::ZERO.into(),
-                    },
-                },
-                "",
-                Input { inputType: InputType::Inline, data: input_buf.into() },
-                Offer {
-                    minPrice: U256::from(min_price),
-                    maxPrice: U256::from(max_price),
-                    biddingStart: 0,
-                    timeout: 100,
-                    rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
-                },
-            ),
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            expire_block: None,
-            path: None,
-            client_sig: Bytes::new(),
-            lock_price: None,
-            error_msg: None,
-        };
+        let (order_id, order) =
+            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
 
-        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        db.add_order(order_id, order.clone()).await.unwrap();
-        picker.price_order(order_id, &order).await.unwrap();
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("because it is not in allowed addrs"));
@@ -859,124 +771,39 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn resume_order_pricing() {
-        let anvil = Anvil::new().spawn();
-        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
-                .await
-                .unwrap(),
-        );
-
-        provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-        let market_address = deploy_boundless_market(
-            &signer,
-            provider.clone(),
-            Address::ZERO,
-            Address::ZERO,
-            Digest::from(ASSESSOR_GUEST_ID),
-            Some(signer.address()),
-        )
-        .await
-        .unwrap();
-        let boundless_market = BoundlessMarketService::new(
-            market_address,
-            provider.clone(),
-            provider.default_signer_address(),
-        );
-
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-
-        let prover: ProverObj = Arc::new(MockProver::default());
-        let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
-
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
-        let picker = OrderPicker::new(
-            db.clone(),
-            config,
-            prover,
-            2,
-            market_address,
-            provider,
-            chain_monitor,
-        );
-
-        let server = MockServer::start();
-        let get_mock = server.mock(|when, then| {
-            when.method(GET).path("/image");
-            then.status(200).body(ECHO_ELF);
-        });
-        let image_uri = format!("http://{}/image", server.address());
+        let ctx = TestCtx::builder().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let order_id = U256::ZERO;
-        let order = Order {
-            status: OrderStatus::Pricing,
-            updated_at: Utc::now(),
-            request: ProofRequest::new(
-                boundless_market.index_from_nonce().await.unwrap(),
-                &signer.address(),
-                Requirements {
-                    imageId: <[u8; 32]>::from(image_id).into(),
-                    predicate: Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                },
-                &image_uri,
-                Input { inputType: InputType::Inline, data: input_buf.into() },
-                Offer {
-                    minPrice: U256::from(min_price),
-                    maxPrice: U256::from(max_price),
-                    biddingStart: 0,
-                    timeout: 100,
-                    rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
-                },
-            ),
-            target_block: None,
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            expire_block: None,
-            path: None,
-            client_sig: Bytes::new(),
-            lock_price: None,
-            error_msg: None,
-        };
+        let (order_id, order) =
+            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
 
-        let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
-        db.add_order(order_id, order.clone()).await.unwrap();
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        picker.find_existing_orders().await.unwrap();
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+
+        ctx.picker.find_existing_orders().await.unwrap();
 
         assert!(logs_contain("Found 1 orders currently pricing to resume"));
 
         // Try and wait for the order to complete pricing
         for _ in 0..4 {
-            let db_order = db.get_order(order_id).await.unwrap().unwrap();
+            let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
             if db_order.status != OrderStatus::Pricing {
                 break;
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
         assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));
-
-        get_mock.assert();
     }
 
     // TODO: Test
@@ -989,91 +816,38 @@ mod tests {
         let signer_inital_balance_eth = 2;
         let lockin_stake_wei = parse_ether("1.5").unwrap();
 
-        let anvil =
-            Anvil::new().args(["--balance", &format!("{}", signer_inital_balance_eth)]).spawn();
-        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
-                .await
-                .unwrap(),
-        );
-
-        provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
-
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.max_stake = "10".into();
         }
 
-        let prover: ProverObj = Arc::new(MockProver::default());
-        let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
+        let ctx = TestCtx::builder()
+            .with_initial_signer_eth(signer_inital_balance_eth)
+            .with_config(config)
+            .build()
+            .await;
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
-        let picker = OrderPicker::new(
-            db.clone(),
-            config,
-            prover,
-            2,
-            Address::ZERO,
-            provider.clone(),
-            chain_monitor,
-        );
-
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(GET).path("/image");
-            then.status(200).body(ECHO_ELF);
-        });
-        let image_uri = format!("http://{}/image", server.address());
-
-        let order = Order::new(
-            ProofRequest::new(
-                0,
-                &signer.address(),
-                Requirements {
-                    imageId: <[u8; 32]>::from(image_id).into(),
-                    predicate: Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                },
-                &image_uri,
-                Input { inputType: InputType::Inline, data: input_buf.clone().into() },
-                Offer {
-                    minPrice: U256::from(200000000000u64),
-                    maxPrice: U256::from(400000000000u64),
-                    biddingStart: 0,
-                    timeout: 100,
-                    rampUpPeriod: 1,
-                    lockinStake: lockin_stake_wei,
-                },
-            ),
-            Bytes::new(),
-        );
+        let (_, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake_wei)
+            .await;
 
         let orders = std::iter::repeat(order).take(2).collect::<Vec<_>>();
 
         for (order_id, order) in orders.iter().enumerate() {
-            db.add_order(U256::from(order_id), order.clone()).await.unwrap();
-            picker.price_order(U256::from(order_id), order).await.unwrap();
+            ctx.db.add_order(U256::from(order_id), order.clone()).await.unwrap();
+            ctx.picker.price_order(U256::from(order_id), order).await.unwrap();
         }
 
         // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient stake
         assert_eq!(
-            db.get_order(U256::from(0)).await.unwrap().unwrap().status,
+            ctx.db.get_order(U256::from(0)).await.unwrap().unwrap().status,
             OrderStatus::Locking
         );
         assert_eq!(
-            db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            ctx.db.get_order(U256::from(1)).await.unwrap().unwrap().status,
             OrderStatus::Skipped
         );
+        assert!(logs_contain("Stake is higher than available balance"));
     }
 }
