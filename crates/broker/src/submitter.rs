@@ -19,7 +19,7 @@ use boundless_market::contracts::{
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_zkvm::{
-    sha::{Digest, Digestible, Sha256},
+    sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
 };
 
