@@ -326,6 +326,7 @@ impl Client {
 ///     }
 /// }
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn order_stream(
     mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
 ) -> Pin<Box<dyn Stream<Item = Result<OrderData, Box<dyn Error + Send + Sync>>> + Send>> {
@@ -384,6 +385,6 @@ mod tests {
         let nonce = Nonce { nonce: "TEST_NONCE".to_string() };
         let origin = "http://localhost:8585".parse().unwrap();
         let auth_msg = AuthMsg::new(nonce.clone(), &origin, &signer).await.unwrap();
-        auth_msg.verify("localhost:8585", &"BAD_NONCE").await.unwrap();
+        auth_msg.verify("localhost:8585", "BAD_NONCE").await.unwrap();
     }
 }

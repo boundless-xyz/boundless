@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -165,8 +165,7 @@ impl SqliteDb {
     }
 
     async fn new_batch(&self) -> Result<usize, DbError> {
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
+        let batch = Batch { start_time: Utc::now(), ..Default::default() };
 
         let res: i64 = sqlx::query_scalar("INSERT INTO batches (data) VALUES ($1) RETURNING id")
             .bind(sqlx::types::Json(&batch))
@@ -431,9 +430,7 @@ impl BrokerDb for SqliteDb {
 
         let block_str: String = row.try_get("block")?;
 
-        Ok(Some(
-            u64::from_str_radix(&block_str, 10).map_err(|_err| DbError::BadBlockNumb(block_str))?,
-        ))
+        Ok(Some(block_str.parse().map_err(|_err| DbError::BadBlockNumb(block_str))?))
     }
 
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError> {
@@ -1318,8 +1315,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
+        let batch = Batch { start_time: Utc::now(), ..Default::default() };
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
         let batch = db.get_batch(batch_id).await.unwrap();
@@ -1353,9 +1349,8 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
-        batch.status = BatchStatus::Complete;
+        let batch =
+            Batch { start_time: Utc::now(), status: BatchStatus::Complete, ..Default::default() };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
@@ -1434,10 +1429,12 @@ mod tests {
         };
 
         let base_fees = U256::from(10);
-        let mut batch = Batch::default();
-        batch.start_time = Utc::now();
-        batch.block_deadline = Some(100);
-        batch.fees = base_fees;
+        let batch = Batch {
+            start_time: Utc::now(),
+            block_deadline: Some(100),
+            fees: base_fees,
+            ..Default::default()
+        };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
         db.update_batch(batch_id, &agg_state, &agg_proofs, Some([4u32; 8].into())).await.unwrap();

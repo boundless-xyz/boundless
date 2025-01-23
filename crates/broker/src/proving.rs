@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -87,7 +87,7 @@ impl ProvingService {
             .get_active_proofs()
             .await
             .context("Failed to get active proofs from the DB")
-            .map_err(|err| SupervisorErr::Fault(err))?;
+            .map_err(SupervisorErr::Fault)?;
 
         tracing::info!("Found {} proofs currently proving", current_proofs.len());
         for (order_id, order) in current_proofs {

@@ -11,8 +11,13 @@
     "--target-dir=target/analyzer"
   ],
   "rust-analyzer.linkedProjects": [
+    "./bento/Cargo.toml", 
     "./Cargo.toml",
-    "./bento/Cargo.toml"
+    "./crates/guest/assessor/Cargo.toml",
+    "./crates/guest/assessor/assessor-guest/Cargo.toml",
+    "./crates/guest/util/Cargo.toml",
+    "./crates/guest/util/echo/Cargo.toml",
+    "./crates/guest/util/identity/Cargo.toml",
   ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",

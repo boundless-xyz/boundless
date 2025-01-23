@@ -421,7 +421,7 @@ where
             Arc::new(
                 provers::Bonsai::new(
                     self.config_watcher.config.clone(),
-                    &bento_api_url.to_string(),
+                    bento_api_url.as_ref(),
                     "",
                 )
                 .context("Failed to initialize Bento client")?,

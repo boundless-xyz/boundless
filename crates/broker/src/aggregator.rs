@@ -47,6 +47,7 @@ impl<P> AggregatorService<P>
 where
     P: Provider<BoxTransport, Ethereum> + 'static + Clone,
 {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DbObj,
         provider: Arc<P>,
@@ -227,7 +228,7 @@ where
             .prover
             .prove_and_monitor_stark(&self.assessor_guest_id.to_string(), &input_id, assumptions)
             .await
-            .with_context(|| format!("Failed to prove assesor stark"))?;
+            .context("Failed to prove assesor stark")?;
 
         tracing::info!(
             "Assessor proof completed, count: {} cycles: {} time: {}",
@@ -608,7 +609,7 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            "http://risczero.com/image".into(),
+            "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
@@ -653,7 +654,7 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            "http://risczero.com/image".into(),
+            "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
@@ -765,7 +766,7 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            "http://risczero.com/image".into(),
+            "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
@@ -878,7 +879,7 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            "http://risczero.com/image".into(),
+            "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
