@@ -1142,7 +1142,7 @@ mod tests {
     use guest_set_builder::SET_BUILDER_ID;
     use guest_util::ECHO_ID;
     use risc0_aggregation::{
-        merkle_root, GuestOutput, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
+        merkle_root, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
     };
     use risc0_ethereum_contracts::encode_seal;
     use risc0_zkvm::{
@@ -1213,7 +1213,12 @@ mod tests {
         let assessor_claim_digest = assesor_receipt_claim.digest();
 
         let root = merkle_root(&vec![app_claim_digest, assessor_claim_digest]);
-        let set_builder_journal = GuestOutput::new(Digest::from(SET_BUILDER_ID), root);
+        let set_builder_journal = {
+            let mut state = GuestState::initial(SET_BUILDER_ID);
+            state.mmr.push(root).unwrap();
+            state.mmr.finalize().unwrap();
+            state.encode()
+        };
         let set_builder_receipt_claim =
             ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.abi_encode());
 
