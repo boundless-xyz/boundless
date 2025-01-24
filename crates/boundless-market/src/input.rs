@@ -42,8 +42,8 @@ impl InputEnv {
     }
 
     /// Return the input data packed in MessagePack format
-    pub fn pack(self) -> Result<Vec<u8>> {
-        let v1 = InputEnvV1 { version: 1, input: self.input };
+    pub fn pack(&self) -> Result<Vec<u8>> {
+        let v1 = InputEnvV1 { version: 1, input: self.input.clone() };
 
         Ok(rmp_serde::to_vec(&v1)?)
     }
