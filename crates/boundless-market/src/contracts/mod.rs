@@ -376,12 +376,12 @@ impl Input {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::{contracts::Input, input::InputBuilder};
+    /// use boundless_market::{contracts::Input, input::InputEnv};
     ///
-    /// let input = Input::inline(InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().build());
+    /// let input = Input::inline(InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().build().unwrap());
     /// ```
     ///
-    /// See [`InputBuilder`][crate::input::InputBuilder] for more details on how to write input data.
+    /// See [`InputEnv`][crate::input::InputEnv] for more details on how to write input data.
     pub fn inline(data: impl Into<Bytes>) -> Self {
         Self { inputType: InputType::Inline, data: data.into() }
     }
@@ -445,6 +445,7 @@ impl Offer {
 
 // TODO: These are not so much "default" as they are "empty". Default is not quite the right
 // semantics here. This would be replaced by a builder or an `empty` function.
+#[cfg(not(target_os = "zkvm"))]
 impl Default for ProofRequest {
     fn default() -> Self {
         Self {
@@ -457,6 +458,7 @@ impl Default for ProofRequest {
     }
 }
 
+#[cfg(not(target_os = "zkvm"))]
 #[allow(clippy::derivable_impls)] // struct defined in generated code
 impl Default for Requirements {
     fn default() -> Self {
@@ -464,15 +466,17 @@ impl Default for Requirements {
     }
 }
 
+#[cfg(not(target_os = "zkvm"))]
 impl Default for Predicate {
     fn default() -> Self {
         Self { predicateType: PredicateType::PrefixMatch, data: Default::default() }
     }
 }
 
+#[cfg(not(target_os = "zkvm"))]
 impl Default for Input {
     fn default() -> Self {
-        Self { inputType: InputType::Inline, data: Default::default() }
+        Self { inputType: InputType::Inline, data: InputEnv::new().build().unwrap().into() }
     }
 }
 
@@ -481,6 +485,9 @@ use sha2::{Digest as _, Sha256};
 use IBoundlessMarket::IBoundlessMarketErrors;
 #[cfg(not(target_os = "zkvm"))]
 use IRiscZeroSetVerifier::IRiscZeroSetVerifierErrors;
+
+#[cfg(not(target_os = "zkvm"))]
+use crate::input::InputEnv;
 
 impl Predicate {
     /// Evaluates the predicate against the given journal.
@@ -1011,7 +1018,10 @@ mod tests {
                 },
             },
             imageUrl: "test".to_string(),
-            input: Input { inputType: InputType::Url, data: Default::default() },
+            input: Input {
+                inputType: InputType::Url,
+                data: InputEnv::new().build().unwrap().into(),
+            },
             offer: Offer {
                 minPrice: U256::from(0),
                 maxPrice: U256::from(1),

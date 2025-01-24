@@ -12,26 +12,90 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use bytemuck::Pod;
 use risc0_zkvm::serde::to_vec;
-use serde::Serialize;
+use rmp_serde;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-/// Input builder.
-#[derive(Clone, Default, Debug)]
-pub struct InputBuilder {
+#[derive(Serialize, Deserialize)]
+pub(crate) struct InputEnvV1 {
+    version: u8,
+    env_vars: HashMap<String, String>,
     input: Vec<u8>,
 }
 
-impl InputBuilder {
+/// Input builder.
+#[derive(Clone, Default, Debug)]
+pub struct InputEnv {
+    env_vars: HashMap<String, String>,
+    input: Vec<u8>,
+}
+
+impl InputEnv {
     /// Create a new input builder.
     pub fn new() -> Self {
-        Self { input: Vec::new() }
+        Self { env_vars: HashMap::new(), input: Vec::new() }
     }
 
-    /// Return the input data.
-    pub fn build(self) -> Vec<u8> {
-        self.input
+    /// Access the raw input bytes
+    pub fn input(&self) -> Vec<u8> {
+        self.input.clone()
+    }
+
+    /// Access the environment variables
+    pub fn env_vars(&self) -> HashMap<String, String> {
+        self.env_vars.clone()
+    }
+
+    /// Return the input data packed in MessagePack format
+    pub fn build(self) -> Result<Vec<u8>> {
+        let v1 = InputEnvV1 { version: 1, env_vars: self.env_vars, input: self.input };
+
+        Ok(rmp_serde::to_vec(&v1)?)
+    }
+
+    /// Parse a MessagePack formatted input with version support
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        // Uncomment this block when we have a new version
+        // if let Ok(v2) = rmp_serde::from_slice::<InputEnvV2>(bytes) {
+        //     match v2.version {
+        //         2 => return Ok(Self {
+        //             env_vars: v2.env_vars,
+        //             input: v2.input,
+        //             // extra fields if needed in the future
+        //         }),
+        //         // fall through
+        //         _ => {}
+        //     }
+        // }
+        let v1: InputEnvV1 = rmp_serde::from_slice(bytes)?;
+        match v1.version {
+            1 => Ok(Self { env_vars: v1.env_vars, input: v1.input }),
+            v => bail!("Unsupported version: {}", v),
+        }
+    }
+
+    /// Add environment variables to the guest environment.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use boundless_market::input::InputEnv;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut vars = HashMap::new();
+    /// vars.insert("VAR1".to_string(), "SOME_VALUE".to_string());
+    /// vars.insert("VAR2".to_string(), "SOME_VALUE".to_string());
+    ///
+    /// let input = InputEnv::new()
+    ///     .with_env_vars(vars)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn with_env_vars(self, vars: HashMap<String, String>) -> Self {
+        Self { env_vars: vars, ..self }
     }
 
     /// Write input data.
@@ -43,7 +107,7 @@ impl InputBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::InputBuilder;
+    /// use boundless_market::input::InputEnv;
     /// use serde::Serialize;
     ///
     /// #[derive(Serialize)]
@@ -54,10 +118,11 @@ impl InputBuilder {
     ///
     /// let input1 = Input{ a: 1, b: 2 };
     /// let input2 = Input{ a: 3, b: 4 };
-    /// let input = InputBuilder::new()
+    /// let input = InputEnv::new()
     ///     .write(&input1).unwrap()
     ///     .write(&input2).unwrap()
-    ///     .build();
+    ///     .build()
+    ///     .unwrap();
     /// ```
     pub fn write<T: Serialize>(self, data: &T) -> Result<Self> {
         Ok(self.write_slice(&to_vec(data)?))
@@ -72,19 +137,20 @@ impl InputBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::InputBuilder;
+    /// use boundless_market::input::InputEnv;
     ///
     /// let slice1 = [0, 1, 2, 3];
     /// let slice2 = [3, 2, 1, 0];
-    /// let input = InputBuilder::new()
+    /// let input = InputEnv::new()
     ///     .write_slice(&slice1)
     ///     .write_slice(&slice2)
-    ///     .build();
+    ///     .build()
+    ///     .unwrap();
     /// ```
     pub fn write_slice<T: Pod>(self, slice: &[T]) -> Self {
         let mut input = self.input;
         input.extend_from_slice(bytemuck::cast_slice(slice));
-        Self { input }
+        Self { input, ..self }
     }
 
     /// Write a frame.
@@ -98,6 +164,30 @@ impl InputBuilder {
         let mut input = self.input;
         input.extend_from_slice(&len.to_le_bytes());
         input.extend_from_slice(payload);
-        Self { input }
+        Self { input, ..self }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version_parsing() -> Result<()> {
+        // Test V1
+        let mut env_vars = HashMap::new();
+        env_vars.insert("KEY".to_string(), "VALUE".to_string());
+        let v1 = InputEnvV1 { version: 1, env_vars, input: vec![1, 2, 3] };
+        let bytes = rmp_serde::to_vec(&v1)?;
+        let parsed = InputEnv::from_bytes(&bytes)?;
+        assert_eq!(parsed.input(), vec![1, 2, 3]);
+
+        // Test unsupported version
+        let v2 = InputEnvV1 { version: 2, env_vars: HashMap::new(), input: Vec::new() };
+        let bytes = rmp_serde::to_vec(&v2)?;
+        let parsed = InputEnv::from_bytes(&bytes);
+        assert!(parsed.is_err());
+
+        Ok(())
     }
 }

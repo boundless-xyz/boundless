@@ -15,6 +15,7 @@ use anyhow::{bail, Result};
 use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    input::InputEnv,
     storage::StorageProviderConfig,
 };
 use clap::{Args, Parser};
@@ -159,9 +160,9 @@ async fn run(args: &MainArgs) -> Result<()> {
             _ => bail!("at most one of input or input-file args must be provided"),
         };
         let encoded_input = if args.encode_input {
-            bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?)
+            InputEnv::new().write(&input)?.build()?
         } else {
-            input
+            InputEnv::new().write_slice(&input).build()?
         };
 
         let env = ExecutorEnv::builder().write_slice(&encoded_input).build()?;

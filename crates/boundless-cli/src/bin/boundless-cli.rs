@@ -51,7 +51,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
         InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
-    input::InputBuilder,
+    input::InputEnv,
     order_stream_client::Order,
     storage::{StorageProvider, StorageProviderConfig},
 };
@@ -546,8 +546,12 @@ where
         (None, Some(input_file)) => std::fs::read(input_file)?,
         _ => bail!("exactly one of input or input-file args must be provided"),
     };
-    let encoded_input =
-        if args.encode_input { InputBuilder::new().write(&input)?.build() } else { input };
+    let input_builder = InputEnv::new();
+    let encoded_input = if args.encode_input {
+        input_builder.write(&input)?.build()?
+    } else {
+        input_builder.write_slice(&input).build()?
+    };
 
     // Resolve the predicate from the command line arguments.
     let predicate: Predicate = match (&args.reqs.journal_digest, &args.reqs.journal_prefix) {
@@ -725,12 +729,12 @@ where
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     let elf = fetch_url(&request.imageUrl).await?;
     let input = match request.input.inputType {
-        InputType::Inline => request.input.data.clone(),
-        InputType::Url => {
-            fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
-                .await?
-                .into()
-        }
+        InputType::Inline => InputEnv::from_bytes(&request.input.data)?.input(),
+        InputType::Url => InputEnv::from_bytes(
+            &fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
+                .await?,
+        )?
+        .input(),
         _ => bail!("Unsupported input type"),
     };
     let env = ExecutorEnv::builder().write_slice(&input).build()?;

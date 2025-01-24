@@ -13,6 +13,7 @@ use bonsai_sdk::{
     non_blocking::{Client as BonsaiClient, SessionId, SnarkId},
     SdkErr,
 };
+use boundless_market::input::InputEnv;
 use risc0_zkvm::{
     compute_image_id, sha::Digestible, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     ReceiptClaim,
@@ -68,9 +69,8 @@ pub struct ProofResult {
 }
 
 /// Encode inputs for Prover::upload_slice()
-pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, risc0_zkvm::serde::Error> {
-    let input_data = risc0_zkvm::serde::to_vec(input)?;
-    Ok(bytemuck::cast_slice(&input_data).to_vec())
+pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Error> {
+    InputEnv::new().write(input)?.build()
 }
 
 #[async_trait]

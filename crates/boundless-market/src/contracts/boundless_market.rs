@@ -1204,7 +1204,7 @@ mod tests {
                 },
             },
             "http://image_uri.null",
-            Input { inputType: InputType::Inline, data: Bytes::default() },
+            Input::default(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
