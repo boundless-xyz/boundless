@@ -546,11 +546,11 @@ where
         (None, Some(input_file)) => std::fs::read(input_file)?,
         _ => bail!("exactly one of input or input-file args must be provided"),
     };
-    let input_builder = InputEnv::new();
+    let input_env = InputEnv::new();
     let encoded_input = if args.encode_input {
-        input_builder.write(&input)?.pack()?
+        input_env.write(&input)?.pack()?
     } else {
-        input_builder.write_slice(&input).pack()?
+        input_env.write_slice(&input).pack()?
     };
 
     // Resolve the predicate from the command line arguments.
