@@ -186,7 +186,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 Offer::default()
                     .with_min_price_per_mcycle(args.min_price_per_mcycle, mcycles_count)
                     .with_max_price_per_mcycle(args.max_price_per_mcycle, mcycles_count)
-                    .with_lockin_stake(args.lockin_stake)
+                    .with_lock_stake(args.lockin_stake)
                     .with_ramp_up_period(args.ramp_up)
                     .with_timeout(args.timeout),
             );

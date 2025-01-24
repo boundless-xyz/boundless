@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -7,14 +7,10 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
-import "../src/BoundlessMarket.sol";
-import "../src/IBoundlessMarket.sol";
+import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
+import {Offer} from "../../src/types/Offer.sol";
 
-contract BoundlessMarketLibTest is Test {
-    using BoundlessMarketLib for Offer;
-    using BoundlessMarketLib for Requirements;
-    using BoundlessMarketLib for Predicate;
-
+contract OfferTest is Test {
     function testBlockAtPrice() public {
         Offer memory offer = Offer({
             minPrice: 1 ether,
@@ -22,7 +18,7 @@ contract BoundlessMarketLibTest is Test {
             biddingStart: uint64(100),
             rampUpPeriod: 100,
             timeout: uint32(500),
-            lockinStake: 0.1 ether
+            lockStake: 0.1 ether
         });
 
         assertEq(offer.blockAtPrice(1 ether), 0);
@@ -48,7 +44,7 @@ contract BoundlessMarketLibTest is Test {
             biddingStart: uint64(100),
             rampUpPeriod: 100,
             timeout: uint32(500),
-            lockinStake: 0.1 ether
+            lockStake: 0.1 ether
         });
 
         assertEq(offer.priceAtBlock(0), 1 ether);

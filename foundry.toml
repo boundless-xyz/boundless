@@ -21,6 +21,7 @@ solc_version = "0.8.26"
 # For information about Solidity metadata, see https://docs.soliditylang.org/en/latest/metadata.html
 bytecode_hash = "none"
 snapshots = "contracts/snapshots"
+isolate = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
@@ -44,5 +45,6 @@ out = "contracts/reference-contract/out"
 test = "contracts/reference-contract/test"
 libs = ["lib"]
 ffi = true
+ast = true
 build_info = true
 extra_output = ["storageLayout"]

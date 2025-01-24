@@ -111,7 +111,7 @@ async fn simple_e2e() {
             biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
             timeout: 100,
             rampUpPeriod: 1,
-            lockinStake: U256::from(10),
+            lockStake: U256::from(10),
         },
     );
 

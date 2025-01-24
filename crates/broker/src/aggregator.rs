@@ -687,7 +687,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -745,7 +745,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -858,7 +858,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -972,7 +972,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 50,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
