@@ -12,7 +12,7 @@ import {RiscZeroVerifierEmergencyStop} from "risc0/RiscZeroVerifierEmergencyStop
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
-import {BoundlessMarketLib} from "../src/BoundlessMarketLib.sol";
+import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
 import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";

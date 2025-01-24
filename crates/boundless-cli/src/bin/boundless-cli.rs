@@ -475,7 +475,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
             // and empty if the request is locked.
             let requests_to_price: Vec<ProofRequest> =
-                (!boundless_market.is_locked_in(request_id).await?)
+                (!boundless_market.is_locked(request_id).await?)
                     .then_some(order.request)
                     .into_iter()
                     .collect();

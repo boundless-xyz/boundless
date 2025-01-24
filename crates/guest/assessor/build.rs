@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -8,7 +8,7 @@ use risc0_build::{embed_methods_with_options, DockerOptions, GuestOptions};
 use risc0_build_ethereum::generate_solidity_files;
 
 // Paths where the generated Solidity files will be written.
-const SOLIDITY_IMAGE_ID_PATH: &str = "../../../contracts/src/AssessorImageID.sol";
+const SOLIDITY_IMAGE_ID_PATH: &str = "../../../contracts/src/libraries/AssessorImageID.sol";
 const SOLIDITY_ELF_PATH: &str = "../../../contracts/test/AssessorElf.sol";
 
 fn main() {

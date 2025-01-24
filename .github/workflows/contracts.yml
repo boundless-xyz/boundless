@@ -104,6 +104,6 @@ jobs:
           path: contracts/reference-contract/build-info-reference
 
       - name: Run forge test on reference-contract profile
-        run: forge test
+        run: forge test -vvv
         env:
           FOUNDRY_PROFILE: reference-contract

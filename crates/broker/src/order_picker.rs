@@ -121,7 +121,7 @@ where
             parse_ether(&config.market.max_stake).context("Failed to parse max_stake")?
         };
 
-        let lockin_stake = U256::from(order.request.offer.lockinStake);
+        let lockin_stake = U256::from(order.request.offer.lockStake);
         if lockin_stake > max_stake {
             tracing::warn!("Removing high stake order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
@@ -281,7 +281,7 @@ where
             proof_res.stats.total_cycles,
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            order.request.offer.lockinStake,
+            order.request.offer.lockStake,
         );
 
         // Skip the order if it will never be worth it
@@ -363,7 +363,7 @@ where
         let pending_locks = self.db.get_pending_lock_orders(0).await?;
         let stake = pending_locks
             .iter()
-            .map(|(_, order)| order.request.offer.lockinStake)
+            .map(|(_, order)| order.request.offer.lockStake)
             .fold(U256::ZERO, |acc, x| acc + x);
         Ok(stake)
     }
@@ -545,7 +545,7 @@ mod tests {
             &self,
             min_price: U256,
             max_price: U256,
-            lockin_stake: U256,
+            lock_stake: U256,
         ) -> (U256, Order) {
             let image_id = Digest::from(ECHO_ID);
             let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
@@ -573,7 +573,7 @@ mod tests {
                             biddingStart: 0,
                             timeout: 100,
                             rampUpPeriod: 1,
-                            lockinStake: lockin_stake,
+                            lockStake: lock_stake,
                         },
                     ),
                     target_block: None,
