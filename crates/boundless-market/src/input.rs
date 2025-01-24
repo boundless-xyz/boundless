@@ -90,8 +90,7 @@ impl InputEnv {
     /// let input2 = Input{ a: 3, b: 4 };
     /// let input = InputEnv::new()
     ///     .write(&input1).unwrap()
-    ///     .write(&input2).unwrap()
-    ///     .unwrap();
+    ///     .write(&input2).unwrap();
     /// ```
     pub fn write<T: Serialize>(self, data: &T) -> Result<Self> {
         Ok(self.write_slice(&to_vec(data)?))
@@ -112,7 +111,7 @@ impl InputEnv {
     /// let slice2 = [3, 2, 1, 0];
     /// let input = InputEnv::new()
     ///     .write_slice(&slice1)
-    ///     .write_slice(&slice2)
+    ///     .write_slice(&slice2);
     /// ```
     pub fn write_slice<T: Pod>(self, slice: &[T]) -> Self {
         let mut input = self.input;
