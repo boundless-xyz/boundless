@@ -123,7 +123,7 @@ async fn run(
     // Encode the input and upload it to the storage provider.
     let input_env = InputEnv::new().write_slice(&timestamp.as_bytes());
     let input = input_env.input();
-    let packed_input = input_env.build()?;
+    let packed_input = input_env.pack()?;
     let input_url = boundless_client.upload_input(&packed_input).await?;
     tracing::info!("Uploaded input to {}", input_url);
 

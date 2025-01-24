@@ -379,7 +379,7 @@ impl Input {
     /// ```
     /// use boundless_market::{contracts::Input, input::InputEnv};
     ///
-    /// let input = Input::inline(InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().build().unwrap());
+    /// let input = Input::inline(InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().pack().unwrap());
     /// ```
     ///
     /// See [`InputEnv`][crate::input::InputEnv] for more details on how to write input data.
@@ -477,7 +477,7 @@ impl Default for Predicate {
 #[cfg(not(target_os = "zkvm"))]
 impl Default for Input {
     fn default() -> Self {
-        Self { inputType: InputType::Inline, data: InputEnv::new().build().unwrap().into() }
+        Self { inputType: InputType::Inline, data: InputEnv::new().pack().unwrap().into() }
     }
 }
 
@@ -1021,7 +1021,7 @@ mod tests {
             imageUrl: "test".to_string(),
             input: Input {
                 inputType: InputType::Url,
-                data: InputEnv::new().build().unwrap().into(),
+                data: InputEnv::new().pack().unwrap().into(),
             },
             offer: Offer {
                 minPrice: U256::from(0),

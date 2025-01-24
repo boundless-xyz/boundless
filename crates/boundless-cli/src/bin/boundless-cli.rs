@@ -548,9 +548,9 @@ where
     };
     let input_builder = InputEnv::new();
     let encoded_input = if args.encode_input {
-        input_builder.write(&input)?.build()?
+        input_builder.write(&input)?.pack()?
     } else {
-        input_builder.write_slice(&input).build()?
+        input_builder.write_slice(&input).pack()?
     };
 
     // Resolve the predicate from the command line arguments.
@@ -729,8 +729,8 @@ where
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     let elf = fetch_url(&request.imageUrl).await?;
     let input = match request.input.inputType {
-        InputType::Inline => InputEnv::from_bytes(&request.input.data)?.input(),
-        InputType::Url => InputEnv::from_bytes(
+        InputType::Inline => InputEnv::unpack(&request.input.data)?.input(),
+        InputType::Url => InputEnv::unpack(
             &fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
                 .await?,
         )?

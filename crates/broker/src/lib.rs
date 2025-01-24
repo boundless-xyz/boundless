@@ -645,7 +645,7 @@ async fn upload_input_uri(
     Ok(match order.request.input.inputType {
         InputType::Inline => prover
             .upload_input(
-                InputEnv::from_bytes(&order.request.input.data)
+                InputEnv::unpack(&order.request.input.data)
                     .with_context(|| "Failed to decode input")?
                     .input(),
             )
@@ -664,7 +664,7 @@ async fn upload_input_uri(
             let input_uri = input_uri.build().context("Failed to parse input uri")?;
 
             if !input_uri.exists() {
-                let input_data = InputEnv::from_bytes(
+                let input_data = InputEnv::unpack(
                     &input_uri
                         .fetch()
                         .await
