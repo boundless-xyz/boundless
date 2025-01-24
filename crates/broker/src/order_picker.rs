@@ -385,7 +385,7 @@ where
 
     /// Estimate of gas for fulfilling any orders either pending lock or locked
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
-        let pending_fulfil_orders = self.db.get_orders_committed_to_fulfil().await?.len();
+        let pending_fulfil_orders = self.db.get_orders_committed_to_fulfil_count().await?;
         Ok((pending_fulfil_orders as u64)
             * self.config.lock_all().context("Failed to read config")?.market.fulfil_gas_estimate)
     }

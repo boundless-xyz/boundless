@@ -88,7 +88,7 @@ pub trait BrokerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
     async fn get_pending_lock_orders(&self, end_block: u64) -> Result<Vec<(U256, Order)>, DbError>;
-    async fn get_orders_committed_to_fulfil(&self) -> Result<Vec<(U256, Order)>, DbError>;
+    async fn get_orders_committed_to_fulfil_count(&self) -> Result<u64, DbError>;
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_proof_id(&self, order_id: U256, proof_id: &str) -> Result<(), DbError>;
@@ -494,22 +494,16 @@ impl BrokerDb for SqliteDb {
         orders
     }
 
-    async fn get_orders_committed_to_fulfil(&self) -> Result<Vec<(U256, Order)>, DbError> {
-        let orders: Vec<DbOrder> = sqlx::query_as(
-            "SELECT * FROM orders WHERE data->>'status' >= $1 AND data->>'status' <= $2",
+    async fn get_orders_committed_to_fulfil_count(&self) -> Result<u64, DbError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM orders WHERE data->>'status' >= $1 AND data->>'status' <= $2",
         )
         .bind(OrderStatus::Locking)
         .bind(OrderStatus::PendingSubmission)
-        .fetch_all(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        // Break if any order-id's are invalid and raise
-        let orders: Result<Vec<_>, _> = orders
-            .into_iter()
-            .map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data)))
-            .collect();
-
-        orders
+        Ok(count as u64)
     }
 
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError> {
