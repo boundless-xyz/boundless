@@ -17,26 +17,23 @@ use bytemuck::Pod;
 use risc0_zkvm::serde::to_vec;
 use rmp_serde;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct InputEnvV1 {
     version: u8,
-    env_vars: HashMap<String, String>,
     input: Vec<u8>,
 }
 
 /// Input builder.
 #[derive(Clone, Default, Debug)]
 pub struct InputEnv {
-    env_vars: HashMap<String, String>,
     input: Vec<u8>,
 }
 
 impl InputEnv {
     /// Create a new input builder.
     pub fn new() -> Self {
-        Self { env_vars: HashMap::new(), input: Vec::new() }
+        Self { input: Vec::new() }
     }
 
     /// Access the raw input bytes
@@ -44,14 +41,9 @@ impl InputEnv {
         self.input.clone()
     }
 
-    /// Access the environment variables
-    pub fn env_vars(&self) -> HashMap<String, String> {
-        self.env_vars.clone()
-    }
-
     /// Return the input data packed in MessagePack format
     pub fn build(self) -> Result<Vec<u8>> {
-        let v1 = InputEnvV1 { version: 1, env_vars: self.env_vars, input: self.input };
+        let v1 = InputEnvV1 { version: 1, input: self.input };
 
         Ok(rmp_serde::to_vec(&v1)?)
     }
@@ -62,7 +54,6 @@ impl InputEnv {
         // if let Ok(v2) = rmp_serde::from_slice::<InputEnvV2>(bytes) {
         //     match v2.version {
         //         2 => return Ok(Self {
-        //             env_vars: v2.env_vars,
         //             input: v2.input,
         //             // extra fields if needed in the future
         //         }),
@@ -72,30 +63,9 @@ impl InputEnv {
         // }
         let v1: InputEnvV1 = rmp_serde::from_slice(bytes)?;
         match v1.version {
-            1 => Ok(Self { env_vars: v1.env_vars, input: v1.input }),
+            1 => Ok(Self { input: v1.input }),
             v => bail!("Unsupported version: {}", v),
         }
-    }
-
-    /// Add environment variables to the guest environment.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use boundless_market::input::InputEnv;
-    /// use std::collections::HashMap;
-    ///
-    /// let mut vars = HashMap::new();
-    /// vars.insert("VAR1".to_string(), "SOME_VALUE".to_string());
-    /// vars.insert("VAR2".to_string(), "SOME_VALUE".to_string());
-    ///
-    /// let input = InputEnv::new()
-    ///     .with_env_vars(vars)
-    ///     .build()
-    ///     .unwrap();
-    /// ```
-    pub fn with_env_vars(self, vars: HashMap<String, String>) -> Self {
-        Self { env_vars: vars, ..self }
     }
 
     /// Write input data.
@@ -150,7 +120,7 @@ impl InputEnv {
     pub fn write_slice<T: Pod>(self, slice: &[T]) -> Self {
         let mut input = self.input;
         input.extend_from_slice(bytemuck::cast_slice(slice));
-        Self { input, ..self }
+        Self { input }
     }
 
     /// Write a frame.
@@ -164,7 +134,7 @@ impl InputEnv {
         let mut input = self.input;
         input.extend_from_slice(&len.to_le_bytes());
         input.extend_from_slice(payload);
-        Self { input, ..self }
+        Self { input }
     }
 }
 
@@ -175,19 +145,31 @@ mod tests {
     #[test]
     fn test_version_parsing() -> Result<()> {
         // Test V1
-        let mut env_vars = HashMap::new();
-        env_vars.insert("KEY".to_string(), "VALUE".to_string());
-        let v1 = InputEnvV1 { version: 1, env_vars, input: vec![1, 2, 3] };
+        let v1 = InputEnvV1 { version: 1, input: vec![1, 2, 3] };
         let bytes = rmp_serde::to_vec(&v1)?;
         let parsed = InputEnv::from_bytes(&bytes)?;
         assert_eq!(parsed.input(), vec![1, 2, 3]);
 
         // Test unsupported version
-        let v2 = InputEnvV1 { version: 2, env_vars: HashMap::new(), input: Vec::new() };
+        let v2 = InputEnvV1 { version: 2, input: Vec::new() };
         let bytes = rmp_serde::to_vec(&v2)?;
         let parsed = InputEnv::from_bytes(&bytes);
         assert!(parsed.is_err());
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode_decode_input() -> Result<()> {
+        let timestamp = format! {"{:?}", std::time::SystemTime::now()};
+        let encoded_input = InputEnv::new().write_slice(timestamp.as_bytes()).input();
+        println!("encoded_input: {:?}", hex::encode(&encoded_input));
+
+        let packed_input = InputEnv::new().write_slice(&encoded_input).build()?;
+        println!("packed_input: {:?}", hex::encode(&packed_input));
+
+        let decoded_input = InputEnv::from_bytes(&packed_input)?.input();
+        assert_eq!(encoded_input, decoded_input);
         Ok(())
     }
 }

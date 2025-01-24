@@ -8,16 +8,17 @@ requirements:
     imageId: "722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4"
     predicate:
         predicateType: PrefixMatch
-        data: "57656420"
+        data: "53797374"
 
 # A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.
 imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy"
 
 # Input to be provided to the zkVM guest execution.
+# The input data must be encoded as messagepack bytes. See crates/boundless-market/src/input.rs for additional details.
 input:
     inputType: Inline
-    data: "576564204a756c2020332031343a33373a31322050445420323032340a"
+    data: "9201dc003553797374656d54696d65207b2074765f7365633a20313733373733343633382c2074765f6e7365633a20353938333532303030207d"
 
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 offer:

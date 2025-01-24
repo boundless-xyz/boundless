@@ -11,10 +11,13 @@ use httpmock::prelude::*;
 use risc0_zkvm::sha::Digest;
 use tempfile::NamedTempFile;
 // use broker::Broker;
-use crate::{config::Config, provers::encode_input, Args, Broker};
-use boundless_market::contracts::{
-    hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
-    PredicateType, ProofRequest, Requirements,
+use crate::{config::Config, Args, Broker};
+use boundless_market::{
+    contracts::{
+        hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
+        PredicateType, ProofRequest, Requirements,
+    },
+    input::InputEnv,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -95,7 +98,12 @@ async fn simple_e2e() {
         &image_uri,
         Input {
             inputType: InputType::Inline,
-            data: encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().into(),
+            data: InputEnv::new()
+                .write(&vec![0x41, 0x41, 0x41, 0x41])
+                .unwrap()
+                .build()
+                .unwrap()
+                .into(),
         },
         Offer {
             minPrice: U256::from(20000000000000u64),

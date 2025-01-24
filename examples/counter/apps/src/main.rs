@@ -121,8 +121,10 @@ async fn run(
     let timestamp = format! {"{:?}", SystemTime::now()};
 
     // Encode the input and upload it to the storage provider.
-    let input = InputEnv::new().write_slice(&timestamp.as_bytes()).build();
-    let input_url = boundless_client.upload_input(&input).await?;
+    let input_env = InputEnv::new().write_slice(&timestamp.as_bytes());
+    let input = input_env.input();
+    let packed_input = input_env.build()?;
+    let input_url = boundless_client.upload_input(&packed_input).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
     // Dry run the ECHO ELF with the input to get the journal and cycle count.
@@ -225,7 +227,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{Address, U256},
+        primitives::Address,
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };

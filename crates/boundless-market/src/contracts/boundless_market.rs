@@ -1155,8 +1155,8 @@ mod tests {
     use super::BoundlessMarketService;
     use crate::contracts::{
         hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
-        IBoundlessMarket, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-        ProofStatus, Requirements,
+        IBoundlessMarket, Input, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
+        Requirements,
     };
     use alloy::{
         node_bindings::Anvil,

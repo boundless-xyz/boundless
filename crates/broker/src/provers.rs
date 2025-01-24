@@ -70,7 +70,7 @@ pub struct ProofResult {
 
 /// Encode inputs for Prover::upload_slice()
 pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Error> {
-    InputEnv::new().write(input)?.build()
+    Ok(InputEnv::new().write(input)?.input())
 }
 
 #[async_trait]
