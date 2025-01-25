@@ -1329,7 +1329,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let mut batch = Batch {
+        let batch = Batch {
             aggregation_state: Some(AggregationState {
                 guest_state: GuestState::initial([1u32; 8]),
                 claim_digests: vec![],
