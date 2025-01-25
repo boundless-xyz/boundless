@@ -566,7 +566,7 @@ mod tests {
         assert!(batch_guest_state.mmr.is_finalized());
         assert_eq!(
             batch_guest_state.mmr.clone().finalized_root().unwrap(),
-            risc0_aggregation::merkle_root(&vec![
+            risc0_aggregation::merkle_root(&[
                 echo_receipt.claim().unwrap().digest(),
                 assessor_receipt.claim().unwrap().digest(),
             ])

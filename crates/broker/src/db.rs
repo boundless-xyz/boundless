@@ -1329,13 +1329,15 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let mut batch = Batch::default();
-        batch.aggregation_state = Some(AggregationState {
-            guest_state: GuestState::initial([1u32; 8]),
-            claim_digests: vec![],
-            groth16_proof_id: None,
-            proof_id: "a".to_string(),
-        });
+        let mut batch = Batch {
+            aggregation_state: Some(AggregationState {
+                guest_state: GuestState::initial([1u32; 8]),
+                claim_digests: vec![],
+                groth16_proof_id: None,
+                proof_id: "a".to_string(),
+            }),
+            ..Default::default()
+        };
         db.add_batch(batch_id, batch).await.unwrap();
 
         let g16_proof_id = "Testg16";
