@@ -125,7 +125,7 @@ where
 
         // Collect the needed parts for the new merkle root:
         let batch_seal = self.fetch_encode_g16(groth16_proof_id).await?;
-        let batch_root: Digest = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
+        let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
         ensure!(

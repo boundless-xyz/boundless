@@ -225,7 +225,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{Address, U256},
+        primitives::Address,
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
