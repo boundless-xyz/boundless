@@ -597,13 +597,14 @@ impl BrokerDb for SqliteDb {
                        '$.status', $1),
                        '$.update_at', $2)
             WHERE
-                data->>'status' = $3
+                data->>'status' IN ($3, $4)
             RETURNING *
             "#,
         )
         .bind(OrderStatus::Aggregating)
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::PendingAgg)
+        .bind(OrderStatus::Aggregating)
         .fetch_all(&self.pool)
         .await?;
 
@@ -1265,28 +1266,59 @@ mod tests {
     async fn get_aggregation_proofs(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let id = U256::ZERO;
-        let proof_id = "test_id";
-        let expire_block = 10;
-        let fee = U256::from(10);
-        let mut order = create_order();
-        order.status = OrderStatus::PendingAgg;
-        order.proof_id = Some(proof_id.into());
-        order.expire_block = Some(expire_block);
-        order.lock_price = Some(fee);
-        db.add_order(id, order.clone()).await.unwrap();
+        let orders = [
+            Order {
+                status: OrderStatus::New,
+                proof_id: Some("test_id3".to_string()),
+                expire_block: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                   ..create_order()
+            },
+            Order {
+                status: OrderStatus::PendingAgg,
+                proof_id: Some("test_id1".to_string()),
+                expire_block: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                   ..create_order()
+            },
+            Order {
+                status: OrderStatus::Aggregating,
+                proof_id: Some("test_id2".to_string()),
+                expire_block: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                   ..create_order()
+            },
+            Order {
+                status: OrderStatus::PendingSubmission,
+                proof_id: Some("test_id4".to_string()),
+                expire_block: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                   ..create_order()
+            }
+        ];
+        for (i, order) in orders.iter().enumerate() {
+            db.add_order(U256::from(i), order.clone()).await.unwrap();
+        }
 
         let agg_proofs = db.get_aggregation_proofs().await.unwrap();
 
-        assert_eq!(agg_proofs.len(), 1);
+        assert_eq!(agg_proofs.len(), 2);
+
         let agg_proof = &agg_proofs[0];
+        assert_eq!(agg_proof.order_id, U256::from(1u64));
+        assert_eq!(agg_proof.proof_id, "test_id1");
+        assert_eq!(agg_proof.expire_block, 10);
+        assert_eq!(agg_proof.fee, U256::from(10u64));
 
-        assert_eq!(agg_proof.order_id, id);
-        assert_eq!(agg_proof.proof_id, proof_id);
-        assert_eq!(agg_proof.expire_block, expire_block);
-        assert_eq!(agg_proof.fee, fee);
+        let agg_proof = &agg_proofs[1];
+        assert_eq!(agg_proof.order_id, U256::from(2u64));
+        assert_eq!(agg_proof.proof_id, "test_id2");
+        assert_eq!(agg_proof.expire_block, 10);
+        assert_eq!(agg_proof.fee, U256::from(10u64));
 
-        let db_order = db.get_order(id).await.unwrap().unwrap();
+        let db_order = db.get_order(U256::from(1u64)).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Aggregating);
+        let db_order = db.get_order(U256::from(2u64)).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Aggregating);
     }
 

@@ -94,7 +94,7 @@ where
         proofs: &[String],
         finalize: bool,
     ) -> Result<AggregationState> {
-        // TODO: Handle failure to get an individual order.
+        // TODO(#268): Handle failure to get an individual order.
         let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
         for proof_id in proofs {
             let receipt = self
@@ -423,10 +423,6 @@ where
         Ok(aggregation_state.proof_id)
     }
 
-    // TODO: If this gets into a bad state (e.g. a "bad proof" gets included in the batch) this
-    // currently has no way of recovering. It will simply keep trying to aggregate the batch over
-    // and over again. It would be good to have something like a failure counter or a recovery
-    // routine that attempts to right the system if it goes sideways.
     async fn aggregate(&mut self) -> Result<()> {
         // Get the current batch. This aggregator service works on one batch at a time, including
         // any proofs ready for aggregation into the current batch.
@@ -465,11 +461,6 @@ where
             }
             status => bail!("Unexpected batch status {status:?}"),
         };
-
-        // TODO: If the step above failed, the proofs are effectively dropped since they won't be
-        // picked up again by `get_current_batch`. This should be made more robust by reseting them
-        // to the pending aggregation status, possibly with some retry logic for pruning orders
-        // after a certain number of attempts.
 
         if compress {
             tracing::info!("Starting groth16 compression proof for batch {batch_id}");
