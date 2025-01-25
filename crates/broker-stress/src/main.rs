@@ -9,7 +9,7 @@ use boundless_market::contracts::{
     hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
     PredicateType, ProofRequest, Requirements,
 };
-use broker::test_utils::broker_from_test_ctx;
+use broker::test_utils::BrokerBuilder;
 use clap::Parser;
 use guest_assessor::ASSESSOR_GUEST_ID;
 use guest_set_builder::SET_BUILDER_ID;
@@ -29,7 +29,7 @@ use tracing_subscriber::filter::EnvFilter;
 
 #[derive(Parser, Clone, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+struct StressTestArgs {
     /// Number of concurrent request spawners
     #[arg(long, default_value_t = 1)]
     spawners: u32,
@@ -37,6 +37,10 @@ struct Args {
     /// Time between starting new requests (in ms)
     #[arg(long, default_value_t = 5000)]
     request_speed: u64,
+
+    /// Database URL to use for the sqlite db of the broker.
+    #[arg(long, default_value_t = String::from("sqlite::memory:"))]
+    database_url: String,
 
     /// RNG seed
     #[arg(long, default_value_t = 41)]
@@ -47,7 +51,7 @@ async fn request_spawner(
     shutdown: Arc<AtomicBool>,
     ctx: Arc<TestCtx>,
     elf_url: &str,
-    args: Args,
+    args: StressTestArgs,
     spawner_id: u32,
 ) -> Result<()> {
     let mut r = StdRng::seed_from_u64(args.rng_seed + u64::from(spawner_id));
@@ -87,13 +91,18 @@ async fn request_spawner(
 async fn spawn_broker(
     ctx: &TestCtx,
     anvil: &AnvilInstance,
+    db_url: &str,
 ) -> Result<(tokio::task::JoinHandle<()>, NamedTempFile)> {
     // Setup initial balances
     ctx.prover_market.deposit_stake_with_permit(default_allowance(), &ctx.prover_signer).await?;
     ctx.customer_market.deposit(utils::parse_ether("10.0")?).await?;
 
     // Start broker
-    let (broker, config_file) = broker_from_test_ctx(ctx, anvil.endpoint_url()).await?;
+    let (broker, config_file) = BrokerBuilder::new_test(ctx, anvil.endpoint_url())
+        .await
+        .with_db_url(db_url.to_string())
+        .build()
+        .await?;
     let broker_task = tokio::spawn(async move {
         broker.start_service().await.unwrap();
     });
@@ -101,7 +110,7 @@ async fn spawn_broker(
     Ok((broker_task, config_file))
 }
 
-// basic handler that responds with a static string
+/// Basic handler that responds with a static string.
 async fn serve_elf() -> &'static [u8] {
     ECHO_ELF
 }
@@ -111,7 +120,7 @@ async fn main() -> Result<()> {
     std::env::set_var("RISC0_DEV_MODE", "true");
     tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
 
-    let args = Args::parse();
+    let args = StressTestArgs::parse();
 
     let app = Router::new().route("/", get(serve_elf));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
@@ -129,13 +138,14 @@ async fn main() -> Result<()> {
             .await
             .context("Failed to create test context")?,
     );
-    let (broker_task, _config_file) = spawn_broker(&ctx, &anvil).await?;
+    let (broker_task, _config_file) = spawn_broker(&ctx, &anvil, &args.database_url).await?;
 
     let mut tasks = JoinSet::new();
     let shutdown = Arc::new(AtomicBool::new(false));
 
     // Spawn request generators
     for i in 0..args.spawners {
+        // TODO fund a new key for each spawner to avoid collisions.
         let ctx_copy = ctx.clone();
         let args_copy = args.clone();
         let shutdown_copy = shutdown.clone();
