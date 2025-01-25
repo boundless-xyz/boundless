@@ -99,7 +99,7 @@ where
         for proof_id in proofs {
             let receipt = self
                 .prover
-                .get_receipt(&proof_id)
+                .get_receipt(proof_id)
                 .await
                 .with_context(|| format!("Failed to get proof receipt for {proof_id}"))?
                 .with_context(|| format!("Proof receipt not found for {proof_id}"))?;
@@ -125,12 +125,12 @@ where
             .collect();
 
         let input_data = provers::encode_input(&input)
-            .with_context(|| format!("Failed to encode set-builder proof input"))?;
+            .context("Failed to encode set-builder proof input")?;
         let input_id = self
             .prover
             .upload_input(input_data)
             .await
-            .with_context(|| format!("failed to upload set-builder input"))?;
+            .context("Failed to upload set-builder input")?;
 
         // TODO: we should run this on a different stream in the prover
         // aka make a few different priority streams for each level of the proving
@@ -147,7 +147,7 @@ where
                 assumption_ids,
             )
             .await
-            .with_context(|| format!("Failed to prove set-builder"))?;
+            .context("Failed to prove set-builder")?;
         tracing::info!(
             "completed proving of set-builder cycles: {} time: {}",
             proof_res.stats.total_cycles,
@@ -265,7 +265,7 @@ where
         // Skip finalization checks if we have nothing in this batch
         let is_initial_state =
             batch.aggregation_state.as_ref().map(|s| s.guest_state.is_initial()).unwrap_or(true);
-        if is_initial_state && pending_orders.len() == 0 {
+        if is_initial_state && pending_orders.is_empty() {
             return Ok(false);
         }
 
@@ -328,7 +328,7 @@ where
             .iter()
             .map(|order| order.expire_block)
             .chain(batch.block_deadline)
-            .reduce(|min, exp| u64::min(min, exp));
+            .reduce(u64::min);
 
         if let Some(block_deadline) = block_deadline {
             let remaining_secs = (block_deadline - block_number) * self.block_time;
@@ -416,7 +416,7 @@ where
         };
 
         self.db
-            .update_batch(batch_id, &aggregation_state, &new_proofs, assessor_claim_digest)
+            .update_batch(batch_id, &aggregation_state, new_proofs, assessor_claim_digest)
             .await
             .with_context(|| format!("Failed to update batch {batch_id} in the DB"))?;
 
@@ -463,7 +463,7 @@ where
                 };
                 (aggregation_state.proof_id, true)
             }
-            status @ _ => bail!("Unexpected batch status {status:?}"),
+            status => bail!("Unexpected batch status {status:?}"),
         };
 
         // TODO: If the step above failed, the proofs are effectively dropped since they won't be
