@@ -108,9 +108,11 @@ pub trait BrokerDb {
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;
     async fn set_batch_failure(&self, batch_id: usize, err: String) -> Result<(), DbError>;
     async fn get_current_batch(&self) -> Result<usize, DbError>;
-    /// Update a batch with the results of an aggregation step. Sets the aggreagtion state, and
-    /// adds the given orders to the batch, updating the batch fees and deadline. During
-    /// finalization, the assessor_claim_digest is recorded as well.
+
+    /// Update a batch with the results of an aggregation step.
+    ///
+    /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
+    /// and deadline. During finalization, the assessor_claim_digest is recorded as well.
     async fn update_batch(
         &self,
         batch_id: usize,
