@@ -124,8 +124,8 @@ where
             .chain(proofs.iter().cloned())
             .collect();
 
-        let input_data = provers::encode_input(&input)
-            .context("Failed to encode set-builder proof input")?;
+        let input_data =
+            provers::encode_input(&input).context("Failed to encode set-builder proof input")?;
         let input_id = self
             .prover
             .upload_input(input_data)
