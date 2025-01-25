@@ -1250,11 +1250,11 @@ mod tests {
             state.encode()
         };
         let set_builder_receipt_claim =
-            ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.abi_encode());
+            ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.clone());
 
         let set_builder_receipt = Receipt::new(
             InnerReceipt::Fake(FakeReceipt::new(set_builder_receipt_claim)),
-            set_builder_journal.abi_encode(),
+            set_builder_journal,
         );
         let set_verifier_seal = encode_seal(&set_builder_receipt).unwrap();
 
