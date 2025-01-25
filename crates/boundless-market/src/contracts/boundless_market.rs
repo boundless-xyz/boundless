@@ -71,8 +71,8 @@ pub enum MarketError {
     #[error("Request not found in event logs 0x{0:x}")]
     RequestNotFound(U256),
 
-    /// Lockin reverted, possibly outbid.
-    #[error("Lockin reverted, possibly outbid: txn_hash: {0}")]
+    /// Lock request reverted, possibly outbid.
+    #[error("Lock request reverted, possibly outbid: txn_hash: {0}")]
     LockRevert(B256),
 
     /// General market error.
@@ -86,6 +86,7 @@ pub enum MarketError {
 
 impl From<alloy::contract::Error> for MarketError {
     fn from(err: alloy::contract::Error) -> Self {
+        tracing::debug!("raw alloy contract error: {:?}", err);
         MarketError::Error(TxnErr::from(err).into())
     }
 }
@@ -353,7 +354,7 @@ where
     /// auction parameters and the block at which this transaction is processed.
     ///
     /// This method should be called from the address of the prover.
-    pub async fn lockin_request(
+    pub async fn lock_request(
         &self,
         request: &ProofRequest,
         client_sig: &Bytes,
@@ -363,12 +364,13 @@ where
         let is_locked_in: bool =
             self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
         if is_locked_in {
-            return Err(MarketError::Error(anyhow!("request is already locked-in")));
+            return Err(MarketError::Error(anyhow!("request is already locked")));
         }
 
-        tracing::debug!("Calling lockin({:x?}, {:x?})", request, client_sig);
+        tracing::debug!("Calling lockRequest({:x?}, {:x?})", request, client_sig);
 
-        let mut call = self.instance.lockin(request.clone(), client_sig.clone()).from(self.caller);
+        let mut call =
+            self.instance.lockRequest(request.clone(), client_sig.clone()).from(self.caller);
 
         if let Some(gas) = priority_gas {
             let priority_fee = self
@@ -382,6 +384,8 @@ where
                 .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
                 .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
         }
+
+        tracing::debug!("Sending tx {}", format!("{:?}", call));
 
         let pending_tx = call.send().await?;
 
@@ -409,7 +413,7 @@ where
     /// auction parameters and the block at which this transaction is processed.
     ///
     /// This method uses the provided signature to authenticate the prover.
-    pub async fn lockin_request_with_sig(
+    pub async fn lock_request_with_signature(
         &self,
         request: &ProofRequest,
         client_sig: &Bytes,
@@ -424,7 +428,7 @@ where
         }
 
         tracing::debug!(
-            "Calling lockinWithSig({:x?}, {:x?}, {:x?})",
+            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?})",
             request,
             client_sig,
             prover_sig
@@ -432,7 +436,7 @@ where
 
         let call = self
             .instance
-            .lockinWithSig(request.clone(), client_sig.clone(), prover_sig.clone())
+            .lockRequestWithSignature(request.clone(), client_sig.clone(), prover_sig.clone())
             .from(self.caller);
         let pending_tx = call.send().await.context("Failed to lock")?;
 
@@ -447,7 +451,7 @@ where
         if !receipt.status() {
             // TODO: Get + print revertReason
             return Err(MarketError::Error(anyhow!(
-                "LockinRequest failed [{}], possibly outbid",
+                "lockRequestWithSignature failed [{}], possibly outbid",
                 receipt.transaction_hash
             )));
         }
@@ -674,7 +678,7 @@ where
     }
 
     /// Checks if a request is locked in.
-    pub async fn is_locked_in(&self, request_id: U256) -> Result<bool, MarketError> {
+    pub async fn is_locked(&self, request_id: U256) -> Result<bool, MarketError> {
         tracing::debug!("Calling requestIsLocked({:x})", request_id);
         let res = self.instance.requestIsLocked(request_id).call().await?;
 
@@ -717,7 +721,7 @@ where
             }
         }
 
-        if self.is_locked_in(request_id).await.context("Failed to check locked status")? {
+        if self.is_locked(request_id).await.context("Failed to check locked status")? {
             let deadline = self.instance.requestDeadline(request_id).call().await?._0;
             if block_number > deadline && deadline > 0 {
                 return Ok(ProofStatus::Expired);
@@ -1174,6 +1178,7 @@ mod tests {
         sha::{Digest, Digestible},
         FakeReceipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
     };
+    use tracing_subscriber::EnvFilter;
     use url::Url;
 
     fn ether(value: &str) -> U256 {
@@ -1187,7 +1192,7 @@ mod tests {
             biddingStart: 100,
             rampUpPeriod: 100,
             timeout: 500,
-            lockinStake: ether("1"),
+            lockStake: ether("1"),
         }
     }
 
@@ -1210,7 +1215,7 @@ mod tests {
                 biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         )
     }
@@ -1419,6 +1424,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_e2e() {
+        tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
@@ -1445,16 +1451,16 @@ mod tests {
 
         let (_, log) = logs.first().unwrap();
         let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request = log.inner.data.request;
+        let request: ProofRequest = log.inner.data.request;
         let customer_sig = log.inner.data.clientSignature;
 
         // Deposit prover balances
         let deposit = default_allowance();
         ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
-        // Lockin the request
-        ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
-        assert!(ctx.customer_market.is_locked_in(request_id).await.unwrap());
+        // Lock the request
+        ctx.prover_market.lock_request(&request, &customer_sig, None).await.unwrap();
+        assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
                 == ProofStatus::Locked
@@ -1517,9 +1523,9 @@ mod tests {
         let deposit = default_allowance();
         ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
-        // Lockin the request
-        ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
-        assert!(ctx.customer_market.is_locked_in(request_id).await.unwrap());
+        // Lock the request
+        ctx.prover_market.lock_request(&request, &customer_sig, None).await.unwrap();
+        assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
                 == ProofStatus::Locked
@@ -1644,9 +1650,9 @@ mod tests {
         let deposit = default_allowance();
         ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
-        // Lockin the request
-        ctx.prover_market.lockin_request(&request, &customer_sig, None).await.unwrap();
-        assert!(ctx.customer_market.is_locked_in(request_id).await.unwrap());
+        // Lock the request
+        ctx.prover_market.lock_request(&request, &customer_sig, None).await.unwrap();
+        assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
                 == ProofStatus::Locked

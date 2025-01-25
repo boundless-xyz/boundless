@@ -121,7 +121,7 @@ where
             parse_ether(&config.market.max_stake).context("Failed to parse max_stake")?
         };
 
-        let lockin_stake = U256::from(order.request.offer.lockinStake);
+        let lockin_stake = U256::from(order.request.offer.lockStake);
         if lockin_stake > max_stake {
             tracing::warn!("Removing high stake order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
@@ -285,7 +285,7 @@ where
             proof_res.stats.total_cycles,
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            order.request.offer.lockinStake,
+            order.request.offer.lockStake,
         );
 
         // Skip the order if it will never be worth it
@@ -530,7 +530,7 @@ mod tests {
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
+                    lockStake: U256::from(0),
                 },
             ),
             target_block: None,
@@ -644,7 +644,7 @@ mod tests {
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
+                    lockStake: U256::from(0),
                 },
             ),
             image_id: None,
@@ -750,7 +750,7 @@ mod tests {
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
+                    lockStake: U256::from(0),
                 },
             ),
             image_id: None,
@@ -859,7 +859,7 @@ mod tests {
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
+                    lockStake: U256::from(0),
                 },
             ),
             target_block: None,

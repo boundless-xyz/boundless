@@ -43,9 +43,10 @@ pub use risc0_ethereum_contracts::{encode_seal, IRiscZeroSetVerifier};
 #[cfg(not(target_os = "zkvm"))]
 const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 
-// boundless_market.rs is a copy of IBoundlessMarket.sol with alloy derive statements added.
+// boundless_market_generated.rs contains the Boundless contract types
+// with alloy derive statements added.
 // See the build.rs script in this crate for more details.
-include!(concat!(env!("OUT_DIR"), "/boundless_market.rs"));
+include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::*;
 
 #[allow(missing_docs)]
@@ -404,8 +405,8 @@ impl Offer {
     }
 
     /// Sets the offer lock-in stake.
-    pub fn with_lockin_stake(self, lockin_stake: U256) -> Self {
-        Self { lockinStake: lockin_stake, ..self }
+    pub fn with_lock_stake(self, lock_stake: U256) -> Self {
+        Self { lockStake: lock_stake, ..self }
     }
 
     /// Sets the offer bidding start as block number.
@@ -437,9 +438,9 @@ impl Offer {
     }
 
     /// Sets the offer lock-in stake based on the desired price per million cycles.
-    pub fn with_lockin_stake_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
-        let lockin_stake = mcycle_price * U256::from(mcycle);
-        Self { lockinStake: lockin_stake, ..self }
+    pub fn with_lock_stake_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
+        let lock_stake = mcycle_price * U256::from(mcycle);
+        Self { lockStake: lock_stake, ..self }
     }
 }
 
@@ -1008,7 +1009,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(0),
+                lockStake: U256::from(0),
             },
         };
 

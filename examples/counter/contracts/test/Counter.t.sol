@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -11,7 +11,7 @@ import {console2} from "forge-std/console2.sol";
 import {Test} from "forge-std/Test.sol";
 import {Counter} from "../src/Counter.sol";
 import {Elf} from "boundless-market/../test/UtilElf.sol"; // auto-generated contract after running `cargo build`.
-import {ImageID} from "boundless-market/UtilImageID.sol"; // auto-generated contract after running `cargo build`.
+import {ImageID} from "boundless-market/libraries/UtilImageID.sol"; // auto-generated contract after running `cargo build`.
 
 contract CounterTest is RiscZeroCheats, Test {
     Counter public counter;

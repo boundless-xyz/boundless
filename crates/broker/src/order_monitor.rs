@@ -98,13 +98,10 @@ where
             conf.market.lockin_priority_gas
         };
 
-        tracing::info!(
-            "Locking order: {order_id:x} for stake: {}",
-            order.request.offer.lockinStake
-        );
+        tracing::info!("Locking order: {order_id:x} for stake: {}", order.request.offer.lockStake);
         let lock_block = self
             .market
-            .lockin_request(&order.request, &order.client_sig, conf_priority_gas)
+            .lock_request(&order.request, &order.client_sig, conf_priority_gas)
             .await
             .map_err(LockOrderErr::OrderLockedInBlock)?;
 
@@ -315,7 +312,7 @@ mod tests {
                 biddingStart: 0,
                 rampUpPeriod: 1,
                 timeout: 100,
-                lockinStake: U256::from(0),
+                lockStake: U256::from(0),
             },
         );
         let order_id = U256::from(request.id);
@@ -427,7 +424,7 @@ mod tests {
                 biddingStart: 0,
                 rampUpPeriod: 1,
                 timeout: 100,
-                lockinStake: U256::from(0),
+                lockStake: U256::from(0),
             },
         );
         let order_id = U256::from(request.id);

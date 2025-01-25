@@ -498,7 +498,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -611,7 +611,7 @@ mod tests {
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
-        market.lockin_request(&order.request, &client_sig.into(), None).await.unwrap();
+        market.lock_request(&order.request, &client_sig.into(), None).await.unwrap();
 
         let submitter = Submitter::new(
             db.clone(),
