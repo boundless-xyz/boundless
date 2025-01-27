@@ -19,7 +19,7 @@ imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrq
 # See crates/boundless-market/src/input.rs for additional details.
 input:
     inputType: Inline
-    data: "9201dc003553797374656d54696d65207b2074765f7365633a20313733373733343633382c2074765f6e7365633a20353938333532303030207d"
+    data: "0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"
 
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 offer:

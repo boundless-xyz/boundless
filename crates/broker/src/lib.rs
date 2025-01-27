@@ -647,7 +647,7 @@ async fn upload_input_uri(
             .upload_input(
                 InputEnv::decode(&order.request.input.data)
                     .with_context(|| "Failed to decode input")?
-                    .input(),
+                    .stdin,
             )
             .await
             .context("Failed to upload input data")?,
@@ -671,7 +671,7 @@ async fn upload_input_uri(
                         .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
                 )
                 .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-                .input();
+                .stdin;
 
                 prover.upload_input(input_data).await.context("Failed to upload input")?
             } else {

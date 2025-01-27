@@ -729,12 +729,16 @@ where
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     let elf = fetch_url(&request.imageUrl).await?;
     let input = match request.input.inputType {
-        InputType::Inline => InputEnv::decode(&request.input.data)?.input(),
-        InputType::Url => InputEnv::decode(
-            &fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
+        InputType::Inline => InputEnv::decode(&request.input.data)?.stdin,
+        InputType::Url => {
+            InputEnv::decode(
+                &fetch_url(
+                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
+                )
                 .await?,
-        )?
-        .input(),
+            )?
+            .stdin
+        }
         _ => bail!("Unsupported input type"),
     };
     let env = ExecutorEnv::builder().write_slice(&input).build()?;
