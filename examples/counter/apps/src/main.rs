@@ -14,7 +14,7 @@ use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequestBuilder, Requirements},
-    input::InputEnv,
+    input::InputBuilder,
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -121,7 +121,7 @@ async fn run(
     let timestamp = format! {"{:?}", SystemTime::now()};
 
     // Encode the input and upload it to the storage provider.
-    let input_env = InputEnv::new().write_slice(&timestamp.as_bytes());
+    let input_env = InputBuilder::new().write_slice(&timestamp.as_bytes());
     let input_url = boundless_client.upload_input(&input_env.encode()?).await?;
     tracing::info!("Uploaded input to {}", input_url);
 

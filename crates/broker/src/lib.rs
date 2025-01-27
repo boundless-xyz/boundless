@@ -17,7 +17,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, InputType,
         ProofRequest,
     },
-    input::InputEnv,
+    input::InputBuilder,
     order_stream_client::Client as OrderStreamClient,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -645,7 +645,7 @@ async fn upload_input_uri(
     Ok(match order.request.input.inputType {
         InputType::Inline => prover
             .upload_input(
-                InputEnv::decode(&order.request.input.data)
+                InputBuilder::decode(&order.request.input.data)
                     .with_context(|| "Failed to decode input")?
                     .stdin,
             )
@@ -664,7 +664,7 @@ async fn upload_input_uri(
             let input_uri = input_uri.build().context("Failed to parse input uri")?;
 
             if !input_uri.exists() {
-                let input_data = InputEnv::decode(
+                let input_data = InputBuilder::decode(
                     &input_uri
                         .fetch()
                         .await

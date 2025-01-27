@@ -434,7 +434,7 @@ mod tests {
             test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
             ProofRequest, Requirements,
         },
-        input::InputEnv,
+        input::InputBuilder,
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -488,7 +488,7 @@ mod tests {
         let prover: ProverObj = Arc::new(MockProver::default());
         let image_id = Digest::from(ECHO_ID);
         let input_buf =
-            InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap();
+            InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
@@ -602,7 +602,7 @@ mod tests {
         let prover: ProverObj = Arc::new(MockProver::default());
         let image_id = Digest::from(ECHO_ID);
         let input_buf =
-            InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap();
+            InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
@@ -822,7 +822,7 @@ mod tests {
         let prover: ProverObj = Arc::new(MockProver::default());
         let image_id = Digest::from(ECHO_ID);
         let input_buf =
-            InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap();
+            InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());

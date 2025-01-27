@@ -1163,7 +1163,7 @@ mod tests {
             IBoundlessMarket, Input, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
             Requirements,
         },
-        input::InputEnv,
+        input::InputBuilder,
     };
     use alloy::{
         node_bindings::Anvil,
@@ -1212,7 +1212,7 @@ mod tests {
                 },
             },
             "http://image_uri.null",
-            Input::inline(InputEnv::new().encode().unwrap()),
+            Input::inline(InputBuilder::new().encode().unwrap()),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

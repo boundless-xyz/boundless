@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 enum Version {
     // Raw version with no encoding.
     V0 = 0,
-    // MessagePack encoded version based on [InputEnvV1].
+    // MessagePack encoded version based on [InputV1].
     #[default]
     V1 = 1,
 }
@@ -63,20 +63,20 @@ pub enum Error {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct InputEnvV1 {
+pub(crate) struct InputV1 {
     stdin: Vec<u8>,
 }
 
 /// Input builder.
 #[derive(Clone, Default, Debug)]
 #[non_exhaustive]
-pub struct InputEnv {
+pub struct InputBuilder {
     version: Version,
     /// Input data.
     pub stdin: Vec<u8>,
 }
 
-impl InputEnv {
+impl InputBuilder {
     /// Create a new input builder.
     pub fn new() -> Self {
         Self { version: Version::V1, stdin: Vec::new() }
@@ -84,7 +84,7 @@ impl InputEnv {
 
     /// Return the input data packed in MessagePack format
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
-        let v1 = InputEnvV1 { stdin: self.stdin.clone() };
+        let v1 = InputV1 { stdin: self.stdin.clone() };
         let mut encoded = Vec::new();
         encoded.push(self.version.into());
         encoded.extend_from_slice(&rmp_serde::to_vec_named(&v1)?);
@@ -99,7 +99,7 @@ impl InputEnv {
         match bytes[0] {
             0 => Ok(Self { version: Version::V0, stdin: bytes[1..].to_vec() }),
             1 => {
-                let v1: InputEnvV1 = rmp_serde::from_read(&bytes[1..])?;
+                let v1: InputV1 = rmp_serde::from_read(&bytes[1..])?;
                 Ok(Self { version: Version::V1, stdin: v1.stdin })
             }
             _ => Err(Error::UnsupportedVersion(bytes[0] as u64)),
@@ -115,7 +115,7 @@ impl InputEnv {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::InputEnv;
+    /// use boundless_market::input::InputBuilder;
     /// use serde::Serialize;
     ///
     /// #[derive(Serialize)]
@@ -126,7 +126,7 @@ impl InputEnv {
     ///
     /// let input1 = Input{ a: 1, b: 2 };
     /// let input2 = Input{ a: 3, b: 4 };
-    /// let input = InputEnv::new()
+    /// let input = InputBuilder::new()
     ///     .write(&input1).unwrap()
     ///     .write(&input2).unwrap();
     /// ```
@@ -143,11 +143,11 @@ impl InputEnv {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::InputEnv;
+    /// use boundless_market::input::InputBuilder;
     ///
     /// let slice1 = [0, 1, 2, 3];
     /// let slice2 = [3, 2, 1, 0];
-    /// let input = InputEnv::new()
+    /// let input = InputBuilder::new()
     ///     .write_slice(&slice1)
     ///     .write_slice(&slice2);
     /// ```
@@ -179,14 +179,14 @@ mod tests {
     #[test]
     fn test_version_parsing() -> Result<(), Error> {
         // Test V1
-        let v1 = InputEnv::new().write_slice(&[1u8, 2, 3]);
+        let v1 = InputBuilder::new().write_slice(&[1u8, 2, 3]);
         let bytes = v1.encode()?;
-        let parsed = InputEnv::decode(&bytes)?;
+        let parsed = InputBuilder::decode(&bytes)?;
         assert_eq!(parsed.stdin, vec![1, 2, 3]);
 
         // Test unsupported version
         let bytes = vec![2u8, 1, 2, 3];
-        let parsed = InputEnv::decode(&bytes);
+        let parsed = InputBuilder::decode(&bytes);
         assert!(parsed.is_err());
 
         Ok(())
@@ -195,13 +195,13 @@ mod tests {
     #[test]
     fn test_encode_decode_input() -> Result<(), Error> {
         let timestamp = format! {"{:?}", std::time::SystemTime::now()};
-        let encoded_input = InputEnv::new().write_slice(timestamp.as_bytes()).stdin;
+        let encoded_input = InputBuilder::new().write_slice(timestamp.as_bytes()).stdin;
         println!("encoded_input: {:?}", hex::encode(&encoded_input));
 
-        let packed_input = InputEnv::new().write_slice(&encoded_input).encode()?;
+        let packed_input = InputBuilder::new().write_slice(&encoded_input).encode()?;
         println!("packed_input: {:?}", hex::encode(&packed_input));
 
-        let decoded_input = InputEnv::decode(&packed_input)?.stdin;
+        let decoded_input = InputBuilder::decode(&packed_input)?.stdin;
         assert_eq!(encoded_input, decoded_input);
         Ok(())
     }

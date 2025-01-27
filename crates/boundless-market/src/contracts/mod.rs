@@ -424,12 +424,12 @@ impl Input {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::{contracts::Input, input::InputEnv};
+    /// use boundless_market::{contracts::Input, input::InputBuilder};
     ///
-    /// let input = Input::inline(InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap());
+    /// let input = Input::inline(InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap());
     /// ```
     ///
-    /// See [`InputEnv`] for more details on how to write input data.
+    /// See [`InputBuilder`] for more details on how to write input data.
     pub fn inline(data: impl Into<Bytes>) -> Self {
         Self { inputType: InputType::Inline, data: data.into() }
     }
@@ -1005,7 +1005,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::boundless_market::input::InputEnv;
+    use ::boundless_market::input::InputBuilder;
     use alloy::signers::local::PrivateKeySigner;
 
     async fn create_order(
@@ -1029,7 +1029,7 @@ mod tests {
             imageUrl: "test".to_string(),
             input: Input {
                 inputType: InputType::Url,
-                data: InputEnv::new().encode().unwrap().into(),
+                data: InputBuilder::new().encode().unwrap().into(),
             },
             offer: Offer {
                 minPrice: U256::from(0),

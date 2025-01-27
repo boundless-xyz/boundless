@@ -17,7 +17,7 @@ use boundless_market::{
         hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
         PredicateType, ProofRequest, Requirements,
     },
-    input::InputEnv,
+    input::InputBuilder,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -98,7 +98,7 @@ async fn simple_e2e() {
         &image_uri,
         Input {
             inputType: InputType::Inline,
-            data: InputEnv::new()
+            data: InputBuilder::new()
                 .write(&vec![0x41, 0x41, 0x41, 0x41])
                 .unwrap()
                 .encode()
