@@ -19,7 +19,7 @@
   "slash: base case": "61509",
   "submitRequest: with maxPrice ether": "49935",
   "submitRequest: without ether": "43155",
-  "submitRootAndFulfillBatch: a batch of 2 requests": "134763",
+  "submitRootAndFulfillBatch: a batch of 2 requests": "136123",
   "unfreezeAccount": "31611",
   "withdraw: 1 ether": "40379",
   "withdraw: full balance": "40379",

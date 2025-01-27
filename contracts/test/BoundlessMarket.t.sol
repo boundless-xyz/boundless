@@ -294,7 +294,9 @@ contract BoundlessMarketTest is Test {
         boundlessMarket.submitRoot(
             address(setVerifier),
             root,
-            verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal
+            verifier.mockProve(
+                SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
+            ).seal
         );
     }
 
@@ -1322,8 +1324,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment[] memory fills, bytes memory assessorSeal, bytes32 root) =
             createFills(requests, journals, address(testProver), true);
 
-        bytes memory seal =
-            verifier.mockProve(SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, root))).seal;
+        bytes memory seal = verifier.mockProve(
+            SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
+        ).seal;
         boundlessMarket.submitRootAndFulfillBatch(
             address(setVerifier), root, seal, fills, assessorSeal, address(testProver)
         );

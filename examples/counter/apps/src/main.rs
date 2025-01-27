@@ -121,8 +121,8 @@ async fn run(
     let timestamp = format! {"{:?}", SystemTime::now()};
 
     // Encode the input and upload it to the storage provider.
-    let input_env = InputBuilder::new().write_slice(&timestamp.as_bytes());
-    let input_url = boundless_client.upload_input(&input_env.encode()?).await?;
+    let input = InputBuilder::new().write_slice(&timestamp.as_bytes());
+    let input_url = boundless_client.upload_input(&input.encode()?).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
     // Dry run the ECHO ELF with the input to get the journal and cycle count.
@@ -130,7 +130,7 @@ async fn run(
     // It can also be useful to ensure the guest can be executed correctly and we do not send into
     // the market unprovable proof requests. If you have a different mechanism to get the expected
     // journal and set a price, you can skip this step.
-    let env = ExecutorEnv::builder().write_slice(&input_env.input()).build()?;
+    let env = ExecutorEnv::builder().write_slice(&input.stdin).build()?;
     let session_info = default_executor().execute(env, ECHO_ELF)?;
     let mcycles_count = session_info
         .segments
