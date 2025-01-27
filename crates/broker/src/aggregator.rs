@@ -532,7 +532,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn aggregate_order() {
+    async fn aggregate_order_one_shot() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let prover_addr = signer.address();
@@ -633,6 +633,180 @@ mod tests {
         };
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
+
+        // Second order
+        let order_request = ProofRequest::new(
+            1,
+            &customer_signer.address(),
+            Requirements {
+                imageId: B256::from_slice(image_id.as_bytes()),
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            "http://risczero.com/image",
+            Input { inputType: InputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(min_price),
+                maxPrice: U256::from(4),
+                biddingStart: 0,
+                timeout: 100,
+                rampUpPeriod: 1,
+                lockStake: U256::from(10),
+            },
+        );
+
+        let client_sig = order_request
+            .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
+            .unwrap()
+            .as_bytes()
+            .into();
+        let order = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_block: None,
+            request: order_request,
+            image_id: Some(image_id_str),
+            input_id: Some(input_id),
+            proof_id: Some(proof_res_2.id),
+            expire_block: Some(100),
+            client_sig,
+            lock_price: Some(U256::from(min_price)),
+            error_msg: None,
+        };
+        let order_id = U256::from(order.request.id);
+        db.add_order(order_id, order.clone()).await.unwrap();
+
+        aggregator.aggregate().await.unwrap();
+
+        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::PendingSubmission);
+
+        let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
+        assert!(!batch.orders.is_empty());
+        assert_eq!(batch.status, BatchStatus::PendingSubmission);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn aggregate_order_incremental() {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let prover_addr = signer.address();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer))
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut config = config.load_write().unwrap();
+            config.batcher.batch_size = Some(2);
+        }
+
+        let prover: ProverObj = Arc::new(MockProver::default());
+
+        // Pre-prove the echo aka app guest:
+        let image_id = Digest::from(ECHO_ID);
+        let image_id_str = image_id.to_string();
+        prover.upload_image(&image_id_str, ECHO_ELF.to_vec()).await.unwrap();
+        let input_id = prover
+            .upload_input(encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap())
+            .await
+            .unwrap();
+        let proof_res_1 =
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+        let proof_res_2 =
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let _handle = tokio::spawn(chain_monitor.spawn());
+        let mut aggregator = AggregatorService::new(
+            db.clone(),
+            provider.clone(),
+            chain_monitor.clone(),
+            Digest::from(SET_BUILDER_ID),
+            SET_BUILDER_ELF.to_vec(),
+            Digest::from(ASSESSOR_GUEST_ID),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            prover_addr,
+            config,
+            prover,
+            2,
+        )
+        .await
+        .unwrap();
+
+        let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let min_price = 2;
+
+        // First order
+        let order_request = ProofRequest::new(
+            0,
+            &customer_signer.address(),
+            Requirements {
+                imageId: B256::from_slice(image_id.as_bytes()),
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            "http://risczero.com/image",
+            Input { inputType: InputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(min_price),
+                maxPrice: U256::from(4),
+                biddingStart: 0,
+                timeout: 100,
+                rampUpPeriod: 1,
+                lockStake: U256::from(10),
+            },
+        );
+
+        let client_sig = order_request
+            .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
+            .unwrap()
+            .as_bytes();
+
+        let order = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_block: None,
+            request: order_request,
+            image_id: Some(image_id_str.clone()),
+            input_id: Some(input_id.clone()),
+            proof_id: Some(proof_res_1.id),
+            expire_block: Some(100),
+            client_sig: client_sig.into(),
+            lock_price: Some(U256::from(min_price)),
+            error_msg: None,
+        };
+        let order_id = U256::from(order.request.id);
+        db.add_order(order_id, order.clone()).await.unwrap();
+
+        // Aggregate the first order. Should not finalize.
+        aggregator.aggregate().await.unwrap();
+
+        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::PendingSubmission);
+
+        let option_batch = db.get_complete_batch().await.unwrap();
+        assert!(option_batch.is_none());
+
+        let aggregating_batch_id = db.get_current_batch().await.unwrap();
+        let aggregating_batch = db.get_batch(aggregating_batch_id).await.unwrap();
+        assert_eq!(aggregating_batch.orders, vec![order_id]);
+        assert!(aggregating_batch.aggregation_state.is_some());
+        assert!(!aggregating_batch.aggregation_state.unwrap().guest_state.mmr.is_finalized());
 
         // Second order
         let order_request = ProofRequest::new(
