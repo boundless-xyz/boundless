@@ -32,34 +32,14 @@ export default function Main() {
           </h2>
 
           <h2 className="mb-16 text-neutral-900 text-xl">Focus on building while Boundless handles the rest.</h2>
-          
+
           <div className="flex justify-center gap-4">
-            <div className="group relative">
-              {/* Base button that shows when not hovered */}
-              <div className="pointer-events-none absolute inset-0 flex h-14 w-[180px] items-center justify-center whitespace-pre rounded-lg border border-[var(--vocs-color\_borderAccent)] bg-[var(--vocs-color\_backgroundAccent)] px-4 font-medium text-[var(--vocs-color\_backgroundAccentText)] text-xl shadow-2xl transition-all duration-300 group-hover:opacity-0">
-                Quick Start
-              </div>
-          
-              {/* Split buttons that show on hover */}
-              <div className="flex h-14 w-[180px] items-center rounded-lg opacity-0 transition-all duration-300 group-hover:opacity-100">
-                <a
-                  href="/build/build-a-program"
-                  className="flex h-full w-1/2 items-center justify-center rounded-l-lg border-[var(--vocs-color_borderAccent)] border-r bg-[var(--vocs-color\_backgroundAccent)] font-medium text-[var(--vocs-color\_backgroundAccentText)] transition-colors duration-100"
-                >
-                  Builder
-                </a>
-                <a
-                  href="/prove/quick-start"
-                  className="flex h-full w-1/2 items-center justify-center rounded-r-lg bg-[var(--vocs-color\_backgroundAccent)] font-medium text-[var(--vocs-color\_backgroundAccentText)] transition-colors duration-100"
-                >
-                  Prover
-                </a>
-              </div>
-          
-              {/* Shared border */}
-              <div className="pointer-events-none absolute inset-0 rounded-lg border border-[var(--vocs-color\_borderAccent)]" />
-            </div>
-          
+            <a
+              className="flex h-14 w-fit items-center whitespace-pre rounded-lg border border-[var(--vocs-color\_borderAccent)] bg-[var(--vocs-color\_backgroundAccent)] px-4 font-medium text-[var(--vocs-color\_backgroundAccentText)] text-xl shadow-2xl transition-colors duration-100"
+              href="/build/build-a-program"
+            >
+              Quick Start
+            </a>
             <a
               className="flex h-14 w-fit items-center whitespace-pre rounded-lg bg-[var(--vocs-color\_background4)] px-4 font-medium text-[var(--vocs-color\_text)] text-xl shadow-2xl transition-colors duration-100"
               href="/introduction/why-boundless"
