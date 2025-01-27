@@ -1212,7 +1212,7 @@ mod tests {
                 },
             },
             "http://image_uri.null",
-            Input::inline(InputEnv::new().pack().unwrap()),
+            Input::inline(InputEnv::new().encode().unwrap()),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

@@ -160,9 +160,9 @@ async fn run(args: &MainArgs) -> Result<()> {
             _ => bail!("at most one of input or input-file args must be provided"),
         };
         let encoded_input = if args.encode_input {
-            InputEnv::new().write(&input)?.pack()?
+            InputEnv::new().write(&input)?.encode()?
         } else {
-            InputEnv::new().write_slice(&input).pack()?
+            InputEnv::new().write_slice(&input).encode()?
         };
 
         let env = ExecutorEnv::builder().write_slice(&encoded_input).build()?;

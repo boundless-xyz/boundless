@@ -42,14 +42,14 @@ impl InputEnv {
     }
 
     /// Return the input data packed in MessagePack format
-    pub fn pack(&self) -> Result<Vec<u8>> {
+    pub fn encode(&self) -> Result<Vec<u8>> {
         let v1 = InputEnvV1 { version: 1, input: self.input.clone() };
 
         Ok(rmp_serde::to_vec(&v1)?)
     }
 
     /// Parse a MessagePack formatted input with version support
-    pub fn unpack(bytes: &[u8]) -> Result<Self> {
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
         // Uncomment this block when we have a new version
         // if let Ok(v2) = rmp_serde::from_slice::<InputEnvV2>(bytes) {
         //     match v2.version {
@@ -143,13 +143,13 @@ mod tests {
         // Test V1
         let v1 = InputEnvV1 { version: 1, input: vec![1, 2, 3] };
         let bytes = rmp_serde::to_vec(&v1)?;
-        let parsed = InputEnv::unpack(&bytes)?;
+        let parsed = InputEnv::decode(&bytes)?;
         assert_eq!(parsed.input(), vec![1, 2, 3]);
 
         // Test unsupported version
         let v2 = InputEnvV1 { version: 2, input: Vec::new() };
         let bytes = rmp_serde::to_vec(&v2)?;
-        let parsed = InputEnv::unpack(&bytes);
+        let parsed = InputEnv::decode(&bytes);
         assert!(parsed.is_err());
 
         Ok(())
@@ -161,10 +161,10 @@ mod tests {
         let encoded_input = InputEnv::new().write_slice(timestamp.as_bytes()).input();
         println!("encoded_input: {:?}", hex::encode(&encoded_input));
 
-        let packed_input = InputEnv::new().write_slice(&encoded_input).pack()?;
+        let packed_input = InputEnv::new().write_slice(&encoded_input).encode()?;
         println!("packed_input: {:?}", hex::encode(&packed_input));
 
-        let decoded_input = InputEnv::unpack(&packed_input)?.input();
+        let decoded_input = InputEnv::decode(&packed_input)?.input();
         assert_eq!(encoded_input, decoded_input);
         Ok(())
     }

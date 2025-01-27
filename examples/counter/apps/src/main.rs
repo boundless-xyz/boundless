@@ -122,7 +122,7 @@ async fn run(
 
     // Encode the input and upload it to the storage provider.
     let input_env = InputEnv::new().write_slice(&timestamp.as_bytes());
-    let input_url = boundless_client.upload_input(&input_env.pack()?).await?;
+    let input_url = boundless_client.upload_input(&input_env.encode()?).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
     // Dry run the ECHO ELF with the input to get the journal and cycle count.

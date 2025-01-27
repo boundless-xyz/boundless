@@ -101,7 +101,7 @@ async fn simple_e2e() {
             data: InputEnv::new()
                 .write(&vec![0x41, 0x41, 0x41, 0x41])
                 .unwrap()
-                .pack()
+                .encode()
                 .unwrap()
                 .into(),
         },

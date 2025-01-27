@@ -426,7 +426,7 @@ impl Input {
     /// ```
     /// use boundless_market::{contracts::Input, input::InputEnv};
     ///
-    /// let input = Input::inline(InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().pack().unwrap());
+    /// let input = Input::inline(InputEnv::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap());
     /// ```
     ///
     /// See [`InputEnv`] for more details on how to write input data.
@@ -1029,7 +1029,7 @@ mod tests {
             imageUrl: "test".to_string(),
             input: Input {
                 inputType: InputType::Url,
-                data: InputEnv::new().pack().unwrap().into(),
+                data: InputEnv::new().encode().unwrap().into(),
             },
             offer: Offer {
                 minPrice: U256::from(0),
