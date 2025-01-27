@@ -37,6 +37,7 @@ pub struct Submitter<P> {
     prover: ProverObj,
     market: BoundlessMarketService<BoxTransport, Arc<P>>,
     set_verifier: SetVerifierService<BoxTransport, Arc<P>>,
+    set_verifier_addr: Address,
     set_builder_img_id: Digest,
     prover_address: Address,
     config: ConfigLock,
@@ -81,7 +82,16 @@ where
 
         let prover_address = provider.default_signer_address();
 
-        Ok(Self { db, prover, market, set_verifier, set_builder_img_id, prover_address, config })
+        Ok(Self {
+            db,
+            prover,
+            market,
+            set_verifier,
+            set_verifier_addr,
+            set_builder_img_id,
+            prover_address,
+            config,
+        })
     }
 
     async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
@@ -220,6 +230,7 @@ where
             if let Err(err) = self
                 .market
                 .submit_merkle_and_fulfill(
+                    self.set_verifier_addr,
                     root,
                     batch_seal.into(),
                     fulfillments.clone(),
@@ -481,7 +492,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -617,7 +628,7 @@ mod tests {
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
-        market.lockin_request(&order.request, &client_sig.into(), None).await.unwrap();
+        market.lock_request(&order.request, &client_sig.into(), None).await.unwrap();
 
         let submitter = Submitter::new(
             db.clone(),

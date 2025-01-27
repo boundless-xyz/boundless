@@ -1,149 +1,36 @@
 // Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
+// SPDX-License-Identifier: UNKNOWN
 
 pragma solidity ^0.8.24;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-
-import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
-import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
-
-import {IBoundlessMarket, ProofRequest, Offer, Fulfillment, AssessorJournal} from "./IBoundlessMarket.sol";
-import {BoundlessMarketLib} from "./BoundlessMarketLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
-uint256 constant REQUEST_FLAGS_INITIAL_BITS = 56;
+import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
-/// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
-struct Account {
-    /// @dev uint96 is enough to represent the entire token supply of Ether.
-    uint96 balance;
-    /// @dev Balance of HP tokens.
-    uint96 stakeBalance;
-    /// @dev flags is a bitfield for account-wide flags. Currently only the least significant
-    /// bit is used to indicate that the account is frozen.
-    uint8 flags;
-    /// @notice 28 pairs of 2 bits representing the status of a request. One bit is for lock-in and
-    /// the other is for fulfillment.
-    /// @dev Request state flags are packed into a uint64 to make balance and flags for the first
-    /// 28 requests fit in one slot.
-    uint56 requestFlagsInitial;
-    /// @dev Flags for the remaining requests are in a storage array. Each uint256 holds the packed
-    /// flags for 128 requests, indexed in a linear fashion. Note that this struct cannot be
-    /// instantiated in memory.
-    uint256[(1 << 32) * REQUEST_FLAGS_BITWIDTH / 256] requestFlagsExtended;
-}
+import {IBoundlessMarket} from "./IBoundlessMarket.sol";
+import {Account} from "./types/Account.sol";
+import {AssessorJournal} from "./types/AssessorJournal.sol";
+import {Fulfillment} from "./types/Fulfillment.sol";
+import {ProofRequest} from "./types/ProofRequest.sol";
+import {RequestId} from "./types/RequestId.sol";
+import {RequestLock} from "./types/RequestLock.sol";
+import {TransientPrice, TransientPriceLibrary} from "./types/TransientPrice.sol";
 
-library AccountLib {
-    /// Gets the locked and fulfilled request flags for the request with the given index.
-    function requestFlags(Account storage account, uint32 idx) internal view returns (bool locked, bool fulfilled) {
-        if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
-            uint64 masked = (
-                account.requestFlagsInitial
-                    & (uint64((1 << REQUEST_FLAGS_BITWIDTH) - 1) << uint64(idx * REQUEST_FLAGS_BITWIDTH))
-            ) >> (idx * REQUEST_FLAGS_BITWIDTH);
-            return (masked & uint64(1) != 0, masked & uint64(2) != 0);
-        } else {
-            uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
-            uint256 packed = account.requestFlagsExtended[(idxShifted * REQUEST_FLAGS_BITWIDTH) / 256];
-            uint256 maskShift = (idxShifted * REQUEST_FLAGS_BITWIDTH) % 256;
-            uint256 masked = (packed & (uint256((1 << REQUEST_FLAGS_BITWIDTH) - 1) << maskShift)) >> maskShift;
-            return (masked & uint256(1) != 0, masked & uint256(2) != 0);
-        }
-    }
-
-    /// @notice Sets the locked and fulfilled request flags for the request with the given index.
-    /// @dev The given value of flags will be applied with |= to the flags for the request.
-    /// Least significant bit is locked, second-least significant is fulfilled.
-    function setRequestFlags(Account storage account, uint32 idx, uint8 flags) internal {
-        assert(flags < (1 << REQUEST_FLAGS_BITWIDTH));
-        if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
-            uint56 mask = uint56(flags) << uint56(idx * REQUEST_FLAGS_BITWIDTH);
-            account.requestFlagsInitial |= mask;
-        } else {
-            uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
-            uint256 mask = uint256(flags) << (uint256(idxShifted * REQUEST_FLAGS_BITWIDTH) % 256);
-            account.requestFlagsExtended[(idxShifted * REQUEST_FLAGS_BITWIDTH) / 256] |= mask;
-        }
-    }
-
-    function setRequestLocked(Account storage account, uint32 idx) internal {
-        setRequestFlags(account, idx, 1);
-    }
-
-    function setRequestFulfilled(Account storage account, uint32 idx) internal {
-        setRequestFlags(account, idx, 2);
-    }
-
-    function setFrozen(Account storage account) internal {
-        account.flags |= 1;
-    }
-
-    function unsetFrozen(Account storage account) internal {
-        account.flags &= ~uint8(1);
-    }
-
-    function isFrozen(Account storage account) internal view returns (bool) {
-        return account.flags & 1 != 0;
-    }
-}
-
-/// @notice Stores details about a request that has been locked, including the prover that locked it and the stake.
-/// @dev When a request is slashed, the deadline, stake, and fingerprint fields are cleared, but the
-/// prover and price fields are left untouched. When a request is fulfilled, the entire object is cleared.
-struct RequestLock {
-    address prover;
-    uint96 price;
-    uint64 deadline;
-    // Prover stake that may be taken if a proof is not delivered by the deadline.
-    uint96 stake;
-    // NOTE: There is another option here, which would be to have the request lock mapping index
-    // based on request digest instead of index. As a friction, this would introduce a second
-    // user-facing concept of what identifies a request.
-    // NOTE: This fingerprint binds the full request including e.g. the offer and input. Technically,
-    // all that is required is to bind the requirements. If there is some advantage to only binding
-    // the requirements here (e.g. less hashing costs) then that might be worth doing.
-    /// @notice Keccak256 hash of the request, shortened to 64-bits. During fulfillment, this value is used
-    /// to check that the request completed is the request that was locked, and not some other
-    /// request with the same ID.
-    /// @dev Note that this value is not collision resistant in that it is fairly easy to find two
-    /// requests with the same fingerprint. However, requests much be signed to be valid, and so
-    /// the existence of two valid requests with the same fingerprint requires either intention
-    /// construction by the private key holder, which would be pointless, or accidental collision.
-    /// With 64-bits, a client that constructed 65k signed requests with the same request ID would
-    /// have a roughly 2^-32 chance of accidental collision, which is negligible in this scenario.
-    bytes8 fingerprint;
-}
-
-/// Struct encoding the validated price for a request, intended for use with transient storage.
-struct TransientPrice {
-    /// Boolean set to true to indicate the request was validated.
-    bool valid;
-    uint96 price;
-}
-
-library TransientPriceLib {
-    /// Packs the struct into a uint256.
-    function pack(TransientPrice memory x) internal pure returns (uint256) {
-        return (uint256(x.valid ? 1 : 0) << 96) | uint256(x.price);
-    }
-
-    /// Unpacks the struct from a uint256.
-    function unpack(uint256 packed) internal pure returns (TransientPrice memory) {
-        return TransientPrice({valid: (packed & (1 << 96)) > 0, price: uint96(packed & uint256(type(uint96).max))});
-    }
-}
+import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
+import {MerkleProofish} from "./libraries/MerkleProofish.sol";
 
 contract BoundlessMarket is
     IBoundlessMarket,
@@ -152,19 +39,15 @@ contract BoundlessMarket is
     Ownable2StepUpgradeable,
     UUPSUpgradeable
 {
-    using AccountLib for Account;
-    using BoundlessMarketLib for Offer;
-    using BoundlessMarketLib for ProofRequest;
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for uint256;
-    using TransientPriceLib for TransientPrice;
     using SafeERC20 for IERC20;
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
 
     // Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
-    mapping(uint256 => RequestLock) public requestLocks;
+    mapping(RequestId => RequestLock) public requestLocks;
     // Mapping of address to account state.
     mapping(address => Account) internal accounts;
 
@@ -224,119 +107,6 @@ contract BoundlessMarket is
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    function requestIsFulfilled(uint256 id) external view returns (bool) {
-        if (id & (uint256(type(uint64).max) << 192) != 0) {
-            revert InvalidRequest();
-        }
-        (, bool fulfilled) = accounts[address(uint160(id >> 32))].requestFlags(uint32(id));
-        return fulfilled;
-    }
-
-    function requestIsSlashed(uint256 id) external view returns (bool) {
-        if (id & (uint256(type(uint64).max) << 192) != 0) {
-            revert InvalidRequest();
-        }
-        RequestLock memory lock = requestLocks[id];
-        // Note, a stake and fingerprint of zero can exist on a valid request, however a deadline of zero cannot as
-        // the request would be immediately expired, and expired requests cannot be locked in.
-        return lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
-    }
-
-    function requestIsLocked(uint256 id) external view returns (bool) {
-        if (id & (uint256(type(uint64).max) << 192) != 0) {
-            revert InvalidRequest();
-        }
-        (bool locked,) = accounts[address(uint160(id >> 32))].requestFlags(uint32(id));
-        return locked;
-    }
-
-    function requestDeadline(uint256 id) external view returns (uint64) {
-        return requestLocks[id].deadline;
-    }
-
-    /// Domain separator for producing an EIP-712 signature to be verified by this contract.
-    function eip712DomainSeparator() external view returns (bytes32) {
-        return _domainSeparatorV4();
-    }
-
-    /// Internal method for verifying signatures over requests. Reverts on failure.
-    function verifyRequestSignature(address addr, ProofRequest calldata request, bytes calldata signature)
-        public
-        view
-        returns (bytes32 requestDigest)
-    {
-        bytes32 structHash = _hashTypedDataV4(request.eip712Digest());
-        if (ECDSA.recover(structHash, signature) != addr) {
-            revert InvalidSignature();
-        }
-        return structHash;
-    }
-
-    // Deposit Ether into the market.
-    function deposit() public payable {
-        accounts[msg.sender].balance += msg.value.toUint96();
-        emit Deposit(msg.sender, msg.value);
-    }
-
-    // Withdraw Ether from the market.
-    function withdraw(uint256 value) public {
-        if (accounts[msg.sender].balance < value.toUint96()) {
-            revert InsufficientBalance(msg.sender);
-        }
-        unchecked {
-            accounts[msg.sender].balance -= value.toUint96();
-        }
-        (bool sent,) = msg.sender.call{value: value}("");
-        if (!sent) {
-            revert TransferFailed();
-        }
-        emit Withdrawal(msg.sender, value);
-    }
-
-    // Get the current balance of an account.
-    function balanceOf(address addr) public view returns (uint256) {
-        return uint256(accounts[addr].balance);
-    }
-
-    function _depositStake(address from, uint256 value) internal {
-        IERC20(STAKE_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
-        accounts[from].stakeBalance += value.toUint96();
-        emit StakeDeposit(from, value);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function depositStake(uint256 value) external {
-        // Transfer tokens from user to market
-        _depositStake(msg.sender, value);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
-        // Transfer tokens from user to market
-        try IERC20Permit(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
-        _depositStake(msg.sender, value);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function withdrawStake(uint256 value) public {
-        if (accounts[msg.sender].stakeBalance < value.toUint96()) {
-            revert InsufficientBalance(msg.sender);
-        }
-        unchecked {
-            accounts[msg.sender].stakeBalance -= value.toUint96();
-        }
-        // Transfer tokens from market to user
-        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
-        if (!success) revert TransferFailed();
-
-        emit StakeWithdrawal(msg.sender, value);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function balanceOfStake(address addr) public view returns (uint256) {
-        return uint256(accounts[addr].stakeBalance);
-    }
-
     // NOTE: We could verify the client signature here, but this adds about 18k gas (with a naive
     // implementation), doubling the cost of calling this method. It is not required for protocol
     // safety as the signature is checked during lockin, and during fulfillment (by the assessor).
@@ -347,72 +117,43 @@ contract BoundlessMarket is
         emit RequestSubmitted(request.id, request, clientSignature);
     }
 
-    function lockin(ProofRequest calldata request, bytes calldata clientSignature) external {
-        (address client, uint32 idx) =
-            (BoundlessMarketLib.requestFrom(request.id), BoundlessMarketLib.requestIndex(request.id));
-        (bytes32 requestDigest) = verifyRequestSignature(client, request, clientSignature);
+    /// @inheritdoc IBoundlessMarket
+    function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
+        (address client, uint32 idx) = request.id.clientAndIndex();
+        bytes32 requestDigest =
+            request.verifyClientSignature(_hashTypedDataV4(request.eip712Digest()), client, clientSignature);
+        uint64 deadline = request.validateRequest(accounts, client, idx);
 
-        _lockinAuthed(request, requestDigest, client, idx, msg.sender);
+        _lockRequest(request, requestDigest, client, idx, msg.sender, deadline);
     }
 
-    function lockinWithSig(
+    /// @inheritdoc IBoundlessMarket
+    function lockRequestWithSignature(
         ProofRequest calldata request,
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external {
-        (address client, uint32 idx) =
-            (BoundlessMarketLib.requestFrom(request.id), BoundlessMarketLib.requestIndex(request.id));
+        (address client, uint32 idx) = request.id.clientAndIndex();
+        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
+        bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
+        address prover = request.extractProverSignature(requestHash, proverSignature);
+        uint64 deadline = request.validateRequest(accounts, client, idx);
 
-        // Recover the prover address and require the client address to equal the address part of the ID.
-        bytes32 requestDigest = _hashTypedDataV4(request.eip712Digest());
-        address prover = ECDSA.recover(requestDigest, proverSignature);
-        if (ECDSA.recover(requestDigest, clientSignature) != client) {
-            revert InvalidSignature();
-        }
-
-        _lockinAuthed(request, requestDigest, client, idx, prover);
+        _lockRequest(request, requestDigest, client, idx, prover, deadline);
     }
 
-    /// Check that the request is valid, and not already locked or fulfilled by another prover.
-    /// Returns the auction price and deadline for the request.
-    function _validateRequestForLockin(ProofRequest calldata request, address client, uint32 idx)
-        internal
-        view
-        returns (uint96 price, uint64 deadline)
-    {
-        // Check that the request is internally consistent and is not expired.
-        request.offer.requireValid();
-
-        // Check the deadline and compute the current price offered by the reverse Dutch auction.
-        price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
-        deadline = request.offer.deadline();
-        if (deadline < block.number) {
-            revert RequestIsExpired({requestId: request.id, deadline: deadline});
-        }
-
-        // Check that the request is not already locked or fulfilled.
-        // TODO(victor): Currently these checks are run here as part of the priceRequest path.
-        // this may be redundant, because we must also check them during fulfillment. Should
-        // these checks be moved from this method to _lockinAuthed?
-        (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
-        if (locked) {
-            revert RequestIsLocked({requestId: request.id});
-        }
-        if (fulfilled) {
-            revert RequestIsFulfilled({requestId: request.id});
-        }
-
-        return (price, deadline);
-    }
-
-    function _lockinAuthed(
+    /// @notice Locks the request to the prover. Deducts funds from the client for payment
+    /// and funding from the prover for locking stake.
+    function _lockRequest(
         ProofRequest calldata request,
         bytes32 requestDigest,
         address client,
         uint32 idx,
-        address prover
+        address prover,
+        uint64 deadline
     ) internal {
-        (uint96 price, uint64 deadline) = _validateRequestForLockin(request, client, idx);
+        // Compute the current price offered by the reverse Dutch auction.
+        uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
 
         // Deduct funds from the client account and prover HP account.
         Account storage clientAccount = accounts[client];
@@ -423,13 +164,13 @@ contract BoundlessMarket is
         if (proverAccount.isFrozen()) {
             revert AccountFrozen(prover);
         }
-        if (proverAccount.stakeBalance < request.offer.lockinStake.toUint96()) {
+        if (proverAccount.stakeBalance < request.offer.lockStake.toUint96()) {
             revert InsufficientBalance(prover);
         }
 
         unchecked {
             clientAccount.balance -= price;
-            proverAccount.stakeBalance -= request.offer.lockinStake.toUint96();
+            proverAccount.stakeBalance -= request.offer.lockStake.toUint96();
         }
 
         // Record the lock for the request and emit an event.
@@ -437,46 +178,31 @@ contract BoundlessMarket is
             prover: prover,
             price: price,
             deadline: deadline,
-            stake: request.offer.lockinStake.toUint96(),
+            stake: request.offer.lockStake.toUint96(),
             fingerprint: bytes8(requestDigest)
         });
 
         clientAccount.setRequestLocked(idx);
-        emit RequestLockedin(request.id, prover);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function accountIsFrozen(address addr) external view returns (bool) {
-        Account storage prover = accounts[addr];
-        return prover.isFrozen();
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function unfreezeAccount() public {
-        Account storage prover = accounts[msg.sender];
-        prover.unsetFrozen();
+        emit RequestLocked(request.id, prover);
     }
 
     /// Validates the request and records the price to transient storage such that it can be
     /// fulfilled within the same transaction without taking a lock on it.
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client, uint32 idx) =
-            (BoundlessMarketLib.requestFrom(request.id), BoundlessMarketLib.requestIndex(request.id));
-        (bytes32 requestDigest) = verifyRequestSignature(client, request, clientSignature);
+        (address client, uint32 idx) = request.id.clientAndIndex();
+        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
+        bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
 
-        (uint96 price,) = _validateRequestForLockin(request, client, idx);
+        request.validateRequest(accounts, client, idx);
+
+        // Compute the current price offered by the reverse Dutch auction.
+        uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
 
         // Record the price in transient storage, such that the order can be filled in this same transaction.
-        // NOTE: Since transient storage is cleared at the end of the transaction, we know that this
-        // price will not become stale, and the request cannot expire, while this price is recorded.
-        uint256 packed = TransientPrice({valid: true, price: price}).pack();
-        assembly {
-            tstore(requestDigest, packed)
-        }
+        TransientPrice({valid: true, price: price}).store(requestDigest);
     }
 
-    /// Verify the application and assessor receipts, ensuring that the provided fulfillment
-    /// satisfies the request.
+    /// @inheritdoc IBoundlessMarket
     function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
         // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
@@ -494,8 +220,7 @@ contract BoundlessMarket is
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
     }
 
-    /// Verify the application and assessor receipts for the batch, ensuring that the provided
-    /// fulfillments satisfy the requests.
+    /// @inheritdoc IBoundlessMarket
     function verifyBatchDelivery(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover)
         public
         view
@@ -518,6 +243,7 @@ contract BoundlessMarket is
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
     }
 
+    /// @inheritdoc IBoundlessMarket
     function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
         verifyDelivery(fill, assessorSeal, prover);
         _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
@@ -525,6 +251,7 @@ contract BoundlessMarket is
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
 
+    /// @inheritdoc IBoundlessMarket
     function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
         verifyBatchDelivery(fills, assessorSeal, prover);
 
@@ -538,6 +265,7 @@ contract BoundlessMarket is
         }
     }
 
+    /// @inheritdoc IBoundlessMarket
     function priceAndFulfillBatch(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
@@ -552,11 +280,10 @@ contract BoundlessMarket is
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillVerified(uint256 id, bytes32 requestDigest, address assessorProver, bool requirePayment)
+    function _fulfillVerified(RequestId id, bytes32 requestDigest, address assessorProver, bool requirePayment)
         internal
     {
-        address client = BoundlessMarketLib.requestFrom(id);
-        uint32 idx = BoundlessMarketLib.requestIndex(id);
+        (address client, uint32 idx) = id.clientAndIndex();
 
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
 
@@ -577,7 +304,7 @@ contract BoundlessMarket is
     }
 
     function _fulfillVerifiedLocked(
-        uint256 id,
+        RequestId id,
         address client,
         uint32 idx,
         bytes32 requestDigest,
@@ -590,7 +317,7 @@ contract BoundlessMarket is
         if (lock.prover == address(0)) {
             // NOTE: This check is not strictly needed, as the fact that the lock has already been
             // zeroed out means zero value can be transferred. It is provided for clarity.
-            return abi.encodeWithSelector(RequestIsFulfilled.selector, id);
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
         if (lock.fingerprint != bytes8(requestDigest)) {
             revert RequestLockFingerprintDoesNotMatch({
@@ -609,10 +336,10 @@ contract BoundlessMarket is
         }
 
         if (lock.deadline < block.number) {
-            return abi.encodeWithSelector(RequestIsExpired.selector, id, lock.deadline);
+            return abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id), lock.deadline);
         }
         if (lock.prover != assessorProver) {
-            return abi.encodeWithSelector(RequestIsLocked.selector, id);
+            return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
         }
 
         // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
@@ -630,7 +357,7 @@ contract BoundlessMarket is
     }
 
     function _fulfillVerifiedUnlocked(
-        uint256 id,
+        RequestId id,
         address client,
         uint32 idx,
         bytes32 requestDigest,
@@ -639,17 +366,13 @@ contract BoundlessMarket is
     ) internal returns (bytes memory paymentError) {
         // When not locked, the fulfilled flag _does_ indicate that payment has already been transferred.
         if (fulfilled) {
-            return abi.encodeWithSelector(RequestIsFulfilled.selector, id);
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
 
-        uint256 packed;
-        assembly {
-            packed := tload(requestDigest)
-        }
-        TransientPrice memory tprice = TransientPriceLib.unpack(packed);
+        TransientPrice memory tprice = TransientPriceLibrary.load(requestDigest);
 
         if (!tprice.valid) {
-            return abi.encodeWithSelector(RequestIsNotPriced.selector, id);
+            return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
         }
 
         // Mark the request as fulfilled.
@@ -677,9 +400,27 @@ contract BoundlessMarket is
         accounts[assessorProver].balance += valueToProver;
     }
 
-    function slash(uint256 requestId) external {
-        address client = BoundlessMarketLib.requestFrom(requestId);
-        uint32 idx = BoundlessMarketLib.requestIndex(requestId);
+    /// @inheritdoc IBoundlessMarket
+    function submitRoot(address setVerifierAddress, bytes32 root, bytes calldata seal) external {
+        IRiscZeroSetVerifier(address(setVerifierAddress)).submitMerkleRoot(root, seal);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function submitRootAndFulfillBatch(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external {
+        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        fulfillBatch(fills, assessorSeal, prover);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function slash(RequestId requestId) external {
+        (address client, uint32 idx) = requestId.clientAndIndex();
         (bool locked,) = accounts[client].requestFlags(idx);
 
         // Ensure the request is locked, and fetch the lock into memory.
@@ -726,86 +467,126 @@ contract BoundlessMarket is
         emit ProverSlashed(requestId, lock.prover, burnValue, transferValue);
     }
 
+    /// @inheritdoc IBoundlessMarket
     function imageInfo() external view returns (bytes32, string memory) {
         return (ASSESSOR_ID, imageUrl);
     }
 
-    function submitRootAndFulfillBatch(
-        bytes32 root,
-        bytes calldata seal,
-        Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        address prover
-    ) external {
-        // TODO(#243): This will break when we change VERIFIER to point to the router.
-        IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
-        setVerifier.submitMerkleRoot(root, seal);
-        fulfillBatch(fills, assessorSeal, prover);
+    /// @inheritdoc IBoundlessMarket
+    function deposit() public payable {
+        accounts[msg.sender].balance += msg.value.toUint96();
+        emit Deposit(msg.sender, msg.value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function withdraw(uint256 value) public {
+        if (accounts[msg.sender].balance < value.toUint96()) {
+            revert InsufficientBalance(msg.sender);
+        }
+        unchecked {
+            accounts[msg.sender].balance -= value.toUint96();
+        }
+        (bool sent,) = msg.sender.call{value: value}("");
+        if (!sent) {
+            revert TransferFailed();
+        }
+        emit Withdrawal(msg.sender, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function balanceOf(address addr) public view returns (uint256) {
+        return uint256(accounts[addr].balance);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function depositStake(uint256 value) external {
+        // Transfer tokens from user to market
+        _depositStake(msg.sender, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+        // Transfer tokens from user to market
+        try IERC20Permit(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
+        _depositStake(msg.sender, value);
+    }
+
+    function _depositStake(address from, uint256 value) internal {
+        IERC20(STAKE_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
+        accounts[from].stakeBalance += value.toUint96();
+        emit StakeDeposit(from, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function withdrawStake(uint256 value) public {
+        if (accounts[msg.sender].stakeBalance < value.toUint96()) {
+            revert InsufficientBalance(msg.sender);
+        }
+        unchecked {
+            accounts[msg.sender].stakeBalance -= value.toUint96();
+        }
+        // Transfer tokens from market to user
+        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        if (!success) revert TransferFailed();
+
+        emit StakeWithdrawal(msg.sender, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function balanceOfStake(address addr) public view returns (uint256) {
+        return uint256(accounts[addr].stakeBalance);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function accountIsFrozen(address addr) external view returns (bool) {
+        Account storage prover = accounts[addr];
+        return prover.isFrozen();
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function unfreezeAccount() public {
+        Account storage prover = accounts[msg.sender];
+        prover.unsetFrozen();
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function requestIsFulfilled(RequestId id) external view returns (bool) {
+        (address client, uint32 idx) = id.clientAndIndex();
+        (, bool fulfilled) = accounts[client].requestFlags(idx);
+        return fulfilled;
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function requestIsLocked(RequestId id) external view returns (bool) {
+        (address client, uint32 idx) = id.clientAndIndex();
+        (bool locked,) = accounts[client].requestFlags(idx);
+        return locked;
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function requestIsSlashed(RequestId id) external view returns (bool) {
+        id.clientAndIndex();
+
+        RequestLock memory lock = requestLocks[id];
+        // Note, a stake and fingerprint of zero can exist on a valid request, however a deadline of zero cannot as
+        // the request would be immediately expired, and expired requests cannot be locked in.
+        return lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function requestDeadline(RequestId id) external view returns (uint64) {
+        return requestLocks[id].deadline;
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function eip712DomainSeparator() external view returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     /// Internal utility function to revert with a pre-encoded error.
     function revertWith(bytes memory err) internal pure {
         assembly {
             revert(add(err, 0x20), mload(err))
-        }
-    }
-}
-
-// Functions copied from OZ MerkleProof library to allow building the Merkle tree above.
-// TODO(victor): Drop this library.
-library MerkleProofish {
-    // Compute the root of the Merkle tree given all of its leaves.
-    // Assumes that the array of leaves is no longer needed, and can be overwritten.
-    function processTree(bytes32[] memory leaves) internal pure returns (bytes32 root) {
-        if (leaves.length == 0) {
-            revert IBoundlessMarket.InvalidRequest();
-        }
-
-        // If there's only one leaf, the root is the leaf itself
-        if (leaves.length == 1) {
-            return leaves[0];
-        }
-
-        uint256 n = leaves.length;
-
-        // Process the leaves array in pairs, iteratively computing the hash of each pair
-        while (n > 1) {
-            uint256 nextLevelLength = (n + 1) / 2; // Upper bound of next level (handles odd number of elements)
-
-            // Hash the current level's pairs and place results at the start of the array
-            for (uint256 i = 0; i < n / 2; i++) {
-                leaves[i] = _hashPair(leaves[2 * i], leaves[2 * i + 1]);
-            }
-
-            // If there's an odd number of elements, propagate the last element directly
-            if (n % 2 == 1) {
-                leaves[n / 2] = leaves[n - 1];
-            }
-
-            // Move to the next level (the computed hashes are now the new "leaves")
-            n = nextLevelLength;
-        }
-
-        // The root is now the single element left in the array
-        root = leaves[0];
-    }
-
-    /**
-     * @dev Sorts the pair (a, b) and hashes the result.
-     */
-    function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
-        return a < b ? _efficientHash(a, b) : _efficientHash(b, a);
-    }
-
-    /**
-     * @dev Implementation of keccak256(abi.encode(a, b)) that doesn't allocate or expand memory.
-     */
-    function _efficientHash(bytes32 a, bytes32 b) private pure returns (bytes32 value) {
-        /// @solidity memory-safe-assembly
-        assembly {
-            mstore(0x00, a)
-            mstore(0x20, b)
-            value := keccak256(0x00, 0x40)
         }
     }
 }
