@@ -1272,29 +1272,29 @@ mod tests {
                 proof_id: Some("test_id3".to_string()),
                 expire_block: Some(10),
                 lock_price: Some(U256::from(10u64)),
-                   ..create_order()
+                ..create_order()
             },
             Order {
                 status: OrderStatus::PendingAgg,
                 proof_id: Some("test_id1".to_string()),
                 expire_block: Some(10),
                 lock_price: Some(U256::from(10u64)),
-                   ..create_order()
+                ..create_order()
             },
             Order {
                 status: OrderStatus::Aggregating,
                 proof_id: Some("test_id2".to_string()),
                 expire_block: Some(10),
                 lock_price: Some(U256::from(10u64)),
-                   ..create_order()
+                ..create_order()
             },
             Order {
                 status: OrderStatus::PendingSubmission,
                 proof_id: Some("test_id4".to_string()),
                 expire_block: Some(10),
                 lock_price: Some(U256::from(10u64)),
-                   ..create_order()
-            }
+                ..create_order()
+            },
         ];
         for (i, order) in orders.iter().enumerate() {
             db.add_order(U256::from(i), order.clone()).await.unwrap();
