@@ -1492,7 +1492,7 @@ dependencies = [
  "futures",
  "futures-util",
  "guest-assessor",
- "guest-set-builder 0.2.0",
+ "guest-set-builder",
  "http 1.2.0",
  "notify",
  "reqwest",
@@ -2205,7 +2205,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "guest-assessor",
- "guest-set-builder 0.1.0",
+ "guest-set-builder",
  "guest-util",
  "risc0-zkvm",
  "tokio",
@@ -2535,16 +2535,7 @@ version = "0.6.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "guest-set-builder"
-version = "0.1.0"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#3c1fd2a859e40ea009a580aac294191196968c60"
-dependencies = [
- "risc0-build",
- "risc0-build-ethereum 1.2.0 (git+https://github.com/risc0/risc0-ethereum?branch=release-1.2)",
+ "risc0-build-ethereum 1.2.0",
 ]
 
 [[package]]
@@ -2562,7 +2553,7 @@ version = "0.6.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "risc0-build-ethereum 1.2.0",
 ]
 
 [[package]]
@@ -4323,17 +4314,6 @@ name = "risc0-build-ethereum"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a95cbf40f6fb6c5e905295fb8f6270f4fe71275b24f204ee42de0516918acce"
-dependencies = [
- "anyhow",
- "hex",
- "risc0-build",
- "risc0-zkp",
-]
-
-[[package]]
-name = "risc0-build-ethereum"
-version = "1.2.0"
-source = "git+https://github.com/risc0/risc0-ethereum?branch=release-1.2#3c1fd2a859e40ea009a580aac294191196968c60"
 dependencies = [
  "anyhow",
  "hex",
