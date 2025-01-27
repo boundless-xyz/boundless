@@ -202,12 +202,79 @@ pub enum RequestError {
     /// The offer bidding start is zero.
     #[error("offer biddingStart must be greater than 0")]
     OfferBiddingStartIsZero,
+
+    /// The requirements are missing.
+    #[error("missing requirements")]
+    MissingRequirements,
+
+    /// The image URL is missing.
+    #[error("missing image URL")]
+    MissingImageUrl,
+
+    /// The input is missing.
+    #[error("missing input")]
+    MissingInput,
+
+    /// The offer is missing.
+    #[error("missing offer")]
+    MissingOffer,
 }
 
 #[cfg(not(target_os = "zkvm"))]
 impl From<SignatureError> for RequestError {
     fn from(err: alloy::primitives::SignatureError) -> Self {
         RequestError::SignatureError(err.into())
+    }
+}
+
+/// A proof request builder.
+pub struct ProofRequestBuilder {
+    requirements: Option<Requirements>,
+    image_url: Option<String>,
+    input: Option<Input>,
+    offer: Option<Offer>,
+}
+
+impl Default for ProofRequestBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ProofRequestBuilder {
+    /// Creates a new proof request builder.
+    pub fn new() -> Self {
+        Self { requirements: None, image_url: None, input: None, offer: None }
+    }
+
+    /// Builds the proof request.
+    pub fn build(self) -> Result<ProofRequest, RequestError> {
+        let requirements = self.requirements.ok_or_else(|| RequestError::MissingRequirements)?;
+        let image_url = self.image_url.ok_or_else(|| RequestError::MissingImageUrl)?;
+        let input = self.input.ok_or_else(|| RequestError::MissingInput)?;
+        let offer = self.offer.ok_or_else(|| RequestError::MissingOffer)?;
+
+        Ok(ProofRequest::new(0, &Address::ZERO, requirements, &image_url, input, offer))
+    }
+
+    /// Sets the input data to be fetched from the given URL.
+    pub fn with_image_url(self, image_url: &str) -> Self {
+        Self { image_url: Some(image_url.to_string()), ..self }
+    }
+
+    /// Sets the requirements for the request.
+    pub fn with_requirements(self, requirements: Requirements) -> Self {
+        Self { requirements: Some(requirements), ..self }
+    }
+
+    /// Sets the guest's input for the request.
+    pub fn with_input(self, input: Input) -> Self {
+        Self { input: Some(input), ..self }
+    }
+
+    /// Sets the offer for the request.
+    pub fn with_offer(self, offer: Offer) -> Self {
+        Self { offer: Some(offer), ..self }
     }
 }
 
@@ -245,26 +312,6 @@ impl ProofRequest {
         let lower_160_bits = U160::from_be_bytes(addr_bytes);
 
         Ok(Address::from(lower_160_bits))
-    }
-
-    /// Sets the input data to be fetched from the given URL.
-    pub fn with_image_url(self, image_url: &str) -> Self {
-        Self { imageUrl: image_url.to_string(), ..self }
-    }
-
-    /// Sets the requirements for the request.
-    pub fn with_requirements(self, requirements: Requirements) -> Self {
-        Self { requirements, ..self }
-    }
-
-    /// Sets the guest's input for the request.
-    pub fn with_input(self, input: Input) -> Self {
-        Self { input, ..self }
-    }
-
-    /// Sets the offer for the request.
-    pub fn with_offer(self, offer: Offer) -> Self {
-        Self { offer, ..self }
     }
 
     /// Returns the block number at which the request expires.
@@ -444,51 +491,11 @@ impl Offer {
     }
 }
 
-// TODO: These are not so much "default" as they are "empty". Default is not quite the right
-// semantics here. This would be replaced by a builder or an `empty` function.
-#[cfg(not(target_os = "zkvm"))]
-impl Default for ProofRequest {
-    fn default() -> Self {
-        Self {
-            id: U256::ZERO,
-            requirements: Default::default(),
-            imageUrl: Default::default(),
-            input: Default::default(),
-            offer: Default::default(),
-        }
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
-#[allow(clippy::derivable_impls)] // struct defined in generated code
-impl Default for Requirements {
-    fn default() -> Self {
-        Self { imageId: Default::default(), predicate: Default::default() }
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
-impl Default for Predicate {
-    fn default() -> Self {
-        Self { predicateType: PredicateType::PrefixMatch, data: Default::default() }
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
-impl Default for Input {
-    fn default() -> Self {
-        Self { inputType: InputType::Inline, data: InputEnv::new().pack().unwrap().into() }
-    }
-}
-
 use sha2::{Digest as _, Sha256};
 #[cfg(not(target_os = "zkvm"))]
 use IBoundlessMarket::IBoundlessMarketErrors;
 #[cfg(not(target_os = "zkvm"))]
 use IRiscZeroSetVerifier::IRiscZeroSetVerifierErrors;
-
-#[cfg(not(target_os = "zkvm"))]
-use crate::input::InputEnv;
 
 impl Predicate {
     /// Evaluates the predicate against the given journal.
@@ -998,6 +1005,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ::boundless_market::input::InputEnv;
     use alloy::signers::local::PrivateKeySigner;
 
     async fn create_order(

@@ -144,7 +144,7 @@ A proof request consists of four essential components that specify which program
 ```rust showLineNumbers
 # use anyhow::Result;
 # use alloy_primitives::utils::parse_ether;
-# use boundless_market::contracts::{Input, Offer, Predicate, ProofRequest, Requirements};
+# use boundless_market::contracts::{Input, Offer, Predicate, ProofRequest, ProofRequestBuilder, Requirements};
 # use risc0_zkvm::sha::{Digest, Digestible};
 # fn create_proof_request(
 # ECHO_ID: Digest,
@@ -152,7 +152,7 @@ A proof request consists of four essential components that specify which program
 # input_url: String,
 # mcycles_count: u64,
 # journal: Vec<u8>) -> Result<ProofRequest> {
-let request = ProofRequest::default()
+let request = ProofRequestBuilder::new()
   .with_image_url(&image_url)
   .with_input(Input::url(&input_url))
   .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
@@ -171,7 +171,8 @@ let request = ProofRequest::default()
       // the request and does not fulfill it before the timeout, the prover can be
       // slashed.
       .with_timeout(1000),
-  );
+  )
+  .build()?;
 # Ok(request)
 # }
 ```

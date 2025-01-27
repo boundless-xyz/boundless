@@ -14,7 +14,7 @@ use alloy::{
 use anyhow::{bail, Result};
 use boundless_market::{
     client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    contracts::{Input, Offer, Predicate, ProofRequestBuilder, Requirements},
     input::InputEnv,
     storage::StorageProviderConfig,
 };
@@ -175,7 +175,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             .div_ceil(1_000_000);
         let journal = session_info.journal;
 
-        let request = ProofRequest::default()
+        let request = ProofRequestBuilder::new()
             .with_image_url(&image_url)
             .with_input(Input::inline(encoded_input))
             .with_requirements(Requirements::new(
@@ -189,7 +189,8 @@ async fn run(args: &MainArgs) -> Result<()> {
                     .with_lock_stake(args.lockin_stake)
                     .with_ramp_up_period(args.ramp_up)
                     .with_timeout(args.timeout),
-            );
+            )
+            .build()?;
 
         let (request_id, _) = if args.order_stream_url.is_some() {
             boundless_client.submit_request_offchain(&request).await?
