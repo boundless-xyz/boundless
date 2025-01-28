@@ -220,6 +220,11 @@ where
     P: Provider<T, Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
+    /// Create a new [ClientBuilder].
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
+    }
+
     /// Create a new client
     pub fn new(
         boundless_market: BoundlessMarketService<T, P>,

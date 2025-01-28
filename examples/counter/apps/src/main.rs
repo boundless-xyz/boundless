@@ -12,9 +12,8 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::{
-    client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProofRequestBuilder, Requirements},
-    input::InputBuilder,
+    client::Client,
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -22,7 +21,6 @@ use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{
     default_executor,
     sha::{Digest, Digestible},
-    ExecutorEnv,
 };
 use url::Url;
 
@@ -102,7 +100,7 @@ async fn run(
     counter_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client = ClientBuilder::default()
+    let boundless_client = Client::builder()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)
@@ -121,7 +119,7 @@ async fn run(
     let timestamp = format! {"{:?}", SystemTime::now()};
 
     // Encode the input and upload it to the storage provider.
-    let guest_env = InputBuilder::new().write_slice(timestamp.as_bytes()).build()?;
+    let guest_env = Input::builder().write_slice(timestamp.as_bytes()).build()?;
     let input_url = boundless_client.upload_input(&guest_env.encode()?).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
@@ -152,7 +150,7 @@ async fn run(
     //   the maxPrice, starting from the the bidding start;
     // - the lockin price: the price at which the request can be locked in by a prover, if the
     //   request is not fulfilled before the timeout, the prover can be slashed.
-    let request = ProofRequestBuilder::new()
+    let request = ProofRequest::builder()
         .with_image_url(image_url)
         .with_input(input_url)
         .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))

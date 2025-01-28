@@ -46,7 +46,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use boundless_market::{
-    client::{Client, ClientBuilder},
+    client::Client,
     contracts::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
         InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
@@ -339,7 +339,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-            let client = ClientBuilder::default()
+            let client = Client::builder()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
@@ -371,7 +371,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-            let client = ClientBuilder::default()
+            let client = Client::builder()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
