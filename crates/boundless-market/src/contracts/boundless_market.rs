@@ -37,8 +37,7 @@ use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    IBoundlessMarketErrors, Offer, ProofRequest, ProofStatus, RequestError, TxnErr,
-    TXN_CONFIRM_TIMEOUT,
+    Offer, ProofRequest, ProofStatus, RequestError, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -88,7 +87,7 @@ pub enum MarketError {
 impl From<alloy::contract::Error> for MarketError {
     fn from(err: alloy::contract::Error) -> Self {
         tracing::debug!("raw alloy contract error: {:?}", err);
-        MarketError::Error(IBoundlessMarketErrors::decode_error(err).into())
+        MarketError::Error(TxnErr::from(err).into())
     }
 }
 
@@ -588,6 +587,7 @@ where
     /// Useful to reduce the transaction count for fulfillments
     pub async fn submit_merkle_and_fulfill(
         &self,
+        verifier_address: Address,
         root: B256,
         seal: Bytes,
         fulfillments: Vec<Fulfillment>,
@@ -597,7 +597,14 @@ where
         tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_seal:x})");
         let call = self
             .instance
-            .submitRootAndFulfillBatch(root, seal, fulfillments, assessor_seal, prover_address)
+            .submitRootAndFulfillBatch(
+                verifier_address,
+                root,
+                seal,
+                fulfillments,
+                assessor_seal,
+                prover_address,
+            )
             .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
@@ -1172,7 +1179,7 @@ mod tests {
     use guest_set_builder::SET_BUILDER_ID;
     use guest_util::ECHO_ID;
     use risc0_aggregation::{
-        merkle_root, GuestOutput, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
+        merkle_root, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
     };
     use risc0_ethereum_contracts::encode_seal;
     use risc0_zkvm::{
@@ -1244,13 +1251,18 @@ mod tests {
         let assessor_claim_digest = assesor_receipt_claim.digest();
 
         let root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
-        let set_builder_journal = GuestOutput::new(Digest::from(SET_BUILDER_ID), root);
+        let set_builder_journal = {
+            let mut state = GuestState::initial(SET_BUILDER_ID);
+            state.mmr.push(root).unwrap();
+            state.mmr.finalize().unwrap();
+            state.encode()
+        };
         let set_builder_receipt_claim =
-            ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.abi_encode());
+            ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.clone());
 
         let set_builder_receipt = Receipt::new(
             InnerReceipt::Fake(FakeReceipt::new(set_builder_receipt_claim)),
-            set_builder_journal.abi_encode(),
+            set_builder_journal,
         );
         let set_verifier_seal = encode_seal(&set_builder_receipt).unwrap();
 
@@ -1535,6 +1547,7 @@ mod tests {
         // publish the committed root + fulfillments
         ctx.prover_market
             .submit_merkle_and_fulfill(
+                ctx.set_verifier_addr,
                 root,
                 set_verifier_seal,
                 fulfillments.clone(),

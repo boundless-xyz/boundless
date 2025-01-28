@@ -20,7 +20,7 @@ use std::str::FromStr;
 use alloy::{
     contract::Error as ContractErr,
     primitives::{PrimitiveSignature, SignatureError},
-    signers::{Signature, Signer},
+    signers::Signer,
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
@@ -325,7 +325,7 @@ impl ProofRequest {
         contract_addr: Address,
         chain_id: u64,
     ) -> Result<(), RequestError> {
-        let sig = Signature::try_from(signature.as_ref())?;
+        let sig = PrimitiveSignature::try_from(signature.as_ref())?;
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         let addr = sig.recover_address_from_prehash(&hash)?;
@@ -595,16 +595,6 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
             Ok(decoded_error)
         }
         _ => Err(TxnErr::ContractErr(err)),
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
-impl IBoundlessMarketErrors {
-    pub(crate) fn decode_error(err: ContractErr) -> TxnErr {
-        match decode_contract_err(err) {
-            Ok(res) => TxnErr::BoundlessMarketErr(res),
-            Err(decode_err) => decode_err,
-        }
     }
 }
 

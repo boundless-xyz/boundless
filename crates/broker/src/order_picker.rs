@@ -581,7 +581,6 @@ mod tests {
                     input_id: None,
                     proof_id: None,
                     expire_block: None,
-                    path: None,
                     client_sig: Bytes::new(),
                     lock_price: None,
                     error_msg: None,

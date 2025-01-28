@@ -401,6 +401,24 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
+    function submitRoot(address setVerifierAddress, bytes32 root, bytes calldata seal) external {
+        IRiscZeroSetVerifier(address(setVerifierAddress)).submitMerkleRoot(root, seal);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function submitRootAndFulfillBatch(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external {
+        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        fulfillBatch(fills, assessorSeal, prover);
+    }
+
+    /// @inheritdoc IBoundlessMarket
     function slash(RequestId requestId) external {
         (address client, uint32 idx) = requestId.clientAndIndex();
         (bool locked,) = accounts[client].requestFlags(idx);
@@ -447,20 +465,6 @@ contract BoundlessMarket is
         ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
 
         emit ProverSlashed(requestId, lock.prover, burnValue, transferValue);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function submitRootAndFulfillBatch(
-        bytes32 root,
-        bytes calldata seal,
-        Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        address prover
-    ) external {
-        // TODO(#243): This will break when we change VERIFIER to point to the router.
-        IRiscZeroSetVerifier setVerifier = IRiscZeroSetVerifier(address(VERIFIER));
-        setVerifier.submitMerkleRoot(root, seal);
-        fulfillBatch(fills, assessorSeal, prover);
     }
 
     /// @inheritdoc IBoundlessMarket
