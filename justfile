@@ -49,9 +49,12 @@ license-check:
     python license-check.py
 
 format:
-    cargo sort --workspace --check
+    cargo sort --workspace
+    cargo fmt --all
     cd examples/counter && cargo sort --workspace
     cd examples/counter && cargo fmt --all
+    cd bento && cargo sort --workspace
+    cd bento && cargo fmt --all
     cd documentation && bun run format-markdown
     forge fmt
 
