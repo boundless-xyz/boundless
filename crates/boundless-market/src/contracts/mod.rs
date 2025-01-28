@@ -252,10 +252,10 @@ impl ProofRequestBuilder {
 
     /// Builds the proof request.
     pub fn build(self) -> Result<ProofRequest, RequestError> {
-        let requirements = self.requirements.ok_or_else(|| RequestError::MissingRequirements)?;
-        let image_url = self.image_url.ok_or_else(|| RequestError::MissingImageUrl)?;
-        let input = self.input.ok_or_else(|| RequestError::MissingInput)?;
-        let offer = self.offer.ok_or_else(|| RequestError::MissingOffer)?;
+        let requirements = self.requirements.ok_or(RequestError::MissingRequirements)?;
+        let image_url = self.image_url.ok_or(RequestError::MissingImageUrl)?;
+        let input = self.input.ok_or(RequestError::MissingInput)?;
+        let offer = self.offer.ok_or(RequestError::MissingOffer)?;
 
         Ok(ProofRequest::new(0, &Address::ZERO, requirements, &image_url, input, offer))
     }
