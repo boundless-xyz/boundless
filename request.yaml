@@ -15,7 +15,7 @@ requirements:
 imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy"
 
 # Input to be provided to the zkVM guest execution.
-# The input data must be encoded as MessagePack bytes with version control. 
+# The input data is a encoded guest environment.
 # See crates/boundless-market/src/input.rs for additional details.
 input:
     inputType: Inline
