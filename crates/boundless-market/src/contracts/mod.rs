@@ -435,7 +435,7 @@ impl Input {
 
     /// Sets the input type to inline and the data to the given bytes.
     ///
-    /// See also [InputBuilder::build_inline].
+    /// See [InputBuilder] for more details on how to write input data.
     ///
     /// # Example
     ///
@@ -446,8 +446,6 @@ impl Input {
     /// let input = Input::inline(input_vec);
     /// # anyhow::Ok(())
     /// ```
-    ///
-    /// See [`InputBuilder`][crate::input::InputBuilder] for more details on how to write input data.
     pub fn inline(data: impl Into<Bytes>) -> Self {
         Self { inputType: InputType::Inline, data: data.into() }
     }
