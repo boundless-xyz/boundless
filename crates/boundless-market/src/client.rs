@@ -287,7 +287,7 @@ where
     }
 
     /// Upload an image to the storage provider
-    pub async fn upload_image(&self, elf: &[u8]) -> Result<String, ClientError> {
+    pub async fn upload_image(&self, elf: &[u8]) -> Result<Url, ClientError> {
         Ok(self
             .storage_provider
             .as_ref()
@@ -298,7 +298,7 @@ where
     }
 
     /// Upload input to the storage provider
-    pub async fn upload_input(&self, input: &[u8]) -> Result<String, ClientError> {
+    pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError> {
         Ok(self
             .storage_provider
             .as_ref()

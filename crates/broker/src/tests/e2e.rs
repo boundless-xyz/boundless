@@ -96,15 +96,7 @@ async fn simple_e2e() {
             },
         },
         &image_uri,
-        Input {
-            inputType: InputType::Inline,
-            data: InputBuilder::new()
-                .write(&vec![0x41, 0x41, 0x41, 0x41])
-                .unwrap()
-                .encode()
-                .unwrap()
-                .into(),
-        },
+        Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         Offer {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),

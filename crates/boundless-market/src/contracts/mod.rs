@@ -41,6 +41,9 @@ use risc0_zkvm::sha::Digest;
 pub use risc0_ethereum_contracts::{encode_seal, IRiscZeroSetVerifier};
 
 #[cfg(not(target_os = "zkvm"))]
+use crate::input::InputBuilder;
+
+#[cfg(not(target_os = "zkvm"))]
 const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 
 // boundless_market_generated.rs contains the Boundless contract types
@@ -258,23 +261,23 @@ impl ProofRequestBuilder {
     }
 
     /// Sets the input data to be fetched from the given URL.
-    pub fn with_image_url(self, image_url: &str) -> Self {
-        Self { image_url: Some(image_url.to_string()), ..self }
+    pub fn with_image_url(self, image_url: impl Into<String>) -> Self {
+        Self { image_url: Some(image_url.into()), ..self }
     }
 
     /// Sets the requirements for the request.
-    pub fn with_requirements(self, requirements: Requirements) -> Self {
-        Self { requirements: Some(requirements), ..self }
+    pub fn with_requirements(self, requirements: impl Into<Requirements>) -> Self {
+        Self { requirements: Some(requirements.into()), ..self }
     }
 
     /// Sets the guest's input for the request.
-    pub fn with_input(self, input: Input) -> Self {
-        Self { input: Some(input), ..self }
+    pub fn with_input(self, input: impl Into<Input>) -> Self {
+        Self { input: Some(input.into()), ..self }
     }
 
     /// Sets the offer for the request.
-    pub fn with_offer(self, offer: Offer) -> Self {
-        Self { offer: Some(offer), ..self }
+    pub fn with_offer(self, offer: impl Into<Offer>) -> Self {
+        Self { offer: Some(offer.into()), ..self }
     }
 }
 
@@ -286,15 +289,15 @@ impl ProofRequest {
         idx: u32,
         addr: &Address,
         requirements: Requirements,
-        image_url: &str,
-        input: Input,
+        image_url: impl Into<String>,
+        input: impl Into<Input>,
         offer: Offer,
     ) -> Self {
         Self {
             id: request_id(addr, idx),
             requirements,
-            imageUrl: image_url.to_string(),
-            input,
+            imageUrl: image_url.into(),
+            input: input.into(),
             offer,
         }
     }
@@ -419,14 +422,23 @@ impl Predicate {
 }
 
 impl Input {
+    /// Create a new [InputBuilder] for use in constructing and encoding the guest zkVM environment.
+    #[cfg(not(target_os = "zkvm"))]
+    pub fn builder() -> InputBuilder {
+        InputBuilder::new()
+    }
+
     /// Sets the input type to inline and the data to the given bytes.
+    ///
+    /// See also [InputBuilder::build_inline].
     ///
     /// # Example
     ///
     /// ```
-    /// use boundless_market::{contracts::Input, input::InputBuilder};
+    /// use boundless_market::input::InputBuilder;
     ///
-    /// let input = Input::inline(InputBuilder::new().write(&vec![0x41, 0x41, 0x41, 0x41]).unwrap().encode().unwrap());
+    /// let input_vec = Input::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
+    /// let input = Input::inline(input_vec);
     /// ```
     ///
     /// See [`InputBuilder`][crate::input::InputBuilder] for more details on how to write input data.
@@ -437,6 +449,13 @@ impl Input {
     /// Sets the input type to URL and the data to the given URL.
     pub fn url(url: impl Into<String>) -> Self {
         Self { inputType: InputType::Url, data: url.into().into() }
+    }
+}
+
+impl From<Url> for Input {
+    /// Create a URL input from the given URL.
+    fn from(value: Url) -> Self {
+        Self::url(value)
     }
 }
 
@@ -995,7 +1014,6 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::boundless_market::input::InputBuilder;
     use alloy::signers::local::PrivateKeySigner;
 
     async fn create_order(
@@ -1016,11 +1034,8 @@ mod tests {
                     data: Default::default(),
                 },
             },
-            imageUrl: "test".to_string(),
-            input: Input {
-                inputType: InputType::Url,
-                data: InputBuilder::new().encode().unwrap().into(),
-            },
+            imageUrl: "https://dev.null".to_string(),
+            input: Input::builder().build_inline().unwrap(),
             offer: Offer {
                 minPrice: U256::from(0),
                 maxPrice: U256::from(1),

@@ -32,7 +32,7 @@ use url::Url;
 
 use boundless_market::{
     contracts::{EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, InputType},
-    input::InputBuilder,
+    input::GuestEnv,
     order_stream_client::Order,
 };
 
@@ -217,9 +217,9 @@ impl DefaultProver {
         let request = order.request.clone();
         let order_elf = fetch_url(&request.imageUrl).await?;
         let order_input: Vec<u8> = match request.input.inputType {
-            InputType::Inline => InputBuilder::decode(&request.input.data)?.stdin,
+            InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
             InputType::Url => {
-                InputBuilder::decode(
+                GuestEnv::decode(
                     &fetch_url(
                         std::str::from_utf8(&request.input.data)
                             .context("input url is not utf8")?,

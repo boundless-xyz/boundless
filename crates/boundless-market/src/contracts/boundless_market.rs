@@ -1167,7 +1167,7 @@ mod tests {
     use crate::{
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
-            IBoundlessMarket, Input, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
+            IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
             Requirements,
         },
         input::InputBuilder,
@@ -1219,7 +1219,7 @@ mod tests {
                 },
             },
             "http://image_uri.null",
-            Input::inline(InputBuilder::new().encode().unwrap()),
+            InputBuilder::new().build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
