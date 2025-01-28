@@ -525,7 +525,7 @@ where
             let status = match res {
                 Err(join_err) if join_err.is_cancelled() => {
                     tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
-                    continue
+                    continue;
                 }
                 Err(join_err) => {
                     tracing::error!("Tokio task exited with error status: {join_err:?}");
