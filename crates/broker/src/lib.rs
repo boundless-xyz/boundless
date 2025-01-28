@@ -522,8 +522,32 @@ where
 
         // Monitor the different supervisor tasks
         while let Some(res) = supervisor_tasks.join_next().await {
-            tracing::info!("Task exited: {res:?}");
-            // TODO: Handle supervisor errors
+            let status = match res {
+                Err(join_err) if join_err.is_cancelled() => {
+                    tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
+                    continue
+                }
+                Err(join_err) => {
+                    tracing::error!("Tokio task exited with error status: {join_err:?}");
+                    // TODO(#BM-470): Here, we should be using a cancellation token to signal to all
+                    // the tasks under this supervisor that they should exit, then set a timer (e.g.
+                    // for 30) to give them time to gracefully shut down.
+                    anyhow::bail!("Task exited with error status: {join_err:?}")
+                }
+                Ok(status) => status,
+            };
+            match status {
+                Err(err) => {
+                    tracing::error!("Task exited with error status: {err:?}");
+                    // TODO(#BM-470): Here, we should be using a cancellation token to signal to all
+                    // the tasks under this supervisor that they should exit, then set a timer (e.g.
+                    // for 30) to give them time to gracefully shut down.
+                    anyhow::bail!("Task exited with error status: {err:?}")
+                }
+                Ok(()) => {
+                    tracing::info!("Task exited with ok status");
+                }
+            }
         }
 
         Ok(())
