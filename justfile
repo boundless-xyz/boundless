@@ -9,7 +9,7 @@ check: link-check format-check license-check cargo-clippy
 
 foundry-test:
     forge clean # Required by OpenZeppelin upgrades plugin
-    forge test -vvv
+    forge test -vvv --isolate
 
 cargo-test: cargo-test-root cargo-test-example-counter
 
