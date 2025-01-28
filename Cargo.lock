@@ -2007,11 +2007,14 @@ dependencies = [
  "guest-set-builder",
  "guest-util",
  "rand",
+ "reqwest",
  "risc0-zkp",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.19",
+ "url",
 ]
 
 [[package]]
