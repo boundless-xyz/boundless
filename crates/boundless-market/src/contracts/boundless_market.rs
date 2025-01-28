@@ -1164,10 +1164,13 @@ mod tests {
     use std::str::FromStr;
 
     use super::BoundlessMarketService;
-    use crate::contracts::{
-        hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
-        IBoundlessMarket, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-        ProofStatus, Requirements,
+    use crate::{
+        contracts::{
+            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
+            IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
+            Requirements,
+        },
+        input::InputBuilder,
     };
     use alloy::{
         node_bindings::Anvil,
@@ -1216,7 +1219,7 @@ mod tests {
                 },
             },
             "http://image_uri.null",
-            Input { inputType: InputType::Inline, data: Bytes::default() },
+            InputBuilder::new().build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

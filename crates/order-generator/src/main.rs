@@ -15,10 +15,11 @@ use anyhow::{bail, Result};
 use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    input::InputBuilder,
     storage::StorageProviderConfig,
 };
 use clap::{Args, Parser};
-use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible, ExecutorEnv};
+use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
 use url::Url;
 
 /// Arguments of the order generator.
@@ -158,14 +159,13 @@ async fn run(args: &MainArgs) -> Result<()> {
             (None, None) => format! {"{:?}", SystemTime::now()}.as_bytes().to_vec(),
             _ => bail!("at most one of input or input-file args must be provided"),
         };
-        let encoded_input = if args.encode_input {
-            bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?)
+        let env = if args.encode_input {
+            InputBuilder::new().write(&input)?.build_env()?
         } else {
-            input
+            InputBuilder::new().write_slice(&input).build_env()?
         };
 
-        let env = ExecutorEnv::builder().write_slice(&encoded_input).build()?;
-        let session_info = default_executor().execute(env, &elf)?;
+        let session_info = default_executor().execute(env.clone().try_into()?, &elf)?;
         let mcycles_count = session_info
             .segments
             .iter()
@@ -174,9 +174,9 @@ async fn run(args: &MainArgs) -> Result<()> {
             .div_ceil(1_000_000);
         let journal = session_info.journal;
 
-        let request = ProofRequest::default()
-            .with_image_url(&image_url)
-            .with_input(Input::inline(encoded_input))
+        let request = ProofRequest::builder()
+            .with_image_url(image_url.clone())
+            .with_input(Input::inline(env.encode()?))
             .with_requirements(Requirements::new(
                 image_id,
                 Predicate::digest_match(journal.digest()),
@@ -188,7 +188,8 @@ async fn run(args: &MainArgs) -> Result<()> {
                     .with_lock_stake(args.lockin_stake)
                     .with_ramp_up_period(args.ramp_up)
                     .with_timeout(args.timeout),
-            );
+            )
+            .build()?;
 
         let (request_id, _) = if args.order_stream_url.is_some() {
             boundless_client.submit_request_offchain(&request).await?

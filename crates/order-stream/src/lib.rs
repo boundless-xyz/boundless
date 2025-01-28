@@ -318,9 +318,10 @@ mod tests {
     };
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, Input, Offer, Predicate,
-            ProofRequest, Requirements,
+            hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
+            Requirements,
         },
+        input::InputBuilder,
         order_stream_client::Client,
     };
     use futures_util::StreamExt;
@@ -339,9 +340,9 @@ mod tests {
         ProofRequest::new(
             idx,
             addr,
-            Requirements { imageId: B256::from([1u8; 32]), predicate: Predicate::default() },
+            Requirements { imageId: B256::from([1u8; 32]), predicate: Predicate::prefix_match([]) },
             "http://image_uri.null",
-            Input::default(),
+            InputBuilder::new().build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

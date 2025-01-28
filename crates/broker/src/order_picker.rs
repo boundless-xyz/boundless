@@ -476,11 +476,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        db::SqliteDb,
-        provers::{encode_input, MockProver},
-        OrderStatus,
-    };
+    use crate::{db::SqliteDb, provers::MockProver, OrderStatus};
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
@@ -496,8 +492,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
-        ProofRequest, Requirements,
+        test_utils::deploy_boundless_market, Input, Offer, Predicate, PredicateType, ProofRequest,
+        Requirements,
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;

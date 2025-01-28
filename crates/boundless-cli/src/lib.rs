@@ -32,6 +32,7 @@ use url::Url;
 
 use boundless_market::{
     contracts::{EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, InputType},
+    input::GuestEnv,
     order_stream_client::Order,
 };
 
@@ -216,12 +217,16 @@ impl DefaultProver {
         let request = order.request.clone();
         let order_elf = fetch_url(&request.imageUrl).await?;
         let order_input: Vec<u8> = match request.input.inputType {
-            InputType::Inline => request.input.data.into(),
+            InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
             InputType::Url => {
-                fetch_url(
-                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
-                )
-                .await?
+                GuestEnv::decode(
+                    &fetch_url(
+                        std::str::from_utf8(&request.input.data)
+                            .context("input url is not utf8")?,
+                    )
+                    .await?,
+                )?
+                .stdin
             }
             _ => bail!("Unsupported input type"),
         };
@@ -306,7 +311,7 @@ mod tests {
                 imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
                 predicate: Predicate::prefix_match(vec![1]),
             },
-            &format!("file://{ECHO_PATH}"),
+            format!("file://{ECHO_PATH}"),
             Input::inline(vec![1, 2, 3, 4]),
             Offer::default(),
         );

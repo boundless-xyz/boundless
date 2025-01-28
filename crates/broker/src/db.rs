@@ -1444,13 +1444,8 @@ mod tests {
         // sqlx::migrate!("./migrations").run(&tmp_pool).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-
-        db.add_order(U256::from(11), Order::new(Default::default(), Default::default()))
-            .await
-            .unwrap();
-        db.add_order(U256::from(12), Order::new(Default::default(), Default::default()))
-            .await
-            .unwrap();
+        db.add_order(U256::from(11), create_order()).await.unwrap();
+        db.add_order(U256::from(12), create_order()).await.unwrap();
 
         let batch_id = 1;
         let agg_proofs = [
