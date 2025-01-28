@@ -30,6 +30,7 @@ use alloy::{
 };
 use alloy_sol_types::SolEvent;
 use anyhow::{anyhow, Context, Result};
+use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
 
 use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
@@ -113,40 +114,6 @@ where
             timeout: self.timeout,
             event_query_config: self.event_query_config.clone(),
         }
-    }
-}
-
-/// Event query configuration.
-#[derive(Clone)]
-#[non_exhaustive]
-pub struct EventQueryConfig {
-    /// Maximum number of iterations to search for a fulfilled event.
-    pub max_iterations: u64,
-    /// Number of blocks to query in each iteration when searching for a fulfilled event.
-    pub block_range: u64,
-}
-
-impl Default for EventQueryConfig {
-    fn default() -> Self {
-        // Default values chosen based on the docs and pricing of requests on common RPC providers.
-        Self { max_iterations: 100, block_range: 1000 }
-    }
-}
-
-impl EventQueryConfig {
-    /// Creates a new event query configuration.
-    pub fn new(max_iterations: u64, block_range: u64) -> Self {
-        Self { max_iterations, block_range }
-    }
-
-    /// Sets the maximum number of iterations to search for a fulfilled event.
-    pub fn with_max_iterations(self, max_iterations: u64) -> Self {
-        Self { max_iterations, ..self }
-    }
-
-    /// Sets the number of blocks to query in each iteration when searching for a fulfilled event.
-    pub fn with_block_range(self, block_range: u64) -> Self {
-        Self { block_range, ..self }
     }
 }
 

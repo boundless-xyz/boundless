@@ -31,14 +31,17 @@ use alloy::{
     },
     transports::{http::Http, Transport},
 };
+use alloy_primitives::B256;
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client as HttpClient;
+use risc0_aggregation::SetInclusionReceipt;
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
+use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use url::Url;
 
 use crate::{
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
-        set_verifier::SetVerifierService,
         ProofRequest, RequestError,
     },
     order_stream_client::Client as OrderStreamClient,
@@ -437,6 +440,35 @@ where
             .boundless_market
             .wait_for_request_fulfillment(request_id, check_interval, expires_at)
             .await?)
+    }
+
+    /// Get the [SetInclusionReceipt] for a request.
+    ///
+    /// Example:
+    /// ```
+    /// use anyhow::Result;
+    /// use alloy::primitives::{B256, Bytes, U256};
+    /// use boundless_market::client::ClientBuilder;
+    /// use risc0_aggregation::SetInclusionReceipt;
+    /// use risc0_zkvm::ReceiptClaim;
+    ///
+    /// async fn fetch_set_inclusion_receipt(request_id: U256, image_id: B256) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>)> {
+    ///     let client = ClientBuilder::default().build().await?;
+    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, image_id).await?;
+    ///     Ok((journal, receipt))
+    /// }
+    /// ```
+    ///
+    pub async fn fetch_set_inclusion_receipt(
+        &self,
+        request_id: U256,
+        image_id: B256,
+    ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
+        let (journal, seal) = self.boundless_market.get_request_fulfillment(request_id).await?;
+        let claim = ReceiptClaim::ok(Digest::from(image_id.0), journal.to_vec());
+        let receipt =
+            self.set_verifier.fetch_receipt_with_claim(seal, claim, journal.to_vec()).await?;
+        Ok((journal, receipt))
     }
 }
 

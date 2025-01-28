@@ -27,7 +27,7 @@ guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
 
-alloy = { version = "0.6" }
+alloy = { version = "0.9" }
 alloy-primitives = { version = "0.8" }
 alloy-sol-types = { version = "0.8", features = ["json"] }
 anyhow = { version = "1.0" }
@@ -47,11 +47,11 @@ hex = { version = "0.4", default-features = false, features = ["alloc"] }
 postcard = { version = "1.0" }
 rand = { version = "0.8" }
 reqwest = "0.12"
-risc0-aggregation = "0.2.1"
+risc0-aggregation = { git = "https://github.com/risc0/risc0-ethereum", rev = "8a0d89e49d89aa18cbb0a28d81597b3f93bf38df" }
 risc0-binfmt = "1.2"
 risc0-build = { version = "1.2", features = ["docker"] }
 risc0-build-ethereum = { version = "1.2" }
-risc0-ethereum-contracts = { version = "1.2" }
+risc0-ethereum-contracts = { git = "https://github.com/risc0/risc0-ethereum", rev = "8a0d89e49d89aa18cbb0a28d81597b3f93bf38df" }
 risc0-zkvm = { version = "1.2", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
