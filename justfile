@@ -59,9 +59,13 @@ format:
     forge fmt
 
 format-check:
+    cargo sort --workspace --check
+    cargo fmt --all --check
     cd examples/counter && cargo sort --workspace --check
-    cd examples/counter && cargo fmt --all -- --check
-    cd documentation && bun ci
+    cd examples/counter && cargo fmt --all --check
+    cd bento && cargo sort --workspace --check
+    cd bento && cargo fmt --all --check
+    cd documentation && bun run ci
     forge fmt --check
 
 docker:
