@@ -476,11 +476,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        db::SqliteDb,
-        provers::{encode_input, MockProver},
-        OrderStatus,
-    };
+    use crate::{db::SqliteDb, provers::MockProver, OrderStatus};
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
@@ -496,8 +492,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
-        ProofRequest, Requirements,
+        test_utils::deploy_boundless_market, Input, Offer, Predicate, PredicateType, ProofRequest,
+        Requirements,
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -548,7 +544,6 @@ mod tests {
             lock_stake: U256,
         ) -> (U256, Order) {
             let image_id = Digest::from(ECHO_ID);
-            let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
             let order_index = self.boundless_market.index_from_nonce().await.unwrap();
             (
                 U256::from(order_index),
@@ -566,7 +561,10 @@ mod tests {
                             },
                         },
                         self.image_uri(),
-                        Input { inputType: InputType::Inline, data: input_buf.into() },
+                        Input::builder()
+                            .write_slice(&[0x41, 0x41, 0x41, 0x41])
+                            .build_inline()
+                            .unwrap(),
                         Offer {
                             minPrice: min_price,
                             maxPrice: max_price,
