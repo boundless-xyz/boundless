@@ -14,7 +14,7 @@ use alloy::{
 use anyhow::{bail, Result};
 use boundless_market::{
     client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProofRequestBuilder, Requirements},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
     storage::StorageProviderConfig,
 };
@@ -174,7 +174,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             .div_ceil(1_000_000);
         let journal = session_info.journal;
 
-        let request = ProofRequestBuilder::new()
+        let request = ProofRequest::builder()
             .with_image_url(image_url.clone())
             .with_input(Input::inline(env.encode()?))
             .with_requirements(Requirements::new(
