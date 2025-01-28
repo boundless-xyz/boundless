@@ -419,7 +419,7 @@ mod tests {
     use super::*;
     use crate::{
         db::SqliteDb,
-        provers::{encode_input, MockProver},
+        provers::MockProver,
         OrderStatus,
     };
     use alloy::{
@@ -430,7 +430,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
+        test_utils::deploy_boundless_market, Input, Offer, Predicate, PredicateType,
         ProofRequest, Requirements,
     };
     use chrono::Utc;

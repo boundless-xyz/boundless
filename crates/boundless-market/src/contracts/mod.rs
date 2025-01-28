@@ -435,7 +435,7 @@ impl Input {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::InputBuilder;
+    /// use boundless_market::contracts::Input;
     ///
     /// let input_vec = Input::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
     /// let input = Input::inline(input_vec);

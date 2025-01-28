@@ -311,7 +311,7 @@ mod tests {
                 imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
                 predicate: Predicate::prefix_match(vec![1]),
             },
-            &format!("file://{ECHO_PATH}"),
+            format!("file://{ECHO_PATH}"),
             Input::inline(vec![1, 2, 3, 4]),
             Offer::default(),
         );

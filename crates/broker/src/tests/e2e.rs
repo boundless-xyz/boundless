@@ -12,13 +12,10 @@ use risc0_zkvm::sha::Digest;
 use tempfile::NamedTempFile;
 // use broker::Broker;
 use crate::{config::Config, Args, Broker};
-use boundless_market::{
-    contracts::{
-        hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
+use boundless_market::contracts::{
+        hit_points::default_allowance, test_utils::TestCtx, Input, Offer, Predicate,
         PredicateType, ProofRequest, Requirements,
-    },
-    input::InputBuilder,
-};
+    };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use guest_util::{ECHO_ELF, ECHO_ID};
