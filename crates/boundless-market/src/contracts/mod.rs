@@ -439,6 +439,7 @@ impl Input {
     ///
     /// let input_vec = Input::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
     /// let input = Input::inline(input_vec);
+    /// # anyhow::Ok(())
     /// ```
     ///
     /// See [`InputBuilder`][crate::input::InputBuilder] for more details on how to write input data.
