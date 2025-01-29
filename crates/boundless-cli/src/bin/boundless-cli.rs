@@ -51,7 +51,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
         InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
-    input::InputBuilder,
+    input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
     storage::{StorageProvider, StorageProviderConfig},
 };
@@ -177,6 +177,8 @@ enum Command {
         #[arg(long, default_value = "false")]
         require_payment: bool,
     },
+    /// Unfreeze a prover's account after being slashed
+    Unfreeze,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -473,7 +475,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
             // and empty if the request is locked.
             let requests_to_price: Vec<ProofRequest> =
-                (!boundless_market.is_locked_in(request_id).await?)
+                (!boundless_market.is_locked(request_id).await?)
                     .then_some(order.request)
                     .into_iter()
                     .collect();
@@ -496,6 +498,10 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     tracing::error!("Failed to fulfill request 0x{:x}: {}", request_id, e);
                 }
             }
+        }
+        Command::Unfreeze => {
+            boundless_market.unfreeze_account().await?;
+            tracing::info!("Account unfrozen");
         }
     };
 
@@ -540,8 +546,12 @@ where
         (None, Some(input_file)) => std::fs::read(input_file)?,
         _ => bail!("exactly one of input or input-file args must be provided"),
     };
-    let encoded_input =
-        if args.encode_input { InputBuilder::new().write(&input)?.build() } else { input };
+    let input_env = InputBuilder::new();
+    let encoded_input = if args.encode_input {
+        input_env.write(&input)?.build_vec()?
+    } else {
+        input_env.write_slice(&input).build_vec()?
+    };
 
     // Resolve the predicate from the command line arguments.
     let predicate: Predicate = match (&args.reqs.journal_digest, &args.reqs.journal_prefix) {
@@ -562,11 +572,8 @@ where
 
     // Upload the input.
     let requirements_input = match args.inline_input {
-        false => {
-            let input_url = client.upload_input(&encoded_input).await?;
-            Input { inputType: InputType::Url, data: input_url.into() }
-        }
-        true => Input { inputType: InputType::Inline, data: encoded_input.into() },
+        false => client.upload_input(&encoded_input).await?.into(),
+        true => Input::inline(encoded_input),
     };
 
     // Set request id
@@ -580,7 +587,7 @@ where
         id,
         &client.caller(),
         Requirements { imageId: image_id, predicate },
-        &elf_url,
+        elf_url,
         requirements_input,
         offer.clone(),
     );
@@ -719,11 +726,15 @@ where
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     let elf = fetch_url(&request.imageUrl).await?;
     let input = match request.input.inputType {
-        InputType::Inline => request.input.data.clone(),
+        InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
         InputType::Url => {
-            fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
-                .await?
-                .into()
+            GuestEnv::decode(
+                &fetch_url(
+                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
+                )
+                .await?,
+            )?
+            .stdin
         }
         _ => bail!("Unsupported input type"),
     };

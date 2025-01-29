@@ -8,23 +8,25 @@ use alloy::{
     network::Ethereum,
     primitives::{utils, Address, U256},
     providers::Provider,
-    sol_types::SolValue,
     transports::BoxTransport,
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::contracts::eip712_domain;
 use chrono::Utc;
-use risc0_aggregation::{GuestInput, GuestOutput};
-use risc0_zkvm::sha::Digest;
+use risc0_aggregation::GuestState;
+use risc0_zkvm::{
+    sha::{Digest, Digestible},
+    ReceiptClaim,
+};
 
 use crate::{
     chain_monitor::ChainMonitorService,
     config::ConfigLock,
-    db::DbObj,
+    db::{AggregationOrder, DbObj},
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    Node,
+    AggregationState, Batch, BatchStatus,
 };
 
 #[derive(Clone)]
@@ -86,19 +88,49 @@ where
         })
     }
 
-    async fn prove_sot(
+    async fn prove_set_builder(
         &self,
-        job_type: &str,
-        input: &impl serde::Serialize,
-        assumptions: Vec<String>,
-    ) -> Result<(String, GuestOutput)> {
-        let input_data = provers::encode_input(&input)
-            .with_context(|| format!("Failed to encode {job_type} proof input"))?;
+        aggregation_state: Option<&AggregationState>,
+        proofs: &[String],
+        finalize: bool,
+    ) -> Result<AggregationState> {
+        // TODO(#268): Handle failure to get an individual order.
+        let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
+        for proof_id in proofs {
+            let receipt = self
+                .prover
+                .get_receipt(proof_id)
+                .await
+                .with_context(|| format!("Failed to get proof receipt for {proof_id}"))?
+                .with_context(|| format!("Proof receipt not found for {proof_id}"))?;
+            let claim = receipt
+                .claim()
+                .with_context(|| format!("Receipt for {proof_id} missing claim"))?
+                .value()
+                .with_context(|| format!("Receipt for {proof_id} claims pruned"))?;
+            claims.push(claim);
+        }
+
+        let input = aggregation_state
+            .map_or(GuestState::initial(self.set_builder_guest_id), |s| s.guest_state.clone())
+            .into_input(claims.clone(), finalize)
+            .context("Failed to build set builder input")?;
+
+        // Gather the proof IDs for the assumptions we will need: any pending proofs, and the proof
+        // for the current aggregation state.
+        let assumption_ids: Vec<String> = aggregation_state
+            .map(|s| s.proof_id.clone())
+            .into_iter()
+            .chain(proofs.iter().cloned())
+            .collect();
+
+        let input_data =
+            provers::encode_input(&input).context("Failed to encode set-builder proof input")?;
         let input_id = self
             .prover
             .upload_input(input_data)
             .await
-            .with_context(|| format!("failed to upload {job_type} input"))?;
+            .context("Failed to upload set-builder input")?;
 
         // TODO: we should run this on a different stream in the prover
         // aka make a few different priority streams for each level of the proving
@@ -106,14 +138,18 @@ where
         // TODO: Need to set a timeout here to handle stuck or even just alert on delayed proving if
         // the proving cluster is overloaded
 
-        tracing::info!("Starting proving of {job_type}");
+        tracing::info!("Starting proving of set-builder");
         let proof_res = self
             .prover
-            .prove_and_monitor_stark(&self.set_builder_guest_id.to_string(), &input_id, assumptions)
+            .prove_and_monitor_stark(
+                &self.set_builder_guest_id.to_string(),
+                &input_id,
+                assumption_ids,
+            )
             .await
-            .with_context(|| format!("Failed to prove {job_type}"))?;
+            .context("Failed to prove set-builder")?;
         tracing::info!(
-            "completed proving of {job_type} cycles: {} time: {}",
+            "completed proving of set-builder cycles: {} time: {}",
             proof_res.stats.total_cycles,
             proof_res.elapsed_time
         );
@@ -122,59 +158,23 @@ where
             .prover
             .get_journal(&proof_res.id)
             .await
-            .with_context(|| format!("Failed to get {job_type} journal"))?
-            .with_context(|| format!("{job_type} journal missing"))?;
+            .with_context(|| format!("Failed to get set-builder journal from {}", proof_res.id))?
+            .with_context(|| format!("set-builder journal missing from {}", proof_res.id))?;
 
-        Ok((
-            proof_res.id,
-            GuestOutput::abi_decode(&journal, false).context("Failed to decode guest output")?,
-        ))
-    }
+        let guest_state = GuestState::decode(&journal).context("Failed to decode guest output")?;
+        let claim_digests = aggregation_state
+            .map(|s| s.claim_digests.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .chain(claims.into_iter().map(|claim| claim.digest()))
+            .collect();
 
-    async fn prove_singleton(&self, order_id: U256, proof_id: String) -> Result<Node> {
-        let receipt = self
-            .prover
-            .get_receipt(&proof_id)
-            .await
-            .context("Failed to get proof receipt")?
-            .context("Proof receipt not found")?;
-        let claim = receipt
-            .claim()
-            .context("Receipt missing claims")?
-            .value()
-            .context("Receipt claims pruned")?;
-
-        let input = GuestInput::Singleton { self_image_id: self.set_builder_guest_id, claim };
-
-        let (new_id, output) = self.prove_sot("singleton", &input, vec![proof_id]).await?;
-        tracing::debug!("Singleton(order={order_id:x}): {}", output.root());
-
-        Ok(Node::singleton(new_id, order_id, output.root()))
-    }
-
-    async fn prove_join(&self, left: Node, right: Node) -> Result<Node> {
-        let input = GuestInput::Join {
-            self_image_id: self.set_builder_guest_id,
-            left_set_root: left.root(),
-            right_set_root: right.root(),
-        };
-
-        let (new_id, output) = self
-            .prove_sot(
-                "join",
-                &input,
-                vec![left.proof_id().to_string(), right.proof_id().to_string()],
-            )
-            .await?;
-
-        tracing::debug!(
-            "Join(left={}, right={}, root={})",
-            left.root(),
-            right.root(),
-            output.root()
-        );
-
-        Ok(Node::join(new_id, left.height() + 1, left, right, output.root()))
+        Ok(AggregationState {
+            guest_state,
+            proof_id: proof_res.id,
+            claim_digests,
+            groth16_proof_id: None,
+        })
     }
 
     async fn prove_assessor(&self, order_ids: &[U256]) -> Result<String> {
@@ -240,135 +240,15 @@ where
         Ok(proof_res.id)
     }
 
-    /// Adds a new order to the current aggregation batch.
-    async fn aggregate_proof(
-        &mut self,
-        batch_id: usize,
-        order_id: U256,
-        proof_id: String,
-    ) -> Result<()> {
-        tracing::info!("Aggregating order {order_id:x} into batch {batch_id}");
-
-        // Run singleton proof:
-        let mut node =
-            self.prove_singleton(order_id, proof_id).await.context("Failed to prove singleton")?;
-
-        let mut peaks =
-            self.db.get_batch_peaks(batch_id).await.context("Failed to get DB batch peaks")?;
-
-        while let Some(peak) = peaks.pop() {
-            if peak.height() == node.height() {
-                node = self.prove_join(peak, node).await.context("Failed to prove join")?;
-            } else {
-                peaks.push(peak);
-                break;
-            }
-        }
-
-        peaks.push(node);
-
-        self.db.set_batch_peaks(batch_id, peaks).await.context("Failed to set batch peaks")?;
-
-        Ok(())
-    }
-
-    async fn finalize_batch(&mut self, batch_id: usize) -> Result<()> {
-        let mut peaks =
-            self.db.get_batch_peaks(batch_id).await.context("Failed to get DB batch peaks")?;
-
-        if peaks.is_empty() {
-            tracing::warn!("Attempted to finalize empty batch");
-            return Ok(());
-        }
-        tracing::info!("Finalizing batch {batch_id}");
-
-        while peaks.len() >= 2 {
-            let right = peaks.pop().unwrap();
-            let left = peaks.pop().unwrap();
-            let node = self.prove_join(left, right).await.context("Failed to prove join")?;
-            tracing::debug!("Join: {}", node.root());
-
-            peaks.push(node);
-        }
-
-        // exactly one node left
-        // unwrap here since it should be basically an assert if this fails
-        let root = peaks.last().unwrap().clone();
-
-        self.db
-            .set_batch_peaks(batch_id, peaks)
-            .await
-            .context("Failed to set batch peaks after joins")?;
-
-        let orders_root = root.root();
-
-        // prove the assessor for the batch
-        tracing::info!("Starting batch assessor proof, root: {}", root.root());
-        let batch_order_ids = root.order_ids();
-        let assessor_proof_id =
-            self.prove_assessor(&batch_order_ids).await.context("Failed to prove assessor")?;
-
-        // now prove a singleton proof of the assessor
-        let assessor_singleton = self
-            .prove_singleton(U256::ZERO /* TODO ??!?! */, assessor_proof_id)
-            .await
-            .context("Failed to prove singleton of assessor")?;
-
-        tracing::info!("Assessor merkle node: {}", assessor_singleton.root());
-        let batch_root = self
-            .prove_join(
-                root,
-                Node::singleton(
-                    assessor_singleton.proof_id().to_string(),
-                    U256::ZERO,
-                    assessor_singleton.root(),
-                ),
-            )
-            .await
-            .context("Failed to prove batch root join")?;
-
-        tracing::info!("Starting groth16 compression proof");
-        let compress_proof_id = self
-            .prover
-            .compress(batch_root.proof_id())
-            .await
-            .context("Failed to complete compression")?;
-        tracing::info!("Completed groth16 compression");
-
-        let mut outputs = vec![];
-        batch_root
-            .get_order_paths(vec![], &mut outputs)
-            .context("Failed to assign order path to db order")?;
-
-        for (order_id, path) in outputs {
-            self.db.set_order_path(order_id, path).await.context("Failed to set order path")?;
-        }
-
-        self.db
-            .complete_batch(batch_id, batch_root.root(), orders_root, compress_proof_id)
-            .await
-            .context("Failed to set batch as complete")?;
-
-        self.db
-            .set_batch_peaks(batch_id, vec![])
-            .await
-            .context("Failed to set batch peaks to empty vec")?;
-
-        Ok(())
-    }
-
     /// Check if we should finalize the batch
     ///
-    /// - check current min-deadline and batch timer
-    /// - need to fetch current block, might be good to make that a long polling service with a
-    ///   Atomic everyone reads
-    ///
-    /// if so:
-    /// - finalize
-    /// - snark proof
-    /// - insert batch data in to DB for finalizer
-    /// - mark all orders in batch as Aggregated
-    async fn check_finalize(&mut self, batch_id: usize) -> Result<()> {
+    /// Checks current min-deadline, batch timer, and current block.
+    async fn check_finalize(
+        &mut self,
+        batch_id: usize,
+        batch: &Batch,
+        pending_orders: &[AggregationOrder],
+    ) -> Result<bool> {
         let (conf_batch_size, conf_batch_time, conf_batch_fees) = {
             let config = self.config.lock_all().context("Failed to lock config")?;
 
@@ -383,57 +263,74 @@ where
         };
 
         // Skip finalization checks if we have nothing in this batch
-        let peak_count = self
-            .db
-            .get_batch_peak_count(batch_id)
-            .await
-            .context("Failed to get db batch peak count")?;
-        if peak_count == 0 {
-            return Ok(());
+        let is_initial_state =
+            batch.aggregation_state.as_ref().map(|s| s.guest_state.is_initial()).unwrap_or(true);
+        if is_initial_state && pending_orders.is_empty() {
+            return Ok(false);
         }
 
-        let mut finalize = false;
-
-        let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
-
-        if let Some(batch_size) = conf_batch_size {
-            if batch.orders.len() >= batch_size as usize {
-                tracing::info!("Batch size limit hit, finalizing");
-                finalize = true;
+        // Finalize the batch whenever it exceeds a target size.
+        // Add any pending jobs into the batch along with the finalization run.
+        let batch_size = batch.orders.len() + pending_orders.len();
+        if let Some(batch_target_size) = conf_batch_size {
+            if batch_size >= batch_target_size as usize {
+                tracing::info!(
+                    "Finalizing batch {batch_id}: size target hit {} - {}",
+                    batch_size,
+                    batch_target_size
+                );
+                return Ok(true);
+            } else {
+                tracing::debug!(
+                    "Batch {batch_id} below size target hit {} - {}",
+                    batch_size,
+                    batch_target_size
+                );
             }
         }
 
+        // Finalize the batch whenever the current batch exceeds a certain age (e.g. one hour).
         if let Some(batch_time) = conf_batch_time {
             let time_delta = Utc::now() - batch.start_time;
             if time_delta.num_seconds() as u64 >= batch_time {
                 tracing::info!(
-                    "Batch time limit hit {} - {}, finalizing",
+                    "Finalizing batch {batch_id}: time limit hit {} - {}",
                     time_delta.num_seconds(),
                     batch.start_time
                 );
-                finalize = true
+                return Ok(true);
+            } else {
+                tracing::debug!("Batch {batch_id} below time limit");
             }
         }
 
-        if let Some(batch_max_fees) = conf_batch_fees {
-            if batch.fees >= batch_max_fees {
-                tracing::info!("Batch max fee limit hit, finalizing");
-                finalize = true;
+        // Finalize whenever a batch hits the target fee total.
+        if let Some(batch_target_fees) = conf_batch_fees {
+            let fees =
+                pending_orders.iter().map(|order| order.fee).fold(batch.fees, |sum, fee| sum + fee);
+
+            if fees >= batch_target_fees {
+                tracing::info!("Finalizing batch {batch_id}: fee target hit");
+                return Ok(true);
+            } else {
+                tracing::debug!("Batch {batch_id} below fee target");
             }
         }
 
-        if !finalize {
-            let conf_block_deadline_buf = {
-                let config = self.config.lock_all().context("Failed to lock config")?;
-                config.batcher.block_deadline_buffer_secs
-            };
-            let block_number = self.chain_monitor.current_block_number().await?;
+        // Finalize whenever a deadline is approaching.
+        let conf_block_deadline_buf = {
+            let config = self.config.lock_all().context("Failed to lock config")?;
+            config.batcher.block_deadline_buffer_secs
+        };
+        let block_number = self.chain_monitor.current_block_number().await?;
 
-            let Some(block_deadline) = batch.block_deadline else {
-                tracing::warn!("batch does not yet have a block_deadline");
-                return Ok(());
-            };
+        let block_deadline = pending_orders
+            .iter()
+            .map(|order| order.expire_block)
+            .chain(batch.block_deadline)
+            .reduce(u64::min);
 
+        if let Some(block_deadline) = block_deadline {
             let remaining_secs = (block_deadline - block_number) * self.block_time;
             let buffer_secs = conf_block_deadline_buf;
             // tracing::info!(
@@ -446,62 +343,139 @@ where
             // );
 
             if remaining_secs <= buffer_secs {
-                tracing::info!("Batch getting close to deadline {remaining_secs}, finalizing");
-                finalize = true;
+                tracing::info!(
+                    "Finalizing batch {batch_id}: getting close to deadline {remaining_secs}"
+                );
+                return Ok(true);
+            } else {
+                tracing::debug!("Batch {batch_id} not too close to deadline {remaining_secs}");
             }
-        }
+        } else {
+            tracing::warn!("Batch {batch_id} does not yet have a block_deadline");
+        };
 
-        if finalize {
-            self.finalize_batch(batch_id).await.context("Failed to finalize batch")?;
-        }
-
-        Ok(())
+        Ok(false)
     }
 
-    async fn aggregate_proofs(&mut self) -> Result<()> {
-        let new_proofs = self
-            .db
-            .get_aggregation_proofs()
+    async fn aggregate_proofs(
+        &mut self,
+        batch_id: usize,
+        batch: &Batch,
+        new_proofs: &[AggregationOrder],
+        finalize: bool,
+    ) -> Result<String> {
+        let assessor_proof_id = if finalize {
+            let assessor_order_ids: Vec<U256> =
+                batch.orders.iter().copied().chain(new_proofs.iter().map(|p| p.order_id)).collect();
+
+            tracing::debug!(
+                "Running assessor for batch {batch_id} with orders {:x?}",
+                assessor_order_ids
+            );
+
+            let assessor_proof_id =
+                self.prove_assessor(&assessor_order_ids).await.with_context(|| {
+                    format!("Failed to prove assessor with orders {:x?}", assessor_order_ids)
+                })?;
+
+            Some(assessor_proof_id)
+        } else {
+            None
+        };
+
+        let proof_ids: Vec<String> = new_proofs
+            .iter()
+            .cloned()
+            .map(|proof| proof.proof_id.clone())
+            .chain(assessor_proof_id.iter().cloned())
+            .collect();
+
+        tracing::debug!("Running set builder for {batch_id} with proofs {:x?}", proof_ids);
+        let aggregation_state = self
+            .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize)
             .await
-            .context("Failed to get pending agg proofs from DB")?;
+            .context("Failed to prove set builder for batch {batch_id}")?;
 
-        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
+        tracing::info!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
 
-        self.check_finalize(batch_id).await?;
+        let assessor_claim_digest = if let Some(proof_id) = assessor_proof_id {
+            let receipt = self
+                .prover
+                .get_receipt(&proof_id)
+                .await
+                .with_context(|| format!("Failed to get proof receipt for proof {proof_id}"))?
+                .with_context(|| format!("Proof receipt not found for proof {proof_id}"))?;
+            let claim = receipt
+                .claim()
+                .with_context(|| format!("Receipt for proof {proof_id} missing claim"))?
+                .value()
+                .with_context(|| format!("Receipt for proof {proof_id} claims pruned"))?;
+            Some(claim.digest())
+        } else {
+            None
+        };
 
-        if new_proofs.is_empty() {
-            return Ok(());
-        }
+        self.db
+            .update_batch(batch_id, &aggregation_state, new_proofs, assessor_claim_digest)
+            .await
+            .with_context(|| format!("Failed to update batch {batch_id} in the DB"))?;
 
-        for agg_proof in new_proofs {
-            match self.aggregate_proof(batch_id, agg_proof.order_id, agg_proof.proof_id).await {
-                Ok(_) => {
-                    tracing::info!("Completed aggregation of proof {:x}", agg_proof.order_id);
-                    self.db
-                        .update_batch(
-                            batch_id,
-                            agg_proof.order_id,
-                            agg_proof.expire_block,
-                            agg_proof.fee,
-                        )
-                        .await
-                        .context("Failed to update batch with new order details")?;
+        Ok(aggregation_state.proof_id)
+    }
+
+    async fn aggregate(&mut self) -> Result<()> {
+        // Get the current batch. This aggregator service works on one batch at a time, including
+        // any proofs ready for aggregation into the current batch.
+        let batch_id =
+            self.db.get_current_batch().await.context("Failed to get current batch ID")?;
+        let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
+
+        let (aggregation_proof_id, compress) = match batch.status {
+            BatchStatus::Aggregating => {
+                // Fetch all proofs that are pending aggregation from the DB.
+                let new_proofs = self
+                    .db
+                    .get_aggregation_proofs()
+                    .await
+                    .context("Failed to get pending agg proofs from DB")?;
+
+                // Finalize the current batch before adding any new orders if the finalization conditions
+                // are already met.
+                let finalize = self.check_finalize(batch_id, &batch, &new_proofs).await?;
+
+                // If we don't need to finalize, and there are no new proofs, there is no work to do.
+                if !finalize && new_proofs.is_empty() {
+                    tracing::debug!("No aggregation work to do for batch {batch_id}");
+                    return Ok(());
                 }
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to complete aggregation of proof {:x} {err:?}",
-                        agg_proof.order_id
-                    );
-                    if let Err(db_err) =
-                        self.db.set_order_failure(agg_proof.order_id, format!("{err:?}")).await
-                    {
-                        tracing::error!("Failed to mark order failure in db: {db_err}");
-                    }
-                }
+
+                let aggregation_proof_id =
+                    self.aggregate_proofs(batch_id, &batch, &new_proofs, finalize).await?;
+                (aggregation_proof_id, finalize)
             }
-        }
+            BatchStatus::PendingCompression => {
+                let Some(aggregation_state) = batch.aggregation_state else {
+                    bail!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None");
+                };
+                (aggregation_state.proof_id, true)
+            }
+            status => bail!("Unexpected batch status {status:?}"),
+        };
 
-        self.check_finalize(batch_id).await?;
+        if compress {
+            tracing::info!("Starting groth16 compression proof for batch {batch_id}");
+            let compress_proof_id = self
+                .prover
+                .compress(&aggregation_proof_id)
+                .await
+                .context("Failed to complete compression")?;
+            tracing::info!("Completed groth16 compression for batch {batch_id}");
+
+            self.db
+                .complete_batch(batch_id, compress_proof_id)
+                .await
+                .context("Failed to set batch as complete")?;
+        }
 
         Ok(())
     }
@@ -526,7 +500,7 @@ where
                     config.batcher.batch_poll_time_ms.unwrap_or(1000)
                 };
 
-                self_clone.aggregate_proofs().await.map_err(SupervisorErr::Recover)?;
+                self_clone.aggregate().await.map_err(SupervisorErr::Recover)?;
                 tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
             }
         })
@@ -544,7 +518,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Keccak256, B256, U256},
+        primitives::{B256, U256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -558,60 +532,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn set_order_path() {
-        fn check_merkle_path(n: u8) {
-            let mut leaves = Vec::new();
-            for i in 0..n {
-                let order_id: u32 = (i + 1).into();
-                leaves.push(Node::singleton(i.to_string(), U256::from(order_id), [i; 32].into()));
-            }
-
-            // compute the Merkle root
-            fn hash(a: Digest, b: Digest) -> Digest {
-                let mut h = Keccak256::new();
-                if a < b {
-                    h.update(a);
-                    h.update(b);
-                } else {
-                    h.update(b);
-                    h.update(a);
-                }
-                h.finalize().0.into()
-            }
-            fn merkle_root(set: &[Node]) -> Node {
-                match set {
-                    [] => unreachable!(),
-                    [n] => n.clone(),
-                    _ => {
-                        let (a, b) = set.split_at(set.len().next_power_of_two() / 2);
-                        let (left, right) = (merkle_root(a), merkle_root(b));
-                        let digest = hash(left.root(), right.root());
-                        Node::join("join".to_string(), left.height() + 1, left, right, digest)
-                    }
-                }
-            }
-            let exp_root = merkle_root(&leaves);
-
-            // verify Merkle path
-
-            let mut outputs = vec![];
-            exp_root.get_order_paths(vec![], &mut outputs).unwrap();
-            for (i, (_order_id, path)) in outputs.into_iter().enumerate() {
-                let root = path.into_iter().fold([i as u8; 32].into(), hash);
-                assert_eq!(root, exp_root.root());
-            }
-        }
-
-        check_merkle_path(1);
-        check_merkle_path(2);
-        check_merkle_path(5);
-        check_merkle_path(128);
-        check_merkle_path(255);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn aggregate_order() {
+    async fn aggregate_order_one_shot() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let prover_addr = signer.address();
@@ -666,9 +587,9 @@ mod tests {
 
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
         let chain_id = provider.get_chain_id().await.unwrap();
-
         let min_price = 2;
-        // Order 0
+
+        // First order
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
@@ -687,7 +608,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -696,18 +617,6 @@ mod tests {
             .await
             .unwrap()
             .as_bytes();
-
-        // let signature = alloy::signers::Signature::try_from(client_sig.as_slice()).unwrap();
-        // use alloy::sol_types::SolStruct;
-        // let recovered = signature
-        //     .recover_address_from_prehash(&order_request.eip712_signing_hash(
-        //         &boundless_market::contracts::eip712_domain(
-        //             Address::ZERO,
-        //             provider.get_chain_id().await.unwrap(),
-        //         ),
-        //     ))
-        //     .unwrap();
-        // assert_eq!(recovered, customer_signer.address());
 
         let order = Order {
             status: OrderStatus::PendingAgg,
@@ -718,7 +627,6 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
             expire_block: Some(100),
-            path: None,
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -726,7 +634,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        // Order 1
+        // Second order
         let order_request = ProofRequest::new(
             1,
             &customer_signer.address(),
@@ -745,7 +653,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -764,7 +672,6 @@ mod tests {
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
             expire_block: Some(100),
-            path: None,
             client_sig,
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -772,7 +679,181 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        aggregator.aggregate_proofs().await.unwrap();
+        aggregator.aggregate().await.unwrap();
+
+        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::PendingSubmission);
+
+        let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
+        assert!(!batch.orders.is_empty());
+        assert_eq!(batch.status, BatchStatus::PendingSubmission);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn aggregate_order_incremental() {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let prover_addr = signer.address();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer))
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut config = config.load_write().unwrap();
+            config.batcher.batch_size = Some(2);
+        }
+
+        let prover: ProverObj = Arc::new(MockProver::default());
+
+        // Pre-prove the echo aka app guest:
+        let image_id = Digest::from(ECHO_ID);
+        let image_id_str = image_id.to_string();
+        prover.upload_image(&image_id_str, ECHO_ELF.to_vec()).await.unwrap();
+        let input_id = prover
+            .upload_input(encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap())
+            .await
+            .unwrap();
+        let proof_res_1 =
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+        let proof_res_2 =
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let _handle = tokio::spawn(chain_monitor.spawn());
+        let mut aggregator = AggregatorService::new(
+            db.clone(),
+            provider.clone(),
+            chain_monitor.clone(),
+            Digest::from(SET_BUILDER_ID),
+            SET_BUILDER_ELF.to_vec(),
+            Digest::from(ASSESSOR_GUEST_ID),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            prover_addr,
+            config,
+            prover,
+            2,
+        )
+        .await
+        .unwrap();
+
+        let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let min_price = 2;
+
+        // First order
+        let order_request = ProofRequest::new(
+            0,
+            &customer_signer.address(),
+            Requirements {
+                imageId: B256::from_slice(image_id.as_bytes()),
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            "http://risczero.com/image",
+            Input { inputType: InputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(min_price),
+                maxPrice: U256::from(4),
+                biddingStart: 0,
+                timeout: 100,
+                rampUpPeriod: 1,
+                lockStake: U256::from(10),
+            },
+        );
+
+        let client_sig = order_request
+            .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
+            .unwrap()
+            .as_bytes();
+
+        let order = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_block: None,
+            request: order_request,
+            image_id: Some(image_id_str.clone()),
+            input_id: Some(input_id.clone()),
+            proof_id: Some(proof_res_1.id),
+            expire_block: Some(100),
+            client_sig: client_sig.into(),
+            lock_price: Some(U256::from(min_price)),
+            error_msg: None,
+        };
+        let order_id = U256::from(order.request.id);
+        db.add_order(order_id, order.clone()).await.unwrap();
+
+        // Aggregate the first order. Should not finalize.
+        aggregator.aggregate().await.unwrap();
+
+        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::PendingSubmission);
+
+        let option_batch = db.get_complete_batch().await.unwrap();
+        assert!(option_batch.is_none());
+
+        let aggregating_batch_id = db.get_current_batch().await.unwrap();
+        let aggregating_batch = db.get_batch(aggregating_batch_id).await.unwrap();
+        assert_eq!(aggregating_batch.orders, vec![order_id]);
+        assert!(aggregating_batch.aggregation_state.is_some());
+        assert!(!aggregating_batch.aggregation_state.unwrap().guest_state.mmr.is_finalized());
+
+        // Second order
+        let order_request = ProofRequest::new(
+            1,
+            &customer_signer.address(),
+            Requirements {
+                imageId: B256::from_slice(image_id.as_bytes()),
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            "http://risczero.com/image",
+            Input { inputType: InputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(min_price),
+                maxPrice: U256::from(4),
+                biddingStart: 0,
+                timeout: 100,
+                rampUpPeriod: 1,
+                lockStake: U256::from(10),
+            },
+        );
+
+        let client_sig = order_request
+            .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
+            .unwrap()
+            .as_bytes()
+            .into();
+        let order = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_block: None,
+            request: order_request,
+            image_id: Some(image_id_str),
+            input_id: Some(input_id),
+            proof_id: Some(proof_res_2.id),
+            expire_block: Some(100),
+            client_sig,
+            lock_price: Some(U256::from(min_price)),
+            error_msg: None,
+        };
+        let order_id = U256::from(order.request.id);
+        db.add_order(order_id, order.clone()).await.unwrap();
+
+        aggregator.aggregate().await.unwrap();
 
         let db_order = db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -858,7 +939,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -877,7 +958,6 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             expire_block: Some(100),
-            path: None,
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -885,7 +965,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        aggregator.aggregate_proofs().await.unwrap();
+        aggregator.aggregate().await.unwrap();
 
         let db_order = db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -972,7 +1052,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 50,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -991,7 +1071,6 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             expire_block: Some(100),
-            path: None,
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -1001,7 +1080,7 @@ mod tests {
 
         provider.anvil_mine(Some(U256::from(51)), Some(U256::from(2))).await.unwrap();
 
-        aggregator.aggregate_proofs().await.unwrap();
+        aggregator.aggregate().await.unwrap();
 
         let db_order = db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -1009,6 +1088,6 @@ mod tests {
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
         assert!(!batch.orders.is_empty());
         assert_eq!(batch.status, BatchStatus::PendingSubmission);
-        assert!(logs_contain("Batch getting close to deadline"));
+        assert!(logs_contain("getting close to deadline"));
     }
 }

@@ -148,13 +148,13 @@ A proof request consists of four essential components that specify which program
 # use risc0_zkvm::sha::{Digest, Digestible};
 # fn create_proof_request(
 # ECHO_ID: Digest,
-# image_url: String,
-# input_url: String,
+# image_url: url::Url,
+# input_url: url::Url,
 # mcycles_count: u64,
 # journal: Vec<u8>) -> Result<ProofRequest> {
-let request = ProofRequest::default()
-  .with_image_url(&image_url)
-  .with_input(Input::url(&input_url))
+let request = ProofRequest::builder()
+  .with_image_url(image_url)
+  .with_input(input_url)
   .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
   .with_offer(
     Offer::default()
@@ -171,7 +171,8 @@ let request = ProofRequest::default()
       // the request and does not fulfill it before the timeout, the prover can be
       // slashed.
       .with_timeout(1000),
-  );
+  )
+  .build()?;
 # Ok(request)
 # }
 ```

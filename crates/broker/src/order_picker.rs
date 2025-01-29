@@ -121,7 +121,7 @@ where
             parse_ether(&config.market.max_stake).context("Failed to parse max_stake")?
         };
 
-        let lockin_stake = U256::from(order.request.offer.lockinStake);
+        let lockin_stake = U256::from(order.request.offer.lockStake);
         if lockin_stake > max_stake {
             tracing::warn!("Removing high stake order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
@@ -285,7 +285,7 @@ where
             proof_res.stats.total_cycles,
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            order.request.offer.lockinStake,
+            order.request.offer.lockStake,
         );
 
         // Skip the order if it will never be worth it
@@ -417,11 +417,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        db::SqliteDb,
-        provers::{encode_input, MockProver},
-        OrderStatus,
-    };
+    use crate::{db::SqliteDb, provers::MockProver, OrderStatus};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -430,8 +426,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::deploy_boundless_market, Input, InputType, Offer, Predicate, PredicateType,
-        ProofRequest, Requirements,
+        test_utils::deploy_boundless_market, Input, Offer, Predicate, PredicateType, ProofRequest,
+        Requirements,
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -484,7 +480,6 @@ mod tests {
 
         let prover: ProverObj = Arc::new(MockProver::default());
         let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
@@ -523,14 +518,14 @@ mod tests {
                     },
                 },
                 &image_uri,
-                Input { inputType: InputType::Inline, data: input_buf.into() },
+                Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
                 Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
+                    lockStake: U256::from(0),
                 },
             ),
             target_block: None,
@@ -538,7 +533,6 @@ mod tests {
             input_id: None,
             proof_id: None,
             expire_block: None,
-            path: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,
@@ -597,7 +591,6 @@ mod tests {
 
         let prover: ProverObj = Arc::new(MockProver::default());
         let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
@@ -638,21 +631,20 @@ mod tests {
                     },
                 },
                 &image_uri,
-                Input { inputType: InputType::Inline, data: input_buf.into() },
+                Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
                 Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
+                    lockStake: U256::from(0),
                 },
             ),
             image_id: None,
             input_id: None,
             proof_id: None,
             expire_block: None,
-            path: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,
@@ -712,7 +704,6 @@ mod tests {
 
         let prover: ProverObj = Arc::new(MockProver::default());
         let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
@@ -745,21 +736,20 @@ mod tests {
                     },
                 },
                 "",
-                Input { inputType: InputType::Inline, data: input_buf.into() },
+                Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
                 Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
+                    lockStake: U256::from(0),
                 },
             ),
             image_id: None,
             input_id: None,
             proof_id: None,
             expire_block: None,
-            path: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,
@@ -816,7 +806,6 @@ mod tests {
 
         let prover: ProverObj = Arc::new(MockProver::default());
         let image_id = Digest::from(ECHO_ID);
-        let input_buf = encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
@@ -855,14 +844,14 @@ mod tests {
                     },
                 },
                 &image_uri,
-                Input { inputType: InputType::Inline, data: input_buf.into() },
+                Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
                 Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
                     biddingStart: 0,
                     timeout: 100,
                     rampUpPeriod: 1,
-                    lockinStake: U256::from(0),
+                    lockStake: U256::from(0),
                 },
             ),
             target_block: None,
@@ -870,7 +859,6 @@ mod tests {
             input_id: None,
             proof_id: None,
             expire_block: None,
-            path: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,

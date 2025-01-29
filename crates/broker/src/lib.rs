@@ -17,6 +17,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, InputType,
         ProofRequest,
     },
+    input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -173,10 +174,6 @@ struct Order {
     ///
     /// Populated during order picking
     expire_block: Option<u64>,
-    /// Order merkle inclusion path
-    ///
-    /// Populated after batch including order completes
-    path: Option<Vec<Digest>>,
     /// Client Signature
     client_sig: Bytes,
     /// Price the lockin was set at
@@ -196,7 +193,6 @@ impl Order {
             input_id: None,
             proof_id: None,
             expire_block: None,
-            path: None,
             client_sig,
             lock_price: None,
             error_msg: None,
@@ -204,111 +200,50 @@ impl Order {
     }
 }
 
-/// A node in the Merkle tree.
-#[derive(Serialize, PartialEq, Deserialize, Debug, Clone)]
-enum Node {
-    Singleton { proof_id: String, order_id: U256, root: Digest },
-    Join { proof_id: String, height: usize, left: Box<Node>, right: Box<Node>, root: Digest },
-}
-
-impl Node {
-    fn singleton(proof_id: String, order_id: U256, root: Digest) -> Self {
-        Node::Singleton { proof_id, order_id, root }
-    }
-    fn join(proof_id: String, height: usize, left: Node, right: Node, root: Digest) -> Self {
-        Node::Join { proof_id, height, left: left.into(), right: right.into(), root }
-    }
-
-    fn proof_id(&self) -> &str {
-        match self {
-            Node::Singleton { proof_id, .. } => proof_id,
-            Node::Join { proof_id, .. } => proof_id,
-        }
-    }
-    fn height(&self) -> usize {
-        match self {
-            Node::Singleton { .. } => 0,
-            Node::Join { height, .. } => *height,
-        }
-    }
-    fn root(&self) -> Digest {
-        match self {
-            Node::Singleton { root, .. } => *root,
-            Node::Join { root, .. } => *root,
-        }
-    }
-
-    fn order_ids(&self) -> Vec<U256> {
-        fn rec_order_ids(node: &Node, ids: &mut Vec<U256>) {
-            match node {
-                Node::Singleton { order_id, .. } => ids.push(*order_id),
-                Node::Join { left, right, .. } => {
-                    rec_order_ids(left, ids);
-                    rec_order_ids(right, ids);
-                }
-            }
-        }
-
-        let mut ids = vec![];
-        rec_order_ids(self, &mut ids);
-        ids
-    }
-
-    /// Recursively gets all paths for orderID's into `output`
-    fn get_order_paths(
-        &self,
-        mut path: Vec<Digest>,
-        output: &mut Vec<(U256, Vec<Digest>)>,
-    ) -> Result<()> {
-        match &self {
-            Node::Singleton { order_id, .. } => {
-                // TODO: This is kinda hacky, I would like a better way to flag this or
-                // disconnect the DB from this tree model a bit better
-                //
-                // Skips "extra" proofs in the batch, like assessor leafs
-                if *order_id != U256::ZERO {
-                    path.reverse();
-                    output.push((*order_id, path));
-                    // db.set_order_path(*order_id, path).await?;
-                }
-            }
-            Node::Join { left, right, .. } => {
-                let mut left_path = path.clone();
-                left_path.push(right.root());
-                left.get_order_paths(left_path, output)?;
-
-                let mut right_path = path.clone();
-                right_path.push(left.root());
-                right.get_order_paths(right_path, output)?;
-            }
-        };
-
-        Ok(())
-    }
-}
-
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 enum BatchStatus {
     #[default]
     Aggregating,
+    PendingCompression,
     Complete,
     PendingSubmission,
     Submitted,
     Failed,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct AggregationState {
+    pub guest_state: risc0_aggregation::GuestState,
+    /// All claim digests in this aggregation.
+    /// This collection can be used to construct the aggregation Merkle tree and Merkle paths.
+    pub claim_digests: Vec<Digest>,
+    /// Proof ID for the STARK proof that compresses the root of the aggregation tree.
+    pub proof_id: String,
+    /// Proof ID for the Groth16 proof that compresses the root of the aggregation tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groth16_proof_id: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Default, Clone)]
 struct Batch {
     pub status: BatchStatus,
+    /// Orders from the market that are included in this batch.
     pub orders: Vec<U256>,
-    pub root: Option<Digest>,
-    pub orders_root: Option<Digest>,
-    pub groth16_proof_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assessor_claim_digest: Option<Digest>,
+    /// Tuple of the current aggregation state, as committed by the set builder guest, and the
+    /// proof ID for the receipt that attests to the correctness of this state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregation_state: Option<AggregationState>,
+    /// When the batch was initially created.
     pub start_time: DateTime<Utc>,
+    /// The deadline for the batch, which is the earliest deadline for any order in the batch.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub block_deadline: Option<u64>,
+    /// The total fees for the batch, which is the sum of fees from all orders.
     pub fees: U256,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_msg: Option<String>,
-    pub peaks: Vec<Node>,
 }
 
 pub struct Broker<P> {
@@ -587,8 +522,32 @@ where
 
         // Monitor the different supervisor tasks
         while let Some(res) = supervisor_tasks.join_next().await {
-            tracing::info!("Task exited: {res:?}");
-            // TODO: Handle supervisor errors
+            let status = match res {
+                Err(join_err) if join_err.is_cancelled() => {
+                    tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
+                    continue;
+                }
+                Err(join_err) => {
+                    tracing::error!("Tokio task exited with error status: {join_err:?}");
+                    // TODO(#BM-470): Here, we should be using a cancellation token to signal to all
+                    // the tasks under this supervisor that they should exit, then set a timer (e.g.
+                    // for 30) to give them time to gracefully shut down.
+                    anyhow::bail!("Task exited with error status: {join_err:?}")
+                }
+                Ok(status) => status,
+            };
+            match status {
+                Err(err) => {
+                    tracing::error!("Task exited with error status: {err:?}");
+                    // TODO(#BM-470): Here, we should be using a cancellation token to signal to all
+                    // the tasks under this supervisor that they should exit, then set a timer (e.g.
+                    // for 30) to give them time to gracefully shut down.
+                    anyhow::bail!("Task exited with error status: {err:?}")
+                }
+                Ok(()) => {
+                    tracing::info!("Task exited with ok status");
+                }
+            }
         }
 
         Ok(())
@@ -643,7 +602,11 @@ async fn upload_input_uri(
 ) -> Result<String> {
     Ok(match order.request.input.inputType {
         InputType::Inline => prover
-            .upload_input(order.request.input.data.to_vec())
+            .upload_input(
+                GuestEnv::decode(&order.request.input.data)
+                    .with_context(|| "Failed to decode input")?
+                    .stdin,
+            )
             .await
             .context("Failed to upload input data")?,
 
@@ -659,10 +622,14 @@ async fn upload_input_uri(
             let input_uri = input_uri.build().context("Failed to parse input uri")?;
 
             if !input_uri.exists() {
-                let input_data = input_uri
-                    .fetch()
-                    .await
-                    .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?;
+                let input_data = GuestEnv::decode(
+                    &input_uri
+                        .fetch()
+                        .await
+                        .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
+                )
+                .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
+                .stdin;
 
                 prover.upload_input(input_data).await.context("Failed to upload input")?
             } else {

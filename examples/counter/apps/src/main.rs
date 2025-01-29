@@ -14,7 +14,6 @@ use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
-    input::InputBuilder,
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -22,7 +21,6 @@ use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{
     default_executor,
     sha::{Digest, Digestible},
-    ExecutorEnv,
 };
 use url::Url;
 
@@ -121,8 +119,8 @@ async fn run(
     let timestamp = format! {"{:?}", SystemTime::now()};
 
     // Encode the input and upload it to the storage provider.
-    let input = InputBuilder::new().write_slice(&timestamp.as_bytes()).build();
-    let input_url = boundless_client.upload_input(&input).await?;
+    let guest_env = Input::builder().write_slice(timestamp.as_bytes()).build_env()?;
+    let input_url = boundless_client.upload_input(&guest_env.encode()?).await?;
     tracing::info!("Uploaded input to {}", input_url);
 
     // Dry run the ECHO ELF with the input to get the journal and cycle count.
@@ -130,8 +128,7 @@ async fn run(
     // It can also be useful to ensure the guest can be executed correctly and we do not send into
     // the market unprovable proof requests. If you have a different mechanism to get the expected
     // journal and set a price, you can skip this step.
-    let env = ExecutorEnv::builder().write_slice(&input).build()?;
-    let session_info = default_executor().execute(env, ECHO_ELF)?;
+    let session_info = default_executor().execute(guest_env.try_into()?, ECHO_ELF)?;
     let mcycles_count = session_info
         .segments
         .iter()
@@ -153,9 +150,9 @@ async fn run(
     //   the maxPrice, starting from the the bidding start;
     // - the lockin price: the price at which the request can be locked in by a prover, if the
     //   request is not fulfilled before the timeout, the prover can be slashed.
-    let request = ProofRequest::default()
-        .with_image_url(&image_url)
-        .with_input(Input::url(&input_url))
+    let request = ProofRequest::builder()
+        .with_image_url(image_url)
+        .with_input(input_url)
         .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
         .with_offer(
             Offer::default()
@@ -172,7 +169,8 @@ async fn run(
                 // the request and does not fulfill it before the timeout, the prover can be
                 // slashed.
                 .with_timeout(1000),
-        );
+        )
+        .build()?;
 
     // Send the request and wait for it to be completed.
     let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
@@ -225,7 +223,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{Address, U256},
+        primitives::Address,
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
