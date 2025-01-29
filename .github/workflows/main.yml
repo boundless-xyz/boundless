@@ -317,6 +317,7 @@ jobs:
         with:
           toolchain: '1.81'
 
+      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
       - run: cargo publish -p boundless-market --dry-run
 
   examples:
