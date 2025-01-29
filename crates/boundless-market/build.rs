@@ -145,7 +145,7 @@ fn copy_interfaces_and_types() {
     let src_path =
         Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("src");
 
-    // If the contracts dir does not exist, exit early. This ensured `cargo publish` can work.
+    // If the contracts dir does not exist, exit early. This ensures `cargo publish` can work.
     if !src_path.is_dir() {
         return;
     }
