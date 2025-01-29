@@ -99,7 +99,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
 
         // Add the market address in the authorized list of the stake-token contract
         HitPoints(stakeToken).grantAuthorizedTransferRole(marketAddress);
-        
+
         vm.stopBroadcast();
 
         console2.log("Deployed BoundlessMarket proxy contract at %s", marketAddress);
