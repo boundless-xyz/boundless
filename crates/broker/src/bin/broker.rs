@@ -10,7 +10,7 @@ use alloy::{
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
-use broker::{Args, Broker};
+use broker::{Args, Broker, CustomRetryPolicy};
 use clap::Parser;
 
 #[tokio::main]
@@ -23,8 +23,12 @@ async fn main() -> Result<()> {
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 
-    let retry_layer =
-        RetryBackoffLayer::new(args.rpc_retry_max, args.rpc_retry_backoff, args.rpc_retry_cu);
+    let retry_layer = RetryBackoffLayer::new_with_policy(
+        args.rpc_retry_max,
+        args.rpc_retry_backoff,
+        args.rpc_retry_cu,
+        CustomRetryPolicy,
+    );
     let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone()).boxed();
 
     let provider = ProviderBuilder::new()
