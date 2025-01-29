@@ -60,6 +60,10 @@ const SIDEBAR_CONFIG = [
     text: "🧪 Prove",
     items: [
       {
+        text: "Becoming a Prover",
+        link: "/prove/becoming-a-prover",
+      },
+      {
         text: "Requirements",
         link: "/prove/requirements",
       },
