@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let args = Args::try_parse()?;
+    let args = Args::parse();
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 

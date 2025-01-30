@@ -280,7 +280,7 @@ async fn main() -> Result<()> {
         Err(e) => bail!("failed to load .env file: {}", e),
     }
 
-    let args = MainArgs::try_parse()?;
+    let args = MainArgs::parse();
     run(&args).await.unwrap();
 
     Ok(())
