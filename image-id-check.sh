@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Paths to the files
 TOML_FILE="contracts/deployment.toml"
-SOLIDITY_ASSESSOR_FILE="contracts/src/AssessorImageID.sol"
+SOLIDITY_ASSESSOR_FILE="contracts/src/libraries/AssessorImageID.sol"
 
 # Extract the assessor-image-id for Ethereum Sepolia from the TOML file
 SEPOLIA_ASSESSOR_ID=$(grep -A 20 '\[chains.ethereum-sepolia\]' "$TOML_FILE" | grep "assessor-image-id" | awk -F' = ' '{print $2}' | tr -d '"')
