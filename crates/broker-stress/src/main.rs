@@ -1,5 +1,5 @@
 use alloy::{
-    node_bindings::{Anvil, AnvilInstance},
+    node_bindings::Anvil,
     primitives::{utils, U256},
     providers::Provider,
 };
@@ -26,6 +26,9 @@ use tokio::{
     time::{sleep, Duration},
 };
 use tracing_subscriber::filter::EnvFilter;
+use url::Url;
+
+mod toxiproxy;
 
 #[derive(Parser, Clone, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -45,6 +48,10 @@ struct StressTestArgs {
     /// RNG seed
     #[arg(long, default_value_t = 41)]
     rng_seed: u64,
+
+    /// RPC Toxicity - the probability that the RPC connection will be reset
+    #[arg(long, default_value_t = 0.0)]
+    rpc_reset_toxicity: f32,
 }
 
 async fn request_spawner(
@@ -75,7 +82,7 @@ async fn request_spawner(
                 biddingStart: ctx.customer_provider.get_block_number().await?,
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockinStake: U256::from(10),
+                lockStake: U256::from(10),
             },
         );
 
@@ -90,7 +97,7 @@ async fn request_spawner(
 
 async fn spawn_broker(
     ctx: &TestCtx,
-    anvil: &AnvilInstance,
+    rpc_url: Url,
     db_url: &str,
 ) -> Result<(tokio::task::JoinHandle<()>, NamedTempFile)> {
     // Setup initial balances
@@ -98,11 +105,8 @@ async fn spawn_broker(
     ctx.customer_market.deposit(utils::parse_ether("10.0")?).await?;
 
     // Start broker
-    let (broker, config_file) = BrokerBuilder::new_test(ctx, anvil.endpoint_url())
-        .await
-        .with_db_url(db_url.to_string())
-        .build()
-        .await?;
+    let (broker, config_file) =
+        BrokerBuilder::new_test(ctx, rpc_url).await.with_db_url(db_url.to_string()).build().await?;
     let broker_task = tokio::spawn(async move {
         broker.start_service().await.unwrap();
     });
@@ -132,13 +136,23 @@ async fn main() -> Result<()> {
     // Setup anvil and test environment
     let anvil = Anvil::new().spawn();
 
+    // Setup toxiproxy to anvil
+    toxiproxy::up().await?;
+    let rpc_url = toxiproxy::proxy_rpc(&anvil.endpoint(), args.rng_seed).await?;
+
     // Setup test context
     let ctx = Arc::new(
-        TestCtx::new(&anvil, SET_BUILDER_ID.into(), ASSESSOR_GUEST_ID.into())
-            .await
-            .context("Failed to create test context")?,
+        TestCtx::new_with_rpc_url(
+            &anvil,
+            &rpc_url,
+            SET_BUILDER_ID.into(),
+            ASSESSOR_GUEST_ID.into(),
+        )
+        .await
+        .context("Failed to create test context")?,
     );
-    let (broker_task, _config_file) = spawn_broker(&ctx, &anvil, &args.database_url).await?;
+    let (broker_task, _config_file) =
+        spawn_broker(&ctx, Url::parse(&rpc_url).unwrap(), &args.database_url).await?;
 
     let mut tasks = JoinSet::new();
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -155,12 +169,16 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Add reset toxicity to RPC connection
+    toxiproxy::add_reset_toxic(args.rpc_reset_toxicity).await?;
+
     // Setup ctrl-c handler
     let shutdown_copy = shutdown.clone();
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.expect("Failed to register ctrl+c handler");
         tracing::warn!("Starting graceful shutdown...");
         shutdown_copy.store(true, Ordering::Relaxed);
+        toxiproxy::down().await.unwrap();
     });
 
     // Monitor tasks
