@@ -15,7 +15,7 @@ Please refer to the [Boundless Terminology](/terminology) page, and the [zkVM Te
 
 On this page, the entirety of a proof's lifetime in the Boundless Market is covered; starting from a proof request to bid submission and lock in by a prover, through to proof submission and finally to proof verification.
 
-This overview is aimed at app developers i.e. requestors, and therefore for simplicity, it will abstract some complexity away from the specifics of provers. This will be covered in its entirety at a later stage for public access testnet.
+This overview is aimed at app developers i.e., requestors, and therefore for simplicity, it will abstract some complexity away from the specifics of provers. This will be covered in its entirety at a later stage for public access testnet.
 
 <a href="/proof-lifecycle.png" class="lightgallery">
   <img src="/proof-lifecycle.png" alt="Proof Lifecycle" />
@@ -40,7 +40,7 @@ This overview is aimed at app developers i.e. requestors, and therefore for simp
 
 The app developer begins their Boundless journey by writing an application for the zkVM in Rust. The zkVM provides a zero-knowledge proof of the correct execution of this program. A proof of execution is a receipt; it contains the output― the journal and the cryptographic proof - the seal. The seal is the cryptographic proof. In [zkVM terminology](https://dev.risczero.com/terminology#seal), the seal usually refers to a zk-STARK or SNARK. In Boundless, the seal is a Merkle inclusion proof into an aggregated proof.
 
-With a zkVM program ready, the app developer will require some way to carry out proving. This can be done [locally](https://dev.risczero.com/api/generating-proofs/local-proving), but requires significant hardware investment and maintenance long-term, especially to enable parallelized GPU proving The Boundless Market allows for anyone to request a proof, regardless of their hardware, they are known as requestors. Boundless handles the connection between requestors and provers i.e. people with dedicated and significant proving hardware, to facilitate proving in a decentralized and permissionless manner.
+With a zkVM program ready, the app developer will require some way to carry out proving. This can be done [locally](https://dev.risczero.com/api/generating-proofs/local-proving), but requires significant hardware investment and maintenance long-term, especially to enable parallelized GPU proving The Boundless Market allows for anyone to request a proof, regardless of their hardware, they are known as requestors. Boundless handles the connection between requestors and provers i.e., people with dedicated and significant proving hardware, to facilitate proving in a decentralized and permissionless manner.
 
 > To read more about the specifics of the proofs returned from the Boundless market, please see [Use a Proof](/build/use-a-proof).
 
@@ -100,7 +100,7 @@ struct ProofRequest {
   /// Requirements of the delivered proof. Specifies the program that must be run, and constrains
   /// value of the journal, specifying the statement that is requesting to be proven.
   Requirements requirements;
-  /// A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
+  /// A public URI where the program (image) can be downloaded. This URI will be accessed by
   /// provers that are evaluating whether to bid on the request.
   string imageUrl;
   /// Input to be provided to the zkVM guest execution.
@@ -129,7 +129,7 @@ From the moment the request is broadcast to the start of bidding, the auction pr
 
 When the prover submits their bid, the auction ends and they "lock-in" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
 
-However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g. higher than the total supply of the staking token).
+However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g., higher than the total supply of the staking token).
 
 An unlocked request can be directly fulfilled, without first being locked. When this happens, the prover will be paid according to the auction price at that moment.
 
@@ -142,7 +142,7 @@ Provers will calculate the minimum price at which they are willing to prove a re
 
 It is also worth noting that the prover's software will download the ELF binary, from the request's image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.
 
-_If the program fails to execute (e.g. the guest panics) the prover will not bid._
+_If the program fails to execute (e.g., the guest panics) the prover will not bid._
 
 ### 4. The Prover Submits an Aggregated Proof, and Upon Successful Verification, the Reward Is Released to the Prover
 

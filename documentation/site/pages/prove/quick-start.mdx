@@ -2,6 +2,10 @@
 
 ## Clone the Boundless repo
 
+:::warning[Warning]
+**Incentives for provers are not active for this phase.**
+:::
+
 To get started, first clone the Boundless monorepo on your proving machine, and change directory locally:
 
 ```sh
@@ -25,7 +29,6 @@ For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating
 ```sh
 sudo ./scripts/setup.sh
 ```
-
 
 ## Running Boundless
 
@@ -59,6 +62,16 @@ Examples:
 
 The `compose.yml` file defines all services within Bento. The Boundless repo includes a starter `compose.yml` which you can see [here](https://github.com/boundless-xyz/boundless/blob/main/compose.yml). For Broker configuration options, please see [Broker.toml](/prove/broker#settings-in-brokertoml).
 
+### CUDA Compute Capability Detection
+
+When working with NVIDIA GPUs, it's crucial to compile CUDA code with the correct compute capability to ensure optimal performance. The compute capability (e.g., `sm_86` for Ampere architecture) defines the features and instructions supported by the GPU. 
+
+To automatically detect and set the correct NVCC flags for your system, please run:
+
+```sh [Terminal]
+sudo scripts/set_nvcc_flags.sh
+```
+
 ### Multi GPU
 
 In `compose.yml`, you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
@@ -89,3 +102,19 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin
 ```
+
+## Depositing Funds to the Market
+
+:::note[Note]
+* To apply for access to HP tokens and become a prover, please fill out this [form](TODO) with your details.
+* To read more about depositing funds to the market, and to learn about the hitpoints token, please see [Hitpoints (HP) Tokens](/prove/broker#hitpoints-hp-tokens).
+:::
+
+Once the proving stack is running, the next step is to deposit funds to the Boundless market contract. This is for the Broker to be able to cover staking during lock-in. Currently, this will require depositing special non-transferable hitpoints (HP) tokens which are sent to whitelisted provers. 
+
+## What next?
+
+Next, you'll need to tune your Broker's settings, please see [Broker Optimization](/prove/broker#broker-optimization). If you'd like to learn more about the technical design of Bento, please see the [Bento Technical Design Reference](http://localhost:5173/bento-technical-design).
+
+
+To see your prover market statistics, check out the [provers](https://indexer.beboundless.xyz/provers) page on the Boundless Indexer.

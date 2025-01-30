@@ -6,11 +6,19 @@ The Broker is a service that runs within the [Bento](/prove/proving-stack#what-i
 
 ## Broker Configuration
 
-Broker configuration is primarily managed through the `broker.toml` file in the Boundless directory. This file is mounted into the Broker container and it is used to configure the Broker daemon.
-
-:::tip
+:::tip[Tip]
 Broker will live-reload the `broker.toml` when it changes. In most cases, you will not need to restart the Broker for the configuration to take effect.
 :::
+
+Broker configuration is primarily managed through the `broker.toml` file in the Boundless directory. This file is mounted into the Broker container and it is used to configure the Broker daemon.
+
+### Hitpoints (HP) Tokens
+
+:::note[Note]
+To apply for access to HP tokens and become a prover, please fill out this [form](TODO) with your details.
+:::
+
+In the current phase, the Boundless market will only accept hitpoint (HP) tokens as stake for proving lock-ins. Provers stake HP tokens to participate in proof generation, and failure to meet performance standards results in slashing of your provers HP. These HP tokens can only be used within the Boundless market and as such, they are **non-transferrable** and **hold no monetary value**. 
 
 ### Deposit / Balance
 
@@ -19,14 +27,11 @@ Brokers must first deposit some HP into the market contract to fund their accoun
 These funds cover staking during lock-in.
 It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
 
-:::warning
-TODO: Discuss HP here
-:::
+#### Deposit Stake to the Market
 
-### Deposit Stake to the Market
-
-:::warning
-TODO: Link to boundless-cli install instructions
+:::note[Note]
+You will need the Boundless CLI installed to deposit/check your balance. 
+Please see [Installing the Boundless CLI](/build/request-a-proof#installing-the-boundless-cli) for instructions.
 :::
 
 ```sh [Terminal]
@@ -35,10 +40,10 @@ export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
 
 # Example: 'deposit-stake 10'
-boundless-cli deposit-stake <ETH_TO_DEPOSIT>
+boundless-cli deposit-stake <HP_TO_DEPOSIT>
 ```
 
-### Check Current Stake Balance
+#### Check Current Stake Balance
 
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
@@ -48,7 +53,7 @@ export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
 boundless-cli balance-of-stake [wallet_address]
 ```
 
-You can omit the `PRIVATE_KEY` environment variable here and specify your `wallet_address` as a optional parameter to the `balance` command, i.e. `balance 0x000....`
+You can omit the `PRIVATE_KEY` environment variable here and specify your `wallet_address` as a optional parameter to the `balance` command, i.e., `balance 0x000....`
 
 ### Settings in Broker.toml
 

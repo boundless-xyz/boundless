@@ -220,10 +220,9 @@ export default defineConfig({
     light: "/favicon.ico",
     dark: "/favicon.ico",
   },
-  // banner: "Read the [Boundless Blog Article](https://risczero.com/blog/boundless-the-verifiable-compute-layer)",
-  /*editLink: {
-    pattern: "https://github.com/boundless-xyz/boundless/edit/main/documentation/site/pages/:path",
-    text: "Edit on GitHub",
-  },*/
+  banner: {
+    dismissable: true,
+    content: '🚨 BREAKING: Boundless moves to whitelisted proving, please fill out this [form](https://discord.gg/JUrRkGweXV) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more.'
+  },
   ogImageUrl: "https://docs.beboundless.xyz/og.png",
 });
