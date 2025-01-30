@@ -47,7 +47,7 @@ export HIT_POINTS_ADDRESS=0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9
 Calls the mint(address, uint256) function to mint HP tokens to target_address.
 
 ```bash
-./hitpoints.sh mint <target_address> [amount]
+./hp mint <target_address> [amount]
 ```
 
 Parameters:
@@ -58,7 +58,7 @@ Parameters:
 Example:
 
 ```console
-./hitpoints.sh mint 0xRecipientAddress 100000000000000000000
+./hp mint 0xRecipientAddress 100000000000000000000
 ```
 
 This will mint 100 tokens (1 token = 1e18 for an 18-decimal token).
@@ -69,13 +69,13 @@ This will mint 100 tokens (1 token = 1e18 for an 18-decimal token).
 Calls grantMinterRole(address) on the contract to give the MINTER role to target_address. Addresses with this role can mint tokens.
 
 ```bash
-./hitpoints.sh grant-minter-role <target_address>
+./hp grant-minter-role <target_address>
 ```
 
 Example:
 
 ```console
-./hitpoints.sh grant-minter-role 0xMinterAddress
+./hp grant-minter-role 0xMinterAddress
 ```
 
 #### revoke-minter-role
@@ -83,13 +83,13 @@ Example:
 Calls revokeMinterRole(address) on the contract to remove the MINTER role from target_address.
 
 ```bash
-./hitpoints.sh revoke-minter-role <target_address>
+./hp revoke-minter-role <target_address>
 ```
 
 Example:
 
 ```console
-./hitpoints.sh revoke-minter-role 0xMinterAddress
+./hp revoke-minter-role 0xMinterAddress
 ```
 
 #### grant-auth-transfer-role
@@ -97,13 +97,13 @@ Example:
 Calls grantAuthorizedTransferRole(address) to give the AUTHORIZED_TRANSFER role to target_address. Addresses with this role can bypass restricted transfer rules.
 
 ```bash
-./hitpoints.sh grant-auth-transfer-role <target_address>
+./hp grant-auth-transfer-role <target_address>
 ```
 
 Example:
 
 ```console
-./hitpoints.sh grant-auth-transfer-role 0xAuthTransferAddress
+./hp grant-auth-transfer-role 0xAuthTransferAddress
 ```
 
 #### revoke-auth-transfer-role
@@ -111,13 +111,13 @@ Example:
 Calls revokeAuthorizedTransferRole(address) to remove the AUTHORIZED_TRANSFER role from target_address.
 
 ```bash
-./hitpoints.sh revoke-auth-transfer-role <target_address>
+./hp revoke-auth-transfer-role <target_address>
 ```
 
 Example:
 
 ```console
-./hitpoints.sh revoke-auth-transfer-role 0xAuthTransferAddress
+./hp revoke-auth-transfer-role 0xAuthTransferAddress
 ```
 
 #### Check balance
@@ -125,11 +125,11 @@ Example:
 Calls balanceOf(address) to retrieve the HP token balance of target_address.
 
 ```bash
-./hitpoints.sh balance <target_address>
+./hp balance <target_address>
 ```
 
 Example:
 
 ```console
-./hitpoints.sh balance 0xRecipientAddress
+./hp balance 0xRecipientAddress
 ```
