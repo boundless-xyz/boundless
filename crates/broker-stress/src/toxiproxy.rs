@@ -35,7 +35,7 @@ pub async fn up() -> Result<()> {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            println!("Toxiproxy: {}", line);
+            tracing::trace!("Toxiproxy: {}", line);
         }
     });
 
@@ -47,14 +47,14 @@ pub async fn up() -> Result<()> {
         match client.get(format!("{}/proxies", TOXIPROXY_URL)).send().await {
             Ok(response) => {
                 if response.status().is_success() {
-                    tracing::info!("Toxiproxy HTTP API is up.");
+                    tracing::info!("HTTP API is up.");
                     break;
                 } else {
-                    tracing::info!("Toxiproxy HTTP API not ready, status: {}", response.status());
+                    tracing::info!("HTTP API not ready, status: {}", response.status());
                 }
             }
             Err(err) => {
-                tracing::error!("Error sending request: {:?}", err);
+                tracing::info!("HTTP API not ready, err: {}", err);
             }
         }
 
