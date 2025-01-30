@@ -76,7 +76,7 @@ For example, an offer might specify:
 | Bidding start            | Latest block number + 3 |
 | Length of ramp-up period | 10 blocks               |
 | Timeout                  | 100 blocks              |
-| Lock-in stake            | 0.5 Ether               |
+| Lock-in stake            | 5 HP                    |
 
 For more details, please see [Pricing a Request](/build/request-a-proof#pricing-a-request).
 
@@ -129,7 +129,7 @@ From the moment the request is broadcast to the start of bidding, the auction pr
 
 When the prover submits their bid, the auction ends and they "lock-in" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
 
-However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g. higher than the total supply of ETH).
+However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g. higher than the total supply of the staking token).
 
 An unlocked request can be directly fulfilled, without first being locked. When this happens, the prover will be paid according to the auction price at that moment.
 

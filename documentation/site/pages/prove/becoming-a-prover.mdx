@@ -9,22 +9,34 @@ The Boundless Market enables anyone with the right infrastructure and expertise 
 As a prover, your responsibilities include:
 
 * **Evaluating Proof Requests**: Assessing the feasibility and cost of fulfilling a request based on factors like program complexity, cycle count, stake requirements, and timeout length.
-* **Participating in Auctions**: Competing in reverse Dutch auctions to win proof-generating opportunities. The auction mechanism ensures that provers who bid first get the best prices for requestors.
+* **Participating in Auctions**: Competing in reverse Dutch auctions to win proof-generating opportunities. The auction mechanism ensures that provers who bid first provide the best prices for requestors.
 * **Generating Proofs**: Using high-performance hardware (e.g. GPUs) to generate proofs efficiently and deliver them before the request timeout.
 
+These core operations are implemented in the provided [prover implementation](/prove/proving-stack).
 
 ## Rewards for Proving
 
-Provers are rewarded through the auction mechanism where requestors set price ranges. The first prover to lock a request secures the best price, determined by market dynamics and efficiency. Additionally, contributing to market efficiency can enhance your rewards by lowering costs and improving competition.
+Provers are rewarded with payments from the clients for fulfilled proof requests.
+
+:::warning
+Participation in the market does not guarantee a reward.
+::::
+
+Orders will vary in their profitability based on the offer provided by the requestors, and bids placed by competitive provers.
+Filling orders below cost, or failing to deliver on orders the prover has bid on, can result in losses.
 
 ## Who Should Be a Prover?
+
 Becoming a prover is ideal for individuals or organizations with:
 
 * Expertise in running high-performance infrastructure.
-* Spare GPU capacity that can be utilized for proof generation.
-* An understanding of cryptographic protocols and decentralized systems.
-* Proving requires significant computational resources, especially for parallelized GPU proving. Provers must balance hardware investment, operational costs, and the competitive nature of auctions to succeed.
+* GPU capacity that can be utilized for proof generation.
+* An understanding of blockchain protocols and operating in an open market.
+
+Proving requires significant computational resources, especially for parallelized GPU proving.
+Provers must balance hardware investment, operational costs, and the competitive nature of auctions to succeed.
 
 ## Getting Started as a Prover
-While provers can build their own infrastructure from scratch, Boundless provides a recommended [proving stack](/prove/proving-stack). To get started, please see the Boundless Prover [Quick Start](/prove/quick-start). 
 
+While provers can build their own infrastructure from scratch, Boundless provides a [proving stack](/prove/proving-stack) to get started.
+Please see the Boundless Prover [Quick Start](/prove/quick-start).

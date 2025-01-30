@@ -18,7 +18,7 @@ This stage can be skipped if you already have docker and docker-nvidia installed
 To run a Boundless prover, you'll need the following dependencies:
 
 * [Docker compose](https://docs.docker.com/compose)
-* [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) 
+* [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html)
 
 For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating System Requirements](/prove/requirements#operating-system)), please run:
 
@@ -29,11 +29,11 @@ sudo ./scripts/setup.sh
 
 ## Running Boundless
 
-The recommended place to start is the `scripts/boundless_service.sh` script. This script which will run everything you need to start proving. 
+The recommended place to start is the `scripts/boundless_service.sh` script. This script which will run everything you need to start proving.
 
 Boundless is comprised of two major components:
-1. **Bento** is the local proving infrastructure. Bento will take requests, prove them and return the result 
-2. The **Broker** interacts with the boundless network. Broker can submit or request proves from the boundless network.
+1. **Bento** is the local proving infrastructure. Bento will take requests, prove them and return the result
+2. The **Broker** interacts with the Boundless market. Broker can submit or request proves from the market.
 
 
 ```sh [Terminal]
@@ -61,7 +61,7 @@ The `compose.yml` file defines all services within Bento. The Boundless repo inc
 
 ### Multi GPU
 
-It is here that you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
+In `compose.yml`, you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
 
 ### Multi Host
 
@@ -69,8 +69,10 @@ Services can be run on other hosts, as long as the IP addresses for things link 
 
 ### Segment Size
 
-Under the `exec_agent` service you can configure the segment size with the `--segment-po2` flag. Bigger segments are preferable for performance but do impact the proving systems conjectured security bits slightly. In order to pick the right segment po2 for your GPU VRAM see [reports.risczero.com](https://reports.risczero.com) for details.
+Under the `exec_agent` service you can configure the segment size with the `--segment-po2` flag. Bigger segments are preferable for performance but do impact the proving systems conjectured security bits slightly.
 
+Segment sizes are specified in powers-of-two (po2).
+In order to pick the right segment po2 for your GPU VRAM see [the performance optimization page](/prove/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
 
 ## Sending a Test Proof to Bento
 

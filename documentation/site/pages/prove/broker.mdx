@@ -2,35 +2,50 @@
 
 ## Overview
 
-The Broker is an optional service that runs within the [Bento](/prove/proving-stack#what-is-bento) docker compose stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
+The Broker is a service that runs within the [Bento](/prove/proving-stack#what-is-bento) proving stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
 
 ## Broker Configuration
 
-Broker configuration is primarily managed through the `broker.toml` file in the Boundless directory. This file is mounted into the Broker container and it is used to configure the Broker daemon. This allows for dynamic configuration of the Broker without needing to restart the daemon as in most cases variables are refreshed. If you have changed a `broker.toml` configuration, and it does not appear to take effect you can restart the Broker service manually to apply the changes.
+Broker configuration is primarily managed through the `broker.toml` file in the Boundless directory. This file is mounted into the Broker container and it is used to configure the Broker daemon.
+
+:::tip
+Broker will live-reload the `broker.toml` when it changes. In most cases, you will not need to restart the Broker for the configuration to take effect.
+:::
 
 ### Deposit / Balance
 
-The Boundless market works via an escrow system. Brokers must first deposit some ETH (or SepETH) into the market contract to fund their account. These funds cover staking during lock-in. It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
+The Boundless market requires staking funds to be deposited to bid on requests.
+Brokers must first deposit some HP into the market contract to fund their account.
+These funds cover staking during lock-in.
+It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
 
-### Deposit to the Market
+:::warning
+TODO: Discuss HP here
+:::
+
+### Deposit Stake to the Market
+
+:::warning
+TODO: Link to boundless-cli install instructions
+:::
 
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
 
-# Example: 'deposit 0.5'
-RUST_LOG=info cargo run --bin cli -- deposit <ETH_TO_DEPOSIT>
+# Example: 'deposit-stake 10'
+boundless-cli deposit-stake <ETH_TO_DEPOSIT>
 ```
 
-### Check Current Balance
+### Check Current Stake Balance
 
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
 
-RUST_LOG=info cargo run --bin cli -- balance [wallet_address]
+boundless-cli balance-of-stake [wallet_address]
 ```
 
 You can omit the `PRIVATE_KEY` environment variable here and specify your `wallet_address` as a optional parameter to the `balance` command, i.e. `balance 0x000....`
@@ -61,12 +76,13 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 ### Make sure Bento is running
 
 :::warning[Warning]
-A Broker needs a [Bento](/prove/proving-stack#what-is-bento) instance to operate. Please follow the [quick start](/prove/quick-start) guide to get Bento up and running. 
+A Broker needs a [Bento](/prove/proving-stack#what-is-bento) instance to operate. Please follow the [quick start](/prove/quick-start) guide to get Bento up and running.
 :::
 
 To check Bento is running correctly, you can send a sample proof workload:
 
 ```sh [Terminal]
+# In the bento directory
 RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
@@ -98,7 +114,7 @@ The following process will guide you through setting up a new wallet and funding
 ....
 PRIVATE_KEY=0xYOUR_TEST_WALLET_PRIVATE_KEY_HERE
 ....
-BOUNDLESS_MARKET_ADDR=0x261D8c5e9742e6f7f1076Fa1F560894524e19cad # This is the address of the market contract on the target chain.
+BOUNDLESS_MARKET_ADDR=0x69c7943DA0D7e45D44Bd0cE7a2412DCdAe423788 # This is the address of the market contract on the target chain.
 ....
 RPC_URL="https://rpc.sepolia.org" # This is the RPC URL of the target chain.
 ....
@@ -112,7 +128,7 @@ source .env-compose
 
 ##### The Broker account needs funds deposited on the Boundless market contract to cover lock-in stake on requests. Run the following command to deposit an initial amount of ETH into the market contract:
 
-```sh 
+```sh
 # Set amount in ETH denominated units
 # 0.5 Sepolia ETH should be OK for basic testing
 # BOUNDLESS_DEPOSIT=0.5
