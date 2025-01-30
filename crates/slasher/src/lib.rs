@@ -89,7 +89,12 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
 
         Ok(Self { boundless_market, contract_address: boundless_market_address, db })
     }
-
+}
+impl<T, P> SlashService<T, P>
+where
+    T: Transport + Clone,
+    P: Provider<T, Ethereum> + 'static + Clone,
+{
     async fn get_last_processed_block(&self) -> Result<Option<u64>, ServiceError> {
         Ok(self.db.get_last_block().await?)
     }
@@ -110,23 +115,32 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
             .await
             .context("Failed to get block number")?;
 
-        let filter = Filter::new()
-            .event_signature(RequestLocked::SIGNATURE_HASH)
-            .from_block(last_processed_block)
-            .to_block(current_block)
-            .address(self.contract_address);
-        let sub = self
+        let event = self
             .boundless_market
             .instance()
-            .provider()
-            .subscribe_logs(&filter)
+            .RequestLocked_filter()
+            .from_block(last_processed_block)
+            .to_block(current_block)
+            .watch()
             .await
             .context("Failed to subscribe to RequestLocked event")?;
-
-        let mut stream = sub.into_stream();
-        while let Some(log) = stream.next().await {
-            self.process_request_event(log, false).await?;
-        }
+        tracing::info!("Subscribed to RequestSubmitted event");
+        event
+            .into_stream()
+            .for_each(|log_res| async {
+                match log_res {
+                    Ok((event, log)) => {
+                        tracing::info!("Detected new request {:x}", event.requestId);
+                        if let Err(err) = self.process_request_event(log, false).await {
+                            tracing::error!("Failed to add new order into DB: {err:?}");
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                    }
+                }
+            })
+            .await;
 
         // Update last processed block
         self.update_last_processed_block(current_block).await?;
@@ -206,24 +220,31 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
         let last_processed_block =
             self.get_last_processed_block().await?.context("No last processed block")?;
 
-        let filter = Filter::new()
-            .event_signature(RequestLocked::SIGNATURE_HASH)
-            .from_block(last_processed_block)
-            .address(self.contract_address);
-        let sub = self
+        let event = self
             .boundless_market
             .instance()
-            .provider()
-            .subscribe_logs(&filter)
+            .RequestLocked_filter()
+            .from_block(last_processed_block)
+            .watch()
             .await
             .context("Failed to subscribe to RequestLocked event")?;
-
-        let mut stream = sub.into_stream();
-
-        for log in stream.next().await {
-            self.process_request_event(log, true).await?;
-        }
-
+        tracing::info!("Subscribed to RequestSubmitted event");
+        event
+            .into_stream()
+            .for_each(|log_res| async {
+                match log_res {
+                    Ok((event, log)) => {
+                        tracing::info!("Detected new request {:x}", event.requestId);
+                        if let Err(err) = self.process_request_event(log, false).await {
+                            tracing::error!("Failed to add new order into DB: {err:?}");
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                    }
+                }
+            })
+            .await;
         Ok(())
     }
 }

@@ -12,16 +12,8 @@ use sqlx::{
 };
 use thiserror::Error;
 
-// use crate::{AggregationState, Batch, BatchStatus, Order, OrderStatus, ProofRequest};
-
 #[derive(Error, Debug)]
 pub enum DbError {
-    #[error("Order key {0} not found in DB")]
-    OrderNotFound(U256),
-
-    #[error("DB Missing column value: {0}")]
-    MissingElm(&'static str),
-
     #[error("SQL error")]
     SqlErr(#[from] sqlx::Error),
 
@@ -36,9 +28,6 @@ pub enum DbError {
 
     #[error("Failed to set last block")]
     SetBlockFail,
-
-    #[error("Invalid order id: {0} missing field: {1}")]
-    InvalidOrder(String, &'static str),
 
     #[error("Invalid max connection env var value")]
     MaxConnEnvVar(#[from] std::num::ParseIntError),
@@ -102,7 +91,7 @@ struct DbOrder {
 #[async_trait]
 impl SlasherDb for SqliteDb {
     async fn add_order(&self, id: U256, expires_at: u64) -> Result<(), DbError> {
-        sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2)")
+        sqlx::query("INSERT INTO orders (id, expires_at) VALUES ($1, $2)")
             .bind(format!("{id:x}"))
             .bind(expires_at as i64)
             .execute(&self.pool)
@@ -132,7 +121,6 @@ impl SlasherDb for SqliteDb {
     }
 
     async fn get_last_block(&self) -> Result<Option<u64>, DbError> {
-        // TODO: query_as, seems to not work correctly here
         let res = sqlx::query("SELECT block FROM last_block WHERE id = $1")
             .bind(SQL_BLOCK_KEY)
             .fetch_optional(&self.pool)
