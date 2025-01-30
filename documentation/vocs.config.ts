@@ -222,7 +222,7 @@ export default defineConfig({
   },
   banner: {
     dismissable: true,
-    content: '🚨 BREAKING: Boundless moves to whitelisted proving, please fill out this [form](https://discord.gg/JUrRkGweXV) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more info.'
+    content: '🚨 BREAKING: Boundless is opening the allowlist for proving, please fill out this [form](TODO) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more info.'
   },
   ogImageUrl: "https://docs.beboundless.xyz/og.png",
 });
