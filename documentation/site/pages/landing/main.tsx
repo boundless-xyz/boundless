@@ -1,6 +1,13 @@
 import Footer from "../../footer";
+import { useState } from "react"; // Import useState for handling dropdown state
 
 export default function Main() {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false); // State to manage dropdown visibility
+
+  const toggleDropdown = () => {
+    setIsDropdownOpen(!isDropdownOpen);
+  };
+
   return (
     <div className="fixed inset-0 overflow-auto bg-[url('/bg-light.jpg')] bg-background bg-center bg-cover bg-no-repeat p-8 pt-[60px]">
       <div className="relative z-10 flex animate-fade-in flex-col items-center justify-center pt-16 text-center">
@@ -33,13 +40,32 @@ export default function Main() {
 
           <h2 className="mb-16 text-neutral-900 text-xl">Focus on building while Boundless handles the rest.</h2>
 
-          <div className="flex justify-center gap-4">
-            <a
-              className="flex h-14 w-fit items-center whitespace-pre rounded-lg border border-[var(--vocs-color\_borderAccent)] bg-[var(--vocs-color\_backgroundAccent)] px-4 font-medium text-[var(--vocs-color\_backgroundAccentText)] text-xl shadow-2xl transition-colors duration-100"
-              href="/build/build-a-program"
-            >
-              Quick Start
-            </a>
+          <div className="relative flex justify-center gap-4">
+            <div className="relative">
+              <button
+                type="button"
+                className="flex h-14 w-fit items-center whitespace-pre rounded-lg border border-[var(--vocs-color\_borderAccent)] bg-[var(--vocs-color\_backgroundAccent)] px-4 font-medium text-[var(--vocs-color\_backgroundAccentText)] text-xl shadow-2xl transition-colors duration-100"
+                onClick={toggleDropdown}
+              >
+                Quick Start
+              </button>
+              {isDropdownOpen && (
+                <div className="absolute mt-2 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <a
+                    href="/build/build-a-program"
+                    className="block w-full rounded-lg px-4 py-2 text-neutral-800 hover:bg-gray-100"
+                  >
+                    Builders
+                  </a>
+                  <a
+                    href="/prove/becoming-a-prover"
+                    className="block w-full rounded-lg px-4 py-2 text-neutral-800 hover:bg-gray-100"
+                  >
+                    Provers
+                  </a>
+                </div>
+              )}
+            </div>
             <a
               className="flex h-14 w-fit items-center whitespace-pre rounded-lg bg-[var(--vocs-color\_background4)] px-4 font-medium text-[var(--vocs-color\_text)] text-xl shadow-2xl transition-colors duration-100"
               href="/introduction/why-boundless"
