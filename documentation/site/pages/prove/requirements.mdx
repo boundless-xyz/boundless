@@ -26,15 +26,18 @@ To get started with the Boundless proving stack, please follow the prover [quick
 At the core of the Boundless proving software is [Bento](/prove/proving-stack#what-is-bento). To run Bento, the following dependencies are required:
 
 * [Docker Compose](https://docs.docker.com/compose/)
-* [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) 
+* [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html)
 
 ## Stake
 
 :::tip
-To get started with the Broker and deposit funds to the market contract, please see [Broker](/prove/broker#broker-configuration).
+To get started with the Broker and deposit stake to the market contract, please see [Broker](/prove/broker#broker-configuration).
 :::
 
-The Boundless Market works via an escrow system. When provers win a bid on a [proof request](/introduction/proof-lifecycle#3-provers-bid-on-the-request), they require funds (ETH/SepETH) to cover staking during lock-in. The recommended way to carry out market interactions, such as depositing funds, is to use the [Broker](/prove/broker#broker-configuration), an optional service which runs within the Bento docker compose stack. 
+The Boundless Market works via an escrow system.
+When provers win a bid on a [proof request](/introduction/proof-lifecycle#3-provers-bid-on-the-request), they require tokens to cover staking requirements for the request, as specified by the client.
+The recommended way to carry out market interactions, such as depositing stake, is to use the [Broker](/prove/broker#broker-configuration), an optional service which runs within the Bento docker compose stack.
 
-
-
+:::warning
+TODO: Include info about how to get staking tokens
+:::
