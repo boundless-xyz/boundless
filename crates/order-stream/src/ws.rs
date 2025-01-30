@@ -124,13 +124,13 @@ pub(crate) async fn websocket_handler(
     if !state.config.bypass_addrs.contains(&client_addr) {
         let boundless_market =
             IBoundlessMarket::new(state.config.market_address, state.rpc_provider.clone());
-        let balance = boundless_market.balanceOf(client_addr).call().await.unwrap()._0;
+        let balance = boundless_market.balanceOfStake(client_addr).call().await.unwrap()._0;
         if balance < state.config.min_balance {
             state.db.disconnect_broker(client_addr).await.context("Failed to disconnect broker")?;
-            tracing::warn!("Insufficient balance for addr: {client_addr}");
+            tracing::warn!("Insufficient stake balance for addr: {client_addr}");
             return Ok((
                 StatusCode::UNAUTHORIZED,
-                format!("Insufficient balance: {} < {}", balance, state.config.min_balance),
+                format!("Insufficient stake balance: {} < {}", balance, state.config.min_balance),
             )
                 .into_response());
         }
