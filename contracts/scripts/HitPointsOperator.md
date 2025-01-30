@@ -16,7 +16,7 @@ The Bash script offers a way to manage the **HitPoints** ERC20 token by calling 
 
 ## 2. Prerequisites
 
-1. **Foundry / cast**  
+1. **Foundry / cast**\
    Make sure you have [Foundry](https://book.getfoundry.sh/) installed, which includes the `cast` tool for interacting with Ethereum contracts.
 
 ---
@@ -25,13 +25,14 @@ The Bash script offers a way to manage the **HitPoints** ERC20 token by calling 
 
 Before you run the script, you must set the following environment variables in your shell session. If these variables are not set, the script will not run and will display an error.
 
-| Variable             | Description                                                                                                   |
-|----------------------|---------------------------------------------------------------------------------------------------------------|
-| `PRIVATE_KEY`        | The private key of the account that will send transactions (contract owner/admin or authorized).            |
-| `RPC_URL`            | The RPC endpoint of the Ethereum network you’re interacting with (e.g., Infura or Alchemy endpoint).         |
-| `HIT_POINTS_ADDRESS` | The contract address where the **HitPoints** token has been deployed.                                         |
+| Variable             | Description                                                                                          |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| `PRIVATE_KEY`        | The private key of the account that will send transactions (contract owner/admin or authorized).     |
+| `RPC_URL`            | The RPC endpoint of the Ethereum network you’re interacting with (e.g., Infura or Alchemy endpoint). |
+| `HIT_POINTS_ADDRESS` | The contract address where the **HitPoints** token has been deployed.                                |
 
 Example of setting them in a Unix shell:
+
 ```bash
 export PRIVATE_KEY=0x1234567890...
 export RPC_URL=https://rpc.sepolia.org
@@ -52,8 +53,8 @@ Calls the mint(address, uint256) function to mint HP tokens to target_address.
 
 Parameters:
 
-* target_address: The address to receive the newly minted tokens.
-* amount (optional): The amount of tokens to mint. If omitted, the script defaults to DEFAULT_MINT_AMOUNT (100 tokens by default; 1 token = 1e18 for an 18-decimal token).
+- target_address: The address to receive the newly minted tokens.
+- amount (optional): The amount of tokens to mint. If omitted, the script defaults to DEFAULT_MINT_AMOUNT (100 tokens by default; 1 token = 1e18 for an 18-decimal token).
 
 Example:
 
@@ -62,7 +63,6 @@ Example:
 ```
 
 This will mint 100 tokens (1 token = 1e18 for an 18-decimal token).
-
 
 #### grant-minter-role
 
