@@ -20,6 +20,22 @@ To apply for access to HP tokens and become a prover, please fill out this [form
 
 In the current phase, the Boundless market will only accept hitpoint (HP) tokens as stake for proving lock-ins. Provers stake HP tokens to participate in proof generation, and failure to meet performance standards results in slashing of your provers HP. These HP tokens can only be used within the Boundless market and as such, they are **non-transferrable** and **hold no monetary value**. 
 
+#### I got slashed, pls help?
+
+If a slashing event occurs against your broker, your stake account will enter a frozen state. This means that your prover will not be able to lock-in any proof requests *until* you unfreeze your account manually. 
+
+To unfreeze your account after slashing, run:
+
+```sh [Terminal]
+export RPC_URL=<TARGET_CHAIN_RPC_URL>
+export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
+export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
+ 
+boundless-cli unfreeze
+```
+
+Please refer to the [Deployments](/deployments) page for the correct Boundless market contract address.
+
 ### Deposit / Balance
 
 The Boundless market requires staking funds to be deposited to bid on requests.
@@ -99,56 +115,6 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 32
 2024-10-23T14:37:41.373508Z  INFO bento_cli: STARK Job running....
 2024-10-23T14:37:43.375780Z  INFO bento_cli: Job done!
 ```
-
-### Funding Your Broker on the Proving Market
-
-:::warning[Warning]
-For the current Sepolia testnet phase, we recommend funding your broker account around 1-2 Sepolia ETH. We are striving to make gas costs for market interactions in future significantly less.
-:::
-
-For the broker to interact with a [market contract](/deployments), it needs to have an associated account with a sufficient $ETH balance to pay for gas fees.
-
-The following process will guide you through setting up a new wallet and funding it with testnet ETH:
-
-::::steps
-
-##### Set the environment variables `PRIVATE_KEY`, `SET_VERIFIER_ADDR`,`BOUNDLESS_MARKET_ADDR` in `.env-compose`
-
-```sh [Terminal]
-# Prover node configs
-....
-PRIVATE_KEY=0xYOUR_TEST_WALLET_PRIVATE_KEY_HERE
-....
-BOUNDLESS_MARKET_ADDR=0x69c7943DA0D7e45D44Bd0cE7a2412DCdAe423788 # This is the address of the market contract on the target chain.
-....
-RPC_URL="https://rpc.sepolia.org" # This is the RPC URL of the target chain.
-....
-```
-
-##### Source the `.env-compose` file
-
-```sh [Terminal]
-source .env-compose
-```
-
-##### The Broker account needs funds deposited on the Boundless market contract to cover lock-in stake on requests. Run the following command to deposit an initial amount of ETH into the market contract:
-
-```sh
-# Set amount in ETH denominated units
-# 0.5 Sepolia ETH should be OK for basic testing
-# BOUNDLESS_DEPOSIT=0.5
-
-RUST_LOG=info,boundless_market=debug cargo run --bin cli --  deposit ${BOUNDLESS_DEPOSIT:?}
-```
-
-```txt [Terminal]
-2024-10-23T14:29:52.704754Z DEBUG boundless_market::contracts::boundless_market: Calling deposit() value: 500000000000000000
-2024-10-23T14:29:52.993892Z DEBUG boundless_market::contracts::boundless_market: Broadcasting deposit tx 0xfc5c11e75101a9158735ec9e9519f5692b2f64b3337268b7ed999502956cd982
-2024-10-23T14:30:07.175952Z DEBUG boundless_market::contracts::boundless_market: Submitted deposit 0xfc5c11e75101a9158735ec9e9519f5692b2f64b3337268b7ed999502956cd982
-2024-10-23T14:30:07.175994Z  INFO cli: Deposited: 500000000000000000
-```
-
-::::
 
 ### Running the Broker service
 
