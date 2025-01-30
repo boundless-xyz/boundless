@@ -178,7 +178,7 @@ impl DefaultProver {
             .context("Failed to build set builder input")?;
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
 
-        self.prove(self.set_builder_elf.clone(), encoded_input, assumptions, ProverOpts::succinct())
+        self.prove(self.set_builder_elf.clone(), encoded_input, assumptions, ProverOpts::groth16())
             .await
     }
 
