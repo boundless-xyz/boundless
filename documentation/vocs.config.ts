@@ -222,7 +222,7 @@ export default defineConfig({
   },
   banner: {
     dismissable: true,
-    content: '🚨 BREAKING: Boundless is opening the allowlist for proving, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more info.'
+    content: 'BREAKING: Boundless is opening the allowlist for infrastructure companies to start proving, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more info.'
   },
   ogImageUrl: "https://docs.beboundless.xyz/og.png",
 });
