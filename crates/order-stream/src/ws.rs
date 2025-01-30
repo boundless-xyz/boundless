@@ -17,7 +17,7 @@ use boundless_market::{
     order_stream_client::{AuthMsg, ErrMsg, ORDER_WS_PATH},
 };
 use futures_util::{SinkExt, StreamExt};
-use rand::{seq::SliceRandom, thread_rng, Rng};
+use rand::{seq::SliceRandom, Rng};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -158,7 +158,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
         let connections = state.connections.lock().await;
         let mut connections_list: Vec<_> =
             connections.iter().map(|(addr, conn)| (*addr, conn.sender.clone())).collect();
-        connections_list.shuffle(&mut thread_rng());
+        connections_list.shuffle(&mut rand::rng());
         connections_list
     };
 
@@ -245,7 +245,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                         break;
                     }
                     // Send ping
-                    let random_bytes: Vec<u8> = thread_rng().gen::<[u8; 16]>().into();
+                    let random_bytes: Vec<u8> = rand::rng().random::<[u8; 16]>().into();
                     if let Err(err) = sender_ws.send(Message::Ping(random_bytes.clone())).await {
                         tracing::warn!("Failed to send Ping: {err:?}");
                         break;
