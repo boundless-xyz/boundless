@@ -1,6 +1,6 @@
 # HitPoints Operator Guide
 
-This guide explains how to use the provided Bash script to interact with the **HitPoints** smart contract. It covers prerequisites, environment variables, and usage for the various commands.
+This guide explains how to use the provided [Bash script](./hp) to interact with the **HitPoints** smart contract. It covers prerequisites, environment variables, and usage for the various commands.
 
 ---
 
