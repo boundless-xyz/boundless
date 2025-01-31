@@ -291,7 +291,7 @@ To submit a proof, a valid `request.yaml` is required, this config file will spe
 - Requirements:
   - The image ID of the program being proven.
   - The contents of the outputs of the program, the journal.
-    This is to make sure the outputs are as expected (e.g. to ensure the right input was provided, by checking an input digest committed to the journal).
+    This is to make sure the outputs are as expected (e.g., to ensure the right input was provided, by checking an input digest committed to the journal).
 - Image URL
   - The link to the ELF binary stored on any public HTTP server.
     IPFS, used through a gateway, works well (Boundless will support IPFS URLs natively in the future).
@@ -300,6 +300,11 @@ To submit a proof, a valid `request.yaml` is required, this config file will spe
     The input can have any encoding. The bytes will be passed to the guest without modification.
 - Offer:
   - This includes the minimum and maximum price for the proof request, the block number to open bidding, the price ramp up period, how many blocks before the request should timeout, and the lock-in stake the prover has to escrow to submit a bid.
+  
+:::note[Note]
+During this current Boundless phase, provers require HP tokens for lock-in stake. They receive 100 HP tokens, so setting 5 per lock-in stake is the recommended amount (i.e., they can fail 20 proof requests before they run out of HP.) Setting it higher may cause provers to deprioritize your proof requests. To learn more about HP tokens, please read [Hitpoint Tokens](/prove/broker#hitpoints-hp-tokens).
+:::
+
 
 Below is an example of a `request.yaml` file that can be used with the `boundless-cli submit-request` command.
 
@@ -316,14 +321,14 @@ requirements:
     predicateType: PrefixMatch
     data: "57656420"
 
-# A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
+# A public URI where the program (i.e., image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.
 imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy"
 
 # Input to be provided to the zkVM guest execution.
 input:
   inputType: Inline
-  data: "576564204a756c2020332031343a33373a31322050445420323032340a"
+  data: "00576564204a756c2020332031343a33373a31322050445420323032340a"
 
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 offer:
@@ -332,7 +337,7 @@ offer:
   biddingStart: 0 # if set to 0, gets overwritten by the current block height
   rampUpPeriod: 100
   timeout: 300 # 1 hour at 12s block times.
-  lockinStake: 100000000000000
+  lockinStake: 5000000000000000000 # 5 Hitpoint Tokens
 ```
 
 To submit a request, export or create a `.env` file with the following environment variables:
@@ -340,8 +345,8 @@ To submit a request, export or create a `.env` file with the following environme
 ```sh [Terminal]
 export RPC_URL="https://ethereum-sepolia-rpc.publicnode.com"
 export PRIVATE_KEY="YOUR_SEPOLIA_WALLET_PRIVATE_KEY"
-export BOUNDLESS_MARKET_ADDRESS="0x01e4130C977b39aaa28A744b8D3dEB23a5297654"
-export SET_VERIFIER_ADDRESS="0xea6a0Ca4BfD0A6C43081D57672b3B6D43B69265F"
+export BOUNDLESS_MARKET_ADDRESS="0x69c7943DA0D7e45D44Bd0cE7a2412DCdAe423788"
+export SET_VERIFIER_ADDRESS="0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd"
 export ORDER_STREAM_URL="https://order-stream.beboundless.xyz"
 ```
 

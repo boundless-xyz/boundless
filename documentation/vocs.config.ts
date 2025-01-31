@@ -6,7 +6,6 @@ import { defineConfig } from "vocs";
 const SIDEBAR_CONFIG = [
   {
     text: "✨ Introduction",
-    collapsed: false,
     items: [
       {
         text: "Why Boundless?",
@@ -15,7 +14,7 @@ const SIDEBAR_CONFIG = [
       {
         text: "What is Boundless?",
         link: "/introduction/what-is-boundless",
-        collapsed: false,
+        collapsed: true,
         items: [
           {
             text: "Extensions",
@@ -31,7 +30,6 @@ const SIDEBAR_CONFIG = [
   },
   {
     text: "🏋️ Build",
-    collapsed: false,
     items: [
       {
         text: "Build a Program",
@@ -40,7 +38,7 @@ const SIDEBAR_CONFIG = [
       {
         text: "Request a Proof",
         link: "/build/request-a-proof",
-        collapsed: false,
+        collapsed: true,
         items: [
           {
             text: "Pricing a Request",
@@ -59,8 +57,47 @@ const SIDEBAR_CONFIG = [
     ],
   },
   {
+    text: "🧪 Prove",
+    items: [
+      {
+        text: "Becoming a Prover",
+        link: "/prove/becoming-a-prover",
+      },
+      {
+        text: "Requirements",
+        link: "/prove/requirements",
+      },
+      {
+        text: "Quick Start",
+        link: "/prove/quick-start",
+      },
+      {
+        text: "Running a Boundless Prover",
+        link: "/prove/proving-stack",
+        collapsed: true,
+        items: [
+          {
+            text: "The Boundless Proving Stack", 
+            link: "/prove/proving-stack",
+          },
+          {
+            text: "Broker Configuration & Operation",
+            link: "/prove/broker",
+          },
+          {
+            text: "Monitoring",
+            link: "/prove/monitoring",
+          },
+          {
+            text: "Performance Optimization",
+            link: "/prove/performance-optimization",
+          },
+        ]
+      },
+    ],
+  },
+  {
     text: "🧠 Advanced & References",
-    collapsed: false,
     items: [
       {
         text: "Deployments",
@@ -74,6 +111,11 @@ const SIDEBAR_CONFIG = [
         text: "Terminology",
         link: "/terminology",
       },
+      {
+        text: "Bento Technical Design", 
+        link: "/bento-technical-design",
+      },
+      
     ],
   },
 ];
@@ -148,7 +190,7 @@ export default defineConfig({
     },
   ],
   rootDir: "site",
-  title: "Boundless Documentation",
+  title: "Boundless Docs",
   /*logoUrl: {
     light: "/logo.png",
     dark: "/logo-dark.png",
@@ -178,10 +220,9 @@ export default defineConfig({
     light: "/favicon.ico",
     dark: "/favicon.ico",
   },
-  // banner: "Read the [Boundless Blog Article](https://risczero.com/blog/boundless-the-verifiable-compute-layer)",
-  /*editLink: {
-    pattern: "https://github.com/boundless-xyz/boundless/edit/main/documentation/site/pages/:path",
-    text: "Edit on GitHub",
-  },*/
+  banner: {
+    dismissable: true,
+    content: 'BREAKING: Boundless is opening the allowlist for infrastructure companies to start proving, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more info.'
+  },
   ogImageUrl: "https://docs.beboundless.xyz/og.png",
 });

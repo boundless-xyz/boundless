@@ -32,11 +32,11 @@ admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 # Contracts
 # TODO: fix the submitRootAndFulfillBatch method and the upgrade with the verifier router as the verifier used by the market.
 #verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-verifier = "0xea6a0Ca4BfD0A6C43081D57672b3B6D43B69265F"
-set-verifier = "0xea6a0Ca4BfD0A6C43081D57672b3B6D43B69265F"
-boundless-market = "0x01e4130C977b39aaa28A744b8D3dEB23a5297654"
-stake-token = "0x0000000000000000000000000000000000000000"
+verifier = "0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd"
+set-verifier = "0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd"
+boundless-market = "0x69c7943DA0D7e45D44Bd0cE7a2412DCdAe423788"
+stake-token = "0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9"
 
 # Guests info
-assessor-image-id = "0x96aea7457cd7a7baf3781b0e88ab9449071ff1ff4f089913ced8869e5abc27d4"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeicsw6wb2lqnt7ca5jph3g5ffdfsezcrwcohrzb5gaaggjeg7ycari"
+assessor-image-id = "0x96f21c06e109f08ae6c2d6535ef865e9a2b39eda2df05c62038f26ff8e9253d2"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeibwuz52qguj2jodmild7vg6vxwok37sucz7mjost7hdrsgx5qxk24"
