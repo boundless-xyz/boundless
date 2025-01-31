@@ -26,6 +26,9 @@ struct MainArgs {
     /// DB connection string.
     #[clap(short, long, default_value = "sqlite::memory:")]
     db: String,
+    /// Starting block number.
+    #[clap(long)]
+    start_block: Option<u64>,
     /// Interval in seconds between checking for expired requests.
     #[clap(short, long, default_value = "60")]
     interval: u64,
@@ -72,7 +75,7 @@ async fn run(args: &MainArgs) -> Result<()> {
     )
     .await?;
 
-    if let Err(err) = slash_service.run().await {
+    if let Err(err) = slash_service.run(args.start_block).await {
         bail!("Error running the slasher: {err}");
     }
 
@@ -145,6 +148,7 @@ mod tests {
             private_key: ctx.customer_signer.clone(),
             boundless_market_address: ctx.boundless_market_addr,
             db: "sqlite::memory:".to_string(),
+            start_block: None,
             interval: 1,
         };
 

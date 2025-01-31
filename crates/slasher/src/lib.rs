@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::sync::Arc;
+use std::{cmp::min, sync::Arc};
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
@@ -89,14 +89,15 @@ where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
 {
-    pub async fn run(self) -> Result<(), ServiceError> {
+    pub async fn run(self, starting_block: Option<u64>) -> Result<(), ServiceError> {
         let current_block = self.current_block().await?;
         let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
+        let from_block = min(starting_block.unwrap_or(last_processed_block), current_block);
 
         // Catch any missed events on startup
-        self.catch_missed_locked_events(last_processed_block, current_block).await?;
-        self.catch_missed_fulfilled_events(last_processed_block, current_block).await?;
-        self.catch_missed_slashed_events(last_processed_block, current_block).await?;
+        self.catch_missed_locked_events(from_block, current_block).await?;
+        self.catch_missed_fulfilled_events(from_block, current_block).await?;
+        self.catch_missed_slashed_events(from_block, current_block).await?;
 
         // Update last processed block
         self.update_last_processed_block(current_block).await?;
