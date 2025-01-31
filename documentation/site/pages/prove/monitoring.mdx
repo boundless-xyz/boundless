@@ -1,0 +1,44 @@
+# Monitoring
+
+## Grafana
+
+The Bento / Broker Docker compose stack includes a [Grafana](https://grafana.com/) instance with some template dashboards. To access them, Grafana is hosted at `http://localhost:3000`. Default credentials are defined in `.env-compose` as `admin:admin`.
+
+### Bento Dashboard
+
+The Bento dashboard connects to the TaskDB PostgreSQL instance to get live data for the status of different proofs flowing through the proving cluster. It is useful to monitor performance and queue depth.
+
+### Broker Dashboard
+
+The broker dashboard connects to the broker's SQLite database to see the status of different orders and batches moving through the broker's workflows.
+
+## On-chain
+
+The recommended method to monitor your broker's activity and health is via the [Boundless Indexer](https://indexer.beboundless.xyz).
+
+### Balances
+
+For smooth broker operation, it is critical to monitor both your hot wallet balance of ETH and the market balance of stake.
+If your broker runs out of ETH balance, it will be unable to cover gas costs for transactions and as such it will be unable to lock and fulfill orders.
+If you running low of staking funds on the broker account on the market contract, the broker will be unable to lock-in orders with higher stake values.
+It is strongly recommended to keep your market balance above the brokers configured `max_stake` parameter.
+
+### Broker Logs
+
+The broker logs are the very helpful for monitoring broker interactions with the market. It is designed with the intention that `DEBUG` / `INFO` / `WARN` log should not require manual intervention, but anything logged at an `ERROR` level should be a cause of concern.
+
+:::warning
+Unrecoverable errors may cause the broker process to exit. Make sure to have a restart policy on the container. As the software matures, more errors should become recoverable.
+:::
+
+To see a live stream of the broker logs:
+
+```sh [Terminal]
+docker compose logs -f broker
+```
+
+and to see the last 100 lines of the logs:
+
+```sh [Terminal]
+docker compose logs --tail=100 broker
+```
