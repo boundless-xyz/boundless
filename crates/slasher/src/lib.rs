@@ -56,9 +56,9 @@ pub enum ServiceError {
 
 #[derive(Clone)]
 pub struct SlashService<T, P> {
-    boundless_market: BoundlessMarketService<T, P>,
-    db: DbObj,
-    interval: Duration,
+    pub boundless_market: BoundlessMarketService<T, P>,
+    pub db: DbObj,
+    pub interval: Duration,
 }
 
 impl SlashService<Http<HttpClient>, ProviderWallet> {
