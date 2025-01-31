@@ -36,6 +36,7 @@ pub enum DbError {
 #[async_trait]
 pub trait SlasherDb {
     async fn add_order(&self, id: U256, expires_at: u64) -> Result<(), DbError>;
+    async fn drop_order(&self, id: U256) -> Result<(), DbError>;
     async fn order_exists(&self, id: U256) -> Result<bool, DbError>;
     async fn get_expired_orders(&self, target_block: u64) -> Result<Vec<U256>, DbError>;
 
@@ -85,7 +86,6 @@ impl SqliteDb {
 #[derive(sqlx::FromRow)]
 struct DbOrder {
     id: String,
-    expires_at: i64,
 }
 
 #[async_trait]
@@ -99,6 +99,16 @@ impl SlasherDb for SqliteDb {
         Ok(())
     }
 
+    async fn drop_order(&self, id: U256) -> Result<(), DbError> {
+        if self.order_exists(id).await? {
+            sqlx::query("DELETE FROM orders WHERE id = $1")
+                .bind(format!("{id:x}"))
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
+    }
+
     async fn order_exists(&self, id: U256) -> Result<bool, DbError> {
         let res: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM orders WHERE id = $1")
             .bind(format!("{id:x}"))
@@ -108,9 +118,9 @@ impl SlasherDb for SqliteDb {
         Ok(res == 1)
     }
 
-    async fn get_expired_orders(&self, target_block: u64) -> Result<Vec<U256>, DbError> {
-        let orders: Vec<DbOrder> = sqlx::query_as("SELECT * FROM orders WHERE expires_at <= $1")
-            .bind(target_block as i64)
+    async fn get_expired_orders(&self, current_block: u64) -> Result<Vec<U256>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as("SELECT id FROM orders WHERE expires_at >= $1")
+            .bind(current_block as i64)
             .fetch_all(&self.pool)
             .await?;
 
@@ -160,6 +170,15 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
         db.add_order(id, 10).await.unwrap();
+    }
+
+    #[sqlx::test]
+    async fn drop_order(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let id = U256::ZERO;
+        db.add_order(id, 10).await.unwrap();
+        db.drop_order(id).await.unwrap();
+        db.drop_order(id).await.unwrap();
     }
 
     #[sqlx::test]

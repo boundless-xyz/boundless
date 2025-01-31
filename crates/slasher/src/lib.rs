@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
-    primitives::{Address, BlockNumber, U256},
+    primitives::{Address, U256},
     providers::{
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -14,25 +14,16 @@ use alloy::{
         },
         Identity, Provider, ProviderBuilder, RootProvider,
     },
-    rpc::types::{BlockNumberOrTag, Filter, Log},
-    signers::local::{LocalSigner, PrivateKeySigner},
-    sol_types::SolEvent,
+    signers::local::PrivateKeySigner,
     transports::{http::Http, Transport},
 };
 use anyhow::Context;
-use boundless_market::contracts::{
-    boundless_market::{BoundlessMarketService, MarketError},
-    IBoundlessMarket::RequestLocked,
-};
+use boundless_market::contracts::boundless_market::{BoundlessMarketService, MarketError};
 use db::{DbError, DbObj, SqliteDb};
 use futures_util::StreamExt;
 use reqwest::Client as HttpClient;
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
-    Row,
-};
 use thiserror::Error;
-use tokio::time::{sleep, Duration};
+use tokio::time::Duration;
 use url::Url;
 
 mod db;
@@ -51,7 +42,7 @@ type ProviderWallet = FillProvider<
 >;
 
 #[derive(Error, Debug)]
-enum ServiceError {
+pub enum ServiceError {
     #[error("Database error: {0}")]
     DatabaseError(#[from] DbError),
 
@@ -63,17 +54,19 @@ enum ServiceError {
     Error(#[from] anyhow::Error),
 }
 
-struct SlashService<T, P> {
+#[derive(Clone)]
+pub struct SlashService<T, P> {
     boundless_market: BoundlessMarketService<T, P>,
-    contract_address: Address,
     db: DbObj,
+    interval: Duration,
 }
 
 impl SlashService<Http<HttpClient>, ProviderWallet> {
-    async fn new(
+    pub async fn new(
         rpc_url: Url,
         private_key: PrivateKeySigner,
         boundless_market_address: Address,
+        interval: Duration,
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
@@ -87,7 +80,7 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
 
-        Ok(Self { boundless_market, contract_address: boundless_market_address, db })
+        Ok(Self { boundless_market, db, interval })
     }
 }
 impl<T, P> SlashService<T, P>
@@ -104,9 +97,112 @@ where
         Ok(())
     }
 
-    async fn catch_missed_events(&self) -> Result<(), ServiceError> {
-        let last_processed_block =
-            self.get_last_processed_block().await?.context("No last processed block")?;
+    async fn catch_missed_locked_events(
+        &self,
+        last_processed_block: u64,
+        current_block: u64,
+    ) -> Result<(), ServiceError> {
+        let event_filter = self
+            .boundless_market
+            .instance()
+            .RequestLocked_filter()
+            .from_block(last_processed_block)
+            .to_block(current_block);
+
+        // Query the logs for the event
+        let logs = event_filter.query().await.context("Failed to query RequestLocked events")?;
+        if let Some((log, _)) = logs.first() {
+            self.add(log.requestId, None).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn catch_missed_slashed_events(
+        &self,
+        last_processed_block: u64,
+        current_block: u64,
+    ) -> Result<(), ServiceError> {
+        let event_filter = self
+            .boundless_market
+            .instance()
+            .ProverSlashed_filter()
+            .from_block(last_processed_block)
+            .to_block(current_block);
+
+        // Query the logs for the event
+        let logs = event_filter.query().await.context("Failed to query ProverSlashed events")?;
+        if let Some((log, _)) = logs.first() {
+            self.drop(log.requestId, None).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn catch_missed_fulfilled_events(
+        &self,
+        last_processed_block: u64,
+        current_block: u64,
+    ) -> Result<(), ServiceError> {
+        let event_filter = self
+            .boundless_market
+            .instance()
+            .RequestFulfilled_filter()
+            .from_block(last_processed_block)
+            .to_block(current_block);
+
+        // Query the logs for the event
+        let logs = event_filter.query().await.context("Failed to query RequestFulfilled events")?;
+        if let Some((log, _)) = logs.first() {
+            self.drop(log.requestId, None).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn add(&self, request_id: U256, block_number: Option<u64>) -> Result<(), ServiceError> {
+        // TODO: this might not work as expected if the request is already expired or fulfilled
+        let expiration = self.boundless_market.request_deadline(request_id).await?;
+
+        // Insert request into database
+        self.db.add_order(request_id, expiration).await?;
+
+        // Update last processed block
+        if let Some(block_number) = block_number {
+            self.update_last_processed_block(block_number).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn drop(&self, request_id: U256, block_number: Option<u64>) -> Result<(), ServiceError> {
+        // Drop request from database
+        self.db.drop_order(request_id).await?;
+
+        // Update last processed block
+        if let Some(block_number) = block_number {
+            self.update_last_processed_block(block_number).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn process_expired_requests(&self) -> Result<(), ServiceError> {
+        // Find expired requests
+        let current_block = self.current_block().await?;
+        let expired = self.db.get_expired_orders(current_block).await?;
+
+        for request in expired {
+            if let Err(err) = self.boundless_market.slash(request).await {
+                // Log error, potentially retry mechanism
+                tracing::error!("Slashing failed for request {}: {}", request, err);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn current_block(&self) -> Result<u64, ServiceError> {
         let current_block = self
             .boundless_market
             .instance()
@@ -114,24 +210,83 @@ where
             .get_block_number()
             .await
             .context("Failed to get block number")?;
+        Ok(current_block)
+    }
+
+    pub async fn run(self) -> Result<(), ServiceError> {
+        // Catch any missed events on startup
+        let last_processed_block =
+            self.get_last_processed_block().await?.context("No last processed block")?;
+        let current_block = self.current_block().await?;
+
+        self.catch_missed_locked_events(last_processed_block, current_block).await?;
+        self.catch_missed_fulfilled_events(last_processed_block, current_block).await?;
+        self.catch_missed_slashed_events(last_processed_block, current_block).await?;
+
+        // Update last processed block
+        self.update_last_processed_block(current_block).await?;
+
+        let self_locked = self.clone();
+        let self_fulfilled = self.clone();
+        let self_slashed = self.clone();
+        let self_interval = self.clone();
+
+        // Spawn the listeners
+        let mut locked_handle =
+            tokio::spawn(async move { self_locked.listen_to_request_locked().await });
+        let mut fulfilled_handle =
+            tokio::spawn(async move { self_fulfilled.listen_to_request_fulfilled().await });
+        let mut slashed_handle =
+            tokio::spawn(async move { self_slashed.listen_to_request_slashed().await });
+
+        let mut interval = tokio::time::interval(self.interval);
+
+        loop {
+            tokio::select! {
+                result = &mut locked_handle => {
+                    if let Err(e) = result {
+                        eprintln!("Error in request_locked listener: {}", e);
+                    }
+                },
+                result = &mut fulfilled_handle => {
+                    if let Err(e) = result {
+                        eprintln!("Error in request_fulfilled listener: {}", e);
+                    }
+                },
+                result = &mut slashed_handle => {
+                    if let Err(e) = result {
+                        eprintln!("Error in request_slashed listener: {}", e);
+                    }
+                },
+                _ = interval.tick() => {
+                    self_interval.process_expired_requests().await?;
+                }
+            }
+        }
+    }
+
+    async fn listen_to_request_locked(&self) -> Result<(), ServiceError> {
+        let last_processed_block =
+            self.get_last_processed_block().await?.context("No last processed block")?;
 
         let event = self
             .boundless_market
             .instance()
             .RequestLocked_filter()
             .from_block(last_processed_block)
-            .to_block(current_block)
             .watch()
             .await
             .context("Failed to subscribe to RequestLocked event")?;
-        tracing::info!("Subscribed to RequestSubmitted event");
+
+        tracing::info!("Subscribed to RequestLocked event");
+
         event
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, log)) => {
                         tracing::info!("Detected new request {:x}", event.requestId);
-                        if let Err(err) = self.process_request_event(log, false).await {
+                        if let Err(err) = self.add(event.requestId, log.block_number).await {
                             tracing::error!("Failed to add new order into DB: {err:?}");
                         }
                     }
@@ -141,102 +296,66 @@ where
                 }
             })
             .await;
-
-        // Update last processed block
-        self.update_last_processed_block(current_block).await?;
-
         Ok(())
     }
 
-    async fn process_request_event(
-        &self,
-        log: Log,
-        is_real_time: bool,
-    ) -> Result<(), ServiceError> {
-        let decoded_log = log.log_decode::<RequestLocked>().context("Failed to decode log")?;
-        let block_number = log.block_number.context("Failed to get block number")?;
-        let request_id = decoded_log.inner.data.requestId;
-        let expiration = self.boundless_market.request_deadline(request_id).await?;
-
-        // Insert request into database
-        self.db.add_order(request_id, expiration).await?;
-
-        // If this is a real-time event, update last processed block
-        if is_real_time {
-            self.update_last_processed_block(block_number).await?;
-        }
-
-        Ok(())
-    }
-
-    // async fn process_unprocessed_requests(&self) -> Result<(), ServiceError> {
-    //     // Find unprocessed requests
-    //     let unprocessed_requests =
-    //         sqlx::query!("SELECT id, expiration FROM requests WHERE processed = 0")
-    //             .fetch_all(&self.db_pool)
-    //             .await?;
-
-    //     for request in unprocessed_requests {
-    //         // Your slashing logic here
-    //         match self.boundless_market.slash(&request.id).await {
-    //             Ok(_) => {
-    //                 // Mark as processed
-    //                 sqlx::query("UPDATE requests SET processed = 1 WHERE id = ?")
-    //                     .bind(&request.id)
-    //                     .execute(&self.db_pool)
-    //                     .await?;
-    //             }
-    //             Err(e) => {
-    //                 // Log error, potentially retry mechanism
-    //                 tracing::error!("Processing failed for request {}: {}", request.id, e);
-    //             }
-    //         }
-    //     }
-
-    //     Ok(())
-    // }
-
-    async fn run(&self) -> Result<(), ServiceError> {
-        // Catch any missed events on startup
-        self.catch_missed_events().await?;
-
-        // Continuous event listening and processing
-        let mut interval = tokio::time::interval(Duration::from_secs(60));
-
-        loop {
-            tokio::select! {
-                // Real-time event listening
-                _ = self.listen_to_events() => {},
-
-                // Periodically process unprocessed requests
-                _ = interval.tick() => {
-                    // self.process_unprocessed_requests().await?;
-                }
-            }
-        }
-    }
-
-    async fn listen_to_events(&self) -> Result<(), ServiceError> {
+    async fn listen_to_request_fulfilled(&self) -> Result<(), ServiceError> {
         let last_processed_block =
             self.get_last_processed_block().await?.context("No last processed block")?;
 
         let event = self
             .boundless_market
             .instance()
-            .RequestLocked_filter()
+            .RequestFulfilled_filter()
             .from_block(last_processed_block)
             .watch()
             .await
-            .context("Failed to subscribe to RequestLocked event")?;
-        tracing::info!("Subscribed to RequestSubmitted event");
+            .context("Failed to subscribe to RequestFulfilled event")?;
+
+        tracing::info!("Subscribed to RequestFulfilled event");
+
         event
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, log)) => {
-                        tracing::info!("Detected new request {:x}", event.requestId);
-                        if let Err(err) = self.process_request_event(log, false).await {
-                            tracing::error!("Failed to add new order into DB: {err:?}");
+                        tracing::info!("Detected fulfillment for request {:x}", event.requestId);
+                        if let Err(err) = self.drop(event.requestId, log.block_number).await {
+                            tracing::error!("Failed to drop order from DB: {err:?}");
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                    }
+                }
+            })
+            .await;
+        Ok(())
+    }
+
+    async fn listen_to_request_slashed(&self) -> Result<(), ServiceError> {
+        let last_processed_block =
+            self.get_last_processed_block().await?.context("No last processed block")?;
+
+        let event = self
+            .boundless_market
+            .instance()
+            .ProverSlashed_filter()
+            .from_block(last_processed_block)
+            .watch()
+            .await
+            .context("Failed to subscribe to ProverSlashed event")?;
+
+        tracing::info!("Subscribed to ProverSlashed event");
+
+        event
+            .into_stream()
+            .for_each(|log_res| async {
+                match log_res {
+                    Ok((event, log)) => {
+                        tracing::info!("Detected prover slashed for request {:x}", event.requestId);
+                        if let Err(err) = self.drop(event.requestId, log.block_number).await {
+                            tracing::error!("Failed to drop order from DB: {err:?}");
                         }
                     }
                     Err(err) => {

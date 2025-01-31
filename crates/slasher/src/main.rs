@@ -2,16 +2,11 @@
 //
 // All rights reserved.
 
-use std::{
-    path::PathBuf,
-    time::{Duration, SystemTime},
-};
+use std::{path::PathBuf, time::Duration};
 
-use alloy::{
-    primitives::{utils::parse_ether, Address, U256},
-    signers::local::PrivateKeySigner,
-};
+use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
+use boundless_slasher::SlashService;
 use clap::{Args, Parser};
 use url::Url;
 
@@ -28,7 +23,7 @@ struct MainArgs {
     /// Address of the BoundlessMarket contract.
     #[clap(short, long, env)]
     boundless_market_address: Address,
-    /// Interval in seconds between requests.
+    /// Interval in seconds between expired request checks.
     #[clap(short, long, default_value = "60")]
     interval: u64,
 }
@@ -65,7 +60,17 @@ async fn main() -> Result<()> {
 }
 
 async fn run(args: &MainArgs) -> Result<()> {
-    // let market_service = BoundlessMarketService::new()
+    let slash_service = SlashService::new(
+        args.rpc_url.clone(),
+        args.private_key.clone(),
+        args.boundless_market_address,
+        Duration::from_secs(args.interval),
+    )
+    .await?;
+
+    if let Err(err) = slash_service.run().await {
+        bail!("Error running the slasher: {err}");
+    }
 
     Ok(())
 }
