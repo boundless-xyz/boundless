@@ -740,7 +740,6 @@ where
         Ok(ProofStatus::Unknown)
     }
 
-    /// Returns the latest block number.
     async fn get_latest_block(&self) -> Result<u64, MarketError> {
         Ok(self
             .instance
