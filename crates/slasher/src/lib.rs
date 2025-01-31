@@ -64,7 +64,7 @@ pub struct SlashService<T, P> {
 impl SlashService<Http<HttpClient>, ProviderWallet> {
     pub async fn new(
         rpc_url: Url,
-        private_key: PrivateKeySigner,
+        private_key: &PrivateKeySigner,
         boundless_market_address: Address,
         interval: Duration,
     ) -> Result<Self, ServiceError> {
@@ -215,9 +215,8 @@ where
 
     pub async fn run(self) -> Result<(), ServiceError> {
         // Catch any missed events on startup
-        let last_processed_block =
-            self.get_last_processed_block().await?.context("No last processed block")?;
         let current_block = self.current_block().await?;
+        let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
 
         self.catch_missed_locked_events(last_processed_block, current_block).await?;
         self.catch_missed_fulfilled_events(last_processed_block, current_block).await?;
@@ -266,14 +265,10 @@ where
     }
 
     async fn listen_to_request_locked(&self) -> Result<(), ServiceError> {
-        let last_processed_block =
-            self.get_last_processed_block().await?.context("No last processed block")?;
-
         let event = self
             .boundless_market
             .instance()
             .RequestLocked_filter()
-            .from_block(last_processed_block)
             .watch()
             .await
             .context("Failed to subscribe to RequestLocked event")?;
@@ -300,14 +295,10 @@ where
     }
 
     async fn listen_to_request_fulfilled(&self) -> Result<(), ServiceError> {
-        let last_processed_block =
-            self.get_last_processed_block().await?.context("No last processed block")?;
-
         let event = self
             .boundless_market
             .instance()
             .RequestFulfilled_filter()
-            .from_block(last_processed_block)
             .watch()
             .await
             .context("Failed to subscribe to RequestFulfilled event")?;
@@ -334,14 +325,10 @@ where
     }
 
     async fn listen_to_request_slashed(&self) -> Result<(), ServiceError> {
-        let last_processed_block =
-            self.get_last_processed_block().await?.context("No last processed block")?;
-
         let event = self
             .boundless_market
             .instance()
             .ProverSlashed_filter()
-            .from_block(last_processed_block)
             .watch()
             .await
             .context("Failed to subscribe to ProverSlashed event")?;
