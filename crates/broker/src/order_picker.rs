@@ -133,7 +133,9 @@ where
         let gas_to_lock_order =
             U256::from(gas_price) * U256::from(self.estimate_gas_to_lock(order).await?);
 
-        if lockin_stake + gas_to_lock_order >= self.available_balance().await? {
+        if gas_to_lock_order >= self.available_balance().await?
+            || lockin_stake >= self.available_balance_stake().await?
+        {
             tracing::warn!("Stake is higher than available balance on order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(());
@@ -398,8 +400,8 @@ where
     }
 
     /// Return available balance.
-    /// This is defined as the balance of the signer account minus any stake
-    /// that has been marked to be locked but not yet locked in the market contract
+    ///
+    /// This is defined as the balance of the signer account.
     async fn available_balance(&self) -> Result<U256> {
         let balance = self
             .provider
@@ -407,17 +409,24 @@ where
             .await
             .context("Failed to get current wallet balance")?;
 
-        let pending_locked_stake = self.pending_locked_stake().await?;
         let eth_reserved_for_gas = self.eth_reserved_for_gas().await?;
 
         tracing::debug!(
-            "Available Balance = account_balance({}) - pending_locked({}) - expected_future_gas({})",
+            "Available Balance = account_balance({}) - expected_future_gas({})",
             format_ether(balance),
-            format_ether(pending_locked_stake),
             format_ether(eth_reserved_for_gas)
         );
 
-        Ok(balance - pending_locked_stake - eth_reserved_for_gas)
+        Ok(balance - eth_reserved_for_gas)
+    }
+
+    /// Return available stake balance.
+    ///
+    /// This is defined as the stake balance of the signer account minus any pending locked stake.
+    async fn available_balance_stake(&self) -> Result<U256> {
+        let balance = self.market.balance_of_stake(self.provider.default_signer_address()).await?;
+        let pending_balance = self.pending_locked_stake().await?;
+        Ok(balance - pending_balance)
     }
 }
 
