@@ -274,7 +274,6 @@ where
         request_id: U256,
         block_number: Option<u64>,
     ) -> Result<(), ServiceError> {
-        // TODO: this might not work as expected if the request is already expired or fulfilled
         let expiration = self.boundless_market.request_deadline(request_id).await?;
 
         // Insert request into database
