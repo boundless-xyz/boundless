@@ -23,6 +23,9 @@ struct MainArgs {
     /// Address of the BoundlessMarket contract.
     #[clap(short, long, env)]
     boundless_market_address: Address,
+    /// DB connection string.
+    #[clap(short, long, default_value = "sqlite::memory:")]
+    db: String,
     /// Interval in seconds between checking for expired requests.
     #[clap(short, long, default_value = "60")]
     interval: u64,
@@ -64,6 +67,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         args.rpc_url.clone(),
         &args.private_key,
         args.boundless_market_address,
+        &args.db,
         Duration::from_secs(args.interval),
     )
     .await?;
@@ -140,6 +144,7 @@ mod tests {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer.clone(),
             boundless_market_address: ctx.boundless_market_addr,
+            db: "sqlite::memory:".to_string(),
             interval: 1,
         };
 

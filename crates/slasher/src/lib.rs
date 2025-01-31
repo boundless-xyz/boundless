@@ -66,6 +66,7 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
         rpc_url: Url,
         private_key: &PrivateKeySigner,
         boundless_market_address: Address,
+        db_conn: &str,
         interval: Duration,
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
@@ -78,7 +79,7 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
 
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let db: DbObj = Arc::new(SqliteDb::new(db_conn).await.unwrap());
 
         Ok(Self { boundless_market, db, interval })
     }
@@ -88,6 +89,114 @@ where
     T: Transport + Clone,
     P: Provider<T, Ethereum> + 'static + Clone,
 {
+    pub async fn run(self) -> Result<(), ServiceError> {
+        let current_block = self.current_block().await?;
+        let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
+
+        // Catch any missed events on startup
+        self.catch_missed_locked_events(last_processed_block, current_block).await?;
+        self.catch_missed_fulfilled_events(last_processed_block, current_block).await?;
+        self.catch_missed_slashed_events(last_processed_block, current_block).await?;
+
+        // Update last processed block
+        self.update_last_processed_block(current_block).await?;
+
+        let self_locked = self.clone();
+        let self_fulfilled = self.clone();
+        let self_slashed = self.clone();
+
+        // Spawn watching tasks with retry
+        let mut locked_handle = tokio::spawn(async move { self_locked.watch_locked().await });
+        let mut fulfilled_handle =
+            tokio::spawn(async move { self_fulfilled.watch_fulfilled().await });
+        let mut slashed_handle = tokio::spawn(async move { self_slashed.watch_slashed().await });
+
+        let mut interval = tokio::time::interval(self.interval);
+
+        loop {
+            tokio::select! {
+                result = &mut locked_handle => {
+                    tracing::error!("Locked watch task terminated unexpectedly: {:?}", result);
+                    return Err(ServiceError::Error(anyhow::anyhow!("Locked watch task terminated")));
+                },
+                result = &mut fulfilled_handle => {
+                    tracing::error!("Fulfilled watch task terminated unexpectedly: {:?}", result);
+                    return Err(ServiceError::Error(anyhow::anyhow!("Fulfilled watch task terminated")));
+                },
+                result = &mut slashed_handle => {
+                    tracing::error!("Slashed watch task terminated unexpectedly: {:?}", result);
+                    return Err(ServiceError::Error(anyhow::anyhow!("Slashed watch task terminated")));
+                },
+                _ = interval.tick() => {
+                    self.process_expired_requests().await?;
+                }
+            }
+        }
+    }
+
+    async fn watch_locked(self) -> Result<(), ServiceError> {
+        let backoff = Duration::from_secs(5);
+
+        loop {
+            match self.listen_to_request_locked().await {
+                Ok(()) => {
+                    tracing::warn!(
+                        "RequestLocked watch task completed unexpectedly, restarting..."
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "RequestLocked watch task failed with error: {}. Restarting after delay...",
+                        e
+                    );
+                }
+            }
+
+            tokio::time::sleep(backoff).await;
+        }
+    }
+
+    async fn watch_fulfilled(self) -> Result<(), ServiceError> {
+        let backoff = Duration::from_secs(5);
+
+        loop {
+            match self.listen_to_request_fulfilled().await {
+                Ok(()) => {
+                    tracing::warn!(
+                        "RequestFulfilled watch task completed unexpectedly, restarting..."
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("RequestFulfilled watch task failed with error: {}. Restarting after delay...", e);
+                }
+            }
+
+            tokio::time::sleep(backoff).await;
+        }
+    }
+
+    async fn watch_slashed(self) -> Result<(), ServiceError> {
+        let backoff = Duration::from_secs(5);
+
+        loop {
+            match self.listen_to_request_slashed().await {
+                Ok(()) => {
+                    tracing::warn!(
+                        "ProverSlashed watch task completed unexpectedly, restarting..."
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "ProverSlashed watch task failed with error: {}. Restarting after delay...",
+                        e
+                    );
+                }
+            }
+
+            tokio::time::sleep(backoff).await;
+        }
+    }
+
     async fn get_last_processed_block(&self) -> Result<Option<u64>, ServiceError> {
         Ok(self.db.get_last_block().await?)
     }
@@ -111,8 +220,8 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await.context("Failed to query RequestLocked events")?;
-        if let Some((log, _)) = logs.first() {
-            self.add(log.requestId, None).await?;
+        for (log, _) in logs {
+            self.add_order(log.requestId, None).await?;
         }
 
         Ok(())
@@ -132,8 +241,8 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await.context("Failed to query ProverSlashed events")?;
-        if let Some((log, _)) = logs.first() {
-            self.drop(log.requestId, None).await?;
+        for (log, _) in logs {
+            self.remove_order(log.requestId, None).await?;
         }
 
         Ok(())
@@ -153,14 +262,18 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await.context("Failed to query RequestFulfilled events")?;
-        if let Some((log, _)) = logs.first() {
-            self.drop(log.requestId, None).await?;
+        for (log, _) in logs {
+            self.remove_order(log.requestId, None).await?;
         }
 
         Ok(())
     }
 
-    async fn add(&self, request_id: U256, block_number: Option<u64>) -> Result<(), ServiceError> {
+    async fn add_order(
+        &self,
+        request_id: U256,
+        block_number: Option<u64>,
+    ) -> Result<(), ServiceError> {
         // TODO: this might not work as expected if the request is already expired or fulfilled
         let expiration = self.boundless_market.request_deadline(request_id).await?;
 
@@ -175,9 +288,13 @@ where
         Ok(())
     }
 
-    async fn drop(&self, request_id: U256, block_number: Option<u64>) -> Result<(), ServiceError> {
-        // Drop request from database
-        self.db.drop_order(request_id).await?;
+    async fn remove_order(
+        &self,
+        request_id: U256,
+        block_number: Option<u64>,
+    ) -> Result<(), ServiceError> {
+        // Remove request from database
+        self.db.remove_order(request_id).await?;
 
         // Update last processed block
         if let Some(block_number) = block_number {
@@ -213,57 +330,6 @@ where
         Ok(current_block)
     }
 
-    pub async fn run(self) -> Result<(), ServiceError> {
-        // Catch any missed events on startup
-        let current_block = self.current_block().await?;
-        let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
-
-        self.catch_missed_locked_events(last_processed_block, current_block).await?;
-        self.catch_missed_fulfilled_events(last_processed_block, current_block).await?;
-        self.catch_missed_slashed_events(last_processed_block, current_block).await?;
-
-        // Update last processed block
-        self.update_last_processed_block(current_block).await?;
-
-        let self_locked = self.clone();
-        let self_fulfilled = self.clone();
-        let self_slashed = self.clone();
-        let self_interval = self.clone();
-
-        // Spawn the listeners
-        let mut locked_handle =
-            tokio::spawn(async move { self_locked.listen_to_request_locked().await });
-        let mut fulfilled_handle =
-            tokio::spawn(async move { self_fulfilled.listen_to_request_fulfilled().await });
-        let mut slashed_handle =
-            tokio::spawn(async move { self_slashed.listen_to_request_slashed().await });
-
-        let mut interval = tokio::time::interval(self.interval);
-
-        loop {
-            tokio::select! {
-                result = &mut locked_handle => {
-                    if let Err(e) = result {
-                        eprintln!("Error in request_locked listener: {}", e);
-                    }
-                },
-                result = &mut fulfilled_handle => {
-                    if let Err(e) = result {
-                        eprintln!("Error in request_fulfilled listener: {}", e);
-                    }
-                },
-                result = &mut slashed_handle => {
-                    if let Err(e) = result {
-                        eprintln!("Error in request_slashed listener: {}", e);
-                    }
-                },
-                _ = interval.tick() => {
-                    self_interval.process_expired_requests().await?;
-                }
-            }
-        }
-    }
-
     async fn listen_to_request_locked(&self) -> Result<(), ServiceError> {
         let event = self
             .boundless_market
@@ -281,12 +347,12 @@ where
                 match log_res {
                     Ok((event, log)) => {
                         tracing::info!("Detected new request {:x}", event.requestId);
-                        if let Err(err) = self.add(event.requestId, log.block_number).await {
+                        if let Err(err) = self.add_order(event.requestId, log.block_number).await {
                             tracing::error!("Failed to add new order into DB: {err:?}");
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        tracing::error!("Failed to fetch event log: {:?}", err);
                     }
                 }
             })
@@ -311,12 +377,13 @@ where
                 match log_res {
                     Ok((event, log)) => {
                         tracing::info!("Detected fulfillment for request {:x}", event.requestId);
-                        if let Err(err) = self.drop(event.requestId, log.block_number).await {
+                        if let Err(err) = self.remove_order(event.requestId, log.block_number).await
+                        {
                             tracing::error!("Failed to drop order from DB: {err:?}");
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        tracing::error!("Failed to fetch event log: {:?}", err);
                     }
                 }
             })
@@ -341,12 +408,13 @@ where
                 match log_res {
                     Ok((event, log)) => {
                         tracing::info!("Detected prover slashed for request {:x}", event.requestId);
-                        if let Err(err) = self.drop(event.requestId, log.block_number).await {
+                        if let Err(err) = self.remove_order(event.requestId, log.block_number).await
+                        {
                             tracing::error!("Failed to drop order from DB: {err:?}");
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        tracing::error!("Failed to fetch event log: {:?}", err);
                     }
                 }
             })
