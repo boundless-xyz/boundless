@@ -128,15 +128,18 @@ where
             return Ok(());
         }
 
-        // Check that we have the funds to handle this
+        // Check that we have both enough staking tokens to stake, and enough gas tokens to lock and fulfil
         let gas_price = self.provider.get_gas_price().await.context("Failed to get gas price")?;
         let gas_to_lock_order =
             U256::from(gas_price) * U256::from(self.estimate_gas_to_lock(order).await?);
 
-        if gas_to_lock_order >= self.available_balance().await?
-            || lockin_stake >= self.available_balance_stake().await?
-        {
-            tracing::warn!("Stake is higher than available balance on order {order_id:x}");
+        if gas_to_lock_order >= self.available_gas_balance().await? {
+            tracing::warn!("Estimated there will be insufficient gas to lock this order after locking and fulfilling pending orders");
+            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            return Ok(());
+        }
+        if lockin_stake >= self.available_stake_balance().await? {
+            tracing::warn!("Insufficient stake to lock order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(());
         }
@@ -392,38 +395,39 @@ where
             * self.config.lock_all().context("Failed to read config")?.market.fulfil_gas_estimate)
     }
 
-    async fn eth_reserved_for_gas(&self) -> Result<U256> {
+    /// Estimate the total gas tokens reserved to lock and fulfil all pending orders
+    async fn gas_reserved(&self) -> Result<U256> {
         let gas_price = self.provider.get_gas_price().await.context("Failed to get gas price")?;
         let lock_pending_gas = self.estimate_gas_to_lock_pending().await?;
         let fulfill_pending_gas = self.estimate_gas_to_fulfill_pending().await?;
         Ok(U256::from(gas_price) * U256::from(lock_pending_gas + fulfill_pending_gas))
     }
 
-    /// Return available balance.
+    /// Return available gas balance.
     ///
     /// This is defined as the balance of the signer account.
-    async fn available_balance(&self) -> Result<U256> {
+    async fn available_gas_balance(&self) -> Result<U256> {
         let balance = self
             .provider
             .get_balance(self.provider.default_signer_address())
             .await
             .context("Failed to get current wallet balance")?;
 
-        let eth_reserved_for_gas = self.eth_reserved_for_gas().await?;
+        let gas_reserved = self.gas_reserved().await?;
 
         tracing::debug!(
             "Available Balance = account_balance({}) - expected_future_gas({})",
             format_ether(balance),
-            format_ether(eth_reserved_for_gas)
+            format_ether(gas_reserved)
         );
 
-        Ok(balance - eth_reserved_for_gas)
+        Ok(balance - gas_reserved)
     }
 
     /// Return available stake balance.
     ///
-    /// This is defined as the stake balance of the signer account minus any pending locked stake.
-    async fn available_balance_stake(&self) -> Result<U256> {
+    /// This is defined as the balance in staking tokens of the signer account minus any pending locked stake.
+    async fn available_stake_balance(&self) -> Result<U256> {
         let balance = self.market.balance_of_stake(self.provider.default_signer_address()).await?;
         let pending_balance = self.pending_locked_stake().await?;
         Ok(balance - pending_balance)
@@ -902,14 +906,14 @@ mod tests {
 
         let gas_price = ctx.provider.get_gas_price().await.unwrap();
         assert_eq!(
-            ctx.picker.eth_reserved_for_gas().await.unwrap(),
+            ctx.picker.gas_reserved().await.unwrap(),
             U256::from(gas_price) * U256::from(fulfil_gas + lockin_gas)
         );
         // lock the order
         ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
         // only fulfillment gas now reserved
         assert_eq!(
-            ctx.picker.eth_reserved_for_gas().await.unwrap(),
+            ctx.picker.gas_reserved().await.unwrap(),
             U256::from(gas_price) * U256::from(fulfil_gas)
         );
     }
