@@ -174,8 +174,9 @@ jobs:
       - name: run taskdb and slasher migrations
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
-        run: sqlx migrate run --source ./crates/taskdb/migrations/
-        run: sqlx migrate run --source ./crates/slasher/migrations/
+        run: |
+          sqlx migrate run --source ./crates/taskdb/migrations/
+          sqlx migrate run --source ./crates/slasher/migrations/
 
       - name: cargo test
         run: cargo test --locked --workspace --all-targets -- ignored
