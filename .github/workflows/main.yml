@@ -171,12 +171,10 @@ jobs:
           args: --no-default-features
           features: postgres
 
-      - name: run taskdb and slasher migrations
+      - name: run taskdb migrations
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
-        run: |
-          sqlx migrate run --source ./crates/taskdb/migrations/
-          sqlx migrate run --source ./crates/slasher/migrations/
+        run: sqlx migrate run --source ./crates/taskdb/migrations/
 
       - name: cargo test
         run: cargo test --locked --workspace --all-targets -- ignored
