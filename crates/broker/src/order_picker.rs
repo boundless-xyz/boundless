@@ -995,4 +995,29 @@ mod tests {
         );
         assert!(logs_contain("Insufficient available stake to lock order"));
     }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skips_journal_exceeding_limit() {
+        // set this by testing a very small limit (1 byte)
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.max_journal_bytes = 1;
+        }
+        let lockin_stake = U256::from(10);
+
+        let ctx =
+            TestCtx::builder().with_config(config).with_initial_hp(lockin_stake).build().await;
+        let (_, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake)
+            .await;
+
+        let order_id = U256::from(0);
+        ctx.db.add_order(U256::from(order_id), order.clone()).await.unwrap();
+        ctx.picker.price_order(U256::from(order_id), &order).await.unwrap();
+
+        assert_eq!(ctx.db.get_order(order_id).await.unwrap().unwrap().status, OrderStatus::Skipped);
+        assert!(logs_contain("journal larger than set limit"));
+    }
 }
