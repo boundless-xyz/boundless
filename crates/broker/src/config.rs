@@ -18,6 +18,15 @@ use tokio::{
     time::{timeout, Duration},
 };
 
+mod defaults {
+    pub const fn lockin_gas_estimate() -> u64 {
+        1_000_000
+    }
+
+    pub const fn fulfil_gas_estimate() -> u64 {
+        300_000_000
+    }
+}
 /// All configuration related to markets mechanics
 #[derive(Deserialize, Serialize)]
 pub struct MarketConf {
@@ -62,10 +71,10 @@ pub struct MarketConf {
     /// Gas Estimation
     ///
     /// Gas estimate for lockin call to use if it cannot be estimated using the node RPC
-    #[serde(default)]
+    #[serde(default = "defaults::lockin_gas_estimate")]
     pub lockin_gas_estimate: u64,
     /// Gas estimate for fulfil call to use if it cannot be estimated using the node RPC
-    #[serde(default)]
+    #[serde(default = "defaults::fulfil_gas_estimate")]
     pub fulfil_gas_estimate: u64,
 }
 
@@ -84,8 +93,8 @@ impl Default for MarketConf {
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
             max_fetch_retries: Some(2),
-            lockin_gas_estimate: 1_000_000,
-            fulfil_gas_estimate: 300_000_000,
+            lockin_gas_estimate: defaults::lockin_gas_estimate(),
+            fulfil_gas_estimate: defaults::fulfil_gas_estimate(),
         }
     }
 }
