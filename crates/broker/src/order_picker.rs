@@ -132,14 +132,18 @@ where
         let gas_price = self.provider.get_gas_price().await.context("Failed to get gas price")?;
         let gas_to_lock_order =
             U256::from(gas_price) * U256::from(self.estimate_gas_to_lock(order).await?);
+        let available_gas = self.available_gas_balance().await?;
+        let available_stake = self.available_stake_balance().await?;
 
-        if gas_to_lock_order >= self.available_gas_balance().await? {
+        if gas_to_lock_order > available_gas {
             tracing::warn!("Estimated there will be insufficient gas to lock this order after locking and fulfilling pending orders");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(());
         }
-        if lockin_stake >= self.available_stake_balance().await? {
-            tracing::warn!("Insufficient stake to lock order {order_id:x}");
+        if lockin_stake > available_stake {
+            tracing::warn!(
+                "Insufficient available stake to lock order {order_id:x}. Requires {lockin_stake}, has {available_stake}"
+            );
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(());
         }
@@ -493,7 +497,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{utils::parse_ether, Address, Bytes, B256, U256},
+        primitives::{aliases::U96, Address, Bytes, B256},
         providers::{
             ext::AnvilApi,
             fillers::{
@@ -505,8 +509,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::deploy_boundless_market, Input, Offer, Predicate, PredicateType, ProofRequest,
-        Requirements,
+        test_utils::{deploy_boundless_market, deploy_hit_points},
+        Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -528,6 +532,7 @@ mod tests {
         Ethereum,
     >;
 
+    /// Reusable context for testing the order picker
     struct TestCtx<P> {
         pub anvil: AnvilInstance,
         pub picker: OrderPicker<P>,
@@ -603,12 +608,17 @@ mod tests {
     #[derive(Default)]
     struct TestCtxBuilder {
         initial_signer_eth: Option<i32>,
+        initial_hp: Option<U256>,
         config: Option<ConfigLock>,
     }
 
     impl TestCtxBuilder {
         pub fn with_initial_signer_eth(self, eth: i32) -> Self {
             Self { initial_signer_eth: Some(eth), ..self }
+        }
+        pub fn with_initial_hp(self, hp: U256) -> Self {
+            assert!(hp < U256::from(U96::MAX), "Cannot have more than 2^96 hit points");
+            Self { initial_hp: Some(hp), ..self }
         }
         pub fn with_config(self, config: ConfigLock) -> Self {
             Self { config: Some(config), ..self }
@@ -629,11 +639,12 @@ mod tests {
 
             provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
 
+            let hp_contract = deploy_hit_points(&signer, provider.clone()).await.unwrap();
             let market_address = deploy_boundless_market(
                 &signer,
                 provider.clone(),
                 Address::ZERO,
-                Address::ZERO,
+                hp_contract,
                 Digest::from(ASSESSOR_GUEST_ID),
                 Some(signer.address()),
             )
@@ -645,6 +656,18 @@ mod tests {
                 provider.clone(),
                 provider.default_signer_address(),
             );
+
+            if let Some(initial_hp) = self.initial_hp {
+                tracing::debug!("Setting initial locked hitpoints to {}", initial_hp);
+                boundless_market.deposit_stake_with_permit(initial_hp, &signer).await.unwrap();
+                assert_eq!(
+                    boundless_market
+                        .balance_of_stake(provider.default_signer_address())
+                        .await
+                        .unwrap(),
+                    initial_hp
+                );
+            }
 
             let image_server = MockServer::start();
             let _get_mock = image_server.mock(|when, then| {
@@ -802,7 +825,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn pending_locked_stake() {
-        let lockin_stake_wei = parse_ether("0.5").unwrap();
+        let lockin_stake = U256::from(10);
 
         let config = ConfigLock::default();
         {
@@ -810,17 +833,18 @@ mod tests {
             config.load_write().unwrap().market.max_stake = "10".into();
         }
 
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx =
+            TestCtx::builder().with_config(config).with_initial_hp(U256::from(100)).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (order_id, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake_wei)
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake)
             .await;
 
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
         ctx.picker.price_order(order_id, &order).await.unwrap();
         // order is pending lock so stake is counted
-        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lockin_stake_wei);
+        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lockin_stake);
 
         ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
         // order no longer pending lock so stake no longer counted
@@ -922,7 +946,7 @@ mod tests {
     #[traced_test]
     async fn cannot_overcommit_stake() {
         let signer_inital_balance_eth = 2;
-        let lockin_stake_wei = parse_ether("1.5").unwrap();
+        let lockin_stake = U256::from(150);
 
         let config = ConfigLock::default();
         {
@@ -932,12 +956,12 @@ mod tests {
 
         let ctx = TestCtx::builder()
             .with_initial_signer_eth(signer_inital_balance_eth)
+            .with_initial_hp(lockin_stake)
             .with_config(config)
             .build()
             .await;
-
         let (_, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake_wei)
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::from(100))
             .await;
 
         let orders = std::iter::repeat(order).take(2).collect::<Vec<_>>();
@@ -956,6 +980,6 @@ mod tests {
             ctx.db.get_order(U256::from(1)).await.unwrap().unwrap().status,
             OrderStatus::Skipped
         );
-        assert!(logs_contain("Stake is higher than available balance"));
+        assert!(logs_contain("Insufficient available stake to lock order"));
     }
 }
