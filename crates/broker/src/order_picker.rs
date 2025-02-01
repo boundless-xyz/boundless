@@ -260,7 +260,6 @@ where
             }
         }
 
-        // Validate the predicates:
         let journal = self
             .prover
             .get_preflight_journal(&proof_res.id)
@@ -268,6 +267,20 @@ where
             .context("Failed to fetch preflight journal")?
             .context("Failed to find preflight journal")?;
 
+        // ensure the journal is a size we are willing to submit on-chain
+        let max_journal_bytes =
+            self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
+        if journal.len() > max_journal_bytes {
+            tracing::warn!(
+                "Order {order_id:x} journal larger than set limit ({} > {}), skipping",
+                journal.len(),
+                max_journal_bytes
+            );
+            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            return Ok(());
+        }
+
+        // Validate the predicates:
         if !order.request.requirements.predicate.eval(journal.clone()) {
             tracing::warn!("Order {order_id:x} predicate check failed, skipping");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
