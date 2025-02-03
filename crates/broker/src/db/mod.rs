@@ -16,6 +16,9 @@ use thiserror::Error;
 
 use crate::{AggregationState, Batch, BatchStatus, Order, OrderStatus, ProofRequest};
 
+#[cfg(test)]
+mod fuzz_db;
+
 #[derive(Error, Debug)]
 pub enum DbError {
     #[error("Order key {0} not found in DB")]

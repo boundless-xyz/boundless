@@ -55,6 +55,10 @@ hex = { workspace = true }
 httpmock = "0.7"
 risc0-zkvm = { workspace = true, default-features = true }
 tracing-test = "0.2"
+proptest = "1.4"
+proptest-derive = "0.4"
+loom = "0.7"
+tokio = { workspace = true, features = ["full"] }
 
 [features]
 test-utils = ["boundless-market/test-utils"]
