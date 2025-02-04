@@ -121,7 +121,7 @@ impl SlasherDb for SqliteDb {
     }
 
     async fn get_expired_orders(&self, current_block: u64) -> Result<Vec<U256>, DbError> {
-        let orders: Vec<DbOrder> = sqlx::query_as("SELECT id FROM orders WHERE expires_at > $1")
+        let orders: Vec<DbOrder> = sqlx::query_as("SELECT id FROM orders WHERE $1 > expires_at")
             .bind(current_block as i64)
             .fetch_all(&self.pool)
             .await?;

@@ -163,7 +163,7 @@ where
     }
 
     async fn process_blocks(&self, from: u64, to: u64) -> Result<(), ServiceError> {
-        // First check for new orders
+        // First check for new locked in requests
         self.process_locked_events(from, to).await?;
 
         // Then check for fulfilled/slashed events
@@ -171,9 +171,7 @@ where
         self.process_slashed_events(from, to).await?;
 
         // Run the slashing task for expired requests
-        for block_no in from..=to {
-            self.process_expired_requests(block_no).await?;
-        }
+        self.process_expired_requests(to).await?;
 
         // Update the last processed block
         self.update_last_processed_block(to).await?;
@@ -204,7 +202,6 @@ where
         // Query the logs for the event
         let logs = event_filter.query().await?;
         for (log, _) in logs {
-            tracing::debug!("Adding new request: 0x{:x}", log.requestId);
             self.add_order(log.requestId).await?;
         }
 
@@ -226,7 +223,6 @@ where
         // Query the logs for the event
         let logs = event_filter.query().await?;
         for (log, _) in logs {
-            tracing::debug!("Removing slashed request: 0x{:x}", log.requestId);
             self.remove_order(log.requestId).await?;
         }
 
@@ -248,7 +244,6 @@ where
         // Query the logs for the event
         let logs = event_filter.query().await?;
         for (log, _) in logs {
-            tracing::debug!("Removing fulfilled request: 0x{:x}", log.requestId);
             self.remove_order(log.requestId).await?;
         }
 
@@ -258,12 +253,17 @@ where
     // Insert request into database
     async fn add_order(&self, request_id: U256) -> Result<(), ServiceError> {
         let expiration = self.boundless_market.request_deadline(request_id).await?;
-
+        tracing::debug!(
+            "Adding new request: 0x{:x} expiring at block_no {}",
+            request_id,
+            expiration
+        );
         Ok(self.db.add_order(request_id, expiration).await?)
     }
 
     // Remove request from database
     async fn remove_order(&self, request_id: U256) -> Result<(), ServiceError> {
+        tracing::debug!("Removing request: 0x{:x}", request_id);
         Ok(self.db.remove_order(request_id).await?)
     }
 
@@ -282,7 +282,11 @@ where
                     if err_msg.contains("RequestIsSlashed")
                         || err_msg.contains("RequestIsFulfilled")
                     {
-                        tracing::warn!("Request already processed, removing 0x{:x}", request_id);
+                        tracing::warn!(
+                            "Request already processed, removing 0x{:x}, reason: {}",
+                            request_id,
+                            err_msg
+                        );
                         self.remove_order(request_id).await?;
                     } else if err_msg.contains("RequestIsNotExpired") {
                         // This should not happen
