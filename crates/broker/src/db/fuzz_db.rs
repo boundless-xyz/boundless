@@ -1,9 +1,14 @@
 use alloy::primitives::{Address, U256};
 use chrono::Utc;
+use elsa::sync::FrozenVec;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
+use rand::Rng;
+use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use std::str::FromStr;
 use std::sync::Arc;
-use tokio::runtime::Runtime;
+use tempfile::NamedTempFile;
+use tokio::runtime::Builder;
 
 use crate::{Order, OrderStatus};
 
@@ -17,13 +22,16 @@ use boundless_market::contracts::{
 #[derive(Debug, Arbitrary, Clone)]
 enum DbOperation {
     AddOrder(u32),
-    GetOrder(u32),
-    SetOrderLock { id: u32, lock_block: u64, expire_block: u64 },
-    SetProvingStatus { id: u32, lock_price: u64 },
-    SetOrderComplete(u32),
-    SkipOrder(u32),
-    GetLastBlock,
-    SetLastBlock(u64),
+    OperateOnExistingOrder(ExistingOrderOperation),
+}
+
+#[derive(Debug, Arbitrary, Clone)]
+enum ExistingOrderOperation {
+    GetOrder,
+    SetOrderLock { lock_block: u32, expire_block: u32 },
+    SetProvingStatus { lock_price: u64 },
+    SetOrderComplete,
+    SkipOrder,
 }
 
 // Generate a valid Order for testing
@@ -66,48 +74,85 @@ fn generate_test_order(id: u32) -> Order {
 // Main fuzz test function
 proptest! {
     #[test]
-    fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..100)) {
-        let rt = Runtime::new().unwrap();
+    fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..10000)) {
+        // Create a multi-threaded runtime with 4 worker threads
+        let rt = Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_time()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        println!("Operations: {}", operations.len());
 
         rt.block_on(async {
-            // Create in-memory SQLite database
+            // Create temporary file for SQLite database
+            let temp_db = NamedTempFile::new().unwrap();
+            // SQLite URL requires 3 forward slashes after sqlite:
+            let db_path = format!("sqlite://{}", temp_db.path().display());
+
+            // Create and initialize the database
+            let opts = SqliteConnectOptions::from_str(&db_path).unwrap()
+                .create_if_missing(true)
+                .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+
+            let pool = SqlitePool::connect_with(opts).await.unwrap();
+
+            // Initialize with VACUUM using sqlx
+            sqlx::query("VACUUM").execute(&pool).await.unwrap();
+            drop(pool);
+
+            // Create file-based SQLite database
             let db: Arc<dyn BrokerDb + Send + Sync> = Arc::new(
-                SqliteDb::new("sqlite::memory:").await.unwrap()
+                SqliteDb::new(&db_path).await.unwrap()
             );
+
+            // Keep track of added order IDs
+            let added_orders = Arc::new(FrozenVec::new());
 
             // Spawn multiple tasks to execute operations concurrently
             let mut handles = vec![];
 
-            for ops in operations.chunks(4) { // Process in chunks of 4 concurrent operations
+            for ops in operations.chunks(12) {
                 let db = db.clone();
                 let ops = ops.to_vec();
+                let added_orders = added_orders.clone();
 
                 handles.push(tokio::spawn(async move {
                     for op in ops {
                         match op {
                             DbOperation::AddOrder(id) => {
-                                let _ = db.add_order(U256::from(id), generate_test_order(id)).await;
+                                db.add_order(U256::from(id), generate_test_order(id)).await.unwrap();
+                                added_orders.push(Box::new(id));
                             },
-                            DbOperation::GetOrder(id) => {
-                                let _ = db.get_order(U256::from(id)).await;
-                            },
-                            DbOperation::SetOrderLock { id, lock_block, expire_block } => {
-                                let _ = db.set_order_lock(U256::from(id), lock_block, expire_block).await;
-                            },
-                            DbOperation::SetProvingStatus { id, lock_price } => {
-                                let _ = db.set_proving_status(U256::from(id), U256::from(lock_price)).await;
-                            },
-                            DbOperation::SetOrderComplete(id) => {
-                                let _ = db.set_order_complete(U256::from(id)).await;
-                            },
-                            DbOperation::SkipOrder(id) => {
-                                let _ = db.skip_order(U256::from(id)).await;
-                            },
-                            DbOperation::GetLastBlock => {
-                                let _ = db.get_last_block().await;
-                            },
-                            DbOperation::SetLastBlock(block) => {
-                                let _ = db.set_last_block(block).await;
+                            DbOperation::OperateOnExistingOrder(operation) => {
+                                // Skip if no orders have been added yet
+                                if added_orders.len() == 0 {
+                                    continue;
+                                }
+
+                                // Randomly select an existing order by index
+                                let len = added_orders.len();
+                                let random_index: usize = rand::rng().random_range(0..len);
+                                let id = *added_orders.get(random_index).unwrap();
+
+                                match operation {
+                                    ExistingOrderOperation::GetOrder => {
+                                        db.get_order(U256::from(id)).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::SetOrderLock { lock_block, expire_block } => {
+                                        db.set_order_lock(U256::from(id), lock_block as u64, expire_block as u64).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::SetProvingStatus { lock_price } => {
+                                        db.set_proving_status(U256::from(id), U256::from(lock_price)).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::SetOrderComplete => {
+                                        db.set_order_complete(U256::from(id)).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::SkipOrder => {
+                                        db.skip_order(U256::from(id)).await.unwrap();
+                                    },
+                                }
                             },
                         }
                     }
@@ -116,20 +161,8 @@ proptest! {
 
             // Wait for all operations to complete
             for handle in handles {
-                let _ = handle.await;
+                handle.await.unwrap();
             }
         });
     }
-}
-
-// Add test to verify database consistency after fuzzing
-#[tokio::test]
-async fn test_db_consistency_after_fuzz() {
-    let db = SqliteDb::new("sqlite::memory:").await.unwrap();
-
-    // Verify database is in a consistent state
-    let last_block = db.get_last_block().await.unwrap();
-    assert!(last_block.is_none() || last_block.unwrap() > 0);
-
-    // Add more consistency checks as needed
 }

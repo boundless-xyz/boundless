@@ -59,6 +59,8 @@ proptest = "1.4"
 proptest-derive = "0.4"
 loom = "0.7"
 tokio = { workspace = true, features = ["full"] }
+rand = { workspace = true }
+elsa = "1.11"
 
 [features]
 test-utils = ["boundless-market/test-utils"]

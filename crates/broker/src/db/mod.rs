@@ -306,8 +306,11 @@ impl BrokerDb for SqliteDb {
         // TODO: can we work out how to correctly
         // use bind + a json field with out string formatting
         // the sql query?
-        .bind(lock_block as i64)
-        .bind(expire_block as i64)
+        .bind(i64::try_from(lock_block).map_err(|_| DbError::BadBlockNumb(lock_block.to_string()))?)
+        .bind(
+            i64::try_from(expire_block)
+                .map_err(|_| DbError::BadBlockNumb(expire_block.to_string()))?,
+        )
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
         .execute(&self.pool)

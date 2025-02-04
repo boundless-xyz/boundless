@@ -2017,6 +2017,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "elsa",
  "futures",
  "futures-util",
  "guest-assessor",
@@ -2029,6 +2030,7 @@ dependencies = [
  "notify",
  "proptest",
  "proptest-derive",
+ "rand 0.9.0",
  "reqwest",
  "risc0-aggregation",
  "risc0-zkvm",
@@ -2829,6 +2831,15 @@ dependencies = [
  "sec1 0.7.3",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "elsa"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2343daaeabe09879d4ea058bb4f1e63da3fc07dadc6634e01bda1b3d6a9d9d2b"
+dependencies = [
+ "stable_deref_trait",
 ]
 
 [[package]]
