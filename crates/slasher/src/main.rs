@@ -18,22 +18,22 @@ struct MainArgs {
     #[clap(short, long, env)]
     rpc_url: Url,
     /// Private key used to sign and submit slash requests.
-    #[clap(long, env)]
+    #[clap(short, long, env)]
     private_key: PrivateKeySigner,
     /// Address of the BoundlessMarket contract.
     #[clap(short, long, env)]
     boundless_market_address: Address,
     /// DB connection string.
-    #[clap(short, long, default_value = "sqlite::memory:")]
+    #[clap(long, default_value = "sqlite::memory:")]
     db: String,
     /// Starting block number.
     #[clap(long)]
     start_block: Option<u64>,
     /// Interval in seconds between checking for expired requests.
-    #[clap(short, long, default_value = "5")]
+    #[clap(long, default_value = "5")]
     interval: u64,
     /// Number of retries before quitting after an error.
-    #[clap(short, long, default_value = "10")]
+    #[clap(long, default_value = "10")]
     retries: u32,
 }
 
