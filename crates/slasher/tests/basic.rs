@@ -54,7 +54,7 @@ async fn create_order(
 }
 
 #[tokio::test]
-async fn test_main() {
+async fn test_basic_usage() {
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
@@ -79,8 +79,7 @@ async fn test_main() {
 
     println!("{} {:?}", exe_path, args);
 
-    let mut cli_handle =
-        Command::new(exe_path).env_clear().env("RISC0_DEV_MODE", "1").args(args).spawn().unwrap();
+    let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
 
     // Subscribe to slash events before operations
     let slash_event = ctx.customer_market.instance().ProverSlashed_filter().watch().await.unwrap();
@@ -107,7 +106,7 @@ async fn test_main() {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
             assert_eq!(request_slashed.prover, ctx.prover_signer.address());
-            cli_handle.kill().unwrap();
+            cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(10)) => {
             panic!("Test timed out waiting for slash event");
