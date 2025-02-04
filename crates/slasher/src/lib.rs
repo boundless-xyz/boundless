@@ -55,6 +55,9 @@ pub enum ServiceError {
 
     #[error("Insufficient funds: {0}")]
     InsufficientFunds(String),
+
+    #[error("Maximum retries reached")]
+    MaxRetries,
 }
 
 #[derive(Clone)]
@@ -113,10 +116,16 @@ where
 
                     tracing::debug!("Processing blocks from {} to {}", from_block, to_block);
 
-                    if let Err(e) = self.process_blocks(from_block, to_block).await {
-                        match e {
+                    match self.process_blocks(from_block, to_block).await {
+                        Ok(_) => {
+                            attempt = 0;
+                            from_block = to_block + 1;
+                        }
+                        Err(e) => match e {
                             // Irrecoverable errors
-                            ServiceError::DatabaseError(_) | ServiceError::InsufficientFunds(_) => {
+                            ServiceError::DatabaseError(_)
+                            | ServiceError::InsufficientFunds(_)
+                            | ServiceError::MaxRetries => {
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
@@ -129,17 +138,7 @@ where
                             ServiceError::BoundlessMarketError(_)
                             | ServiceError::EventQueryError(_)
                             | ServiceError::RpcError(_) => {
-                                if attempt > self.retries {
-                                    attempt += 1;
-                                    tracing::error!(
-                                        "Failed to process blocks from {} to {}: {:?}, attempt number {}",
-                                        from_block,
-                                        to_block,
-                                        e,
-                                        attempt
-                                    );
-                                    return Err(e);
-                                }
+                                attempt += 1;
                                 tracing::warn!(
                                     "Failed to process blocks from {} to {}: {:?}, attempt number {}",
                                     from_block,
@@ -148,15 +147,21 @@ where
                                     attempt
                                 );
                             }
-                        }
-                    } else {
-                        attempt = 0;
-                        from_block = to_block + 1;
+                        },
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to fetch current block: {:?}", e);
+                    attempt += 1;
+                    tracing::warn!(
+                        "Failed to fetch current block: {:?}, attempt number {}",
+                        e,
+                        attempt
+                    );
                 }
+            }
+            if attempt > self.retries {
+                tracing::error!("Aborting after {} consecutive attempts", attempt);
+                return Err(ServiceError::MaxRetries);
             }
         }
     }
