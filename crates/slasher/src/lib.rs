@@ -156,7 +156,6 @@ where
                 }
                 Err(e) => {
                     tracing::warn!("Failed to fetch current block: {:?}", e);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
                 }
             }
         }
