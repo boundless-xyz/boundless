@@ -4,7 +4,7 @@
 
 use std::{str::FromStr, sync::Arc};
 
-use alloy::primitives::{ruint::ParseError as RuintParseErr, U256};
+use alloy::primitives::U256;
 use async_trait::async_trait;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
@@ -20,17 +20,11 @@ pub enum DbError {
     #[error("SQL Migration error")]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
-    #[error("Invalid order id")]
-    InvalidOrderId(#[from] RuintParseErr),
-
     #[error("Invalid block number: {0}")]
     BadBlockNumb(String),
 
     #[error("Failed to set last block")]
     SetBlockFail,
-
-    #[error("Invalid max connection env var value")]
-    MaxConnEnvVar(#[from] std::num::ParseIntError),
 }
 
 #[async_trait]
@@ -114,12 +108,16 @@ impl SlasherDb for SqliteDb {
     }
 
     async fn order_exists(&self, id: U256) -> Result<bool, DbError> {
-        let res: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM orders WHERE id = $1")
+        let res = sqlx::query_scalar::<_, i64>("SELECT COUNT(1) FROM orders WHERE id = $1")
             .bind(format!("{id:x}"))
             .fetch_one(&self.pool)
-            .await?;
+            .await;
 
-        Ok(res == 1)
+        match res {
+            Ok(count) => Ok(count == 1),
+            Err(sqlx::Error::RowNotFound) => Ok(false),
+            Err(e) => Err(DbError::from(e)),
+        }
     }
 
     async fn get_expired_orders(&self, current_block: u64) -> Result<Vec<U256>, DbError> {

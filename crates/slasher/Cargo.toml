@@ -17,7 +17,6 @@ async-trait = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true }
 dotenvy = { workspace = true }
-futures-util = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
@@ -30,6 +29,7 @@ url = { workspace = true }
 
 [dev-dependencies]
 boundless-market = { workspace = true, features = ["test-utils"] }
+futures-util = { workspace = true }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
