@@ -52,6 +52,9 @@ pub enum ServiceError {
 
     #[error("Event query error: {0}")]
     EventQueryError(#[from] alloy::contract::Error),
+
+    #[error("Insufficient funds: {0}")]
+    InsufficientFunds(String),
 }
 
 #[derive(Clone)]
@@ -59,6 +62,7 @@ pub struct SlashService<T, P> {
     pub boundless_market: BoundlessMarketService<T, P>,
     pub db: DbObj,
     pub interval: Duration,
+    pub retries: u32,
 }
 
 impl SlashService<Http<HttpClient>, ProviderWallet> {
@@ -68,6 +72,7 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
         boundless_market_address: Address,
         db_conn: &str,
         interval: Duration,
+        retries: u32,
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
@@ -81,7 +86,7 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
 
         let db: DbObj = Arc::new(SqliteDb::new(db_conn).await.unwrap());
 
-        Ok(Self { boundless_market, db, interval })
+        Ok(Self { boundless_market, db, interval, retries })
     }
 }
 
@@ -96,6 +101,7 @@ where
         let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
         let mut from_block = min(starting_block.unwrap_or(last_processed_block), current_block);
 
+        let mut attempt = 0;
         loop {
             interval.tick().await;
 
@@ -107,30 +113,46 @@ where
 
                     tracing::debug!("Processing blocks from {} to {}", from_block, to_block);
 
-                    if let Err(e) = self.process_block(from_block, to_block).await {
+                    if let Err(e) = self.process_blocks(from_block, to_block).await {
                         match e {
-                            // Irrecoverable error
-                            ServiceError::DatabaseError(db_err) => {
+                            // Irrecoverable errors
+                            ServiceError::DatabaseError(_) | ServiceError::InsufficientFunds(_) => {
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
                                     to_block,
-                                    db_err
+                                    e
                                 );
-                                return Err(ServiceError::DatabaseError(db_err));
+                                return Err(e);
                             }
-                            ServiceError::BoundlessMarketError(_) => {}
-                            ServiceError::EventQueryError(_) => {}
-                            ServiceError::RpcError(_) => {}
+                            // Recoverable errors
+                            ServiceError::BoundlessMarketError(_)
+                            | ServiceError::EventQueryError(_)
+                            | ServiceError::RpcError(_) => {
+                                if attempt > self.retries {
+                                    attempt += 1;
+                                    tracing::error!(
+                                        "Failed to process blocks from {} to {}: {:?}, attempt number {}",
+                                        from_block,
+                                        to_block,
+                                        e,
+                                        attempt
+                                    );
+                                    return Err(e);
+                                }
+                                tracing::warn!(
+                                    "Failed to process blocks from {} to {}: {:?}, attempt number {}",
+                                    from_block,
+                                    to_block,
+                                    e,
+                                    attempt
+                                );
+                            }
                         }
-                        tracing::error!(
-                            "Failed to process blocks from {} to {}: {:?}",
-                            from_block,
-                            to_block,
-                            e
-                        );
+                    } else {
+                        attempt = 0;
+                        from_block = to_block + 1;
                     }
-                    from_block = to_block + 1;
                 }
                 Err(e) => {
                     tracing::warn!("Failed to fetch current block: {:?}", e);
@@ -140,7 +162,7 @@ where
         }
     }
 
-    async fn process_block(&self, from: u64, to: u64) -> Result<(), ServiceError> {
+    async fn process_blocks(&self, from: u64, to: u64) -> Result<(), ServiceError> {
         // First check for new orders
         self.process_locked_events(from, to).await?;
 
@@ -148,8 +170,10 @@ where
         self.process_fulfilled_events(from, to).await?;
         self.process_slashed_events(from, to).await?;
 
-        // Run the slashing task
-        self.process_expired_requests(to).await?;
+        // Run the slashing task for expired requests
+        for block_no in from..=to {
+            self.process_expired_requests(block_no).await?;
+        }
 
         // Update the last processed block
         self.update_last_processed_block(to).await?;
@@ -180,6 +204,7 @@ where
         // Query the logs for the event
         let logs = event_filter.query().await?;
         for (log, _) in logs {
+            tracing::debug!("Adding new request: 0x{:x}", log.requestId);
             self.add_order(log.requestId).await?;
         }
 
@@ -201,6 +226,7 @@ where
         // Query the logs for the event
         let logs = event_filter.query().await?;
         for (log, _) in logs {
+            tracing::debug!("Removing slashed request: 0x{:x}", log.requestId);
             self.remove_order(log.requestId).await?;
         }
 
@@ -222,6 +248,7 @@ where
         // Query the logs for the event
         let logs = event_filter.query().await?;
         for (log, _) in logs {
+            tracing::debug!("Removing fulfilled request: 0x{:x}", log.requestId);
             self.remove_order(log.requestId).await?;
         }
 
@@ -247,15 +274,33 @@ where
         for request_id in expired {
             match self.boundless_market.slash(request_id).await {
                 Ok(_) => {
-                    tracing::info!("Slashing successful for request {}", request_id);
+                    tracing::info!("Slashing successful for request 0x{:x}", request_id);
                     self.remove_order(request_id).await?;
                 }
                 Err(err) => {
-                    // if err.contains("Request already slashed") {
-                    //     tracing::info!("Request {} already slashed", request_id);
-                    //     self.remove_order(request_id).await?;
-                    // } else {
-                    tracing::error!("Slashing failed for request {}: {}", request_id, err);
+                    let err_msg = err.to_string();
+                    if err_msg.contains("RequestIsSlashed")
+                        || err_msg.contains("RequestIsFulfilled")
+                    {
+                        tracing::warn!("Request already processed, removing 0x{:x}", request_id);
+                        self.remove_order(request_id).await?;
+                    } else if err_msg.contains("RequestIsNotExpired") {
+                        // This should not happen
+                        tracing::warn!("Request 0x{:x} is not expired yet", request_id);
+                    } else if err_msg.contains("insufficient funds")
+                        || err_msg.contains("gas required exceeds allowance")
+                    {
+                        tracing::error!(
+                            "Insufficient funds for slashing request 0x{:x}",
+                            request_id
+                        );
+                        // Return as this is irrecoverable
+                        return Err(ServiceError::InsufficientFunds(err_msg));
+                    } else {
+                        // Any other error should be RPC related so we can retry
+                        tracing::error!("Failed to slash request 0x{:x}", request_id);
+                        return Err(ServiceError::BoundlessMarketError(err));
+                    }
                 }
             }
         }

@@ -30,8 +30,11 @@ struct MainArgs {
     #[clap(long)]
     start_block: Option<u64>,
     /// Interval in seconds between checking for expired requests.
-    #[clap(short, long, default_value = "60")]
+    #[clap(short, long, default_value = "5")]
     interval: u64,
+    /// Number of retries before quitting after an error.
+    #[clap(short, long, default_value = "10")]
+    retries: u32,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -72,6 +75,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         args.boundless_market_address,
         &args.db,
         Duration::from_secs(args.interval),
+        args.retries,
     )
     .await?;
 
@@ -150,6 +154,7 @@ mod tests {
             db: "sqlite::memory:".to_string(),
             start_block: None,
             interval: 1,
+            retries: 1,
         };
 
         let main_handle = tokio::spawn(async move { run(&args).await });
