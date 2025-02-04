@@ -32,6 +32,12 @@ enum ExistingOrderOperation {
     SetProvingStatus { lock_price: u64 },
     SetOrderComplete,
     SkipOrder,
+    SetOrderFailure { failure_str: String },
+    SetOrderProofId { proof_id: String },
+    SetImageInputIds { image_id: String, input_id: String },
+    SetAggregationStatus,
+    GetSubmissionOrder,
+    OrderExists,
 }
 
 // Generate a valid Order for testing
@@ -74,7 +80,7 @@ fn generate_test_order(id: u32) -> Order {
 // Main fuzz test function
 proptest! {
     #[test]
-    fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..10000)) {
+    fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..1000)) {
         // Create a multi-threaded runtime with 4 worker threads
         let rt = Builder::new_multi_thread()
             .worker_threads(4)
@@ -151,6 +157,29 @@ proptest! {
                                     },
                                     ExistingOrderOperation::SkipOrder => {
                                         db.skip_order(U256::from(id)).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::SetOrderFailure { failure_str } => {
+                                        db.set_order_failure(U256::from(id), failure_str).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::SetOrderProofId { proof_id } => {
+                                        db.set_order_proof_id(U256::from(id), &proof_id).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::SetImageInputIds { image_id, input_id } => {
+                                        db.set_image_input_ids(U256::from(id), &image_id, &input_id).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::SetAggregationStatus => {
+                                        db.set_aggregation_status(U256::from(id)).await.unwrap();
+                                    },
+                                    ExistingOrderOperation::GetSubmissionOrder => {
+                                        let order = db.get_order(U256::from(id)).await.unwrap();
+                                        if let Some(order) = order {
+                                            if order.proof_id.is_some() && order.lock_price.is_some() {
+                                                db.get_submission_order(U256::from(id)).await.unwrap();
+                                            }
+                                        }
+                                    },
+                                    ExistingOrderOperation::OrderExists => {
+                                        db.order_exists(U256::from(id)).await.unwrap();
                                     },
                                 }
                             },

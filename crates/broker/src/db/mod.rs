@@ -198,6 +198,8 @@ struct DbBatch {
 #[async_trait]
 impl BrokerDb for SqliteDb {
     async fn add_order(&self, id: U256, order: Order) -> Result<Option<Order>, DbError> {
+        // TODO note this can have a collision where a duplicate order is added, which will break
+        // constraint on ID?
         sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2)")
             .bind(format!("{id:x}"))
             .bind(sqlx::types::Json(&order))
