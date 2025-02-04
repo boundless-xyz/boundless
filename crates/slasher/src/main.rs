@@ -62,13 +62,6 @@ async fn main() -> Result<()> {
 
     let args = MainArgs::parse();
 
-    // NOTE: Using a separate `run` function to facilitate testing below.
-    run(&args).await?;
-
-    Ok(())
-}
-
-async fn run(args: &MainArgs) -> Result<()> {
     let slash_service = SlashService::new(
         args.rpc_url.clone(),
         &args.private_key,
