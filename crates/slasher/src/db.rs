@@ -87,7 +87,7 @@ impl SlasherDb for SqliteDb {
     async fn add_order(&self, id: U256, expires_at: u64) -> Result<(), DbError> {
         // Only store the order if it has a valid expiration time.
         // If the expires_at is 0, the request is already slashed or fulfilled (or even not locked).
-        if expires_at > 0 {
+        if expires_at > 0 && !self.order_exists(id).await? {
             sqlx::query("INSERT INTO orders (id, expires_at) VALUES ($1, $2)")
                 .bind(format!("{id:x}"))
                 .bind(expires_at as i64)
@@ -172,6 +172,14 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
         db.add_order(id, 10).await.unwrap();
+
+        // Adding the same order should not fail
+        db.add_order(id, 10).await.unwrap();
+
+        // Adding an order slashed or fulfilled should not store it
+        let id = U256::from(1);
+        db.add_order(id, 0).await.unwrap();
+        assert!(!db.order_exists(id).await.unwrap());
     }
 
     #[sqlx::test]
@@ -180,6 +188,7 @@ mod tests {
         let id = U256::ZERO;
         db.add_order(id, 10).await.unwrap();
         db.remove_order(id).await.unwrap();
+        // Removing the same order should not fail
         db.remove_order(id).await.unwrap();
     }
 
@@ -202,10 +211,14 @@ mod tests {
     async fn get_expired_orders(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
-        db.add_order(id, 10).await.unwrap();
+        let expires_at = 10;
+        db.add_order(id, expires_at).await.unwrap();
 
-        let db_order = db.get_expired_orders(10).await.unwrap();
+        // Order should expires AFTER the `expires_at` block
+        let expired = db.get_expired_orders(expires_at).await.unwrap();
+        assert!(expired.is_empty());
 
+        let db_order = db.get_expired_orders(expires_at + 1).await.unwrap();
         assert_eq!(id, db_order[0]);
     }
 
