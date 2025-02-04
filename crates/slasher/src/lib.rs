@@ -252,7 +252,8 @@ where
 
     // Insert request into database
     async fn add_order(&self, request_id: U256) -> Result<(), ServiceError> {
-        let expiration = self.boundless_market.request_deadline(request_id).await?;
+        let expiration =
+            self.boundless_market.instance().requestDeadline(request_id).call().await?._0;
         tracing::debug!(
             "Adding new request: 0x{:x} expiring at block_no {}",
             request_id,

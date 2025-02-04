@@ -1157,14 +1157,6 @@ where
         let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?._0;
         Ok(balance)
     }
-
-    /// Returns the expiration block number for a request.
-    pub async fn request_deadline(&self, request_id: U256) -> Result<u64, MarketError> {
-        tracing::debug!("Calling requestDeadline({:x})", request_id);
-        let deadline =
-            self.instance.requestDeadline(request_id).call().await.context("call failed")?._0;
-        Ok(deadline)
-    }
 }
 
 #[cfg(test)]
