@@ -9,7 +9,7 @@ RUN apt-get -qq update && \
 SHELL ["/bin/bash", "-c"]
 
 RUN curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install rust r0.1.81.0
+    PATH="$PATH:/root/.risc0/bin" rzup install
 
 FROM init AS builder
 
