@@ -139,6 +139,7 @@ proptest! {
             let pool = SqlitePool::connect_with(opts).await.unwrap();
 
             // Initialize with VACUUM using sqlx
+            // TODO double check if necessary with `create_if_missing`, was previously
             sqlx::query("VACUUM").execute(&pool).await.unwrap();
             drop(pool);
 
