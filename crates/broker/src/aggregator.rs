@@ -445,7 +445,7 @@ where
 
                 // If we don't need to finalize, and there are no new proofs, there is no work to do.
                 if !finalize && new_proofs.is_empty() {
-                    tracing::debug!("No aggregation work to do for batch {batch_id}");
+                    tracing::trace!("No aggregation work to do for batch {batch_id}");
                     return Ok(());
                 }
 

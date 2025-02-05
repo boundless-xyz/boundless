@@ -113,7 +113,7 @@ pub struct Args {
     #[clap(long, env)]
     boundless_market_address: Address,
 
-    /// Minimum balance required to connect to the WebSocket
+    /// Minimum stake balance required to connect to the WebSocket
     #[clap(long, value_parser = parse_ether)]
     min_balance: U256,
 

@@ -28,7 +28,7 @@ use alloy::{network::Ethereum, primitives::Address, providers::Provider, transpo
 use alloy_primitives::U256;
 use anyhow::{Context, Result};
 
-const DEFAULT_ALLOWANCE: u32 = 100;
+const DEFAULT_ALLOWANCE: u128 = 100000000000000000000;
 /// HitPointsService provides a high-level interface to the HitPoints contract.
 #[derive(Clone)]
 pub struct HitPointsService<T, P> {

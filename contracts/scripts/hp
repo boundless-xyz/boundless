@@ -2,8 +2,8 @@
 
 set -eo pipefail
 
-# Default mint amount (can be overridden by environment variable)
-DEFAULT_MINT_AMOUNT="${DEFAULT_MINT_AMOUNT:-100}"
+# Default mint amount 100 tokens (can be overridden by environment variable)
+DEFAULT_MINT_AMOUNT="${DEFAULT_MINT_AMOUNT:-100000000000000000000}"
 
 # Check if required environment variables are set
 check_env_vars() {
@@ -130,7 +130,7 @@ case "$1" in
     *)
         echo "Usage: $0 {mint|grant-minter-role|revoke-minter-role|grant-auth-transfer-role|revoke-auth-transfer-role|balance} [arguments]"
         echo "Examples:"
-        echo "  $0 mint 0x1234... 100"
+        echo "  $0 mint 0x1234... 100000000000000000000"
         echo "  $0 grant-minter-role 0x5678..."
         echo "  $0 revoke-minter-role 0x9abc..."
         echo "  $0 grant-auth-transfer-role 0x5678..."

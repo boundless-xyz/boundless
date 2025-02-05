@@ -65,7 +65,7 @@ format-check:
     cd examples/counter && cargo fmt --all --check
     cd bento && cargo sort --workspace --check
     cd bento && cargo fmt --all --check
-    cd documentation && bun run ci
+    cd documentation && bun run check
     forge fmt --check
 
 docker:
