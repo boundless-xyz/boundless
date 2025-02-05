@@ -597,6 +597,7 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
+        // TODO why is this an UPDATE?
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -620,6 +621,7 @@ impl BrokerDb for SqliteDb {
         for order in orders.into_iter() {
             agg_orders.push(AggregationOrder {
                 order_id: U256::from_str_radix(&order.id, 16)?,
+                // TODO why are these three required if optional on order?
                 proof_id: order
                     .data
                     .proof_id

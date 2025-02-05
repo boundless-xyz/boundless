@@ -4,13 +4,16 @@ use elsa::sync::FrozenVec;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use rand::Rng;
+use risc0_aggregation::GuestState;
+use risc0_zkvm::sha::Digest;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::runtime::Builder;
 
-use crate::{Order, OrderStatus};
+use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
 
 use super::{BrokerDb, SqliteDb};
 
@@ -18,11 +21,27 @@ use boundless_market::contracts::{
     Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
 };
 
+// Add new state tracking structure
+struct TestState {
+    added_orders: Arc<FrozenVec<Box<u32>>>,
+    completed_batch: Arc<AtomicBool>,
+}
+
 // Define the possible operations we want to test
 #[derive(Debug, Arbitrary, Clone)]
 enum DbOperation {
     AddOrder(u32),
     OperateOnExistingOrder(ExistingOrderOperation),
+    BatchOperation(BatchOperation),
+    GetOrderForPricing,
+    GetActivePricingOrders,
+    GetPendingLockOrders(u32),
+    GetProvingOrder,
+    GetActiveProofs,
+    GetLastBlock,
+    SetLastBlock(u32),
+    GetAggregationProofs,
+    GetBatch(u32),
 }
 
 #[derive(Debug, Arbitrary, Clone)]
@@ -38,6 +57,23 @@ enum ExistingOrderOperation {
     SetAggregationStatus,
     GetSubmissionOrder,
     OrderExists,
+}
+
+#[derive(Debug, Arbitrary, Clone)]
+enum BatchOperation {
+    GetCurrentBatch,
+    CompleteBatch {
+        g16_proof_id: String,
+    },
+    GetCompleteBatch,
+    SetBatchSubmitted,
+    SetBatchFailure {
+        error: String,
+    },
+    UpdateBatch {
+        proof_id: String,
+        order_count: u8, // Will use this to select N random orders for the batch
+    },
 }
 
 // Generate a valid Order for testing
@@ -69,10 +105,10 @@ fn generate_test_order(id: u32) -> Order {
         ),
         image_id: None,
         input_id: None,
-        proof_id: None,
-        expire_block: None,
+        proof_id: Some(format!("proof_{}", id)),
+        expire_block: Some(1000),
         client_sig: vec![].into(),
-        lock_price: None,
+        lock_price: Some(U256::from(10)),
         error_msg: None,
     }
 }
@@ -80,7 +116,7 @@ fn generate_test_order(id: u32) -> Order {
 // Main fuzz test function
 proptest! {
     #[test]
-    fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..1000)) {
+    fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..100000)) {
         // Create a multi-threaded runtime with 4 worker threads
         let rt = Builder::new_multi_thread()
             .worker_threads(4)
@@ -88,8 +124,6 @@ proptest! {
             .enable_all()
             .build()
             .unwrap();
-
-        println!("Operations: {}", operations.len());
 
         rt.block_on(async {
             // Create temporary file for SQLite database
@@ -113,8 +147,11 @@ proptest! {
                 SqliteDb::new(&db_path).await.unwrap()
             );
 
-            // Keep track of added order IDs
-            let added_orders = Arc::new(FrozenVec::new());
+            // Create state tracking structure
+            let state = TestState {
+                added_orders: Arc::new(FrozenVec::new()),
+                completed_batch: Arc::new(AtomicBool::new(false)),
+            };
 
             // Spawn multiple tasks to execute operations concurrently
             let mut handles = vec![];
@@ -122,25 +159,28 @@ proptest! {
             for ops in operations.chunks(12) {
                 let db = db.clone();
                 let ops = ops.to_vec();
-                let added_orders = added_orders.clone();
+                let state = TestState {
+                    added_orders: state.added_orders.clone(),
+                    completed_batch: state.completed_batch.clone(),
+                };
 
                 handles.push(tokio::spawn(async move {
                     for op in ops {
                         match op {
                             DbOperation::AddOrder(id) => {
                                 db.add_order(U256::from(id), generate_test_order(id)).await.unwrap();
-                                added_orders.push(Box::new(id));
+                                state.added_orders.push(Box::new(id));
                             },
                             DbOperation::OperateOnExistingOrder(operation) => {
                                 // Skip if no orders have been added yet
-                                if added_orders.len() == 0 {
+                                if state.added_orders.len() == 0 {
                                     continue;
                                 }
 
                                 // Randomly select an existing order by index
-                                let len = added_orders.len();
+                                let len = state.added_orders.len();
                                 let random_index: usize = rand::rng().random_range(0..len);
-                                let id = *added_orders.get(random_index).unwrap();
+                                let id = *state.added_orders.get(random_index).unwrap();
 
                                 match operation {
                                     ExistingOrderOperation::GetOrder => {
@@ -182,6 +222,99 @@ proptest! {
                                         db.order_exists(U256::from(id)).await.unwrap();
                                     },
                                 }
+                            },
+                            DbOperation::BatchOperation(operation) => {
+                                match operation {
+                                    BatchOperation::GetCurrentBatch => {
+                                        db.get_current_batch().await.unwrap();
+                                    },
+                                    BatchOperation::CompleteBatch { g16_proof_id } => {
+                                        let batch_id = db.get_current_batch().await.unwrap();
+                                        let batch = db.get_batch(batch_id).await.unwrap();
+                                        if batch.aggregation_state.is_some() {
+                                            db.complete_batch(batch_id, g16_proof_id).await.unwrap();
+                                            state.completed_batch.store(true, Ordering::SeqCst);
+                                        }
+                                    },
+                                    BatchOperation::GetCompleteBatch => {
+                                        db.get_complete_batch().await.unwrap();
+                                    },
+                                    BatchOperation::SetBatchSubmitted => {
+                                        if state.completed_batch.load(Ordering::SeqCst) {
+                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            db.set_batch_submitted(batch_id).await.unwrap();
+                                        }
+                                    },
+                                    BatchOperation::SetBatchFailure { error } => {
+                                        if state.completed_batch.load(Ordering::SeqCst) {
+                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            db.set_batch_failure(batch_id, error).await.unwrap();
+                                        }
+                                    },
+                                    BatchOperation::UpdateBatch { proof_id, order_count } => {
+                                        if state.added_orders.len() > 0 {
+                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            // Select up to order_count random orders
+                                            let count = std::cmp::min(order_count as usize, state.added_orders.len());
+                                            let mut orders = Vec::with_capacity(count);
+
+                                            for _ in 0..count {
+                                                let len = state.added_orders.len();
+                                                let random_index: usize = rand::rng().random_range(0..len);
+                                                let id = *state.added_orders.get(random_index).unwrap();
+
+                                                orders.push(AggregationOrder {
+                                                    order_id: U256::from(id),
+                                                    proof_id: format!("proof_{}", id),
+                                                    expire_block: 1000,
+                                                    fee: U256::from(10),
+                                                });
+                                            }
+
+                                            let agg_state = AggregationState {
+                                                guest_state: GuestState::initial([1u32; 8]),
+                                                claim_digests: vec![],
+                                                groth16_proof_id: None,
+                                                proof_id,
+                                            };
+
+                                            db.update_batch(
+                                                batch_id,
+                                                &agg_state,
+                                                &orders,
+                                                Some(Digest::from([2u32; 8])),
+                                            ).await.unwrap();
+                                        }
+                                    },
+                                }
+                            },
+                            DbOperation::GetOrderForPricing => {
+                                db.get_order_for_pricing().await.unwrap();
+                            },
+                            DbOperation::GetActivePricingOrders => {
+                                db.get_active_pricing_orders().await.unwrap();
+                            },
+                            DbOperation::GetPendingLockOrders(end_block) => {
+                                db.get_pending_lock_orders(end_block as u64).await.unwrap();
+                            },
+                            DbOperation::GetProvingOrder => {
+                                db.get_proving_order().await.unwrap();
+                            },
+                            DbOperation::GetActiveProofs => {
+                                db.get_active_proofs().await.unwrap();
+                            },
+                            DbOperation::GetLastBlock => {
+                                db.get_last_block().await.unwrap();
+                            },
+                            DbOperation::SetLastBlock(block) => {
+                                db.set_last_block(block as u64).await.unwrap();
+                            },
+                            DbOperation::GetAggregationProofs => {
+                                db.get_aggregation_proofs().await.unwrap();
+                            },
+                            DbOperation::GetBatch(batch_id) => {
+                                let current_batch = db.get_current_batch().await.unwrap();
+                                let _ = db.get_batch(batch_id as usize % current_batch).await;
                             },
                         }
                     }
