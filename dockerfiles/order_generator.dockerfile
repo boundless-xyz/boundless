@@ -1,5 +1,3 @@
-ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
-
 # Build stage
 FROM rust:1.81.0-bookworm AS init
 
@@ -8,12 +6,12 @@ RUN apt-get -qq update && \
 
 SHELL ["/bin/bash", "-c"]
 
-RUN curl -L https://risczero.com/install | bash && \
+# TODO: Update once rzup 0.3 is released. Current live version does not install due to symlink issue.
+RUN curl -L https://risc0-artifacts.s3.us-west-2.amazonaws.com/rzup/test/install | ENV_PATH=test bash && \ 
     PATH="$PATH:/root/.risc0/bin" rzup install
+ENV RISC0_SERVER_PATH=/usr/local/cargo/bin/r0vm
 
 FROM init AS builder
-
-ARG S3_CACHE_PREFIX
 
 WORKDIR /src
 
@@ -27,24 +25,12 @@ COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
 
-COPY ./dockerfiles/sccache-setup.sh .
-RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
-COPY ./dockerfiles/sccache-config.sh .
 SHELL ["/bin/bash", "-c"]
 
-# Prevent sccache collision in compose-builds
-ENV SCCACHE_SERVER_PORT=4231
+RUN cargo build --release --bin boundless-order-generator
 
-RUN \
-    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
-    --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_api_sccache \
-    source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
-    cargo build --release --bin boundless-order-generator && \
-    sccache --show-stats
-
-FROM rust:1.81.0-bookworm AS runtime
-
-RUN apt-get -qq update
+# Use init as we need r0vm to run the executo
+FROM init AS runtime
 
 COPY --from=builder /src/target/release/boundless-order-generator /app/boundless-order-generator
 

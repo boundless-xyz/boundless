@@ -153,8 +153,6 @@ async fn run(args: &MainArgs) -> Result<()> {
             }
         }
 
-        tracing::info!("Reading inputs");
-
         let input: Vec<u8> = match (args.input.input.clone(), args.input.input_file.clone()) {
             (Some(input), None) => input,
             (None, Some(input_file)) => std::fs::read(input_file)?,
@@ -162,15 +160,11 @@ async fn run(args: &MainArgs) -> Result<()> {
             _ => bail!("at most one of input or input-file args must be provided"),
         };
 
-        tracing::info!("Read {} bytes, about to write to input builder", input.len());
-
         let env = if args.encode_input {
             InputBuilder::new().write(&input)?.build_env()?
         } else {
             InputBuilder::new().write_slice(&input).build_env()?
         };
-
-        tracing::info!("Running the default executor");
 
         let session_info = default_executor().execute(env.clone().try_into()?, &elf)?;
         let mcycles_count = session_info
@@ -198,15 +192,18 @@ async fn run(args: &MainArgs) -> Result<()> {
             )
             .build()?;
 
-        tracing::info!("About to submit request");
-
-        let (request_id, _) = if args.order_stream_url.is_some() {
+        let submit_offchain = args.order_stream_url.is_some();
+        let (request_id, _) = if submit_offchain {
             boundless_client.submit_request_offchain(&request).await?
         } else {
             boundless_client.submit_request(&request).await?
         };
 
-        tracing::info!("Request 0x{request_id:x} submitted");
+        if submit_offchain {
+            tracing::info!("Request 0x{request_id:x} submitted offchain");
+        } else {
+            tracing::info!("Request 0x{request_id:x} submitted onchain");
+        }
 
         i += 1;
         tokio::time::sleep(Duration::from_secs(args.interval)).await;
