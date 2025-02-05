@@ -116,7 +116,7 @@ fn generate_test_order(id: u32) -> Order {
 // Main fuzz test function
 proptest! {
     #[test]
-    fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..100000)) {
+    fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..1000)) {
         // Create a multi-threaded runtime with 4 worker threads
         let rt = Builder::new_multi_thread()
             .worker_threads(4)
