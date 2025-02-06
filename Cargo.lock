@@ -2082,7 +2082,7 @@ dependencies = [
  "guest-assessor",
  "guest-set-builder",
  "guest-util",
- "rand",
+ "rand 0.9.0",
  "reqwest",
  "risc0-zkp",
  "serde_json",

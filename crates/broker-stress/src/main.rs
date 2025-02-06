@@ -5,9 +5,12 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
-use boundless_market::contracts::{
-    hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
-    PredicateType, ProofRequest, Requirements,
+use boundless_market::{
+    contracts::{
+        hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
+        PredicateType, ProofRequest, Requirements,
+    },
+    input::InputBuilder,
 };
 use broker::test_utils::BrokerBuilder;
 use clap::Parser;
@@ -75,7 +78,14 @@ async fn request_spawner(
                 },
             },
             elf_url,
-            Input { inputType: InputType::Inline, data: vec![0x41; r.gen_range(1..32)].into() },
+            Input {
+                inputType: InputType::Inline,
+                data: InputBuilder::new()
+                    .write_slice(&vec![0x41u8; r.random_range(1..32)])
+                    .build_vec()
+                    .unwrap()
+                    .into(),
+            },
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
