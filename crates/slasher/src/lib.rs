@@ -58,6 +58,9 @@ pub enum ServiceError {
 
     #[error("Maximum retries reached")]
     MaxRetries,
+
+    #[error("Request not expired")]
+    RequestNotExpired,
 }
 
 #[derive(Clone)]
@@ -125,7 +128,8 @@ where
                             // Irrecoverable errors
                             ServiceError::DatabaseError(_)
                             | ServiceError::InsufficientFunds(_)
-                            | ServiceError::MaxRetries => {
+                            | ServiceError::MaxRetries
+                            | ServiceError::RequestNotExpired => {
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
@@ -295,7 +299,8 @@ where
                         self.remove_order(request_id).await?;
                     } else if err_msg.contains("RequestIsNotExpired") {
                         // This should not happen
-                        tracing::warn!("Request 0x{:x} is not expired yet", request_id);
+                        tracing::error!("Request 0x{:x} is not expired yet", request_id);
+                        return Err(ServiceError::RequestNotExpired);
                     } else if err_msg.contains("insufficient funds")
                         || err_msg.contains("gas required exceeds allowance")
                     {
