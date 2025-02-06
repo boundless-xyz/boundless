@@ -1,3 +1,7 @@
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
+
 use alloy::primitives::{Address, U256};
 use chrono::Utc;
 use elsa::sync::FrozenVec;

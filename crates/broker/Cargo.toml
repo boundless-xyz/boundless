@@ -49,17 +49,17 @@ uuid = { workspace = true }
 alloy = { workspace = true, features = ["node-bindings"] }
 boundless-market = { workspace = true, features = ["test-utils"] }
 broker = { path = ".", features = ["test-utils"] }
+elsa = "1.11"
 guest-assessor = { workspace = true }
 guest-util = { workspace = true }
 hex = { workspace = true }
 httpmock = "0.7"
-risc0-zkvm = { workspace = true, default-features = true }
-tracing-test = "0.2"
 proptest = "1.4"
 proptest-derive = "0.4"
-tokio = { workspace = true, features = ["full"] }
 rand = { workspace = true }
-elsa = "1.11"
+risc0-zkvm = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["full"] }
+tracing-test = "0.2"
 
 [features]
 test-utils = ["boundless-market/test-utils"]

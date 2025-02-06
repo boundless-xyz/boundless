@@ -198,8 +198,7 @@ struct DbBatch {
 #[async_trait]
 impl BrokerDb for SqliteDb {
     async fn add_order(&self, id: U256, order: Order) -> Result<Option<Order>, DbError> {
-        // TODO note this can have a collision where a duplicate order is added, which will break
-        // constraint on ID?
+        // TODO(austin): https://github.com/boundless-xyz/boundless/issues/162
         sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2)")
             .bind(format!("{id:x}"))
             .bind(sqlx::types::Json(&order))
@@ -597,7 +596,6 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
-        // TODO why is this an UPDATE?
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -621,7 +619,7 @@ impl BrokerDb for SqliteDb {
         for order in orders.into_iter() {
             agg_orders.push(AggregationOrder {
                 order_id: U256::from_str_radix(&order.id, 16)?,
-                // TODO why are these three required if optional on order?
+                // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
                 proof_id: order
                     .data
                     .proof_id
