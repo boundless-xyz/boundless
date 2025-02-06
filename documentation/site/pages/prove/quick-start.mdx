@@ -38,8 +38,21 @@ Boundless is comprised of two major components:
 1. **Bento** is the local proving infrastructure. Bento will take requests, prove them and return the result
 2. The **Broker** interacts with the Boundless market. Broker can submit or request proves from the market.
 
+To get started, run:
 
 ```sh [Terminal]
+sudo scripts/boundless_service.sh start
+```
+
+To stop all services, run:
+
+```sh [Terminal]
+sudo scripts/boundless_service.sh stop
+```
+
+---
+
+```sh [boundless_service.sh --help]
 Usage: scripts/boundless_service.sh [command] [options]
 
 Commands:
