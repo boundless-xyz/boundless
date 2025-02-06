@@ -12,9 +12,9 @@ This repository contains the core primitives for Boundless.
 
 ## Repository Structure
 
-The repository is structured as a monorepo including many crates and contracts. Some key components:
+The repository is structured as a monorepo and contains Rust crates and Solidity contracts. Some key components:
 
-- **Boundless Core Contracts**: The core smart contracts for Boundless. [contracts](./contracts)
+- **Boundless Core Contracts**: The core smart contracts for Boundless. [./contracts](./contracts)
 - **Boundless SDK**: Rust SDK for interacting with Boundless. [./crates/boundless-market](./crates/boundless-market)
 - **Boundless CLI**: Command-line interface for interacting with Boundless. [./crates/boundless-cli](./crates/boundless-cli)
 - **Boundless Broker**: Our sample prover implementation. [./crates/broker](./crates/broker)
@@ -40,6 +40,25 @@ You can verify the installation was successful by running:
 
 ```sh
 cargo risczero --version
+```
+
+If you don't already have Forge installed, you can install it using Foundry:
+
+```sh
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+To build the Solidity contracts, run:
+
+```sh
+forge build
+```
+
+To build the Rust crates, run:
+
+```sh
+cargo build
 ```
 
 ## Documentation
