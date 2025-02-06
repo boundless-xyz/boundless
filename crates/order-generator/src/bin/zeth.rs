@@ -32,7 +32,7 @@ use zeth_preflight_ethereum::RethBlockBuilder;
 const MAX_RETRY_ATTEMPTS: u32 = 5;
 const RETRY_DELAY_SECS: u64 = 5;
 
-/// Arguments of the publisher CLI.
+/// Arguments of boundless-zeth CLI.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -288,7 +288,7 @@ where
         .build()?;
 
     // Send the request.
-    let (request_id, _) = boundless_client.submit_request(&request).await?;
+    let (request_id, _) = boundless_client.submit_request_offchain(&request).await?;
 
     Ok(request_id)
 }

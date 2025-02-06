@@ -33,6 +33,6 @@ RUN cargo build --release --bin zeth -F zeth
 # Use init as we need r0vm to run the executor
 FROM init AS runtime
 
-COPY --from=builder /src/target/release/zeth /app/zeth
+COPY --from=builder /src/target/release/boundless-zeth /app/boundless-zeth
 
-ENTRYPOINT ["/app/zeth"]
+ENTRYPOINT ["/app/boundless-zeth"]

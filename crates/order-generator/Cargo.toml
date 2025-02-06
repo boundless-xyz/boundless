@@ -11,7 +11,8 @@ publish = false
 release = false
 
 [[bin]]
-name = "zeth"
+name = "boundless-zeth"
+path = "src/bin/zeth.rs"
 required-features = ["zeth"]
 
 [dependencies]
