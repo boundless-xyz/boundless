@@ -9,6 +9,7 @@ members = [
     "crates/guest/util",
     "crates/order-generator",
     "crates/order-stream",
+    "crates/slasher",
     "documentation/doc-test",
 ]
 

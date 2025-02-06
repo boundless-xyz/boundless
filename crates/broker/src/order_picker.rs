@@ -407,12 +407,12 @@ where
 
     /// Estimate of gas for fulfilling any orders either pending lock or locked
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
-        let pending_fulfil_orders = self.db.get_orders_committed_to_fulfil_count().await?;
-        Ok((pending_fulfil_orders as u64)
-            * self.config.lock_all().context("Failed to read config")?.market.fulfil_gas_estimate)
+        let pending_fulfill_orders = self.db.get_orders_committed_to_fulfill_count().await?;
+        Ok((pending_fulfill_orders as u64)
+            * self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
     }
 
-    /// Estimate the total gas tokens reserved to lock and fulfil all pending orders
+    /// Estimate the total gas tokens reserved to lock and fulfill all pending orders
     async fn gas_reserved(&self) -> Result<U256> {
         let gas_price = self.provider.get_gas_price().await.context("Failed to get gas price")?;
         let lock_pending_gas = self.estimate_gas_to_lock_pending().await?;
@@ -890,12 +890,12 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn use_gas_to_fulfil_estimate_from_config() {
-        let fulfil_gas = 123_456;
+    async fn use_gas_to_fulfill_estimate_from_config() {
+        let fulfill_gas = 123_456;
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
-            config.load_write().unwrap().market.fulfil_gas_estimate = fulfil_gas;
+            config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
         }
 
         let ctx = TestCtx::builder().with_config(config).build().await;
@@ -907,7 +907,7 @@ mod tests {
         ctx.db.add_order(U256::from(0), order.clone()).await.unwrap();
         ctx.picker.price_order(U256::from(0), &order).await.unwrap();
 
-        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), fulfil_gas);
+        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), fulfill_gas);
 
         // add another order
         let (_, order) = ctx
@@ -917,18 +917,18 @@ mod tests {
         ctx.picker.price_order(U256::from(1), &order).await.unwrap();
 
         // gas estimate stacks (until estimates factor in bundling)
-        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), 2 * fulfil_gas);
+        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), 2 * fulfill_gas);
     }
 
     #[tokio::test]
     #[traced_test]
     async fn pending_order_gas_estimation() {
         let lockin_gas = 1000;
-        let fulfil_gas = 50000;
+        let fulfill_gas = 50000;
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
-            config.load_write().unwrap().market.fulfil_gas_estimate = fulfil_gas;
+            config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
             config.load_write().unwrap().market.lockin_gas_estimate = lockin_gas;
         }
 
@@ -944,14 +944,14 @@ mod tests {
         let gas_price = ctx.provider.get_gas_price().await.unwrap();
         assert_eq!(
             ctx.picker.gas_reserved().await.unwrap(),
-            U256::from(gas_price) * U256::from(fulfil_gas + lockin_gas)
+            U256::from(gas_price) * U256::from(fulfill_gas + lockin_gas)
         );
         // lock the order
         ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
         // only fulfillment gas now reserved
         assert_eq!(
             ctx.picker.gas_reserved().await.unwrap(),
-            U256::from(gas_price) * U256::from(fulfil_gas)
+            U256::from(gas_price) * U256::from(fulfill_gas)
         );
     }
 

@@ -2001,6 +2001,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-slasher"
+version = "0.6.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "boundless-market",
+ "clap",
+ "dotenvy",
+ "futures-util",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "hex",
+ "reqwest",
+ "risc0-zkvm",
+ "sqlx",
+ "thiserror 2.0.4",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "tracing-test",
+ "url",
+]
+
+[[package]]
 name = "broker"
 version = "0.6.0"
 dependencies = [

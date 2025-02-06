@@ -27,7 +27,7 @@ mod defaults {
         1_000_000
     }
 
-    pub const fn fulfil_gas_estimate() -> u64 {
+    pub const fn fulfill_gas_estimate() -> u64 {
         300_000_000
     }
 }
@@ -82,9 +82,10 @@ pub struct MarketConf {
     /// Gas estimate for lockin call to use if it cannot be estimated using the node RPC
     #[serde(default = "defaults::lockin_gas_estimate")]
     pub lockin_gas_estimate: u64,
-    /// Gas estimate for fulfil call to use if it cannot be estimated using the node RPC
-    #[serde(default = "defaults::fulfil_gas_estimate")]
-    pub fulfil_gas_estimate: u64,
+
+    /// Gas estimate for fulfill call to use if it cannot be estimated using the node RPC
+    #[serde(default = "defaults::fulfill_gas_estimate")]
+    pub fulfill_gas_estimate: u64,
 }
 
 impl Default for MarketConf {
@@ -104,7 +105,7 @@ impl Default for MarketConf {
             max_file_size: 50_000_000,
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
-            fulfil_gas_estimate: defaults::fulfil_gas_estimate(),
+            fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
         }
     }
 }
