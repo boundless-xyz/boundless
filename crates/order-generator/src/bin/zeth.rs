@@ -88,6 +88,9 @@ struct Args {
     /// Amount of stake tokens required, in HP.
     #[clap(long, value_parser = parse_ether, default_value = "5")]
     stake: U256,
+    /// Submit the request offchain.
+    #[clap(long)]
+    offchain: bool,
 }
 
 #[tokio::main]
@@ -170,20 +173,17 @@ async fn main() -> Result<()> {
         let build_args =
             BuildArgs { block_number, block_count, cache: None, rpc: rpc.clone(), chain };
 
+        let params = RequestParams {
+            image_url: image_url.clone(),
+            min: args.min_price_per_mcycle,
+            max: args.max_price_per_mcycle,
+            ramp_up: args.ramp_up,
+            timeout: args.timeout,
+            stake: args.stake,
+            offchain: args.offchain,
+        };
         // Attempt to submit a request.
-        match submit_request(
-            build_args,
-            chain_id,
-            boundless_client.clone(),
-            image_url.clone(),
-            args.min_price_per_mcycle,
-            args.max_price_per_mcycle,
-            args.ramp_up,
-            args.timeout,
-            args.stake,
-        )
-        .await
-        {
+        match submit_request(build_args, chain_id, boundless_client.clone(), params).await {
             Ok(request_id) => {
                 consecutive_failures = 0; // Reset on success.
                 tracing::info!(
@@ -231,16 +231,21 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn submit_request<T, P, S>(
-    build_args: BuildArgs,
-    chain_id: u64,
-    boundless_client: Client<T, P, S>,
+struct RequestParams {
     image_url: Url,
     min: U256,
     max: U256,
     ramp_up: u32,
     timeout: u32,
     stake: U256,
+    offchain: bool,
+}
+
+async fn submit_request<T, P, S>(
+    build_args: BuildArgs,
+    chain_id: u64,
+    boundless_client: Client<T, P, S>,
+    params: RequestParams,
 ) -> Result<U256>
 where
     T: Transport + Clone,
@@ -279,7 +284,7 @@ where
     let journal = session_info.journal;
 
     let request = ProofRequest::builder()
-        .with_image_url(image_url)
+        .with_image_url(params.image_url)
         .with_input(input_url)
         .with_requirements(Requirements::new(
             ZETH_GUESTS_RETH_ETHEREUM_ID,
@@ -287,16 +292,20 @@ where
         ))
         .with_offer(
             Offer::default()
-                .with_min_price_per_mcycle(min, mcycles_count)
-                .with_max_price_per_mcycle(max, mcycles_count)
-                .with_ramp_up_period(ramp_up)
-                .with_timeout(timeout)
-                .with_lock_stake(stake),
+                .with_min_price_per_mcycle(params.min, mcycles_count)
+                .with_max_price_per_mcycle(params.max, mcycles_count)
+                .with_ramp_up_period(params.ramp_up)
+                .with_timeout(params.timeout)
+                .with_lock_stake(params.stake),
         )
         .build()?;
 
     // Send the request.
-    let (request_id, _) = boundless_client.submit_request_offchain(&request).await?;
+    let (request_id, _) = if params.offchain {
+        boundless_client.submit_request_offchain(&request).await?
+    } else {
+        boundless_client.submit_request(&request).await?
+    };
 
     Ok(request_id)
 }
