@@ -1,5 +1,5 @@
 [market]
-mcycle_price = "0.001"
+mcycle_price = "0.00001"
 assumption_price = "0.1"
 # peak_prove_khz = 500
 min_deadline = 150

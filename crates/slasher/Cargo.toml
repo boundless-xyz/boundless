@@ -1,0 +1,37 @@
+[package]
+name = "boundless-slasher"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+boundless-market = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["std", "default"] }
+sqlx = { workspace = true, features = [ "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
+
+[dev-dependencies]
+boundless-market = { workspace = true, features = ["test-utils"] }
+futures-util = { workspace = true }
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
+guest-util = { workspace = true }
+tracing-test = { workspace = true }
+
