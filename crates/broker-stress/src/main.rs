@@ -1,3 +1,7 @@
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
+
 use alloy::{
     node_bindings::Anvil,
     primitives::{utils, U256},

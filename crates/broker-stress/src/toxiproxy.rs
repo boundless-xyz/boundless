@@ -1,3 +1,7 @@
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
+
 use anyhow::Result;
 use std::process::Stdio;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
