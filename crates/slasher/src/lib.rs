@@ -117,7 +117,7 @@ where
                         continue;
                     }
 
-                    tracing::debug!("Processing blocks from {} to {}", from_block, to_block);
+                    tracing::info!("Processing blocks from {} to {}", from_block, to_block);
 
                     match self.process_blocks(from_block, to_block).await {
                         Ok(_) => {
@@ -209,6 +209,13 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
+        tracing::info!(
+            "Found {} locked events from block {} to block {}",
+            logs.len(),
+            from_block,
+            to_block
+        );
+
         for (log, _) in logs {
             self.add_order(log.requestId).await?;
         }
@@ -230,6 +237,13 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
+        tracing::info!(
+            "Found {} slashed events from block {} to block {}",
+            logs.len(),
+            from_block,
+            to_block
+        );
+
         for (log, _) in logs {
             self.remove_order(log.requestId).await?;
         }
@@ -251,6 +265,13 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
+        tracing::info!(
+            "Found {} fulfilled events from block {} to block {}",
+            logs.len(),
+            from_block,
+            to_block
+        );
+
         for (log, _) in logs {
             self.remove_order(log.requestId).await?;
         }
