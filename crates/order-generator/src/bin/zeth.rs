@@ -45,7 +45,7 @@ struct Args {
     /// Storage provider to use
     #[clap(flatten)]
     storage_config: Option<StorageProviderConfig>,
-    /// Private key used to interact with the Counter contract.
+    /// Private key used to interact with the BoundlessMarket contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
     /// Address of the SetVerifier contract.
@@ -72,10 +72,10 @@ struct Args {
     #[clap(long)]
     one_shot: bool,
     /// Minimum price per mcycle in ether.
-    #[clap(long = "min", value_parser = parse_ether, default_value = "0.001")]
+    #[clap(long = "min", value_parser = parse_ether, default_value = "0.00001")]
     min_price_per_mcycle: U256,
     /// Maximum price per mcycle in ether.
-    #[clap(long = "max", value_parser = parse_ether, default_value = "0.0011")]
+    #[clap(long = "max", value_parser = parse_ether, default_value = "0.000011")]
     max_price_per_mcycle: U256,
     /// Number of blocks, from the current block, before the bid expires.
     #[clap(long, default_value = "1000")]
