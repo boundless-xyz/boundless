@@ -80,6 +80,11 @@ struct Args {
     /// Number of blocks, from the current block, before the bid expires.
     #[clap(long, default_value = "1000")]
     timeout: u32,
+    /// Ramp-up period in blocks.
+    ///
+    /// The bid price will increase linearly from `min_price` to `max_price` over this period.
+    #[clap(long, default_value = "0")]
+    ramp_up: u32,
     /// Amount of stake tokens required, in HP.
     #[clap(long, value_parser = parse_ether, default_value = "5")]
     stake: U256,
@@ -173,6 +178,7 @@ async fn main() -> Result<()> {
             image_url.clone(),
             args.min_price_per_mcycle,
             args.max_price_per_mcycle,
+            args.ramp_up,
             args.timeout,
             args.stake,
         )
@@ -232,6 +238,7 @@ async fn submit_request<T, P, S>(
     image_url: Url,
     min: U256,
     max: U256,
+    ramp_up: u32,
     timeout: u32,
     stake: U256,
 ) -> Result<U256>
@@ -282,6 +289,7 @@ where
             Offer::default()
                 .with_min_price_per_mcycle(min, mcycles_count)
                 .with_max_price_per_mcycle(max, mcycles_count)
+                .with_ramp_up_period(ramp_up)
                 .with_timeout(timeout)
                 .with_lock_stake(stake),
         )
