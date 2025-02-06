@@ -80,6 +80,9 @@ struct Args {
     /// Number of blocks, from the current block, before the bid expires.
     #[clap(long, default_value = "1000")]
     timeout: u32,
+    /// Amount of stake tokens required, in HP.
+    #[clap(long, value_parser = parse_ether, default_value = "5")]
+    stake: U256,
 }
 
 #[tokio::main]
@@ -171,6 +174,7 @@ async fn main() -> Result<()> {
             args.min_price_per_mcycle,
             args.max_price_per_mcycle,
             args.timeout,
+            args.stake,
         )
         .await
         {
@@ -229,6 +233,7 @@ async fn submit_request<T, P, S>(
     min: U256,
     max: U256,
     timeout: u32,
+    stake: U256,
 ) -> Result<U256>
 where
     T: Transport + Clone,
@@ -277,7 +282,8 @@ where
             Offer::default()
                 .with_min_price_per_mcycle(min, mcycles_count)
                 .with_max_price_per_mcycle(max, mcycles_count)
-                .with_timeout(timeout),
+                .with_timeout(timeout)
+                .with_lock_stake(stake),
         )
         .build()?;
 
