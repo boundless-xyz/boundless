@@ -40,6 +40,9 @@ When publishing a new release, you can use the following process.
 
    > TODO: Upgrading the contract this way may be disruptive. We need a better process here.
 
+   If the contract addresses changed, update [deployments.mdx](./documentation/site/pages/deployments.mdx)
+   Additionally search for the old address, and replace any occurrences elsewhere in the documentation.
+
 5. Tag the target commit as `v0.x.y`, as chosen in step one.
    Push the tag with `git push origin v0.x.y`.
 

@@ -10,24 +10,27 @@ import {Vm} from "forge-std/Vm.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
-import {
-    IBoundlessMarket,
-    ProofRequest,
-    Requirements,
-    Offer,
-    Predicate,
-    Input,
-    InputType,
-    PredicateType,
-    Fulfillment
-} from "../src/IBoundlessMarket.sol";
+
+import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
+import {Account} from "../src/types/Account.sol";
+import {AssessorJournal} from "../src/types/AssessorJournal.sol";
+import {Fulfillment} from "../src/types/Fulfillment.sol";
+import {Input, InputType} from "../src/types/Input.sol";
+import {Requirements} from "../src/types/Requirements.sol";
+import {Offer} from "../src/types/Offer.sol";
+import {ProofRequest} from "../src/types/ProofRequest.sol";
+import {Predicate, PredicateType} from "../src/types/Predicate.sol";
+import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
+import {RequestLock} from "../src/types/RequestLock.sol";
+import {TransientPrice, TransientPriceLibrary} from "../src/types/TransientPrice.sol";
+
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
-import {BoundlessMarketLib} from "../src/BoundlessMarketLib.sol";
+import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
 import {ConfigLoader, DeploymentConfig} from "../scripts/Config.s.sol";
 import {IHitPoints} from "../src/HitPoints.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
-bytes32 constant APP_IMAGE_ID = 0x257569e11f856439ec3c1e0fe6486fb9af90b1da7324d577f65dd0d45ec12c7d;
+bytes32 constant APP_IMAGE_ID = 0x722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4;
 uint256 constant DEFAULT_BALANCE = 1000 ether;
 
 /// Test designed to be run against a chain with an active deployment of the RISC Zero contracts.
@@ -202,25 +205,25 @@ contract Client {
             biddingStart: uint64(block.number),
             rampUpPeriod: uint32(10),
             timeout: uint32(100),
-            lockinStake: 1 ether
+            lockStake: 1 ether
         });
     }
 
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
             imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.PrefixMatch, data: hex"57656420"})
+            predicate: Predicate({predicateType: PredicateType.PrefixMatch, data: hex"53797374"})
         });
     }
 
     function request(uint32 idx) public view returns (ProofRequest memory) {
         return ProofRequest({
-            id: BoundlessMarketLib.requestId(wallet.addr, idx),
+            id: RequestIdLibrary.from(wallet.addr, idx),
             requirements: defaultRequirements(),
             imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy",
             input: Input({
                 inputType: InputType.Inline,
-                data: hex"1d000000570000006500000064000000200000004a000000750000006c0000002000000020000000330000002000000031000000340000003a00000033000000370000003a00000031000000320000002000000050000000440000005400000020000000320000003000000032000000340000000a000000"
+                data: hex"0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"
             }),
             offer: defaultOffer()
         });

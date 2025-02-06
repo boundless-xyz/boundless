@@ -92,16 +92,16 @@ jobs:
         run: forge build
 
       - name: cargo check
-        run: cargo check --all-targets
+        run: cargo check --locked --all-targets
 
       - name: cargo doc
-        run: cargo doc
+        run: cargo doc --locked
 
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
-        run: cargo clippy --all-targets
+        run: cargo clippy --locked --all-targets
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
@@ -109,7 +109,7 @@ jobs:
         run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
 
       - name: cargo test
-        run: cargo test --workspace --all-targets -- ignored
+        run: cargo test --locked --workspace --all-targets -- ignored
         env:
           RISC0_DEV_MODE: true
 
@@ -177,7 +177,7 @@ jobs:
         run: sqlx migrate run --source ./crates/taskdb/migrations/
 
       - name: cargo test
-        run: cargo test --workspace --all-targets -- ignored
+        run: cargo test --locked --workspace --all-targets -- ignored
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
@@ -211,10 +211,10 @@ jobs:
           toolchain-version: 'r0.1.81.0'
 
       - name: check order-stream
-        run: cargo check -p order-stream --bin order_stream
+        run: cargo check --locked -p order-stream --bin order_stream
 
       - name: check broker
-        run: cargo check -p broker --bin broker
+        run: cargo check --locked -p broker --bin broker
 
   link-check:
     runs-on: ubuntu-latest
@@ -304,6 +304,22 @@ jobs:
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
+  # Check that cargo publish can package the boundless-market crate
+  check-pusblish:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    steps:
+      # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
+      - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: risc0/risc0/.github/actions/rustup@release-1.2
+        with:
+          toolchain: '1.81'
+
+      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
+      - run: cargo publish -p boundless-market --dry-run
+
   examples:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     strategy:
@@ -355,11 +371,11 @@ jobs:
         working-directory: contracts
 
       - name: cargo build
-        run: cargo build
+        run: cargo build --locked
         working-directory: ${{ matrix.workspace }}
 
       - name: cargo clippy
-        run: cargo clippy --workspace
+        run: cargo clippy --locked --workspace
         working-directory: ${{ matrix.workspace }}
         env:
           RISC0_SKIP_BUILD: 1
@@ -373,7 +389,7 @@ jobs:
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: cargo test
-        run: cargo test
+        run: cargo test --locked
         working-directory: ${{ matrix.workspace }}
         env:
           RISC0_DEV_MODE: 1

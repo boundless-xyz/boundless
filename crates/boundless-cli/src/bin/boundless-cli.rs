@@ -51,7 +51,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
         InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
-    input::InputBuilder,
+    input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
     storage::{StorageProvider, StorageProviderConfig},
 };
@@ -80,12 +80,18 @@ enum Command {
     },
     /// Deposit stake funds into the market
     DepositStake {
-        /// Amount in ether to deposit
+        /// Amount in HP to deposit.
+        ///
+        /// e.g. 10 is uint256(10 * 10**18).
+        #[clap(value_parser = parse_ether)]
         amount: U256,
     },
     /// Withdraw stake funds from the market
     WithdrawStake {
-        /// Amount in ether to withdraw
+        /// Amount in HP to withdraw.
+        ///
+        /// e.g. 10 is uint256(10 * 10**18).
+        #[clap(value_parser = parse_ether)]
         amount: U256,
     },
     /// Check the stake balance of an account in the market
@@ -280,7 +286,7 @@ async fn main() -> Result<()> {
         Err(e) => bail!("failed to load .env file: {}", e),
     }
 
-    let args = MainArgs::try_parse()?;
+    let args = MainArgs::parse();
     run(&args).await.unwrap();
 
     Ok(())
@@ -546,8 +552,12 @@ where
         (None, Some(input_file)) => std::fs::read(input_file)?,
         _ => bail!("exactly one of input or input-file args must be provided"),
     };
-    let encoded_input =
-        if args.encode_input { InputBuilder::new().write(&input)?.build() } else { input };
+    let input_env = InputBuilder::new();
+    let encoded_input = if args.encode_input {
+        input_env.write(&input)?.build_vec()?
+    } else {
+        input_env.write_slice(&input).build_vec()?
+    };
 
     // Resolve the predicate from the command line arguments.
     let predicate: Predicate = match (&args.reqs.journal_digest, &args.reqs.journal_prefix) {
@@ -568,11 +578,8 @@ where
 
     // Upload the input.
     let requirements_input = match args.inline_input {
-        false => {
-            let input_url = client.upload_input(&encoded_input).await?;
-            Input { inputType: InputType::Url, data: input_url.into() }
-        }
-        true => Input { inputType: InputType::Inline, data: encoded_input.into() },
+        false => client.upload_input(&encoded_input).await?.into(),
+        true => Input::inline(encoded_input),
     };
 
     // Set request id
@@ -586,7 +593,7 @@ where
         id,
         &client.caller(),
         Requirements { imageId: image_id, predicate },
-        &elf_url,
+        elf_url,
         requirements_input,
         offer.clone(),
     );
@@ -725,11 +732,15 @@ where
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     let elf = fetch_url(&request.imageUrl).await?;
     let input = match request.input.inputType {
-        InputType::Inline => request.input.data.clone(),
+        InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
         InputType::Url => {
-            fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
-                .await?
-                .into()
+            GuestEnv::decode(
+                &fetch_url(
+                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
+                )
+                .await?,
+            )?
+            .stdin
         }
         _ => bail!("Unsupported input type"),
     };

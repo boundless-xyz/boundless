@@ -287,7 +287,7 @@ where
     }
 
     /// Upload an image to the storage provider
-    pub async fn upload_image(&self, elf: &[u8]) -> Result<String, ClientError> {
+    pub async fn upload_image(&self, elf: &[u8]) -> Result<Url, ClientError> {
         Ok(self
             .storage_provider
             .as_ref()
@@ -298,7 +298,7 @@ where
     }
 
     /// Upload input to the storage provider
-    pub async fn upload_input(&self, input: &[u8]) -> Result<String, ClientError> {
+    pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError> {
         Ok(self
             .storage_provider
             .as_ref()
@@ -396,10 +396,10 @@ where
         let balance = self.boundless_market.balance_of(request.client_address()?).await?;
         if balance < U256::from(request.offer.maxPrice) {
             return Err(ClientError::Error(anyhow!(
-                "Insufficient balance to cover request: {} < {}",
-                balance,
-                request.offer.maxPrice
-            )));
+        "Insufficient balance to cover request: {} < {}.\nMake sure to top up your balance by depositing on the Boundless Market.",
+        balance,
+        request.offer.maxPrice
+    )));
         }
 
         let order = offchain_client.submit_request(&request, signer).await?;
