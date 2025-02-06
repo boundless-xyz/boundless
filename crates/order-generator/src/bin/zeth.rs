@@ -32,7 +32,7 @@ use zeth_preflight_ethereum::RethBlockBuilder;
 const MAX_RETRY_ATTEMPTS: u32 = 5;
 const RETRY_DELAY_SECS: u64 = 5;
 
-/// Arguments of boundless-zeth CLI.
+/// Arguments of order-generator-zeth CLI.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {

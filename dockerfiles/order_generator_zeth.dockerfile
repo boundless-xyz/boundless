@@ -28,11 +28,11 @@ COPY foundry.toml .
 
 SHELL ["/bin/bash", "-c"]
 
-RUN cargo build --release --bin zeth -F zeth
+RUN cargo build --release --bin order-generator-zeth -F zeth
 
 # Use init as we need r0vm to run the executor
 FROM init AS runtime
 
-COPY --from=builder /src/target/release/boundless-zeth /app/boundless-zeth
+COPY --from=builder /src/target/release/order-generator-zeth /app/order-generator-zeth
 
-ENTRYPOINT ["/app/boundless-zeth"]
+ENTRYPOINT ["/app/order-generator-zeth"]
