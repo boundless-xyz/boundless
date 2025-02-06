@@ -18,9 +18,9 @@ guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
 rand = { workspace = true }
-reqwest.workspace = true
+reqwest = { workspace = true }
 risc0-zkp = { workspace = true }
-serde_json.workspace = true
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal", "process"] }
 tracing = { workspace = true }
