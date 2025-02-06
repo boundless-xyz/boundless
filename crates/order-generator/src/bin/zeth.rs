@@ -2,6 +2,8 @@
 //
 // All rights reserved.
 
+use std::cmp::min;
+
 use alloy::{
     network::{Ethereum, EthereumWallet},
     primitives::{utils::parse_ether, Address, U256},
@@ -26,6 +28,9 @@ use zeth::cli::BuildArgs;
 use zeth_guests::{ZETH_GUESTS_RETH_ETHEREUM_ELF, ZETH_GUESTS_RETH_ETHEREUM_ID};
 use zeth_preflight::BlockBuilder;
 use zeth_preflight_ethereum::RethBlockBuilder;
+
+const MAX_RETRY_ATTEMPTS: u32 = 5;
+const RETRY_DELAY_SECS: u64 = 5;
 
 /// Arguments of the publisher CLI.
 #[derive(Parser, Debug)]
@@ -54,18 +59,18 @@ struct Args {
     zeth_rpc_url: Url,
     /// Block number to start from.
     ///
-    /// If provided, the generator will be a one-shot and will not loop.
     /// If not provided, the current block number will be used.
     #[clap(long)]
     start_block: Option<u64>,
     /// Number of blocks to build.
-    ///
-    /// Used only when `start_block` is provided.
     #[clap(long, default_value = "1")]
     block_count: u64,
     /// Interval in seconds between requests.
-    #[clap(short, long, default_value = "1800")] // 30 minutes
+    #[clap(long, default_value = "1800")] // 30 minutes
     interval: u64,
+    /// One shot request for a specific block number.
+    #[clap(long)]
+    one_shot: bool,
     /// Minimum price per mcycle in ether.
     #[clap(long = "min", value_parser = parse_ether, default_value = "0.001")]
     min_price_per_mcycle: U256,
@@ -117,48 +122,47 @@ async fn main() -> Result<()> {
     let image_url = boundless_client.upload_image(ZETH_GUESTS_RETH_ETHEREUM_ELF).await?;
     tracing::info!("Uploaded image to {}", image_url);
 
-    if args.start_block.is_some() {
-        let block_number = args.start_block.unwrap();
-        let build_args = BuildArgs {
-            block_number,
-            block_count: args.block_count,
-            cache: None,
-            rpc: rpc.clone(),
-            chain,
-        };
-        let request_id = submit_request(
-            build_args,
-            chain_id,
-            boundless_client.clone(),
-            image_url.clone(),
-            args.min_price_per_mcycle,
-            args.max_price_per_mcycle,
-            args.timeout,
-        )
-        .await?;
-        tracing::info!("Request for block {block_number} submitted via 0x{:x}", request_id);
-        return Ok(());
-    }
-
+    let mut block_number = args.start_block.unwrap_or(provider.get_block_number().await?);
     let mut ticker = tokio::time::interval(Duration::from_secs(args.interval));
-    loop {
-        ticker.tick().await;
+    let mut consecutive_failures = 0;
 
-        let block_number = match provider.get_block_number().await {
-            Ok(number) => number,
+    loop {
+        // Attempt to get the current block number.
+        let current_block = match provider.get_block_number().await {
+            Ok(number) => {
+                consecutive_failures = 0; // Reset failures on success.
+                number
+            }
             Err(err) => {
-                tracing::warn!("Failed to get block number: {}", err);
+                if let Err(e) = handle_failure(
+                    &mut consecutive_failures,
+                    format!("Failed to get block number: {}", err),
+                )
+                .await
+                {
+                    break Err(e);
+                }
                 continue;
             }
         };
 
-        let build_args = BuildArgs {
-            block_number,
-            block_count: args.block_count,
-            cache: None,
-            rpc: rpc.clone(),
-            chain,
-        };
+        // Ensure that the chain has advanced enough.
+        if current_block < block_number {
+            if let Err(e) =
+                handle_failure(&mut consecutive_failures, "Current block is behind expected block")
+                    .await
+            {
+                break Err(e);
+            }
+            continue;
+        }
+
+        // Determine how many blocks to process.
+        let block_count = min(current_block - block_number + 1, args.block_count);
+        let build_args =
+            BuildArgs { block_number, block_count, cache: None, rpc: rpc.clone(), chain };
+
+        // Attempt to submit a request.
         match submit_request(
             build_args,
             chain_id,
@@ -171,20 +175,49 @@ async fn main() -> Result<()> {
         .await
         {
             Ok(request_id) => {
-                tracing::info!("Request for block {block_number} submitted via 0x{:x}", request_id);
-                request_id
+                consecutive_failures = 0; // Reset on success.
+                tracing::info!(
+                    "Request for blocks {} - {} submitted via 0x{:x}",
+                    block_number,
+                    block_number + block_count - 1,
+                    request_id
+                );
             }
             Err(err) => {
-                tracing::warn!("Failed to submit request for block {block_number}: {}", err);
-                if err.to_string().contains("insufficient funds")
-                    || err.to_string().contains("gas required exceeds allowance")
+                let err_str = err.to_string();
+                // Check for unrecoverable errors.
+                if err_str.contains("insufficient funds")
+                    || err_str.contains("gas required exceeds allowance")
                 {
-                    tracing::error!("Exiting due to insufficient funds");
+                    tracing::error!("Exiting due to unrecoverable error: {}", err);
                     break Err(err);
+                }
+                if let Err(e) = handle_failure(
+                    &mut consecutive_failures,
+                    format!(
+                        "Failed to submit request for blocks {} - {}: {}",
+                        block_number,
+                        block_number + block_count - 1,
+                        err
+                    ),
+                )
+                .await
+                {
+                    break Err(e);
                 }
                 continue;
             }
-        };
+        }
+
+        // Move the window forward.
+        block_number += block_count;
+
+        // In one-shot mode, exit after a successful submission.
+        if args.one_shot {
+            break Ok(());
+        }
+
+        ticker.tick().await;
     }
 }
 
@@ -248,8 +281,23 @@ where
         )
         .build()?;
 
-    // Send the request and wait for it to be completed.
+    // Send the request.
     let (request_id, _) = boundless_client.submit_request(&request).await?;
 
     Ok(request_id)
+}
+
+async fn handle_failure(consecutive_failures: &mut u32, context: impl AsRef<str>) -> Result<()> {
+    *consecutive_failures += 1;
+    tracing::warn!(
+        "{} (attempt {}/{})",
+        context.as_ref(),
+        consecutive_failures,
+        MAX_RETRY_ATTEMPTS
+    );
+    if *consecutive_failures >= MAX_RETRY_ATTEMPTS {
+        return Err(anyhow!("Operation failed after {} attempts", MAX_RETRY_ATTEMPTS));
+    }
+    tokio::time::sleep(Duration::from_secs(RETRY_DELAY_SECS)).await;
+    Ok(())
 }
