@@ -48,7 +48,7 @@ const SIDEBAR_CONFIG = [
             text: "Troubleshooting",
             link: "/build/troubleshooting-a-request",
           },
-        ]
+        ],
       },
       {
         text: "Use a Proof",
@@ -217,8 +217,8 @@ export default defineConfig({
     },
   },
   iconUrl: {
-    light: "/favicon.ico",
-    dark: "/favicon.ico",
+    light: "/favicon.svg",
+    dark: "/favicon.svg",
   },
   banner: {
     dismissable: true,
