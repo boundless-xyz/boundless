@@ -569,6 +569,13 @@ async fn upload_image_uri(
     }
     let uri = uri.build().context("Uri parse failure")?;
 
+    if let Some(image_id) = &order.image_id {
+        if prover.has_image(image_id).await? {
+            tracing::info!("Prover reported that it already has image with ID: {image_id}. Skipping download and upload to prover.");
+            return Ok(image_id.to_string());
+        }
+    }
+
     if !uri.exists() {
         let image_data = uri
             .fetch()

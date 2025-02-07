@@ -593,7 +593,7 @@ mod tests {
                         },
                     ),
                     target_block: None,
-                    image_id: None,
+                    image_id: Some(image_id.to_string()),
                     input_id: None,
                     proof_id: None,
                     expire_block: None,
@@ -981,5 +981,31 @@ mod tests {
             OrderStatus::Skipped
         );
         assert!(logs_contain("Insufficient available stake to lock order"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skips_image_download_if_exists_in_prover() {
+        let lockin_stake = U256::from(150);
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx =
+            TestCtx::builder().with_initial_hp(lockin_stake).with_config(config).build().await;
+        let (_, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::from(10))
+            .await;
+
+        let orders = std::iter::repeat(order.clone()).take(2).collect::<Vec<_>>();
+
+        for (order_id, order) in orders.iter().enumerate() {
+            ctx.db.add_order(U256::from(order_id), order.clone()).await.unwrap();
+            ctx.picker.price_order(U256::from(order_id), order).await.unwrap();
+        }
+        assert!(logs_contain(&format!(
+            "Prover reported that it already has image with ID: {}. Skipping download and upload to prover.",
+            order.image_id.unwrap()
+        )));
     }
 }
