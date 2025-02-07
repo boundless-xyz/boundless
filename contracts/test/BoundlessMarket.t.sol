@@ -353,7 +353,7 @@ contract BoundlessMarketTest is Test {
         }
 
         // compute the assessor claim
-        ReceiptClaim memory assessorClaim = TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, prover);
+        ReceiptClaim memory assessorClaim = TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, selectors, prover);
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 
@@ -1200,6 +1200,55 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Attempt to fulfill a request without locking or pricing it.
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
+        boundlessMarket.fulfill(fill, assessorSeal, selectors, address(testProver));
+
+        expectMarketBalanceUnchanged();
+    }
+
+    function testPriceAndFulfillWithSelector() external {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(3);
+        request.requirements.selector = SelectorLib.some(setVerifier.SELECTOR());
+
+        (Fulfillment memory fill, bytes memory assessorSeal, Selectors memory selectors) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
+
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = fill;
+        ProofRequest[] memory requests = new ProofRequest[](1);
+        requests[0] = request;
+        bytes[] memory clientSignatures = new bytes[](1);
+        clientSignatures[0] = client.sign(request);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
+        boundlessMarket.priceAndFulfillBatch(
+            requests, clientSignatures, fills, assessorSeal, selectors, address(testProver)
+        );
+        vm.snapshotGasLastCall("priceAndFulfillBatch: a single request (with selector)");
+
+        expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillRequestWrongSelector() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        request.requirements.selector = SelectorLib.some(bytes4(0xdeadbeef));
+        (Fulfillment memory fill, bytes memory assessorSeal, Selectors memory selectors) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
+
+        // Attempt to fulfill a request with wrong selector.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBoundlessMarket.SelectorMismatch.selector, bytes4(0xdeadbeef), setVerifier.SELECTOR()
+            )
+        );
         boundlessMarket.fulfill(fill, assessorSeal, selectors, address(testProver));
 
         expectMarketBalanceUnchanged();

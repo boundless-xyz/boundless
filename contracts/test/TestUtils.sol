@@ -11,11 +11,12 @@ import "../src/BoundlessMarket.sol";
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;
 
-    function mockAssessor(Fulfillment[] memory fills, bytes32 assessorImageId, address prover)
-        internal
-        pure
-        returns (ReceiptClaim memory)
-    {
+    function mockAssessor(
+        Fulfillment[] memory fills,
+        bytes32 assessorImageId,
+        Selectors memory selectors,
+        address prover
+    ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
@@ -24,7 +25,6 @@ library TestUtils {
         }
         bytes32 root = MerkleProofish.processTree(claimDigests);
 
-        Selectors memory selectors = Selectors({indices: new uint8[](0), values: new bytes4[](0)});
         bytes memory journal = abi.encode(
             AssessorJournal({requestDigests: requestDigests, root: root, selectors: selectors, prover: prover})
         );

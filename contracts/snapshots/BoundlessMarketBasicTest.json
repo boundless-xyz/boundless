@@ -14,6 +14,7 @@
   "lockinRequest: base case": "111829",
   "lockinRequest: with prover signature": "117237",
   "priceAndFulfillBatch: a single request": "102519",
+  "priceAndFulfillBatch: a single request (with selector)": "104500",
   "priceAndFulfillBatch: a single request that was not locked": "102531",
   "priceAndFulfillBatch: a single request that was not locked fulfilled by prover not in allow-list": "119631",
   "slash: base case": "61553",
