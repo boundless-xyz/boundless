@@ -3,6 +3,7 @@
 // All rights reserved.
 pragma solidity ^0.8.20;
 
+import {Selector} from "./Selector.sol";
 import {RequestId} from "./RequestId.sol";
 
 using FulfillmentLibrary for Fulfillment global;

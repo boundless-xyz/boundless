@@ -13,6 +13,7 @@ import {Predicate, PredicateType, PredicateLibrary} from "../../src/types/Predic
 import {Offer} from "../../src/types/Offer.sol";
 import {Account} from "../../src/types/Account.sol";
 import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";
+import {SelectorLib} from "../../src/types/Selector.sol";
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 
 /// @dev Wrapper contract to test ProofRequest library functions. The library functions use
@@ -79,7 +80,8 @@ contract ProofRequestTest is Test {
                 predicate: Predicate({
                     predicateType: PredicateType.DigestMatch,
                     data: abi.encode(sha256(bytes("GUEST JOURNAL")))
-                })
+                }),
+                selector: SelectorLib.none()
             }),
             imageUrl: "https://image.dev.null",
             input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
