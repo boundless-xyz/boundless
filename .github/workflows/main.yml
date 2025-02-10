@@ -31,6 +31,7 @@ jobs:
       - rust-pkg-check
       - docs-rs
       - bento
+      - bento_run
 
     runs-on: ubuntu-latest
     steps:
@@ -184,6 +185,29 @@ jobs:
 
       - name: sccache stats
         run: sccache --show-stats
+
+
+  bento_run:
+    runs-on: [self-hosted, Linux, X64, prod, cuda, g6.xlarge]
+    needs: files-changed
+    if: needs.files-changed.outputs.bento == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-1.2
+        with:
+          toolchain: '1.81'
+
+      - name: Start bento cluster
+        run: docker compose --env-file ./.env-compose up -d
+
+      - name: Run a sample proof through
+        # TODO: multi-segments, bigint, keccak, composition guest to express all functionality
+        run: RUST_LOG=info cargo run --bin bento_cli -- -c 32 -s
 
   rust-pkg-check:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
@@ -401,6 +425,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       docker: ${{ steps.changes.outputs.docker }}
+      bento: ${{ steps.changes.outputs.bento }}
+
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -409,10 +435,12 @@ jobs:
         id: changes
         with:
           filters: |
-            src:
+            docker:
               - 'dockerfiles/**'
               - 'compose.yml'
               - '.env-compose'
+            bento:
+              - 'bento/**'
 
   docker:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
