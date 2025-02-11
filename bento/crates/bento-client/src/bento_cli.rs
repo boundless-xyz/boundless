@@ -96,7 +96,6 @@ async fn main() -> Result<()> {
     let input_id = client.upload_input(input).await.context("Failed to upload_input")?;
 
     tracing::info!("image_id: {image_id} | input_id: {input_id}");
-
     let session = client
         .create_session(image_id, input_id, vec![], args.exec_only)
         .await
