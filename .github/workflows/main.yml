@@ -202,8 +202,29 @@ jobs:
         with:
           toolchain: '1.81'
 
+      - name: Fetch CI AWS Creds
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: 'us-west-2'
+          role-to-assume: 'arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access'
+          output-credentials: true
+
+      - name: create ci creds file
+        run: |
+          echo "[default]" > ./dockerfiles/ci-cache-creds.txt
+          echo "aws_access_key_id=${{ steps.aws-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt && \
+          echo "aws_secret_access_key=${{ steps.aws-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt && \
+          echo "aws_session_token=${{ steps.aws-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
+
+      - name: Setup docker builder
+        run: docker buildx create --driver docker-container --use
+
       - name: Start bento cluster
-        run: docker compose --env-file ./.env-compose up -d
+        run: docker compose --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml up -d
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
 
       - name: Run a sample proof through
         # TODO: multi-segments, bigint, keccak, composition guest to express all functionality
