@@ -23,6 +23,10 @@ mod defaults {
         10_000
     }
 
+    pub const fn batch_max_journal_size() -> usize {
+        10_000
+    }
+
     pub const fn lockin_gas_estimate() -> u64 {
         1_000_000
     }
@@ -148,6 +152,9 @@ pub struct BatcherConfig {
     pub batch_max_time: Option<u64>,
     /// Batch size (in proofs) before publishing
     pub batch_size: Option<u64>,
+    /// Max combined journal size (in bytes) that once exceeded will trigger a publish
+    #[serde(default = "defaults::batch_max_journal_size")]
+    pub batch_max_journal_size: usize,
     /// max batch fees (in ETH) before publishing
     pub batch_max_fees: Option<String>,
     /// Batch blocktime buffer
@@ -174,6 +181,7 @@ impl Default for BatcherConfig {
         Self {
             batch_max_time: None,
             batch_size: Some(2),
+            batch_max_journal_size: defaults::batch_max_journal_size(),
             batch_max_fees: None,
             block_deadline_buffer_secs: 120,
             txn_timeout: None,

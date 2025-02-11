@@ -240,6 +240,34 @@ where
         Ok(proof_res.id)
     }
 
+    /// Get the sum of the size of the journals for proofs in a batch
+    async fn get_batch_journal_size(&self, batch: &Batch) -> Result<usize> {
+        let mut journal_size = 0;
+        for order_id in &batch.orders {
+            let order = self
+                .db
+                .get_order(*order_id)
+                .await
+                .with_context(|| format!("Failed to get order {order_id:x}"))?
+                .with_context(|| format!("Order {order_id:x} missing from DB"))?;
+
+            let proof_id = order
+                .proof_id
+                .with_context(|| format!("Missing proof_id for order {order_id:x}"))?;
+
+            let journal = self
+                .prover
+                .get_journal(&proof_id)
+                .await
+                .with_context(|| format!("Failed to get journal for {proof_id}"))?
+                .with_context(|| format!("Journal for {proof_id} missing"))?;
+
+            journal_size += journal.len();
+        }
+
+        Ok(journal_size)
+    }
+
     /// Check if we should finalize the batch
     ///
     /// Checks current min-deadline, batch timer, and current block.
@@ -249,7 +277,7 @@ where
         batch: &Batch,
         pending_orders: &[AggregationOrder],
     ) -> Result<bool> {
-        let (conf_batch_size, conf_batch_time, conf_batch_fees) = {
+        let (conf_batch_size, conf_batch_time, conf_batch_fees, conf_max_journal_size) = {
             let config = self.config.lock_all().context("Failed to lock config")?;
 
             // TODO: Move this parse into config
@@ -259,7 +287,12 @@ where
                 }
                 None => None,
             };
-            (config.batcher.batch_size, config.batcher.batch_max_time, batch_max_fees)
+            (
+                config.batcher.batch_size,
+                config.batcher.batch_max_time,
+                batch_max_fees,
+                config.batcher.batch_max_journal_size,
+            )
         };
 
         // Skip finalization checks if we have nothing in this batch
@@ -287,6 +320,23 @@ where
                     batch_target_size
                 );
             }
+        }
+
+        // Finalize the batch if the journal size is already above the max
+        let journal_size = self.get_batch_journal_size(batch).await?;
+        if journal_size >= conf_max_journal_size {
+            tracing::info!(
+                "Finalizing batch {batch_id}: journal size target hit {} >= {}",
+                journal_size,
+                conf_max_journal_size
+            );
+            return Ok(true);
+        } else {
+            tracing::debug!(
+                "Batch {batch_id} journal size below limit {} < {}",
+                journal_size,
+                conf_max_journal_size
+            );
         }
 
         // Finalize the batch whenever the current batch exceeds a certain age (e.g. one hour).
