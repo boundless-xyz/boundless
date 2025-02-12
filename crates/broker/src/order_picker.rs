@@ -166,8 +166,6 @@ where
             )
         };
 
-        tracing::info!("pricing order {:?}", order);
-
         if skip_preflight {
             // If we skip preflight we lockin the order asap
             self.db
