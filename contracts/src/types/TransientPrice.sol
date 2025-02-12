@@ -1,7 +1,6 @@
 // Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
-// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
 using TransientPriceLibrary for TransientPrice global;
