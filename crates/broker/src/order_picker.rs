@@ -166,6 +166,8 @@ where
             )
         };
 
+        tracing::info!("pricing order {:?}", order);
+
         if skip_preflight {
             // If we skip preflight we lockin the order asap
             self.db
@@ -561,7 +563,7 @@ mod tests {
             max_price: U256,
             lock_stake: U256,
         ) -> (U256, Order) {
-            let image_id = Digest::from(ECHO_ID);
+            let image_id: B256 = <[u8; 32]>::from(Digest::from(ECHO_ID)).into();
             let order_index = self.boundless_market.index_from_nonce().await.unwrap();
             (
                 U256::from(order_index),
@@ -572,7 +574,7 @@ mod tests {
                         order_index,
                         &self.provider.default_signer_address(),
                         Requirements {
-                            imageId: <[u8; 32]>::from(image_id).into(),
+                            imageId: image_id,
                             predicate: Predicate {
                                 predicateType: PredicateType::PrefixMatch,
                                 data: Default::default(),
@@ -593,7 +595,7 @@ mod tests {
                         },
                     ),
                     target_block: None,
-                    image_id: Some(image_id.to_string()),
+                    image_id: None,
                     input_id: None,
                     proof_id: None,
                     expire_block: None,
@@ -1005,7 +1007,7 @@ mod tests {
         }
         assert!(logs_contain(&format!(
             "Prover reported that it already has image with ID: {}. Skipping download and upload to prover.",
-            order.image_id.unwrap()
+            order.request.requirements.imageId.to_string().trim_start_matches("0x")
         )));
     }
 }
