@@ -1,7 +1,7 @@
 // Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
-// SPDX-License-Identifier: UNKNOWN
+// SPDX-License-Identifier: BUSL-1.1
 
 pragma solidity ^0.8.24;
 
