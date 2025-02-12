@@ -19,6 +19,14 @@ use tokio::{
 };
 
 mod defaults {
+    pub const fn max_journal_bytes() -> usize {
+        10_000
+    }
+
+    pub const fn batch_max_journal_bytes() -> usize {
+        10_000
+    }
+
     pub const fn lockin_gas_estimate() -> u64 {
         1_000_000
     }
@@ -40,6 +48,11 @@ pub struct MarketConf {
     ///
     /// Orders over this max_cycles will be skipped after preflight
     pub max_mcycle_limit: Option<u64>,
+    /// Max journal bytes
+    ///
+    /// Orders that produce a journal larger than this size in preflight will be skipped
+    #[serde(default = "defaults::max_journal_bytes")]
+    pub max_journal_bytes: usize,
     /// Peak single proof performance in kHz
     ///
     /// Used for sanity checking bids to prevent slashing
@@ -84,6 +97,7 @@ impl Default for MarketConf {
             mcycle_price: "0.1".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
+            max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,
             min_deadline: 150, // ~300 seconds aka 5 mins
             lookback_blocks: 100,
@@ -138,6 +152,9 @@ pub struct BatcherConfig {
     pub batch_max_time: Option<u64>,
     /// Batch size (in proofs) before publishing
     pub batch_size: Option<u64>,
+    /// Max combined journal size (in bytes) that once exceeded will trigger a publish
+    #[serde(default = "defaults::batch_max_journal_bytes")]
+    pub batch_max_journal_bytes: usize,
     /// max batch fees (in ETH) before publishing
     pub batch_max_fees: Option<String>,
     /// Batch blocktime buffer
@@ -164,6 +181,7 @@ impl Default for BatcherConfig {
         Self {
             batch_max_time: None,
             batch_size: Some(2),
+            batch_max_journal_bytes: defaults::batch_max_journal_bytes(),
             batch_max_fees: None,
             block_deadline_buffer_secs: 120,
             txn_timeout: None,
