@@ -228,7 +228,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
-    use broker::test_utils::broker_from_test_ctx;
+    use broker::test_utils::BrokerBuilder;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use tokio::time::timeout;
@@ -274,7 +274,8 @@ mod tests {
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
 
         // Start a broker
-        let broker = broker_from_test_ctx(&ctx, anvil.endpoint_url()).await.unwrap();
+        let (broker, _config_file) =
+            BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await.unwrap();
         let broker_task = tokio::spawn(async move {
             broker.start_service().await.unwrap();
         });
