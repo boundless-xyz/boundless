@@ -37,7 +37,7 @@ use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit
 use super::{
     eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    Offer, ProofRequest, ProofStatus, RequestError, TxnErr, TXN_CONFIRM_TIMEOUT,
+    Offer, ProofRequest, ProofStatus, RequestError, Selectors, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -498,12 +498,13 @@ where
         &self,
         fulfillment: &Fulfillment,
         assessor_seal: &Bytes,
+        selectors: Selectors,
         prover_address: Address,
     ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         tracing::debug!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_seal);
         let call = self
             .instance
-            .fulfill(fulfillment.clone(), assessor_seal.clone(), prover_address)
+            .fulfill(fulfillment.clone(), assessor_seal.clone(), selectors, prover_address)
             .from(self.caller);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -549,13 +550,14 @@ where
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        selectors: Selectors,
         prover_address: Address,
     ) -> Result<Vec<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
         tracing::debug!("Calling fulfillBatch({fulfillments:x?}, {assessor_seal:x})");
         let call = self
             .instance
-            .fulfillBatch(fulfillments, assessor_seal, prover_address)
+            .fulfillBatch(fulfillments, assessor_seal, selectors, prover_address)
             .from(self.caller);
         tracing::debug!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
@@ -592,6 +594,7 @@ where
         seal: Bytes,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        selectors: Selectors,
         prover_address: Address,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_seal:x})");
@@ -603,6 +606,7 @@ where
                 seal,
                 fulfillments,
                 assessor_seal,
+                selectors,
                 prover_address,
             )
             .from(self.caller);
@@ -629,6 +633,7 @@ where
         client_sigs: Vec<Bytes>,
         fulfillments: Vec<Fulfillment>,
         assessor_seal: Bytes,
+        selectors: Selectors,
         prover_address: Address,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
@@ -653,6 +658,7 @@ where
                 client_sigs,
                 fulfillments,
                 assessor_seal,
+                selectors,
                 prover_address,
             )
             .from(self.caller);

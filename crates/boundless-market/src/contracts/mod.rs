@@ -24,7 +24,7 @@ use alloy::{
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
-use alloy_primitives::{aliases::U160, Address, Bytes, B256, U256};
+use alloy_primitives::{aliases::U160, Address, Bytes, FixedBytes, B256, U256};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
@@ -394,8 +394,8 @@ impl ProofRequest {
 
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
-    pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), predicate }
+    pub fn new(image_id: impl Into<Digest>, predicate: Predicate, selector: Selector) -> Self {
+        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), predicate, selector }
     }
 
     /// Sets the image ID.
@@ -406,6 +406,11 @@ impl Requirements {
     /// Sets the predicate.
     pub fn with_predicate(self, predicate: Predicate) -> Self {
         Self { predicate, ..self }
+    }
+
+    /// Sets the selector.
+    pub fn with_selector(self, selector: Selector) -> Self {
+        Self { selector, ..self }
     }
 }
 
@@ -423,6 +428,37 @@ impl Predicate {
     /// fulfillment will contain a journal with the same prefix.
     pub fn prefix_match(prefix: impl Into<Bytes>) -> Self {
         Self { predicateType: PredicateType::PrefixMatch, data: prefix.into() }
+    }
+}
+
+impl Selector {
+    /// Creates a new selector with the given value.
+    pub fn some(value: [u8; 4]) -> Self {
+        Self { isSome: true, value: FixedBytes(value) }
+    }
+
+    /// Creates a new selector with no value.
+    pub fn none() -> Self {
+        Self { isSome: false, value: FixedBytes([0; 4]) }
+    }
+
+    /// Returns true if the selector has a value.
+    pub fn is_some(&self) -> bool {
+        self.isSome
+    }
+}
+
+impl Selectors {
+    /// Initialize a new Selectors
+    pub fn new() -> Self {
+        Self { indices: vec![], values: vec![] }
+    }
+
+    /// Add a new selector with the given index and value.
+    pub fn add(&mut self, index: u8, value: [u8; 4]) -> &mut Self {
+        self.indices.push(index);
+        self.values.push(FixedBytes(value));
+        self
     }
 }
 

@@ -14,9 +14,10 @@
 
 pragma solidity ^0.8.20;
 
-import {RequestId} from "./types/RequestId.sol";
-import {ProofRequest} from "./types/ProofRequest.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
+import {ProofRequest} from "./types/ProofRequest.sol";
+import {RequestId} from "./types/RequestId.sol";
+import {Selectors} from "./types/Selector.sol";
 
 interface IBoundlessMarket {
     /// @notice Event logged when a new proof request is submitted by a client.
@@ -137,8 +138,12 @@ interface IBoundlessMarket {
 
     /// @notice Error when transfer of funds to an external address fails.
     error TransferFailed();
-    /// Error when attempting to lock a request with a frozen account.
+
+    /// @notice Error when attempting to lock a request with a frozen account.
     error AccountFrozen(address account);
+
+    /// @notice Error when providing a seal with a different selector than required.
+    error SelectorMismatch(bytes4 required, bytes4 provided);
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
@@ -233,14 +238,24 @@ interface IBoundlessMarket {
     /// @param prover The address of the prover that produced the fulfillment.
     /// Note that this can differ from the address of the prover that locked the
     /// request. Only the locked-in prover can receive payment.
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external;
+    function fulfill(
+        Fulfillment calldata fill,
+        bytes calldata assessorSeal,
+        Selectors calldata selectors,
+        address prover
+    ) external;
 
     /// @notice Fulfills a batch of requests. See IBoundlessMarket.fulfill for more information.
     /// @param fills The array of fulfillment information.
     /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
     /// request's requirements are met.
     /// @param prover The address of the prover that produced the fulfillment.
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) external;
+    function fulfillBatch(
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        Selectors calldata selectors,
+        address prover
+    ) external;
 
     /// @notice Verify the application and assessor receipts, ensuring that the provided fulfillment
     /// satisfies the request.
@@ -248,7 +263,12 @@ interface IBoundlessMarket {
     /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
     /// request's requirements are met.
     /// @param prover The address of the prover that produced the fulfillment.
-    function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external view;
+    function verifyDelivery(
+        Fulfillment calldata fill,
+        bytes calldata assessorSeal,
+        Selectors calldata selectors,
+        address prover
+    ) external view;
 
     /// @notice Verify the application and assessor receipts for the batch, ensuring that the provided
     /// fulfillments satisfy the requests.
@@ -256,9 +276,12 @@ interface IBoundlessMarket {
     /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
     /// request's requirements are met.
     /// @param prover The address of the prover that produced the fulfillment.
-    function verifyBatchDelivery(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover)
-        external
-        view;
+    function verifyBatchDelivery(
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        Selectors calldata selectors,
+        address prover
+    ) external view;
 
     /// @notice Checks the validity of the request and then writes the current auction price to
     /// transient storage.
@@ -284,6 +307,7 @@ interface IBoundlessMarket {
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         bytes calldata assessorSeal,
+        Selectors calldata selectors,
         address prover
     ) external;
 
@@ -309,6 +333,7 @@ interface IBoundlessMarket {
         bytes calldata seal,
         Fulfillment[] calldata fills,
         bytes calldata assessorSeal,
+        Selectors calldata selectors,
         address prover
     ) external;
 

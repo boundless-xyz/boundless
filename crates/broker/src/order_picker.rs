@@ -97,6 +97,14 @@ where
             }
         }
 
+        // TODO: Filter bases on supported selectors
+        // Drop orders that specify a selector
+        if order.request.requirements.selector.is_some() {
+            tracing::warn!("Removing order {order_id:x} because it has a selector");
+            self.db.skip_order(order_id).await.context("Order has selector")?;
+            return Ok(());
+        }
+
         // is the order expired already?
 
         let expire_block = order.request.offer.biddingStart + order.request.offer.timeout as u64;

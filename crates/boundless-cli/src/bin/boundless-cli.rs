@@ -49,7 +49,8 @@ use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
-        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements, Selector,
+        Selectors,
     },
     input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
@@ -485,13 +486,14 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     .then_some(order.request)
                     .into_iter()
                     .collect();
-
+            let selectors = Selectors { indices: vec![], values: vec![] };
             match boundless_market
                 .price_and_fulfill_batch(
                     requests_to_price,
                     vec![sig],
                     order_fulfilled.fills,
                     order_fulfilled.assessorSeal,
+                    selectors,
                     caller,
                     None,
                 )
@@ -592,7 +594,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate },
+        Requirements { imageId: image_id, predicate, selector: Selector::none() },
         elf_url,
         requirements_input,
         offer.clone(),
