@@ -1021,9 +1021,9 @@ mod tests {
             order.request.requirements.imageId.to_string().trim_start_matches("0x")
         )));
     }
-  
+
     #[tokio::test]
-    #[traced_test]    
+    #[traced_test]
     async fn skips_journal_exceeding_limit() {
         // set this by testing a very small limit (1 byte)
         let config = ConfigLock::default();
