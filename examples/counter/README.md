@@ -20,7 +20,6 @@ To deploy the Counter contract run:
 forge script contracts/scripts/Deploy.s.sol --rpc-url ${L1_RPC_URL:?} --broadcast -vv
 ```
 
-eat
 Save the `Counter` contract address to an env variable:
 
 ```bash
