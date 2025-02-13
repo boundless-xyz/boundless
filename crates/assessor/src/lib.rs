@@ -106,7 +106,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-        Requirements,
+        Requirements, Selector,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -126,6 +126,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: prefix.into(),
                 },
+                selector: Selector::none(),
             },
             "test",
             Input { inputType: InputType::Url, data: Default::default() },

@@ -945,7 +945,7 @@ mod tests {
     use crate::ProofRequest;
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, Requirements, Selector,
     };
     use risc0_aggregation::GuestState;
 
@@ -963,6 +963,7 @@ mod tests {
                         predicateType: PredicateType::DigestMatch,
                         data: B256::ZERO.into(),
                     },
+                    selector: Selector::none(),
                 },
                 "http://risczero.com",
                 Input { inputType: InputType::Inline, data: "".into() },

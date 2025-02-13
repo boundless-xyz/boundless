@@ -523,7 +523,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements, Selector,
     };
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
@@ -599,6 +599,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
@@ -644,6 +645,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
@@ -758,6 +760,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
@@ -818,6 +821,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
@@ -930,6 +934,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
@@ -1043,6 +1048,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },

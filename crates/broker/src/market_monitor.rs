@@ -280,7 +280,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
-        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements, Selector,
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
     use risc0_zkvm::sha::Digest;
@@ -324,6 +324,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },

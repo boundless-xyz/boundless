@@ -1073,6 +1073,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             imageUrl: "https://dev.null".to_string(),
             input: Input::builder().build_inline().unwrap(),

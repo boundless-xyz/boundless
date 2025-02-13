@@ -518,7 +518,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, deploy_hit_points},
-        Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, Offer, Predicate, PredicateType, ProofRequest, Requirements, Selector,
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -585,6 +585,7 @@ mod tests {
                                 predicateType: PredicateType::PrefixMatch,
                                 data: Default::default(),
                             },
+                            selector: Selector::none(),
                         },
                         self.image_uri(),
                         Input::builder()

@@ -319,7 +319,7 @@ mod tests {
     use boundless_market::{
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
-            Requirements,
+            Requirements, Selector,
         },
         input::InputBuilder,
         order_stream_client::Client,
@@ -340,7 +340,11 @@ mod tests {
         ProofRequest::new(
             idx,
             addr,
-            Requirements { imageId: B256::from([1u8; 32]), predicate: Predicate::prefix_match([]) },
+            Requirements {
+                imageId: B256::from([1u8; 32]),
+                predicate: Predicate::prefix_match([]),
+                selector: Selector::none(),
+            },
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
             Offer {

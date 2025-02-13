@@ -12,6 +12,7 @@ use alloy::{
 };
 use boundless_market::contracts::{
     test_utils::TestCtx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+    Selector,
 };
 use futures_util::StreamExt;
 use guest_assessor::ASSESSOR_GUEST_ID;
@@ -35,6 +36,7 @@ async fn create_order(
                 predicateType: PredicateType::PrefixMatch,
                 data: Default::default(),
             },
+            selector: Selector::none(),
         },
         "https://dev.null".to_string(),
         Input::builder().build_inline().unwrap(),

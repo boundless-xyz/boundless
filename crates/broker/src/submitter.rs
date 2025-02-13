@@ -414,7 +414,7 @@ mod tests {
         test_utils::{
             deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
         },
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements, Selector,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
@@ -506,6 +506,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },

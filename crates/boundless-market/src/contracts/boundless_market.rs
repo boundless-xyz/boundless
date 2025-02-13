@@ -1174,7 +1174,7 @@ mod tests {
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
             IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
-            Requirements,
+            Requirements, Selector, Selectors,
         },
         input::InputBuilder,
     };
@@ -1223,6 +1223,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
@@ -1252,6 +1253,7 @@ mod tests {
 
         let assessor_journal = AssessorJournal {
             requestDigests: vec![request.eip712_signing_hash(&eip712_domain)],
+            selectors: Selectors::new(),
             root: to_b256(app_claim_digest),
             prover,
         };
@@ -1492,7 +1494,7 @@ mod tests {
 
         // fulfill the request
         ctx.prover_market
-            .fulfill(&fulfillment, &assessor_seal, ctx.prover_signer.address())
+            .fulfill(&fulfillment, &assessor_seal, Selectors::new(), ctx.prover_signer.address())
             .await
             .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
@@ -1561,6 +1563,7 @@ mod tests {
                 set_verifier_seal,
                 fulfillments.clone(),
                 assessor_seal,
+                Selectors::new(),
                 ctx.prover_signer.address(),
             )
             .await
@@ -1619,6 +1622,7 @@ mod tests {
                 vec![customer_sig],
                 fulfillments.clone(),
                 assessor_seal,
+                Selectors::new(),
                 ctx.prover_signer.address(),
                 None,
             )
@@ -1688,7 +1692,7 @@ mod tests {
 
             // attempt to fulfill the request, and ensure we revert.
             ctx.prover_market
-                .fulfill(&fulfillment, &assessor_seal, some_other_address)
+                .fulfill(&fulfillment, &assessor_seal, Selectors::new(), some_other_address)
                 .await
                 .unwrap_err(); // TODO: Use the error
             assert!(!ctx.customer_market.is_fulfilled(request_id).await.unwrap());
@@ -1699,7 +1703,12 @@ mod tests {
             // attempt to fulfill the request, and ensure we revert.
             let log = ctx
                 .prover_market
-                .fulfill(&fulfillment_no_payment, &assessor_seal, some_other_address)
+                .fulfill(
+                    &fulfillment_no_payment,
+                    &assessor_seal,
+                    Selectors::new(),
+                    some_other_address,
+                )
                 .await
                 .unwrap();
 
@@ -1725,7 +1734,7 @@ mod tests {
         // fulfill the request, this time getting paid.
         let log = ctx
             .prover_market
-            .fulfill(&fulfillment, &assessor_seal, ctx.prover_signer.address())
+            .fulfill(&fulfillment, &assessor_seal, Selectors::new(), ctx.prover_signer.address())
             .await
             .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
