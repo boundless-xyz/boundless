@@ -160,10 +160,11 @@ interface IBoundlessMarket {
     /// @return True if the request is fulfilled, false otherwise.
     function requestIsFulfilled(RequestId requestId) external view returns (bool);
 
-    /// @notice Return when the given request expires.
+    /// @notice For a given locked request, returns when the lock expires.
+    /// @dev If the request is not locked, this function will revert.
     /// @param requestId The ID of the request.
-    /// @return The expiration time of the request.
-    function requestDeadline(RequestId requestId) external view returns (uint64);
+    /// @return The expiration time of the lock on the request.
+    function requestLockDeadline(RequestId requestId) external view returns (uint64);
 
     /// @notice Deposit Ether into the market to pay for proof.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
@@ -270,6 +271,23 @@ interface IBoundlessMarket {
     /// @param clientSignature The signature of the client.
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;
 
+    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfill`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
+    /// @param request The proof requests.
+    /// @param clientSignature The client signatures.
+    /// @param fill The fulfillment information.
+    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// request's requirements are met.
+    /// @param prover The address of the prover that produced the fulfillment.
+    function priceAndFulfill(
+        ProofRequest calldata request,
+        bytes calldata clientSignature,
+        Fulfillment calldata fill,
+        bytes calldata assessorSeal,
+        address prover
+    ) external;
+    
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.

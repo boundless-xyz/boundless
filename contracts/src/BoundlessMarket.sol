@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 pragma solidity ^0.8.24;
+import {console} from "forge-std/console.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -122,9 +123,9 @@ contract BoundlessMarket is
         (address client, uint32 idx) = request.id.clientAndIndex();
         bytes32 requestDigest =
             request.verifyClientSignature(_hashTypedDataV4(request.eip712Digest()), client, clientSignature);
-        uint64 deadline = request.validateRequest(accounts, client, idx);
+        (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
-        _lockRequest(request, requestDigest, client, idx, msg.sender, deadline);
+        _lockRequest(request, requestDigest, client, idx, msg.sender, lockDeadline, deadline);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -137,9 +138,9 @@ contract BoundlessMarket is
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
         address prover = request.extractProverSignature(requestHash, proverSignature);
-        uint64 deadline = request.validateRequest(accounts, client, idx);
+        (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
-        _lockRequest(request, requestDigest, client, idx, prover, deadline);
+        _lockRequest(request, requestDigest, client, idx, prover, lockDeadline, deadline);
     }
 
     /// @notice Locks the request to the prover. Deducts funds from the client for payment
@@ -150,8 +151,17 @@ contract BoundlessMarket is
         address client,
         uint32 idx,
         address prover,
+        uint64 lockDeadline,
         uint64 deadline
     ) internal {
+        (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
+        if (locked) {
+            revert RequestIsLocked({requestId: request.id});
+        }
+        if (fulfilled) {
+            revert RequestIsFulfilled({requestId: request.id});
+        }
+
         // Compute the current price offered by the reverse Dutch auction.
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
 
@@ -164,21 +174,22 @@ contract BoundlessMarket is
         if (proverAccount.isFrozen()) {
             revert AccountFrozen(prover);
         }
-        if (proverAccount.stakeBalance < request.offer.lockStake.toUint96()) {
+        if (proverAccount.stakeBalance < request.offer.lockStake) {
             revert InsufficientBalance(prover);
         }
 
         unchecked {
             clientAccount.balance -= price;
-            proverAccount.stakeBalance -= request.offer.lockStake.toUint96();
+            proverAccount.stakeBalance -= request.offer.lockStake;
         }
 
         // Record the lock for the request and emit an event.
         requestLocks[request.id] = RequestLock({
             prover: prover,
             price: price,
-            deadline: deadline,
-            stake: request.offer.lockStake.toUint96(),
+            lockDeadline: lockDeadline,
+            deadlineDelta: uint256(deadline - lockDeadline).toUint32(),
+            stake: request.offer.lockStake,
             fingerprint: bytes8(requestDigest)
         });
 
@@ -188,12 +199,13 @@ contract BoundlessMarket is
 
     /// Validates the request and records the price to transient storage such that it can be
     /// fulfilled within the same transaction without taking a lock on it.
+    /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
         (address client, uint32 idx) = request.id.clientAndIndex();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
 
-        request.validateRequest(accounts, client, idx);
+        request.validateForPriceRequest();
 
         // Compute the current price offered by the reverse Dutch auction.
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
@@ -244,7 +256,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
+    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public {
         verifyDelivery(fill, assessorSeal, prover);
         _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
 
@@ -266,6 +278,18 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
+    function priceAndFulfill(
+        ProofRequest calldata request,
+        bytes calldata clientSignature,
+        Fulfillment calldata fill,
+        bytes calldata assessorSeal,
+        address prover
+    ) external {
+        priceRequest(request, clientSignature);
+        fulfill(fill, assessorSeal, prover);
+    }
+    
+    /// @inheritdoc IBoundlessMarket
     function priceAndFulfillBatch(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
@@ -284,7 +308,6 @@ contract BoundlessMarket is
         internal
     {
         (address client, uint32 idx) = id.clientAndIndex();
-
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
 
         bytes memory paymentError;
@@ -313,6 +336,24 @@ contract BoundlessMarket is
     ) internal returns (bytes memory paymentError) {
         RequestLock memory lock = requestLocks[id];
 
+        // Check if the lock deadline has passed
+        if (lock.lockDeadline < block.number) {
+            console.log("fulfill locked expired");
+            return _fulfillLockedExpired(id, client, idx, requestDigest, fulfilled, assessorProver, lock);
+        } else {
+            return _fulfillLocked(id, client, idx, requestDigest, fulfilled, assessorProver, lock);
+        }
+    }
+
+    function _fulfillLocked(
+        RequestId id,
+        address client,
+        uint32 idx,
+        bytes32 requestDigest,
+        bool fulfilled,
+        address assessorProver,
+        RequestLock memory lock
+    ) internal returns (bytes memory paymentError) {
         // Check pre-conditions for transferring payment.
         if (lock.prover == address(0)) {
             // NOTE: This check is not strictly needed, as the fact that the lock has already been
@@ -335,15 +376,16 @@ contract BoundlessMarket is
             emit RequestFulfilled(id);
         }
 
-        if (lock.deadline < block.number) {
-            return abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id), lock.deadline);
+        uint64 deadline = lock.deadline();
+        if (deadline < block.number) {
+            return abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id), deadline);
         }
         if (lock.prover != assessorProver) {
             return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
         }
 
         // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
-        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
+        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint32(0), uint96(0), bytes8(0));
 
         uint96 valueToProver = lock.price;
         if (MARKET_FEE_NUMERATOR > 0) {
@@ -354,6 +396,79 @@ contract BoundlessMarket is
         Account storage proverAccount = accounts[lock.prover];
         proverAccount.balance += valueToProver;
         proverAccount.stakeBalance += lock.stake;
+    }
+
+    function _fulfillLockedExpired(
+        RequestId id,
+        address client,
+        uint32 idx,
+        bytes32 requestDigest,
+        bool fulfilled,
+        address assessorProver,
+        RequestLock memory lock
+    ) internal returns (bytes memory paymentError) {
+        // Check pre-conditions for transferring payment.
+        if (lock.prover == address(0)) {
+            // NOTE: This check is not strictly needed, as the fact that the lock has already been
+            // zeroed out means zero value can be transferred. It is provided for clarity.
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
+        }
+        if (lock.fingerprint != bytes8(requestDigest)) {
+            revert RequestLockFingerprintDoesNotMatch({
+                requestId: id,
+                provided: bytes8(requestDigest),
+                locked: lock.fingerprint
+            });
+        }
+
+        // Mark the request as fulfilled.
+        // NOTE: A request can become fulfilled even if the following checks fail, which control
+        // whether payment will be sent. A later transaction can come to transfer the payment.
+        if (!fulfilled) {
+            accounts[client].setRequestFulfilled(idx);
+            emit RequestFulfilled(id);
+        }
+
+        // If the fulfillment occurs after the request has fully expired, no payment is sent.
+        uint96 deadline = lock.deadline();
+        if (deadline < block.number) {
+            return abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id), deadline);
+        }
+
+        // If the request was not priced in advance, no payment is sent.
+        TransientPrice memory tprice = TransientPriceLibrary.load(requestDigest);
+        if (!tprice.valid) {
+            return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
+        }
+
+        // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
+        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint32(0), uint96(0), bytes8(0));
+
+        // Mark the request as fulfilled.
+        Account storage clientAccount = accounts[client];
+        clientAccount.setRequestFulfilled(idx);
+        emit RequestFulfilled(id);
+
+        // Deduct funds from client account.
+        // Note: The client was already charged once when the request was locked. We only need to charge any additional
+        // rising in price from the dutch auction between lock time to now. 
+        uint96 price = tprice.price;
+        uint96 clientOwes = price - lock.price;
+        if (clientAccount.balance < clientOwes) {
+            return abi.encodeWithSelector(InsufficientBalance.selector, client);
+        }
+        unchecked {
+            clientAccount.balance -= clientOwes;
+        }
+
+        // Pay the prover.
+        uint96 valueToProver = price;
+        if (MARKET_FEE_NUMERATOR > 0) {
+            uint256 fee = uint256(price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
+            valueToProver -= fee.toUint96();
+            marketBalance += fee;
+        }
+        accounts[assessorProver].balance += valueToProver;
     }
 
     function _fulfillVerifiedUnlocked(
@@ -429,12 +544,12 @@ contract BoundlessMarket is
         }
         RequestLock memory lock = requestLocks[requestId];
 
-        if (lock.deadline >= block.number) {
-            revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
+        if (lock.lockDeadline >= block.number) {
+            revert RequestIsNotExpired({requestId: requestId, deadline: lock.lockDeadline});
         }
 
         // If the lock was cleared, the request is already finalized, either by fulfillment or slashing.
-        if (lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0)) {
+        if (lock.lockDeadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0)) {
             if (lock.prover == address(0)) {
                 revert RequestIsFulfilled({requestId: requestId});
             }
@@ -443,7 +558,7 @@ contract BoundlessMarket is
 
         // Zero out deadline, stake and fingerprint in storage to indicate that the request has been slashed.
         RequestLock storage lockStorage = requestLocks[requestId];
-        lockStorage.deadline = 0;
+        lockStorage.lockDeadline = 0;
         lockStorage.stake = 0;
         lockStorage.fingerprint = bytes8(0);
 
@@ -453,6 +568,7 @@ contract BoundlessMarket is
         uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_FRACTION_NUMERATOR / SLASHING_BURN_FRACTION_DENOMINATOR;
         uint256 transferValue = uint256(lock.stake) - burnValue;
 
+        // TODO: UPDATE SO THAT CLIENT DOESNT GET A REFUND UNLESS FULLY EXPIRED
         // Return the price to the client, plus the transfer value. Then burn the burn value.
         accounts[client].balance += lock.price;
         accounts[client].stakeBalance += transferValue.toUint96();
@@ -570,12 +686,12 @@ contract BoundlessMarket is
         RequestLock memory lock = requestLocks[id];
         // Note, a stake and fingerprint of zero can exist on a valid request, however a deadline of zero cannot as
         // the request would be immediately expired, and expired requests cannot be locked in.
-        return lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
+        return lock.lockDeadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function requestDeadline(RequestId id) external view returns (uint64) {
-        return requestLocks[id].deadline;
+    function requestLockDeadline(RequestId id) external view returns (uint64) {
+        return requestLocks[id].lockDeadline;
     }
 
     /// @inheritdoc IBoundlessMarket

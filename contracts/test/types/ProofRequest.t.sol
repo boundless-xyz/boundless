@@ -24,9 +24,9 @@ contract ProofRequestTestContract {
     function validateRequest(ProofRequest calldata proofRequest, address wallet1, uint32 idx1)
         external
         view
-        returns (uint64)
+        returns (uint64, uint64)
     {
-        return proofRequest.validateRequest(accounts, wallet1, idx1);
+        return proofRequest.validateForLockRequest(accounts, wallet1, idx1);
     }
 
     function verifyClientSignature(
@@ -89,6 +89,7 @@ contract ProofRequestTest is Test {
                 biddingStart: uint64(block.number),
                 rampUpPeriod: uint32(10),
                 timeout: uint32(100),
+                lockTimeout: uint32(100),
                 lockStake: 1 ether
             })
         });
@@ -98,8 +99,9 @@ contract ProofRequestTest is Test {
         ProofRequest memory proofRequest = defaultProofRequest;
         Offer memory offer = proofRequest.offer;
 
-        uint64 deadline = proofRequestContract.validateRequest(proofRequest, wallet, idx);
+        (uint64 lockDeadline, uint64 deadline) = proofRequestContract.validateRequest(proofRequest, wallet, idx);
         assertEq(deadline, offer.deadline(), "Deadline should match the offer deadline");
+        assertEq(lockDeadline, offer.lockDeadline(), "Lock deadline should match the offer lock deadline");
     }
 
     function testValidateRequestInvalidOffer() public {

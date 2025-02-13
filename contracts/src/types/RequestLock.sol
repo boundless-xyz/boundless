@@ -6,10 +6,15 @@ pragma solidity ^0.8.24;
 using RequestLockLibrary for RequestLock global;
 
 /// @notice Account state is a combination of the account balance, and locked and fulfilled flags for requests.
+/// @dev Packed to fit into 2 slots.
 struct RequestLock {
     address prover;
     uint96 price;
-    uint64 deadline;
+    /// @notice The final block number at which the locked request can be fulfilled for payment by the locker.
+    uint64 lockDeadline;
+    /// @notice The number of blocks from the lockDeadline to where the request expires.
+    /// @dev Represented as a delta so that it can be packed into 2 slots.
+    uint32 deadlineDelta;
     // Prover stake that may be taken if a proof is not delivered by the deadline.
     uint96 stake;
     /// @notice Keccak256 hash of the request, shortened to 64-bits. During fulfillment, this value is used
@@ -32,4 +37,11 @@ struct RequestLock {
     bytes8 fingerprint;
 }
 
-library RequestLockLibrary {}
+library RequestLockLibrary {
+    /// @notice Calculates the deadline for the locked request.
+    /// @param requestLock The request lock to calculate the deadline for.
+    /// @return The deadline for the request.
+    function deadline(RequestLock memory requestLock) internal pure returns (uint64) {
+        return requestLock.lockDeadline + requestLock.deadlineDelta;
+    }
+}
