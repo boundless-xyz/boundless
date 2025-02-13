@@ -2499,6 +2499,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "broker-stress"
+version = "0.6.0"
+dependencies = [
+ "alloy 0.9.2",
+ "anyhow",
+ "axum",
+ "boundless-market",
+ "broker",
+ "clap",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "rand 0.9.0",
+ "reqwest",
+ "risc0-zkp",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "url",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

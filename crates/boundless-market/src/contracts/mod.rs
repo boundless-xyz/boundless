@@ -945,6 +945,16 @@ pub mod test_utils {
             set_builder_id: Digest,
             assessor_guest_id: Digest,
         ) -> Result<Self> {
+            Self::new_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id)
+                .await
+        }
+
+        pub async fn new_with_rpc_url(
+            anvil: &AnvilInstance,
+            rpc_url: &str,
+            set_builder_id: Digest,
+            assessor_guest_id: Digest,
+        ) -> Result<Self> {
             let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
                 TestCtx::deploy_contracts(anvil, set_builder_id, assessor_guest_id).await.unwrap();
 
@@ -955,19 +965,19 @@ pub mod test_utils {
             let prover_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(prover_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
             let customer_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
             let verifier_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(verifier_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
 

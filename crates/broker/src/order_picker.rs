@@ -260,7 +260,6 @@ where
             }
         }
 
-        // Validate the predicates:
         let journal = self
             .prover
             .get_preflight_journal(&proof_res.id)
@@ -268,6 +267,20 @@ where
             .context("Failed to fetch preflight journal")?
             .context("Failed to find preflight journal")?;
 
+        // ensure the journal is a size we are willing to submit on-chain
+        let max_journal_bytes =
+            self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
+        if journal.len() > max_journal_bytes {
+            tracing::warn!(
+                "Order {order_id:x} journal larger than set limit ({} > {}), skipping",
+                journal.len(),
+                max_journal_bytes
+            );
+            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            return Ok(());
+        }
+
+        // Validate the predicates:
         if !order.request.requirements.predicate.eval(journal.clone()) {
             tracing::warn!("Order {order_id:x} predicate check failed, skipping");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
@@ -1007,5 +1020,30 @@ mod tests {
             "Prover reported that it already has image with ID: {}. Skipping download and upload to prover.",
             order.request.requirements.imageId.to_string().trim_start_matches("0x")
         )));
+    }
+  
+    #[tokio::test]
+    #[traced_test]    
+    async fn skips_journal_exceeding_limit() {
+        // set this by testing a very small limit (1 byte)
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.max_journal_bytes = 1;
+        }
+        let lockin_stake = U256::from(10);
+
+        let ctx =
+            TestCtx::builder().with_config(config).with_initial_hp(lockin_stake).build().await;
+        let (_, order) = ctx
+            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake)
+            .await;
+
+        let order_id = U256::from(0);
+        ctx.db.add_order(U256::from(order_id), order.clone()).await.unwrap();
+        ctx.picker.price_order(U256::from(order_id), &order).await.unwrap();
+
+        assert_eq!(ctx.db.get_order(order_id).await.unwrap().unwrap().status, OrderStatus::Skipped);
+        assert!(logs_contain("journal larger than set limit"));
     }
 }

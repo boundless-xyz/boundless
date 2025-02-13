@@ -29,7 +29,6 @@ use zeth_guests::{ZETH_GUESTS_RETH_ETHEREUM_ELF, ZETH_GUESTS_RETH_ETHEREUM_ID};
 use zeth_preflight::BlockBuilder;
 use zeth_preflight_ethereum::RethBlockBuilder;
 
-const MAX_RETRY_ATTEMPTS: u32 = 5;
 const RETRY_DELAY_SECS: u64 = 5;
 
 /// Arguments of order-generator-zeth CLI.
@@ -81,7 +80,6 @@ struct Args {
     #[clap(long, default_value = "1000")]
     timeout: u32,
     /// Ramp-up period in blocks.
-    ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
     #[clap(long, default_value = "0")]
     ramp_up: u32,
@@ -91,6 +89,8 @@ struct Args {
     /// Submit the request offchain.
     #[clap(long)]
     offchain: bool,
+    #[clap(long, default_value = "3")]
+    max_retries: u32,
 }
 
 #[tokio::main]
@@ -140,14 +140,12 @@ async fn main() -> Result<()> {
     loop {
         // Attempt to get the current block number.
         let current_block = match provider.get_block_number().await {
-            Ok(number) => {
-                consecutive_failures = 0; // Reset failures on success.
-                number
-            }
+            Ok(number) => number,
             Err(err) => {
                 if let Err(e) = handle_failure(
                     &mut consecutive_failures,
                     format!("Failed to get block number: {}", err),
+                    args.max_retries,
                 )
                 .await
                 {
@@ -159,9 +157,12 @@ async fn main() -> Result<()> {
 
         // Ensure that the chain has advanced enough.
         if current_block < block_number {
-            if let Err(e) =
-                handle_failure(&mut consecutive_failures, "Current block is behind expected block")
-                    .await
+            if let Err(e) = handle_failure(
+                &mut consecutive_failures,
+                "Current block is behind expected block",
+                args.max_retries,
+            )
+            .await
             {
                 break Err(e);
             }
@@ -210,6 +211,7 @@ async fn main() -> Result<()> {
                         block_number + block_count - 1,
                         err
                     ),
+                    args.max_retries,
                 )
                 .await
                 {
@@ -307,19 +309,25 @@ where
         boundless_client.submit_request(&request).await?
     };
 
+    tracing::info!(
+        "Submitted request for block {} {} with id {}",
+        build_args.block_number,
+        params.offchain.then(|| "offchain").unwrap_or("onchain"),
+        request_id
+    );
+
     Ok(request_id)
 }
 
-async fn handle_failure(consecutive_failures: &mut u32, context: impl AsRef<str>) -> Result<()> {
+async fn handle_failure(
+    consecutive_failures: &mut u32,
+    context: impl AsRef<str>,
+    max_retries: u32,
+) -> Result<()> {
     *consecutive_failures += 1;
-    tracing::warn!(
-        "{} (attempt {}/{})",
-        context.as_ref(),
-        consecutive_failures,
-        MAX_RETRY_ATTEMPTS
-    );
-    if *consecutive_failures >= MAX_RETRY_ATTEMPTS {
-        return Err(anyhow!("Operation failed after {} attempts", MAX_RETRY_ATTEMPTS));
+    tracing::info!("(attempt {}/{}) {}", consecutive_failures, max_retries, context.as_ref());
+    if *consecutive_failures >= max_retries {
+        return Err(anyhow!("Operation failed after {} attempts", max_retries));
     }
     tokio::time::sleep(Duration::from_secs(RETRY_DELAY_SECS)).await;
     Ok(())
