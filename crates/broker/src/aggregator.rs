@@ -240,6 +240,34 @@ where
         Ok(proof_res.id)
     }
 
+    /// Get the sum of the size of the journals for proofs in a batch
+    async fn get_combined_journal_size(&self, order_ids: &[U256]) -> Result<usize> {
+        let mut journal_size = 0;
+        for order_id in order_ids {
+            let order = self
+                .db
+                .get_order(*order_id)
+                .await
+                .with_context(|| format!("Failed to get order {order_id:x}"))?
+                .with_context(|| format!("Order {order_id:x} missing from DB"))?;
+
+            let proof_id = order
+                .proof_id
+                .with_context(|| format!("Missing proof_id for order {order_id:x}"))?;
+
+            let journal = self
+                .prover
+                .get_journal(&proof_id)
+                .await
+                .with_context(|| format!("Failed to get journal for {proof_id}"))?
+                .with_context(|| format!("Journal for {proof_id} missing"))?;
+
+            journal_size += journal.len();
+        }
+
+        Ok(journal_size)
+    }
+
     /// Check if we should finalize the batch
     ///
     /// Checks current min-deadline, batch timer, and current block.
@@ -249,7 +277,7 @@ where
         batch: &Batch,
         pending_orders: &[AggregationOrder],
     ) -> Result<bool> {
-        let (conf_batch_size, conf_batch_time, conf_batch_fees) = {
+        let (conf_batch_size, conf_batch_time, conf_batch_fees, conf_max_journal_bytes) = {
             let config = self.config.lock_all().context("Failed to lock config")?;
 
             // TODO: Move this parse into config
@@ -259,7 +287,12 @@ where
                 }
                 None => None,
             };
-            (config.batcher.batch_size, config.batcher.batch_max_time, batch_max_fees)
+            (
+                config.batcher.batch_size,
+                config.batcher.batch_max_time,
+                batch_max_fees,
+                config.batcher.batch_max_journal_bytes,
+            )
         };
 
         // Skip finalization checks if we have nothing in this batch
@@ -287,6 +320,26 @@ where
                     batch_target_size
                 );
             }
+        }
+
+        // Finalize the batch if the journal size is already above the max
+        let batch_journal_size = self.get_combined_journal_size(&batch.orders).await?;
+        let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id).collect();
+        let pending_journal_size = self.get_combined_journal_size(&pending_order_ids).await?;
+        let journal_size = batch_journal_size + pending_journal_size;
+        if journal_size >= conf_max_journal_bytes {
+            tracing::info!(
+                "Finalizing batch {batch_id}: journal size target hit {} >= {}",
+                journal_size,
+                conf_max_journal_bytes
+            );
+            return Ok(true);
+        } else {
+            tracing::debug!(
+                "Batch {batch_id} journal size below limit {} < {}",
+                journal_size,
+                conf_max_journal_bytes
+            );
         }
 
         // Finalize the batch whenever the current batch exceeds a certain age (e.g. one hour).
@@ -512,7 +565,7 @@ mod tests {
     use super::*;
     use crate::{
         db::SqliteDb,
-        provers::{encode_input, MockProver},
+        provers::{encode_input, MockProver, Prover},
         BatchStatus, Order, OrderStatus,
     };
     use alloy::{
@@ -528,6 +581,7 @@ mod tests {
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
+    use std::ops::Add;
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -1089,5 +1143,131 @@ mod tests {
         assert!(!batch.orders.is_empty());
         assert_eq!(batch.status, BatchStatus::PendingSubmission);
         assert!(logs_contain("getting close to deadline"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn jounal_size_finalize() {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .wallet(EthereumWallet::from(signer.clone()))
+                .on_builtin(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut config = config.load_write().unwrap();
+            config.batcher.batch_size = Some(10);
+            // set config such that the batch max journal size is exceeded
+            // if two ECHO sized journals are included in a batch
+            config.market.max_journal_bytes = 20;
+            config.batcher.batch_max_journal_bytes = 30;
+        }
+
+        let mock_prover = MockProver::default();
+
+        // Pre-prove the echo aka app guest:
+        let image_id = Digest::from(ECHO_ID);
+        let image_id_str = image_id.to_string();
+        mock_prover.upload_image(&image_id_str, ECHO_ELF.to_vec()).await.unwrap();
+        let input_id = mock_prover
+            .upload_input(encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap())
+            .await
+            .unwrap();
+        let proof_res =
+            mock_prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+
+        let prover: ProverObj = Arc::new(mock_prover);
+
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+
+        let _handle = tokio::spawn(chain_monitor.spawn());
+
+        let mut aggregator = AggregatorService::new(
+            db.clone(),
+            provider.clone(),
+            chain_monitor,
+            Digest::from(SET_BUILDER_ID),
+            SET_BUILDER_ELF.to_vec(),
+            Digest::from(ASSESSOR_GUEST_ID),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            signer.address(),
+            config.clone(),
+            prover,
+            2,
+        )
+        .await
+        .unwrap();
+
+        let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
+        let chain_id = provider.get_chain_id().await.unwrap();
+
+        let min_price = 200000000000000000u64;
+        let order_request = ProofRequest::new(
+            0,
+            &customer_signer.address(),
+            Requirements {
+                imageId: B256::from_slice(image_id.as_bytes()),
+                predicate: Predicate {
+                    predicateType: PredicateType::PrefixMatch,
+                    data: Default::default(),
+                },
+            },
+            "http://risczero.com/image",
+            Input { inputType: InputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(min_price),
+                maxPrice: U256::from(250000000000000000u64),
+                biddingStart: 0,
+                timeout: 50,
+                rampUpPeriod: 1,
+                lockStake: U256::from(10),
+            },
+        );
+
+        let client_sig = order_request
+            .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
+            .unwrap()
+            .as_bytes();
+
+        let order = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_block: None,
+            request: order_request,
+            image_id: Some(image_id_str.clone()),
+            input_id: Some(input_id.clone()),
+            proof_id: Some(proof_res.id),
+            expire_block: Some(1000),
+            client_sig: client_sig.into(),
+            lock_price: Some(U256::from(min_price)),
+            error_msg: None,
+        };
+
+        // add first order and aggregate
+        let order_id = U256::from(order.request.id);
+        db.add_order(order_id, order.clone()).await.unwrap();
+        aggregator.aggregate().await.unwrap();
+        assert!(logs_contain("journal size below limit 20 < 30"));
+
+        // batch is not finalized at this point
+
+        // Add another order, this should cross the journal limit threshold and
+        // trigger the batch to be finalized
+        let order_id = U256::from(order.request.id.add(U256::from(1)));
+        db.add_order(order_id, order.clone()).await.unwrap();
+        aggregator.aggregate().await.unwrap();
+        assert!(logs_contain("journal size target hit 40 >= 30"));
+
+        let (_, batch) = db.get_complete_batch().await.unwrap().unwrap();
+        assert_eq!(batch.orders.len(), 2);
+        assert_eq!(batch.status, BatchStatus::PendingSubmission);
     }
 }
