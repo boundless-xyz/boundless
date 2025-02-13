@@ -68,7 +68,7 @@ TaskDB is the center of how Bento schedules and prioritizes work. It provides th
 
 TaskDB also has the ability to prioritize specific work streams using two separate modes:
 
-- **Priority multiplier mode** allows for individual users and task types to be schedules ahead of other users.
+- **Priority multiplier mode** allows for individual users and task types to be scheduled ahead of other users.
 - **Dedicated resources mode** allows for a stream's user to get priority access to N workers on that stream. For example, if `user1` has a 10 GPU stream then that work will always get priority over the normal pool of users that have dedicated count of 0. But once `user1` has 10 concurrent GPU tasks, any additional work is scheduled alongside the rest of the priority pool of user work.
 
 ## The Agent
