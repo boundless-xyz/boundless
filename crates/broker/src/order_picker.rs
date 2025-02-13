@@ -248,7 +248,7 @@ where
         }
 
         // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently
-        // can absorb that proving load, we need to cordinate this check with parallel
+        // can absorb that proving load, we need to coordinate this check with parallel
         // proofs and the current state of Bento
         if let Some(prove_khz) = peak_prove_khz {
             let required_khz = (proof_res.stats.total_cycles / 1_000) / seconds_left;
