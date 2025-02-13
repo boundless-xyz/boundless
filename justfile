@@ -56,6 +56,7 @@ format:
     cd bento && cargo sort --workspace
     cd bento && cargo fmt --all
     cd documentation && bun run format-markdown
+    dprint fmt
     forge fmt
 
 format-check:
@@ -66,6 +67,7 @@ format-check:
     cd bento && cargo sort --workspace --check
     cd bento && cargo fmt --all --check
     cd documentation && bun run check
+    dprint check
     forge fmt --check
 
 docker:
