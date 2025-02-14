@@ -737,7 +737,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x0a4DFbd97283Bb604B4D962c32FA1854809F9e40)
+                IBoundlessMarket.InsufficientBalance.selector, address(0x97DF6503C5633B16F8A65214DD48C357a1C50E95)
             )
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);

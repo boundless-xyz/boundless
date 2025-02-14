@@ -15,9 +15,9 @@ struct Requirements {
 }
 
 library RequirementsLibrary {
-    string constant REQUIREMENTS_TYPE = "Requirements(bytes32 imageId,Predicate predicate)";
+    string constant REQUIREMENTS_TYPE = "Requirements(bytes32 imageId,Predicate predicate,Selector selector)";
     bytes32 constant REQUIREMENTS_TYPEHASH =
-        keccak256(abi.encodePacked(REQUIREMENTS_TYPE, PredicateLibrary.PREDICATE_TYPE));
+        keccak256(abi.encodePacked(REQUIREMENTS_TYPE, PredicateLibrary.PREDICATE_TYPE, SelectorLib.SELECTOR_TYPE));
 
     function eip712Digest(Requirements memory requirements) internal pure returns (bytes32) {
         return keccak256(

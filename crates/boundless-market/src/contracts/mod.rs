@@ -434,12 +434,12 @@ impl Predicate {
 impl Selector {
     /// Creates a new selector with the given value.
     pub fn some(value: [u8; 4]) -> Self {
-        Self { isSome: true, value: FixedBytes(value) }
+        Self { isSome: true, value: FixedBytes::<4>(value) }
     }
 
     /// Creates a new selector with no value.
     pub fn none() -> Self {
-        Self { isSome: false, value: FixedBytes([0; 4]) }
+        Self { isSome: false, value: FixedBytes::<4>([0; 4]) }
     }
 
     /// Returns true if the selector has a value.

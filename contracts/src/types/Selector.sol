@@ -24,11 +24,12 @@ struct Selectors {
     bytes4[] values;
 }
 
-/// @title SelectorLib - Helper library for working with Option types
-/// @notice Provides utility functions for creating and manipulating Option values
+/// @title SelectorLib - Helper library for working with Selector types
+/// @notice Provides utility functions for creating and manipulating Selector values
 library SelectorLib {
     /// @notice The EIP-712 typehash for Selector
-    bytes32 public constant SELECTOR_TYPEHASH = keccak256("Selector(bytes4 value,bool isSome)");
+    string constant SELECTOR_TYPE = "Selector(bytes4 value,bool isSome)";
+    bytes32 constant SELECTOR_TYPEHASH = keccak256(bytes(SELECTOR_TYPE));
 
     /// @notice Creates an Selector containing a value (Some variant)
     /// @param value The value to wrap in an Selector
