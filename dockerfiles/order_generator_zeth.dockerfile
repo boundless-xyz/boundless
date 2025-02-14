@@ -2,9 +2,7 @@
 FROM rust:1.81.0-bookworm AS init
 
 RUN apt-get -qq update && \
-    apt-get install -y -q clang
-
-SHELL ["/bin/bash", "-c"]
+    apt-get install -y -q clang 
 
 # TODO: Update once rzup 0.3 is released. Current live version does not install due to symlink issue.
 # Full install of rzup to get r0vm
@@ -13,6 +11,8 @@ RUN curl -L https://risc0-artifacts.s3.us-west-2.amazonaws.com/rzup/test/install
 ENV RISC0_SERVER_PATH=/usr/local/cargo/bin/r0vm
 
 FROM init AS builder
+
+SHELL ["/bin/bash", "-c"]
 
 WORKDIR /src
 
@@ -27,6 +27,7 @@ COPY remappings.txt .
 COPY foundry.toml .
 
 SHELL ["/bin/bash", "-c"]
+
 
 RUN cargo build --release --bin order-generator-zeth -F zeth
 
