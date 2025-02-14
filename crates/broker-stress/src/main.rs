@@ -12,7 +12,7 @@ use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
         hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements,
+        PredicateType, ProofRequest, Requirements, Selector,
     },
     input::InputBuilder,
 };
@@ -80,6 +80,7 @@ async fn request_spawner(
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             elf_url,
             Input {

@@ -1224,6 +1224,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                selector: Selector::none(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
