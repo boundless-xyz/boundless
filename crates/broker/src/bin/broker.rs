@@ -3,6 +3,7 @@
 // All rights reserved.
 
 use alloy::{
+    primitives::utils::parse_ether,
     providers::{network::EthereumWallet, ProviderBuilder, WalletProvider},
     rpc::client::RpcClient,
     transports::layers::RetryBackoffLayer,
@@ -10,7 +11,7 @@ use alloy::{
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
-use broker::{Args, Broker, CustomRetryPolicy};
+use broker::{Args, BalanceAlertConfig, BalanceAlertLayer, Broker, CustomRetryPolicy};
 use clap::Parser;
 
 #[tokio::main]
@@ -33,6 +34,11 @@ async fn main() -> Result<()> {
 
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()
+        .layer(BalanceAlertLayer::new(BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: parse_ether("0.1")?,
+            error_threshold: parse_ether("0.1")?,
+        }))
         .wallet(wallet)
         .with_chain(NamedChain::Sepolia)
         .on_client(client);
