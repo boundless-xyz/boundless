@@ -11,11 +11,16 @@ async function checkRemoteUrl(url: string): Promise<boolean> {
   }
 
   try {
-    const response = await fetch(url);
-
-    return response.status >= 200 && response.status < 300;
-  } catch {
+  const response = await fetch(url);
+  if (response.status >= 200 && response.status < 300) {
+    return true;
+  } else {
+    console.error(`Error: Received status code ${response.status} for URL: ${url}`);
     return false;
+  }
+} catch (error) {
+  console.error(`Error fetching URL ${url}:`, error);
+  return false;
   }
 }
 
