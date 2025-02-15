@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use alloy::network::{Ethereum, Network};
+use alloy::network::Ethereum;
 use alloy::primitives::{Address, U256};
 use alloy::providers::{PendingTransactionBuilder, Provider, ProviderLayer, RootProvider};
 use alloy::transports::{BoxTransport, TransportResult};
@@ -13,9 +13,9 @@ pub struct BalanceAlertConfig {
     /// Address to periodically check the balance of
     pub watch_address: Address,
     /// Threshold at which to log a warning
-    pub warn_threshold: U256,
+    pub warn_threshold: Option<U256>,
     /// Threshold at which to log an error
-    pub error_threshold: U256,
+    pub error_threshold: Option<U256>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -89,13 +89,13 @@ where
         let res = self.inner.send_raw_transaction(encoded_tx).await;
         let balance = self.inner.get_balance(self.config.watch_address).await?;
 
-        if balance < self.config.error_threshold {
+        if balance < self.config.error_threshold.unwrap_or(U256::MAX) {
             tracing::error!(
                 "balance of {} < warning threshold: {}",
                 self.config.watch_address,
                 balance
             );
-        } else if balance < self.config.warn_threshold {
+        } else if balance < self.config.warn_threshold.unwrap_or(U256::MAX) {
             tracing::warn!(
                 "balance of {} < error threshold: {}",
                 self.config.watch_address,

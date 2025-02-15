@@ -11,7 +11,7 @@ use alloy::{
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
-use broker::{Args, BalanceAlertConfig, BalanceAlertLayer, Broker, CustomRetryPolicy};
+use broker::{Args, BalanceAlertConfig, BalanceAlertLayer, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
 
 #[tokio::main]
@@ -21,6 +21,7 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+    let config = Config::load(&args.config_file).await?;
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 
@@ -32,13 +33,15 @@ async fn main() -> Result<()> {
     );
     let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone()).boxed();
 
+    let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+        watch_address: wallet.default_signer().address(),
+        warn_threshold: config.market.balance_warn_threshold.and_then(|s| parse_ether(&s).ok()),
+        error_threshold: config.market.balance_error_threshold.and_then(|s| parse_ether(&s).ok()),
+    });
+
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()
-        .layer(BalanceAlertLayer::new(BalanceAlertConfig {
-            watch_address: wallet.default_signer().address(),
-            warn_threshold: parse_ether("0.1")?,
-            error_threshold: parse_ether("0.1")?,
-        }))
+        .layer(balance_alerts_layer)
         .wallet(wallet)
         .with_chain(NamedChain::Sepolia)
         .on_client(client);
