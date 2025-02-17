@@ -29,7 +29,7 @@ struct Offer {
     /// @dev Once locked-in, if a valid proof is not submitted before this deadline, the prover can be "slashed," which refunds the price to the requester.
     uint32 timeout;
     /// @notice Bidders must stake this amount as part of their bid.
-    uint96 lockStake;
+    uint256 lockStake;
 }
 
 library OfferLibrary {
@@ -56,7 +56,7 @@ library OfferLibrary {
         }
         lockDeadline1 = offer.lockDeadline();
         deadline1 = offer.deadline();
-        if (deadline1 - lockDeadline1 > type(uint32).max) {
+        if (deadline1 - lockDeadline1 > type(uint24).max) {
             revert IBoundlessMarket.InvalidRequest();
         }
         if (deadline1 < block.number) {

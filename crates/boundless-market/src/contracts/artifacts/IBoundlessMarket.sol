@@ -45,13 +45,13 @@ interface IBoundlessMarket {
     /// @param seal The seal of the proof.
     event ProofDelivered(RequestId indexed requestId, bytes journal, bytes seal);
 
-    /// Event when a deposit is made to the market.
+    /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.
-    /// @param prover The address of the prover.
     /// @param stakeBurned The amount of stake burned.
-    /// @param stakeTransferred The amount of stake transferred to the client.
+    /// @param stakeTransferred The amount of stake transferred to either the fulfilling prover or the market.
+    /// @param stakeRecipient The address of the stake recipient. Typically the fulfilling prover, but can be the market.
     event ProverSlashed(
-        RequestId indexed requestId, address indexed prover, uint256 stakeBurned, uint256 stakeTransferred
+        RequestId indexed requestId, uint256 stakeBurned, uint256 stakeTransferred, address stakeRecipient
     );
 
     /// @notice Event when a deposit is made to the market.
@@ -165,6 +165,12 @@ interface IBoundlessMarket {
     /// @param requestId The ID of the request.
     /// @return The expiration time of the lock on the request.
     function requestLockDeadline(RequestId requestId) external view returns (uint64);
+
+    /// @notice For a given locked request, returns when request expires.
+    /// @dev If the request is not locked, this function will revert.
+    /// @param requestId The ID of the request.
+    /// @return The expiration time of the request.
+    function requestDeadline(RequestId requestId) external view returns (uint64);
 
     /// @notice Deposit Ether into the market to pay for proof.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
@@ -332,6 +338,8 @@ interface IBoundlessMarket {
 
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
+    /// @dev The provers stake has already been transferred to the contract when the request was locked.
+    ///      This method just burn the stake.
     /// @param requestId The ID of the request.
     function slash(RequestId requestId) external;
 

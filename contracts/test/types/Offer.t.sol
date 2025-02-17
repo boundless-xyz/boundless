@@ -93,4 +93,39 @@ contract OfferTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
         invalidOffer.validate(id);
     }
+
+    function testDeadlineDeltaTooLarge() public {
+        Offer memory invalidOffer = Offer({
+            minPrice: 1 ether,
+            maxPrice: 2 ether,
+            biddingStart: uint64(100),
+            rampUpPeriod: 100,
+            lockTimeout: uint32(500),
+            timeout: uint32(uint32(500) + type(uint24).max + 1), // Makes deadline - lockDeadline > type(uint24).max
+            lockStake: 0.1 ether
+        });
+
+        RequestId id = RequestIdLibrary.from(address(this), 1);
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
+        invalidOffer.validate(id);
+    }
+
+    function testValidTimeouts() public view {
+        Offer memory validOffer = Offer({
+            minPrice: 1 ether,
+            maxPrice: 2 ether,
+            biddingStart: uint64(100),
+            rampUpPeriod: 100,
+            lockTimeout: uint32(500),
+            timeout: uint32(uint32(500) + type(uint24).max), // Maximum valid difference
+            lockStake: 0.1 ether
+        });
+
+        RequestId id = RequestIdLibrary.from(address(this), 1);
+        (uint64 lockDeadline, uint64 deadline) = validOffer.validate(id);
+        
+        assertEq(lockDeadline, 600); // biddingStart + lockTimeout
+        assertEq(deadline, uint32(600) + type(uint24).max); // biddingStart + timeout
+        assertEq(deadline - lockDeadline, type(uint24).max); // Maximum allowed difference
+    }
 }

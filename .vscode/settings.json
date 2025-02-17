@@ -1,4 +1,5 @@
 {
+  "solidity.monoRepoSupport": false,
   "rust-analyzer.check.allTargets": true,
   "rust-analyzer.check.features": [],
   "rust-analyzer.server.extraEnv": {
@@ -29,5 +30,6 @@
   },
   "biome.rename": true,
   "biome.enabled": true,
-  "biome.lspBin": "documentation/node_modules/.bin/biome"
+  "biome.lspBin": "documentation/node_modules/.bin/biome",
+  "rust-analyzer.checkOnSave": true
 }
