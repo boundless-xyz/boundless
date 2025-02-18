@@ -79,6 +79,7 @@ contract OfferTest is Test {
         assertEq(offer.deadline(), 300);
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function testInvalidLockTimeout() public {
         Offer memory invalidOffer = Offer({
             minPrice: 1 ether,
@@ -95,6 +96,7 @@ contract OfferTest is Test {
         invalidOffer.validate(id);
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function testDeadlineDeltaTooLarge() public {
         Offer memory invalidOffer = Offer({
             minPrice: 1 ether,
