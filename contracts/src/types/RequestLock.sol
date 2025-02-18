@@ -10,7 +10,7 @@ using RequestLockLibrary for RequestLock global;
 /// Fields can be valid or invalid depending where in the lifecycle we are. Integrators should not rely on RequestLock
 /// for determining the status of a request. Instead, they shouldalways use BoundlessMarket's view functions.
 ///
-/// Packed to fit into 2 slots. 
+/// Packed to fit into 2 slots.
 struct RequestLock {
     ///
     /// Storage slot 1
@@ -49,7 +49,6 @@ struct RequestLock {
     /// based on request digest instead of index. As a friction, this would introduce a second
     /// user-facing concept of what identifies a request.
     bytes8 fingerprint;
-    
 }
 
 library RequestLockLibrary {
@@ -90,7 +89,7 @@ library RequestLockLibrary {
         return requestLock.prover != address(0);
     }
 
-    /// @notice Returns true if the request was fulfilled by the locker 
+    /// @notice Returns true if the request was fulfilled by the locker
     /// before the lock deadline and they have been paid.
     /// @param requestLock The request lock to check.
     /// @return True if the request was fulfilled before the lock deadline and the prover was paid, false otherwise.

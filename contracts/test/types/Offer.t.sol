@@ -124,7 +124,7 @@ contract OfferTest is Test {
 
         RequestId id = RequestIdLibrary.from(address(this), 1);
         (uint64 lockDeadline, uint64 deadline) = validOffer.validate(id);
-        
+
         assertEq(lockDeadline, 600); // biddingStart + lockTimeout
         assertEq(deadline, uint32(600) + type(uint24).max); // biddingStart + timeout
         assertEq(deadline - lockDeadline, type(uint24).max); // Maximum allowed difference

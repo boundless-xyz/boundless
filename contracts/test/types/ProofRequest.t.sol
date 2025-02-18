@@ -29,11 +29,7 @@ contract ProofRequestTestContract {
         return proofRequest.validateForLockRequest(accounts, wallet1, idx1);
     }
 
-    function validateForPriceRequest(ProofRequest calldata proofRequest)
-        external
-        view
-        returns (uint64, uint64)
-    {
+    function validateForPriceRequest(ProofRequest calldata proofRequest) external view returns (uint64, uint64) {
         return proofRequest.validateForPriceRequest();
     }
 

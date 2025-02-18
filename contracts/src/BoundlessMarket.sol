@@ -71,7 +71,7 @@ contract BoundlessMarket is
     /// the order, or to the market treasury. This fraction controls that ratio.
     /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
     /// gas of an SLOAD. Can only be changed via contract upgrade.
-    uint256 public constant SLASHING_BURN_BPS = 7500; 
+    uint256 public constant SLASHING_BURN_BPS = 7500;
 
     /// @notice When an order is fulfilled, the market takes a fee based on the price of the order.
     /// This fraction is multiplied by the price to decide the fee.
@@ -199,7 +199,7 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client, ) = request.id.clientAndIndex();
+        (address client,) = request.id.clientAndIndex();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
 
@@ -264,7 +264,7 @@ contract BoundlessMarket is
         priceRequest(request, clientSignature);
         fulfill(fill, assessorSeal, prover);
     }
-    
+
     /// @inheritdoc IBoundlessMarket
     function priceAndFulfillBatch(
         ProofRequest[] calldata requests,
@@ -330,7 +330,7 @@ contract BoundlessMarket is
     /// Whether they will receive payment depends on the following conditions:
     /// - If the request is currently locked, only the prover can fulfill it and receive payment
     /// - If the request lock has now expired, but the request itself has not expired, anyone can fulfill
-    ///   it and receive payment 
+    ///   it and receive payment
     function _fulfillAndPayLocked(
         RequestId id,
         address client,
@@ -362,11 +362,11 @@ contract BoundlessMarket is
         if (lock.lockDeadline >= block.number) {
             return _payLockedCurrently(id, assessorProver, lock.prover, lock.price, lock.stake);
         } else {
-            return _payLockedExpired(id, assessorProver, client, lock.price, requestDigest);            
+            return _payLockedExpired(id, assessorProver, client, lock.price, requestDigest);
         }
     }
 
-    /// The request was locked, and the lock is still ongoing. 
+    /// The request was locked, and the lock is still ongoing.
     /// Determines whether payment should be sent, and sends if so.
     function _payLockedCurrently(
         RequestId id,
@@ -406,8 +406,8 @@ contract BoundlessMarket is
         }
         uint96 price = tprice.price;
 
-        // Deduct any additionally owned funds from client account. The client was already charged 
-        // for the price at lock time once when the request was locked. We only need to charge any 
+        // Deduct any additionally owned funds from client account. The client was already charged
+        // for the price at lock time once when the request was locked. We only need to charge any
         // additional price increases from the dutch auction between lock time to now.
         Account storage clientAccount = accounts[client];
         uint96 clientOwes = price - lockPrice;
@@ -439,7 +439,7 @@ contract BoundlessMarket is
         if (fulfilled) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
-        
+
         // It is not possible for an expired request to be priced, so this check functions as a check
         // for whether the request has expired.
         TransientPrice memory tprice = TransientPriceLibrary.load(requestDigest);
@@ -459,7 +459,12 @@ contract BoundlessMarket is
 
     /// The request was never locked and was fulfilled in this transaction.
     /// Determines whether payment should be sent, and sends if so.
-    function _payNeverLocked(uint96 price, address client, Account storage clientAccount, Account storage assessorProverAccount) internal returns (bytes memory paymentError) {   
+    function _payNeverLocked(
+        uint96 price,
+        address client,
+        Account storage clientAccount,
+        Account storage assessorProverAccount
+    ) internal returns (bytes memory paymentError) {
         // Deduct the funds from client account.
         if (clientAccount.balance < price) {
             return abi.encodeWithSelector(InsufficientBalance.selector, client);
@@ -519,15 +524,15 @@ contract BoundlessMarket is
         if (block.number <= lock.deadline()) {
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline()});
         }
-        
-        // Request was either fulfilled after the lock deadline or the request expired unfulfilled. 
+
+        // Request was either fulfilled after the lock deadline or the request expired unfulfilled.
         // In both cases the locker should be slashed.
         requestLocks[requestId].setSlashed();
-        
+
         // Calculate the portion of stake that should be burned vs sent to the prover.
         uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_BPS / 10000;
         ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
-        
+
         // If a prover fulfilled the request after the lock deadline, that prover
         // receives the unburned portion of the stake as a reward.
         // Otherwise the request expired unfulfilled, unburnt stake accrues to the market treasury,

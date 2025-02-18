@@ -40,7 +40,11 @@ contract RequestLockTest is Test {
 
     function testSetProverPaidBeforeLockDeadline() public {
         requestLock.setProverPaidBeforeLockDeadline();
-        assertEq(requestLock.requestLockFlags, RequestLockLibrary.PROVER_PAID_DURING_LOCK_FLAG, "Prover paid flag not set correctly");
+        assertEq(
+            requestLock.requestLockFlags,
+            RequestLockLibrary.PROVER_PAID_DURING_LOCK_FLAG,
+            "Prover paid flag not set correctly"
+        );
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
         assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");

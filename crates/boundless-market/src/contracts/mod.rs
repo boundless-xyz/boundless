@@ -24,10 +24,7 @@ use alloy::{
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
-use alloy_primitives::{
-    aliases::U160,
-    Address, Bytes, B256, U256,
-};
+use alloy_primitives::{aliases::U160, Address, Bytes, B256, U256};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]

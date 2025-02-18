@@ -255,7 +255,7 @@ contract BoundlessMarketTest is Test {
     function snapshotMarketStakeBalance() public {
         stakeBalanceSnapshot = stakeToken.balanceOf(address(boundlessMarket)).toInt256();
     }
-    
+
     function expectMarketStakeBalanceChange(int256 change) public view {
         require(stakeBalanceSnapshot != type(int256).max, "market stake balance snapshot is not set");
         int256 newBalance = stakeToken.balanceOf(address(boundlessMarket)).toInt256();
@@ -298,7 +298,7 @@ contract BoundlessMarketTest is Test {
         require(!boundlessMarket.requestIsSlashed(requestId), "Request should be slashed");
     }
 
-    // Creates a client account with the given index, gives it some Ether, 
+    // Creates a client account with the given index, gives it some Ether,
     // gives it some Stake Token, and deposits both into the market.
     function getClient(uint256 index) internal returns (Client) {
         if (address(clients[index]) != address(0)) {
@@ -310,7 +310,7 @@ contract BoundlessMarketTest is Test {
         return client;
     }
 
-    // Creates a prover account with the given index, gives it some Ether, 
+    // Creates a prover account with the given index, gives it some Ether,
     // gives it some Stake Token, and deposits both into the market.
     function getProver(uint256 index) internal returns (Client) {
         if (address(provers[index]) != address(0)) {
@@ -1036,7 +1036,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     function testFulfillLockedRequestWithSig() public {
-        _testFulfillSameBlock(1, LockRequestMethod.LockRequestWithSig, "fulfill: a locked request (locked via prover signature)");
+        _testFulfillSameBlock(
+            1, LockRequestMethod.LockRequestWithSig, "fulfill: a locked request (locked via prover signature)"
+        );
     }
 
     // Check that a single client can create many requests, with the full range of indices, and
@@ -1055,7 +1057,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory request = client.request(3);
 
         boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
-        
+
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
         (Fulfillment memory fill, bytes memory assessorSeal) =
@@ -1075,12 +1077,15 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     // While a request is locked, another prover can fulfill it as long as they don't specify they require payment.
-    function testFulfillLockedRequestByOtherProverNotRequirePayment() public returns (Client, Client, ProofRequest memory) {
+    function testFulfillLockedRequestByOtherProverNotRequirePayment()
+        public
+        returns (Client, Client, ProofRequest memory)
+    {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
 
         boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
-        
+
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
         (Fulfillment memory fill, bytes memory assessorSeal) =
@@ -1166,9 +1171,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     // Tests trying to fulfill a request that was locked and has now expired.
-    function testFulfillLockedRequestFullyExpired()
-        public returns (Client, ProofRequest memory)
-    {
+    function testFulfillLockedRequestFullyExpired() public returns (Client, ProofRequest memory) {
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
@@ -1189,13 +1192,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Try both fulfillment paths.
         vm.expectRevert(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
-        );        
+        );
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(testProver));
-        vm.expectRevert(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id)
-        );        
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
         boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
-        
+
         expectRequestNotFulfilled(fill.id);
         // Client is out 1 eth until slash is called.
         client.expectBalanceChange(-1 ether);
@@ -1215,14 +1216,14 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 
     // Scenario when a prover locks a request, fails to deliver it within the lock expiry,
-    // then another prover fulfills a request after the lock has expired, 
+    // then another prover fulfills a request after the lock has expired,
     // but before the request as a whole has expired.
-    function testFulfillWasLockedRequestByOtherProver()
-        public returns (ProofRequest memory, Client)
-    {
+    function testFulfillWasLockedRequestByOtherProver() public returns (ProofRequest memory, Client) {
         // Create a request with a lock timeout of 50 blocks, and overall timeout of 100.
         Client client = getClient(1);
-        ProofRequest memory request = client.request(1, Offer({
+        ProofRequest memory request = client.request(
+            1,
+            Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
                 biddingStart: uint64(block.number),
@@ -1233,7 +1234,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             })
         );
         bytes memory clientSignature = client.sign(request);
-        
+
         Client locker = getProver(1);
         Client otherProver = getProver(2);
 
@@ -1262,7 +1263,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Check that the proof was submitted
         expectRequestFulfilled(fill.id);
 
-        // Now the client should have been charged an additional 1 ETH, since the original lock price 
+        // Now the client should have been charged an additional 1 ETH, since the original lock price
         // was not fulfilled and we have fallen back to a public auction.
         client.expectBalanceChange(-2 ether);
         locker.expectBalanceChange(0 ether);
@@ -1276,12 +1277,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // Scenario when a prover locks a request, fails to deliver it within the lock expiry,
     // but does deliver it before the request expires. Here they should lose their stake,
     // but receive payment for the request.
-    function testFulfillWasLockedRequestByOriginalLocker()
-        public returns (ProofRequest memory, Client)
-    {
+    function testFulfillWasLockedRequestByOriginalLocker() public returns (ProofRequest memory, Client) {
         // Create a request with a lock timeout of 50 blocks, and overall timeout of 100.
         Client client = getClient(1);
-        ProofRequest memory request = client.request(1, Offer({
+        ProofRequest memory request = client.request(
+            1,
+            Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
                 biddingStart: uint64(block.number),
@@ -1292,7 +1293,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             })
         );
         bytes memory clientSignature = client.sign(request);
-        
+
         Client locker = getProver(1);
 
         client.snapshotBalance();
@@ -1352,7 +1353,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         expectMarketBalanceUnchanged();
     }
-    
+
     // Should revert as you can not fulfill a request twice, except for in the case covered by:
     // `testFulfillLockedRequestAlreadyFulfilledByOtherProver`
     function testFulfillNeverLockedAlreadyFulfilledAndPaid() public {
@@ -1371,10 +1372,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         vm.expectRevert(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
-        );        
+        );
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(testProver));
         expectRequestNotFulfilled(fill.id);
-        
+
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
         boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
 
@@ -1557,8 +1558,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-
-
     function _testFreezeAccount(bool withSig) public {
         testSlashLockedRequestFullyExpired();
 
@@ -1598,7 +1597,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Client client, ProofRequest memory request) = testFulfillLockedRequestFullyExpired();
         // Provers stake balance is subtracted at lock time, not when slash is called
         testProver.expectStakeBalanceChange(-uint256(request.offer.lockStake).toInt256());
-        
+
         snapshotMarketStakeBalance();
         snapshotMarketStakeTreasuryBalance();
 
@@ -1607,8 +1606,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, false);
         emit IERC20.Transfer(address(proxy), address(0x0), request.offer.lockStake);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, expectedSlashBurnAmount(request.offer.lockStake), expectedSlashTransferAmount(request.offer.lockStake), address(boundlessMarket));
-        
+        emit IBoundlessMarket.ProverSlashed(
+            request.id,
+            expectedSlashBurnAmount(request.offer.lockStake),
+            expectedSlashTransferAmount(request.offer.lockStake),
+            address(boundlessMarket)
+        );
+
         boundlessMarket.slash(request.id);
         vm.snapshotGasLastCall("slash: base case");
 
@@ -1623,7 +1627,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         return (client, request);
     }
-    
+
     // Handles case where a third-party that was not locked fulfills the request, and the locked prover does not.
     // Once the locked prover is slashed, we expect the request to be both "fulfilled" and "slashed".
     // We expect a portion of slashed funds to go to the market treasury.
@@ -1647,7 +1651,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Slash the original prover that locked and didnt deliver
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, expectedSlashBurnAmount(request.offer.lockStake), expectedSlashTransferAmount(request.offer.lockStake), address(boundlessMarket));
+        emit IBoundlessMarket.ProverSlashed(
+            request.id,
+            expectedSlashBurnAmount(request.offer.lockStake),
+            expectedSlashTransferAmount(request.offer.lockStake),
+            address(boundlessMarket)
+        );
         boundlessMarket.slash(request.id);
 
         client.expectBalanceChange(0 ether);
@@ -1685,7 +1694,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // request was eventually fulfilled or not to decide who to send stake to.
     function testSlashWasLockedRequestNotFullyExpired() public {
         Client client = getClient(1);
-        ProofRequest memory request = client.request(1, Offer({
+        ProofRequest memory request = client.request(
+            1,
+            Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
                 biddingStart: uint64(block.number),
@@ -1696,7 +1707,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             })
         );
         bytes memory clientSignature = client.sign(request);
-        
+
         Client locker = getProver(1);
         client.snapshotBalance();
         locker.snapshotBalance();
@@ -1755,8 +1766,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, false);
         emit IERC20.Transfer(address(proxy), address(0x0), request.offer.lockStake);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, expectedSlashBurnAmount(request.offer.lockStake), expectedSlashTransferAmount(request.offer.lockStake), address(otherProver));
-        
+        emit IBoundlessMarket.ProverSlashed(
+            request.id,
+            expectedSlashBurnAmount(request.offer.lockStake),
+            expectedSlashTransferAmount(request.offer.lockStake),
+            address(otherProver)
+        );
+
         boundlessMarket.slash(request.id);
         vm.snapshotGasLastCall("slash: fulfilled request after lock deadline");
 
@@ -1781,12 +1797,20 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, false);
         emit IERC20.Transfer(address(proxy), address(0x0), request.offer.lockStake);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProverSlashed(request.id, expectedSlashBurnAmount(request.offer.lockStake), expectedSlashTransferAmount(request.offer.lockStake), address(prover));
-        
+        emit IBoundlessMarket.ProverSlashed(
+            request.id,
+            expectedSlashBurnAmount(request.offer.lockStake),
+            expectedSlashTransferAmount(request.offer.lockStake),
+            address(prover)
+        );
+
         boundlessMarket.slash(request.id);
 
         // Prover should have their original balance less the stake amount plus the stake for eventually filling.
-        prover.expectStakeBalanceChange(-uint256(request.offer.lockStake).toInt256() + uint256(expectedSlashTransferAmount(request.offer.lockStake)).toInt256());
+        prover.expectStakeBalanceChange(
+            -uint256(request.offer.lockStake).toInt256()
+                + uint256(expectedSlashTransferAmount(request.offer.lockStake)).toInt256()
+        );
 
         expectMarketStakeTreasuryBalanceChange(0);
         expectMarketBalanceUnchanged();
@@ -1799,7 +1823,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsSlashed.selector, request.id));
         boundlessMarket.slash(request.id);
     }
-
 }
 
 contract BoundlessMarketBench is BoundlessMarketTest {
