@@ -2468,6 +2468,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "elsa",
  "futures",
  "futures-util",
  "guest-assessor",
@@ -2477,6 +2478,9 @@ dependencies = [
  "http 1.2.0",
  "httpmock",
  "notify",
+ "proptest",
+ "proptest-derive",
+ "rand 0.9.0",
  "reqwest",
  "risc0-aggregation",
  "risc0-zkvm",
@@ -2492,6 +2496,30 @@ dependencies = [
  "tracing-test",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "broker-stress"
+version = "0.6.0"
+dependencies = [
+ "alloy 0.9.2",
+ "anyhow",
+ "axum",
+ "boundless-market",
+ "broker",
+ "clap",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "rand 0.9.0",
+ "reqwest",
+ "risc0-zkp",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "url",
 ]
 
 [[package]]
@@ -3384,6 +3412,15 @@ dependencies = [
  "serdect",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "elsa"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2343daaeabe09879d4ea058bb4f1e63da3fc07dadc6634e01bda1b3d6a9d9d2b"
+dependencies = [
+ "stable_deref_trait",
 ]
 
 [[package]]
@@ -5974,6 +6011,17 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
+]
+
+[[package]]
+name = "proptest-derive"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cf16337405ca084e9c78985114633b6827711d22b9e6ef6c6c0d665eb3f0b6e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

@@ -12,6 +12,7 @@ import {Offer} from "../../src/types/Offer.sol";
 import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";
 
 contract OfferTest is Test {
+    /// forge-config: default.allow_internal_expect_revert = true
     function testBlockAtPrice() public {
         Offer memory offer = Offer({
             minPrice: 1 ether,
