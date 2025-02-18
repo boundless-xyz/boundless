@@ -169,7 +169,7 @@ async fn run(
                 // the request and does not fulfill it before the timeout, the prover can be
                 // slashed.
                 .with_timeout(1000)
-                .with_lock_timeout(1000)
+                .with_lock_timeout(1000),
         )
         .build()?;
 
