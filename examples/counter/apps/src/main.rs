@@ -168,7 +168,8 @@ async fn run(
                 // unfulfilled in the market before it expires. If a prover locks in
                 // the request and does not fulfill it before the timeout, the prover can be
                 // slashed.
-                .with_timeout(1000),
+                .with_timeout(1000)
+                .with_lock_timeout(1000)
         )
         .build()?;
 

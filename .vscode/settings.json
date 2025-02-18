@@ -19,6 +19,7 @@
     "./crates/guest/util/Cargo.toml",
     "./crates/guest/util/echo/Cargo.toml",
     "./crates/guest/util/identity/Cargo.toml",
+    "./examples/counter/Cargo.toml",
   ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",

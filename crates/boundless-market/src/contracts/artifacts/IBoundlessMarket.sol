@@ -293,7 +293,7 @@ interface IBoundlessMarket {
         bytes calldata assessorSeal,
         address prover
     ) external;
-    
+
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.

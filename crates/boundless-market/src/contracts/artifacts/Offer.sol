@@ -44,7 +44,11 @@ library OfferLibrary {
     /// @param requestId The ID of the request associated with the offer.
     /// @return lockDeadline1 The deadline for when a lock expires for the offer.
     /// @return deadline1 The deadline for the offer as a whole.
-    function validate(Offer memory offer, RequestId requestId) internal view returns (uint64 lockDeadline1, uint64 deadline1) {
+    function validate(Offer memory offer, RequestId requestId)
+        internal
+        view
+        returns (uint64 lockDeadline1, uint64 deadline1)
+    {
         if (offer.rampUpPeriod > offer.timeout) {
             revert IBoundlessMarket.InvalidRequest();
         }
