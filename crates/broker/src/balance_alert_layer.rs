@@ -82,6 +82,12 @@ where
         self.inner.root()
     }
 
+    /// Broadcasts a raw transaction RLP bytes to the network.
+    ///
+    /// This override checks the watched address after sending the transaction and
+    /// logs a warning or error if the balance falls below the configured thresholds.
+    ///
+    /// See [`send_transaction`](Self::send_transaction) for more details.
     async fn send_raw_transaction(
         &self,
         encoded_tx: &[u8],
@@ -91,13 +97,13 @@ where
 
         if balance < self.config.error_threshold.unwrap_or(U256::MAX) {
             tracing::error!(
-                "balance of {} < warning threshold: {}",
+                "balance of {} < error threshold: {}",
                 self.config.watch_address,
                 balance
             );
         } else if balance < self.config.warn_threshold.unwrap_or(U256::MAX) {
             tracing::warn!(
-                "balance of {} < error threshold: {}",
+                "balance of {} < warning threshold: {}",
                 self.config.watch_address,
                 balance
             );
@@ -105,5 +111,56 @@ where
             tracing::trace!("balance of {} is: {}", self.config.watch_address, balance);
         }
         res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{
+        network::{EthereumWallet, TransactionBuilder},
+        node_bindings::Anvil,
+        primitives::utils::parse_ether,
+        providers::ProviderBuilder,
+        rpc::{client::RpcClient, types::TransactionRequest},
+        signers::local::LocalSigner,
+    };
+
+    async fn burn_eth(provider: impl Provider, amount: U256) -> anyhow::Result<()> {
+        let tx = TransactionRequest::default().with_to(Address::ZERO).with_value(amount);
+        provider.send_transaction(tx).await?.watch().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_balance_alert_layer() -> anyhow::Result<()> {
+        // Initial wallet balance is 10 eth, set up to warn if < 9 and error if < 5
+        let anvil = Anvil::default().args(["--balance", "10"]).spawn();
+        let wallet = EthereumWallet::from(LocalSigner::from(anvil.keys()[0].clone()));
+        let client = RpcClient::builder().http(anvil.endpoint_url()).boxed();
+
+        let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: Some(parse_ether("9").unwrap()),
+            error_threshold: Some(parse_ether("5").unwrap()),
+        });
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .layer(balance_alerts_layer)
+            .wallet(wallet)
+            .on_client(client);
+
+        burn_eth(&provider, parse_ether("0.5").unwrap()).await?;
+        assert!(!logs_contain("< warning threshold")); // no log yet
+
+        burn_eth(&provider, parse_ether("0.6").unwrap()).await?;
+        assert!(logs_contain("< warning threshold"));
+
+        burn_eth(&provider, parse_ether("6").unwrap()).await?;
+        assert!(logs_contain("< error threshold"));
+
+        Ok(())
     }
 }
