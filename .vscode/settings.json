@@ -31,5 +31,4 @@
   "biome.rename": true,
   "biome.enabled": true,
   "biome.lspBin": "documentation/node_modules/.bin/biome",
-  "rust-analyzer.checkOnSave": true
 }
