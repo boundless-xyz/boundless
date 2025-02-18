@@ -7,7 +7,7 @@
     "RISC0_SKIP_BUILD_KERNELS": "1",
     "CARGO_TARGET_DIR": "target/analyzer"
   },
-  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.command": "check",
   "rust-analyzer.check.extraArgs": [
     "--target-dir=target/analyzer"
   ],

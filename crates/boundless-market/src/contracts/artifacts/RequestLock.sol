@@ -10,7 +10,7 @@ using RequestLockLibrary for RequestLock global;
 /// Fields can be valid or invalid depending where in the lifecycle we are. Integrators should not rely on RequestLock
 /// for determining the status of a request. Instead, they shouldalways use BoundlessMarket's view functions.
 ///
-/// Packed to fit into 2 slots.
+/// Packed into 3 slots. 
 struct RequestLock {
     ///
     /// Storage slot 1
@@ -24,12 +24,13 @@ struct RequestLock {
     uint24 deadlineDelta;
     /// @notice Flags that indicate the state of the request lock.
     uint8 requestLockFlags;
+
     ///
     /// Storage slot 2
     ///
     /// @notice The price that the prover will be paid for fulfilling the request.
     uint96 price;
-    // Prover stake that may be taken if a proof is not delivered by the deadline.
+    /// @notice Prover stake that may be taken if a proof is not delivered by the deadline.
     uint96 stake;
     /// @notice Keccak256 hash of the request, shortened to 64-bits. During fulfillment, this value is used
     /// to check that the request completed is the request that was locked, and not some other
@@ -49,6 +50,14 @@ struct RequestLock {
     /// based on request digest instead of index. As a friction, this would introduce a second
     /// user-facing concept of what identifies a request.
     bytes8 fingerprint;
+
+    ///
+    /// Storage slot 3
+    ///
+    /// @notice The address of the contract to call when the proof is delivered. Address is 0 if no callback is required.
+    address callbackAddress;
+    /// @notice If a callback is requested, the maximum gas to use for the callback.
+    uint96 callbackGasLimit;
 }
 
 library RequestLockLibrary {
@@ -65,24 +74,30 @@ library RequestLockLibrary {
 
     function setProverPaidBeforeLockDeadline(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags = PROVER_PAID_DURING_LOCK_FLAG;
-        // Zero out second slot for gas refund.
+        // Zero out second and third slots for gas refund.
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
         requestLock.fingerprint = bytes8(0);
+        requestLock.callbackAddress = address(0);
+        requestLock.callbackGasLimit = 0;
     }
 
     function setProverPaidAfterLockDeadline(RequestLock storage requestLock, address prover) internal {
         requestLock.prover = prover;
         requestLock.requestLockFlags = PROVER_PAID_AFTER_LOCK_FLAG;
         // We don't zero out the second slot as stake information is required for slashing.
+        requestLock.callbackAddress = address(0);
+        requestLock.callbackGasLimit = 0;
     }
 
     function setSlashed(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags |= SLASHED_FLAG;
-        // Zero out second slot for gas refund.
+        // Zero out second and third slots for gas refund.
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
         requestLock.fingerprint = bytes8(0);
+        requestLock.callbackAddress = address(0);
+        requestLock.callbackGasLimit = 0;
     }
 
     function hasBeenLocked(RequestLock memory requestLock) internal pure returns (bool) {

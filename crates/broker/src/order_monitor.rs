@@ -247,8 +247,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::{deploy_boundless_market, deploy_hit_points},
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        test_utils::{deploy_boundless_market, deploy_hit_points}, Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -303,6 +302,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                callback: Callback::default(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
@@ -416,6 +416,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                callback: Callback::default(),
             },
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },

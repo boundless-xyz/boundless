@@ -1166,9 +1166,7 @@ mod tests {
     use super::BoundlessMarketService;
     use crate::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
-            IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
-            Requirements,
+            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Callback, Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements
         },
         input::InputBuilder,
     };
@@ -1218,6 +1216,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                callback: Callback::default(),
             },
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),

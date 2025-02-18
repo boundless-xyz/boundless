@@ -105,8 +105,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-        Requirements,
+        eip712_domain, Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -126,6 +125,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: prefix.into(),
                 },
+                callback: Callback::default(),
             },
             "test",
             Input { inputType: InputType::Url, data: Default::default() },

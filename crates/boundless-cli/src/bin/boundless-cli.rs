@@ -24,6 +24,7 @@ use std::{
 use alloy::{
     network::Ethereum,
     primitives::{
+        aliases::U96,
         utils::{format_ether, parse_ether},
         Address, Bytes, PrimitiveSignature, B256, U256,
     },
@@ -48,8 +49,8 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
-        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Callback,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
@@ -246,6 +247,12 @@ struct SubmitOfferRequirements {
     /// Journal prefix to use as the predicate in the requirements.
     #[clap(long)]
     journal_prefix: Option<String>,
+    /// Address of the callback to use in the requirements.
+    #[clap(long)]
+    callback_addr: Option<Address>,
+    /// Gas limit of the callback to use in the requirements.
+    #[clap(long)]
+    callback_gas_limit: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
@@ -572,6 +579,11 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
+    let callback = match (&args.reqs.callback_addr, &args.reqs.callback_gas_limit) {
+        (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
+        _ => Callback::default(),
+    };
+
     // Compute the image_id, then upload the ELF.
     let elf_url = client.upload_image(&elf).await?;
     let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&elf)?));
@@ -592,7 +604,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate },
+        Requirements { imageId: image_id, predicate, callback },
         elf_url,
         requirements_input,
         offer.clone(),

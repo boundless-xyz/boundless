@@ -294,7 +294,7 @@ mod tests {
     use super::*;
     use alloy::{primitives::PrimitiveSignature, signers::local::PrivateKeySigner};
     use boundless_market::contracts::{
-        eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements,
+        eip712_domain, Callback, Input, Offer, Predicate, ProofRequest, Requirements
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_set_builder::SET_BUILDER_ELF;
@@ -310,6 +310,7 @@ mod tests {
             Requirements {
                 imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
                 predicate: Predicate::prefix_match(vec![1]),
+                callback: Callback::default(),
             },
             format!("file://{ECHO_PATH}"),
             Input::inline(vec![1, 2, 3, 4]),
