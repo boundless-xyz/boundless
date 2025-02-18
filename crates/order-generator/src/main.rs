@@ -71,6 +71,9 @@ struct MainArgs {
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
     #[clap(long, default_value = "0")]
     ramp_up: u32,
+    /// Number of blocks before the request lock-in expires.
+    #[clap(long, default_value = "300")]
+    lock_timeout: u32,
     /// Number of blocks before the request expires.
     #[clap(long, default_value = "300")]
     timeout: u32,
@@ -188,7 +191,8 @@ async fn run(args: &MainArgs) -> Result<()> {
                     .with_max_price_per_mcycle(args.max_price_per_mcycle, mcycles_count)
                     .with_lock_stake(args.lockin_stake)
                     .with_ramp_up_period(args.ramp_up)
-                    .with_timeout(args.timeout),
+                    .with_timeout(args.timeout)
+                    .with_lock_timeout(args.lock_timeout),
             )
             .build()?;
 
@@ -259,6 +263,7 @@ mod tests {
             bidding_start_offset: 5,
             ramp_up: 0,
             timeout: 1000,
+            lock_timeout: 1000,
             elf: None,
             input: OrderInput { input: None, input_file: None },
             encode_input: false,

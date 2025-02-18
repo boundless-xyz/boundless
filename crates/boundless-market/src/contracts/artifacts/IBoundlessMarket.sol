@@ -45,13 +45,13 @@ interface IBoundlessMarket {
     /// @param seal The seal of the proof.
     event ProofDelivered(RequestId indexed requestId, bytes journal, bytes seal);
 
-    /// Event when a deposit is made to the market.
+    /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.
-    /// @param prover The address of the prover.
     /// @param stakeBurned The amount of stake burned.
-    /// @param stakeTransferred The amount of stake transferred to the client.
+    /// @param stakeTransferred The amount of stake transferred to either the fulfilling prover or the market.
+    /// @param stakeRecipient The address of the stake recipient. Typically the fulfilling prover, but can be the market.
     event ProverSlashed(
-        RequestId indexed requestId, address indexed prover, uint256 stakeBurned, uint256 stakeTransferred
+        RequestId indexed requestId, uint256 stakeBurned, uint256 stakeTransferred, address stakeRecipient
     );
 
     /// @notice Event when a deposit is made to the market.
@@ -160,7 +160,14 @@ interface IBoundlessMarket {
     /// @return True if the request is fulfilled, false otherwise.
     function requestIsFulfilled(RequestId requestId) external view returns (bool);
 
-    /// @notice Return when the given request expires.
+    /// @notice For a given locked request, returns when the lock expires.
+    /// @dev If the request is not locked, this function will revert.
+    /// @param requestId The ID of the request.
+    /// @return The expiration time of the lock on the request.
+    function requestLockDeadline(RequestId requestId) external view returns (uint64);
+
+    /// @notice For a given locked request, returns when request expires.
+    /// @dev If the request is not locked, this function will revert.
     /// @param requestId The ID of the request.
     /// @return The expiration time of the request.
     function requestDeadline(RequestId requestId) external view returns (uint64);
@@ -270,6 +277,23 @@ interface IBoundlessMarket {
     /// @param clientSignature The signature of the client.
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;
 
+    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfill`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
+    /// @param request The proof requests.
+    /// @param clientSignature The client signatures.
+    /// @param fill The fulfillment information.
+    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// request's requirements are met.
+    /// @param prover The address of the prover that produced the fulfillment.
+    function priceAndFulfill(
+        ProofRequest calldata request,
+        bytes calldata clientSignature,
+        Fulfillment calldata fill,
+        bytes calldata assessorSeal,
+        address prover
+    ) external;
+
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
@@ -314,6 +338,8 @@ interface IBoundlessMarket {
 
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
+    /// @dev The provers stake has already been transferred to the contract when the request was locked.
+    ///      This method just burn the stake.
     /// @param requestId The ID of the request.
     function slash(RequestId requestId) external;
 
