@@ -14,7 +14,7 @@ use alloy::{
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
     boundless_market::BoundlessMarketService, encode_seal, set_verifier::SetVerifierService,
-    Fulfillment, Selectors,
+    Fulfillment, FulfillmentAssessor, Selectors,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -243,7 +243,11 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             config.batcher.single_txn_fulfill
         };
-        let selectors = Selectors::new();
+        let assessor_fill = FulfillmentAssessor {
+            seal: assessor_seal.into(),
+            selectors: Selectors::new(),
+            prover: self.prover_address,
+        };
         if single_txn_fulfill {
             if let Err(err) = self
                 .market
@@ -252,9 +256,7 @@ where
                     root,
                     batch_seal.into(),
                     fulfillments.clone(),
-                    assessor_seal.into(),
-                    selectors,
-                    self.prover_address,
+                    assessor_fill,
                 )
                 .await
             {
@@ -291,16 +293,7 @@ where
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
 
-            if let Err(err) = self
-                .market
-                .fulfill_batch(
-                    fulfillments.clone(),
-                    assessor_seal.into(),
-                    selectors,
-                    self.prover_address,
-                )
-                .await
-            {
+            if let Err(err) = self.market.fulfill_batch(fulfillments.clone(), assessor_fill).await {
                 tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
                 for fulfillment in fulfillments.iter() {
                     if let Err(db_err) = self

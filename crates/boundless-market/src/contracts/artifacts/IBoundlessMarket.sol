@@ -15,6 +15,7 @@
 pragma solidity ^0.8.20;
 
 import {Fulfillment} from "./types/Fulfillment.sol";
+import {FulfillmentAssessor} from "./types/FulfillmentAssessor.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {Selectors} from "./types/Selector.sol";
@@ -233,55 +234,31 @@ interface IBoundlessMarket {
     /// If another prover delivers a proof for an order that is locked, this method will revert
     /// unless `paymentRequired` is set to `false` on the `Fulfillment` struct.
     /// @param fill The fulfillment information, including the journal and seal.
-    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    /// @param prover The address of the prover that produced the fulfillment.
-    /// Note that this can differ from the address of the prover that locked the
-    /// request. Only the locked-in prover can receive payment.
-    function fulfill(
-        Fulfillment calldata fill,
-        bytes calldata assessorSeal,
-        Selectors calldata selectors,
-        address prover
-    ) external;
+    function fulfill(Fulfillment calldata fill, FulfillmentAssessor calldata assessorFill) external;
 
     /// @notice Fulfills a batch of requests. See IBoundlessMarket.fulfill for more information.
     /// @param fills The array of fulfillment information.
-    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    /// @param prover The address of the prover that produced the fulfillment.
-    function fulfillBatch(
-        Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        Selectors calldata selectors,
-        address prover
-    ) external;
+    function fulfillBatch(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill) external;
 
     /// @notice Verify the application and assessor receipts, ensuring that the provided fulfillment
     /// satisfies the request.
     /// @param fill The fulfillment information, including the journal and seal.
-    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    /// @param prover The address of the prover that produced the fulfillment.
-    function verifyDelivery(
-        Fulfillment calldata fill,
-        bytes calldata assessorSeal,
-        Selectors calldata selectors,
-        address prover
-    ) external view;
+    function verifyDelivery(Fulfillment calldata fill, FulfillmentAssessor calldata assessorFill) external view;
 
     /// @notice Verify the application and assessor receipts for the batch, ensuring that the provided
     /// fulfillments satisfy the requests.
     /// @param fills The array of fulfillment information.
-    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    /// @param prover The address of the prover that produced the fulfillment.
-    function verifyBatchDelivery(
-        Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        Selectors calldata selectors,
-        address prover
-    ) external view;
+    function verifyBatchDelivery(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill)
+        external
+        view;
 
     /// @notice Checks the validity of the request and then writes the current auction price to
     /// transient storage.
@@ -299,16 +276,13 @@ interface IBoundlessMarket {
     /// @param requests The array of proof requests.
     /// @param clientSignatures The array of client signatures.
     /// @param fills The array of fulfillment information.
-    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    /// @param prover The address of the prover that produced the fulfillment.
     function priceAndFulfillBatch(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        Selectors calldata selectors,
-        address prover
+        FulfillmentAssessor calldata assessorFill
     ) external;
 
     /// @notice Submit a new root to a set-verifier.
@@ -324,17 +298,14 @@ interface IBoundlessMarket {
     /// @param root The new merkle root.
     /// @param seal The seal of the new merkle root.
     /// @param fills The array of fulfillment information.
-    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    /// @param prover The address of the prover that produced the fulfillment.
     function submitRootAndFulfillBatch(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
         Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        Selectors calldata selectors,
-        address prover
+        FulfillmentAssessor calldata assessorFill
     ) external;
 
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn

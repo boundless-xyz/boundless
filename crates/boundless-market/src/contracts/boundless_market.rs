@@ -35,9 +35,9 @@ use thiserror::Error;
 use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
-    eip712_domain, request_id, EIP721DomainSaltless, Fulfillment,
+    eip712_domain, request_id, EIP721DomainSaltless, Fulfillment, FulfillmentAssessor,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    Offer, ProofRequest, ProofStatus, RequestError, Selectors, TxnErr, TXN_CONFIRM_TIMEOUT,
+    Offer, ProofRequest, ProofStatus, RequestError, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -497,15 +497,10 @@ where
     pub async fn fulfill(
         &self,
         fulfillment: &Fulfillment,
-        assessor_seal: &Bytes,
-        selectors: Selectors,
-        prover_address: Address,
+        assessor_fill: FulfillmentAssessor,
     ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
-        tracing::debug!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_seal);
-        let call = self
-            .instance
-            .fulfill(fulfillment.clone(), assessor_seal.clone(), selectors, prover_address)
-            .from(self.caller);
+        tracing::debug!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_fill);
+        let call = self.instance.fulfill(fulfillment.clone(), assessor_fill).from(self.caller);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -549,16 +544,11 @@ where
     pub async fn fulfill_batch(
         &self,
         fulfillments: Vec<Fulfillment>,
-        assessor_seal: Bytes,
-        selectors: Selectors,
-        prover_address: Address,
+        assessor_fill: FulfillmentAssessor,
     ) -> Result<Vec<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
-        tracing::debug!("Calling fulfillBatch({fulfillments:x?}, {assessor_seal:x})");
-        let call = self
-            .instance
-            .fulfillBatch(fulfillments, assessor_seal, selectors, prover_address)
-            .from(self.caller);
+        tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_fill:?})");
+        let call = self.instance.fulfillBatch(fulfillments, assessor_fill).from(self.caller);
         tracing::debug!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -593,22 +583,12 @@ where
         root: B256,
         seal: Bytes,
         fulfillments: Vec<Fulfillment>,
-        assessor_seal: Bytes,
-        selectors: Selectors,
-        prover_address: Address,
+        assessor_fill: FulfillmentAssessor,
     ) -> Result<(), MarketError> {
-        tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_seal:x})");
+        tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_fill:?})");
         let call = self
             .instance
-            .submitRootAndFulfillBatch(
-                verifier_address,
-                root,
-                seal,
-                fulfillments,
-                assessor_seal,
-                selectors,
-                prover_address,
-            )
+            .submitRootAndFulfillBatch(verifier_address, root, seal, fulfillments, assessor_fill)
             .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
@@ -632,9 +612,7 @@ where
         requests: Vec<ProofRequest>,
         client_sigs: Vec<Bytes>,
         fulfillments: Vec<Fulfillment>,
-        assessor_seal: Bytes,
-        selectors: Selectors,
-        prover_address: Address,
+        assessor_fill: FulfillmentAssessor,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
         for request in requests.iter() {
@@ -649,18 +627,11 @@ where
             }
         }
 
-        tracing::debug!("Calling priceAndFulfillBatch({fulfillments:?}, {assessor_seal:x})");
+        tracing::debug!("Calling priceAndFulfillBatch({fulfillments:?}, {assessor_fill:?})");
 
         let mut call = self
             .instance
-            .priceAndFulfillBatch(
-                requests,
-                client_sigs,
-                fulfillments,
-                assessor_seal,
-                selectors,
-                prover_address,
-            )
+            .priceAndFulfillBatch(requests, client_sigs, fulfillments, assessor_fill)
             .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
 
@@ -1173,8 +1144,8 @@ mod tests {
     use crate::{
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
-            IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
-            Requirements, Selector, Selectors,
+            FulfillmentAssessor, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
+            ProofStatus, Requirements, Selector, Selectors,
         },
         input::InputBuilder,
     };
@@ -1492,11 +1463,13 @@ mod tests {
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
+        let assessor_fill = FulfillmentAssessor {
+            seal: assessor_seal,
+            selectors: Selectors::new(),
+            prover: ctx.prover_signer.address(),
+        };
         // fulfill the request
-        ctx.prover_market
-            .fulfill(&fulfillment, &assessor_seal, Selectors::new(), ctx.prover_signer.address())
-            .await
-            .unwrap();
+        ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
         // retrieve journal and seal from the fulfilled request
@@ -1555,6 +1528,11 @@ mod tests {
             mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
+        let assessor_fill = FulfillmentAssessor {
+            seal: assessor_seal,
+            selectors: Selectors::new(),
+            prover: ctx.prover_signer.address(),
+        };
         // publish the committed root + fulfillments
         ctx.prover_market
             .submit_merkle_and_fulfill(
@@ -1562,9 +1540,7 @@ mod tests {
                 root,
                 set_verifier_seal,
                 fulfillments.clone(),
-                assessor_seal,
-                Selectors::new(),
-                ctx.prover_signer.address(),
+                assessor_fill,
             )
             .await
             .unwrap();
@@ -1611,7 +1587,11 @@ mod tests {
             mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
-
+        let assessor_fill = FulfillmentAssessor {
+            seal: assessor_seal,
+            selectors: Selectors::new(),
+            prover: ctx.prover_signer.address(),
+        };
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
@@ -1621,9 +1601,7 @@ mod tests {
                 vec![request],
                 vec![customer_sig],
                 fulfillments.clone(),
-                assessor_seal,
-                Selectors::new(),
-                ctx.prover_signer.address(),
+                assessor_fill,
                 None,
             )
             .await
@@ -1690,11 +1668,14 @@ mod tests {
             // publish the committed root
             ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
+            let assessor_fill = FulfillmentAssessor {
+                seal: assessor_seal,
+                selectors: Selectors::new(),
+                prover: some_other_address,
+            };
+
             // attempt to fulfill the request, and ensure we revert.
-            ctx.prover_market
-                .fulfill(&fulfillment, &assessor_seal, Selectors::new(), some_other_address)
-                .await
-                .unwrap_err(); // TODO: Use the error
+            ctx.prover_market.fulfill(&fulfillment, assessor_fill.clone()).await.unwrap_err(); // TODO: Use the error
             assert!(!ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
             let mut fulfillment_no_payment = fulfillment;
@@ -1703,12 +1684,7 @@ mod tests {
             // attempt to fulfill the request, and ensure we revert.
             let log = ctx
                 .prover_market
-                .fulfill(
-                    &fulfillment_no_payment,
-                    &assessor_seal,
-                    Selectors::new(),
-                    some_other_address,
-                )
+                .fulfill(&fulfillment_no_payment, assessor_fill.clone())
                 .await
                 .unwrap();
 
@@ -1731,12 +1707,14 @@ mod tests {
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
+        let assessor_fill = FulfillmentAssessor {
+            seal: assessor_seal,
+            selectors: Selectors::new(),
+            prover: ctx.prover_signer.address(),
+        };
+
         // fulfill the request, this time getting paid.
-        let log = ctx
-            .prover_market
-            .fulfill(&fulfillment, &assessor_seal, Selectors::new(), ctx.prover_signer.address())
-            .await
-            .unwrap();
+        let log = ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
         assert!(log.is_none());
 

@@ -31,7 +31,10 @@ use risc0_zkvm::{
 use url::Url;
 
 use boundless_market::{
-    contracts::{EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, InputType},
+    contracts::{
+        EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, FulfillmentAssessor, InputType,
+        Selectors,
+    },
     input::GuestEnv,
     order_stream_client::Order,
 };
@@ -46,10 +49,8 @@ alloy::sol!(
         bytes seal;
         /// The fulfillments of the order.
         BoundlessFulfillment[] fills;
-        /// The seal of the assessor.
-        bytes assessorSeal;
-        /// The prover address.
-        address prover;
+        /// The fulfillment of the assessor.
+        FulfillmentAssessor assessorFill;
     }
 );
 
@@ -66,13 +67,14 @@ impl OrderFulfilled {
 
         let root_seal = encode_seal(&root_receipt)?;
         let assessor_seal = assessor_receipt.abi_encode_seal()?;
+        let assessor_fill =
+            FulfillmentAssessor { seal: assessor_seal.into(), selectors: Selectors::new(), prover };
 
         Ok(OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),
             seal: root_seal.into(),
             fills: vec![fill],
-            assessorSeal: assessor_seal.into(),
-            prover,
+            assessorFill: assessor_fill,
         })
     }
 }
