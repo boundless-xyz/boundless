@@ -16,6 +16,9 @@ use thiserror::Error;
 
 use crate::{AggregationState, Batch, BatchStatus, Order, OrderStatus, ProofRequest};
 
+#[cfg(test)]
+mod fuzz_db;
+
 #[derive(Error, Debug)]
 pub enum DbError {
     #[error("Order key {0} not found in DB")]
@@ -92,6 +95,7 @@ pub trait BrokerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
     async fn get_pending_lock_orders(&self, end_block: u64) -> Result<Vec<(U256, Order)>, DbError>;
+    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError>;
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_proof_id(&self, order_id: U256, proof_id: &str) -> Result<(), DbError>;
@@ -195,6 +199,7 @@ struct DbBatch {
 #[async_trait]
 impl BrokerDb for SqliteDb {
     async fn add_order(&self, id: U256, order: Order) -> Result<Option<Order>, DbError> {
+        // TODO(austin): https://github.com/boundless-xyz/boundless/issues/162
         sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2)")
             .bind(format!("{id:x}"))
             .bind(sqlx::types::Json(&order))
@@ -303,8 +308,11 @@ impl BrokerDb for SqliteDb {
         // TODO: can we work out how to correctly
         // use bind + a json field with out string formatting
         // the sql query?
-        .bind(lock_block as i64)
-        .bind(expire_block as i64)
+        .bind(i64::try_from(lock_block).map_err(|_| DbError::BadBlockNumb(lock_block.to_string()))?)
+        .bind(
+            i64::try_from(expire_block)
+                .map_err(|_| DbError::BadBlockNumb(expire_block.to_string()))?,
+        )
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
         .execute(&self.pool)
@@ -467,6 +475,18 @@ impl BrokerDb for SqliteDb {
         orders
     }
 
+    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM orders WHERE data->>'status' >= $1 AND data->>'status' <= $2",
+        )
+        .bind(OrderStatus::Locking)
+        .bind(OrderStatus::PendingSubmission)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count as u64)
+    }
+
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError> {
         let elm: Option<DbOrder> = sqlx::query_as(
             r#"
@@ -612,6 +632,7 @@ impl BrokerDb for SqliteDb {
         for order in orders.into_iter() {
             agg_orders.push(AggregationOrder {
                 order_id: U256::from_str_radix(&order.id, 16)?,
+                // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
                 proof_id: order
                     .data
                     .proof_id

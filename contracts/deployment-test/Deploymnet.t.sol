@@ -212,7 +212,7 @@ contract Client {
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
             imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.PrefixMatch, data: hex"57656420"})
+            predicate: Predicate({predicateType: PredicateType.PrefixMatch, data: hex"53797374"})
         });
     }
 
@@ -223,7 +223,7 @@ contract Client {
             imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy",
             input: Input({
                 inputType: InputType.Inline,
-                data: hex"001d000000570000006500000064000000200000004a000000750000006c0000002000000020000000330000002000000031000000340000003a00000033000000370000003a00000031000000320000002000000050000000440000005400000020000000320000003000000032000000340000000a000000"
+                data: hex"0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"
             }),
             offer: defaultOffer()
         });

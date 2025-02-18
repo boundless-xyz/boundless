@@ -569,6 +569,15 @@ async fn upload_image_uri(
     }
     let uri = uri.build().context("Uri parse failure")?;
 
+    let image_id = order.request.requirements.imageId.to_string();
+    let image_id = image_id.trim_start_matches("0x");
+    tracing::info!("Checking if prover already has image {}", image_id);
+    if prover.has_image(image_id).await? {
+        tracing::info!("Prover reported that it already has image with ID: {image_id}. Skipping download and upload to prover.");
+        return Ok(image_id.to_string());
+    }
+    tracing::info!("Prover reports not having image. Downloading image from URI: {uri}");
+
     if !uri.exists() {
         let image_data = uri
             .fetch()
@@ -668,54 +677,64 @@ pub mod test_utils {
 
     use crate::{config::Config, Args, Broker};
 
-    /// Create a new broker from a test context.
-    pub async fn broker_from_test_ctx(
-        ctx: &TestCtx,
-        rpc_url: Url,
-    ) -> Result<
-        Broker<
-            FillProvider<
-                JoinFill<
-                    JoinFill<
-                        Identity,
-                        JoinFill<
-                            GasFiller,
-                            JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>,
-                        >,
-                    >,
-                    WalletFiller<EthereumWallet>,
-                >,
-                RootProvider<BoxTransport>,
-                BoxTransport,
-                Ethereum,
+    type TestProvider = FillProvider<
+        JoinFill<
+            JoinFill<
+                Identity,
+                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
             >,
+            WalletFiller<EthereumWallet>,
         >,
-    > {
-        let config_file = NamedTempFile::new().unwrap();
-        let mut config = Config::default();
-        config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
-        config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-        config.market.mcycle_price = "0.00001".into();
-        config.batcher.batch_size = Some(1);
-        config.write(config_file.path()).await.unwrap();
+        RootProvider<BoxTransport>,
+        BoxTransport,
+        Ethereum,
+    >;
 
-        let args = Args {
-            db_url: "sqlite::memory:".into(),
-            config_file: config_file.path().to_path_buf(),
-            boundless_market_addr: ctx.boundless_market_addr,
-            set_verifier_addr: ctx.set_verifier_addr,
-            rpc_url,
-            order_stream_url: None,
-            private_key: ctx.prover_signer.clone(),
-            bento_api_url: None,
-            bonsai_api_key: None,
-            bonsai_api_url: None,
-            deposit_amount: None,
-            rpc_retry_max: 0,
-            rpc_retry_backoff: 200,
-            rpc_retry_cu: 1000,
-        };
-        Broker::new(args, ctx.prover_provider.clone()).await
+    pub struct BrokerBuilder {
+        args: Args,
+        provider: TestProvider,
+        config_file: NamedTempFile,
+    }
+
+    impl BrokerBuilder {
+        pub async fn new_test(ctx: &TestCtx, rpc_url: Url) -> Self {
+            let config_file = NamedTempFile::new().unwrap();
+            let mut config = Config::default();
+            config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
+            config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+            config.market.mcycle_price = "0.00001".into();
+            config.batcher.batch_size = Some(1);
+            config.write(config_file.path()).await.unwrap();
+
+            let args = Args {
+                db_url: "sqlite::memory:".into(),
+                config_file: config_file.path().to_path_buf(),
+                boundless_market_addr: ctx.boundless_market_addr,
+                set_verifier_addr: ctx.set_verifier_addr,
+                rpc_url,
+                order_stream_url: None,
+                private_key: ctx.prover_signer.clone(),
+                bento_api_url: None,
+                bonsai_api_key: None,
+                bonsai_api_url: None,
+                deposit_amount: None,
+                rpc_retry_max: 0,
+                rpc_retry_backoff: 200,
+                rpc_retry_cu: 1000,
+            };
+            Self { args, provider: ctx.prover_provider.clone(), config_file }
+        }
+    }
+
+    impl BrokerBuilder {
+        pub fn with_db_url(mut self, db_url: String) -> Self {
+            self.args.db_url = db_url;
+            self
+        }
+
+        pub async fn build(self) -> Result<(Broker<TestProvider>, NamedTempFile)> {
+            Ok((Broker::new(self.args, self.provider).await?, self.config_file))
+        }
     }
 }
 
