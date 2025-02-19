@@ -282,28 +282,6 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment calldata fill, FulfillmentAssessor calldata assessorFill) external {
-        verifyDelivery(fill, assessorFill);
-        _fulfillVerified(fill.id, fill.requestDigest, assessorFill.prover, fill.requirePayment);
-
-        emit ProofDelivered(fill.id, fill.journal, fill.seal);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function fulfillBatch(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill) public {
-        verifyBatchDelivery(fills, assessorFill);
-
-        // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
-        // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
-        // this savings is marginal, and will be outweighed by complicated memory management if not careful.
-        for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(fills[i].id, fills[i].requestDigest, assessorFill.prover, fills[i].requirePayment);
-
-            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
-        }
-    }
-
-    /// @inheritdoc IBoundlessMarket
     function priceAndFulfill(
         ProofRequest calldata request,
         bytes calldata clientSignature,
@@ -328,22 +306,22 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public {
-        verifyDelivery(fill, assessorSeal, prover);
-        _fulfillAndPay(fill.id, fill.requestDigest, prover, fill.requirePayment);
+    function fulfill(Fulfillment calldata fill, FulfillmentAssessor calldata assessorFill) public {
+        verifyDelivery(fill, assessorFill);
+        _fulfillAndPay(fill.id, fill.requestDigest, assessorFill.prover, fill.requirePayment);
 
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
-        verifyBatchDelivery(fills, assessorSeal, prover);
+    function fulfillBatch(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill) public {
+        verifyBatchDelivery(fills, assessorFill);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillAndPay(fills[i].id, fills[i].requestDigest, prover, fills[i].requirePayment);
+            _fulfillAndPay(fills[i].id, fills[i].requestDigest, assessorFill.prover, fills[i].requirePayment);
 
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }

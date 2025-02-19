@@ -283,15 +283,13 @@ interface IBoundlessMarket {
     /// @param request The proof requests.
     /// @param clientSignature The client signatures.
     /// @param fill The fulfillment information.
-    /// @param assessorSeal The seal from the Assessor guest, which is verified to confirm the
+    /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    /// @param prover The address of the prover that produced the fulfillment.
     function priceAndFulfill(
         ProofRequest calldata request,
         bytes calldata clientSignature,
         Fulfillment calldata fill,
-        bytes calldata assessorSeal,
-        address prover
+        FulfillmentAssessor calldata assessorFill
     ) external;
 
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.

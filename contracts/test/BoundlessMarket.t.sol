@@ -812,7 +812,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x97DF6503C5633B16F8A65214DD48C357a1C50E95)
+                IBoundlessMarket.InsufficientBalance.selector, address(0x021e392cdE662Ef929775025477f4577Ce314fD2)
             )
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
@@ -1071,11 +1071,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
 
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id));
-        boundlessMarket.fulfill(fill, assessorSeal, otherProverAddress);
+        boundlessMarket.fulfill(fill, assessorFill);
 
         expectRequestNotFulfilled(fill.id);
 
@@ -1099,7 +1099,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
         fill.requirePayment = false;
 
@@ -1107,7 +1107,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
         );
-        boundlessMarket.fulfill(fill, assessorSeal, otherProverAddress);
+        boundlessMarket.fulfill(fill, assessorFill);
         vm.snapshotGasLastCall("fulfill: another prover fulfills without payment");
 
         expectRequestFulfilled(fill.id);
@@ -1142,9 +1142,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         expectRequestFulfilled(request.id);
 
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
-        boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
+        boundlessMarket.fulfill(fill, assessorFill);
         vm.snapshotGasLastCall(
             "fulfill: fulfilled by the locked prover for payment (request already fulfilled by another prover)"
         );
@@ -1170,11 +1170,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
         // address(3) is just a standin for some other address.
         address mockOtherProverAddr = address(uint160(3));
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
+        assessorFill.prover = mockOtherProverAddr;
         vm.expectRevert(VerificationFailed.selector);
-        boundlessMarket.fulfill(fill, assessorSeal, mockOtherProverAddr);
+        boundlessMarket.fulfill(fill, assessorFill);
 
         // Prover should have their original balance less the stake amount.
         testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockStake)));
@@ -1197,16 +1198,16 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Advance the chain ahead to simulate the request timeout.
         vm.roll(uint64(block.number) + request.offer.deadline() + 1);
 
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         // Try both fulfillment paths.
         vm.expectRevert(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
-        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(testProver));
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorFill);
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
-        boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
+        boundlessMarket.fulfill(fill, assessorFill);
 
         expectRequestNotFulfilled(fill.id);
         // Client is out 1 eth until slash is called.
@@ -1261,7 +1262,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Advance the chain ahead to simulate the lock timeout.
         vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
 
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(otherProver));
 
         vm.expectEmit(true, true, true, true);
@@ -1269,7 +1270,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
 
-        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(otherProver));
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorFill);
 
         // Check that the proof was submitted
         expectRequestFulfilled(fill.id);
@@ -1316,7 +1317,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Advance the chain ahead to simulate the lock timeout.
         vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
 
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(locker));
 
         vm.expectEmit(true, true, true, true);
@@ -1324,7 +1325,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
 
-        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(locker));
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorFill);
 
         // Check that the proof was submitted
         expectRequestFulfilled(fill.id);
@@ -1355,12 +1356,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFulfillNeverLockedNotPriced() public {
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         // Attempt to fulfill a request without locking or pricing it.
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
-        boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
+        boundlessMarket.fulfill(fill, assessorFill);
 
         expectMarketBalanceUnchanged();
     }
@@ -1376,7 +1377,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
 
-        (Fulfillment memory fill, bytes memory assessorSeal) =
+        (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         vm.roll(request.offer.deadline() + 1);
@@ -1384,11 +1385,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectRevert(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
-        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(testProver));
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorFill);
         expectRequestNotFulfilled(fill.id);
 
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
-        boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
+        boundlessMarket.fulfill(fill, assessorFill);
 
         expectRequestNotFulfilled(fill.id);
         client.expectBalanceChange(0 ether);
