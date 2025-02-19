@@ -178,6 +178,7 @@ contract BoundlessMarketTest is Test {
     using BoundlessMarketLib for ProofRequest;
     using BoundlessMarketLib for Offer;
     using TestUtils for RiscZeroSetVerifier;
+    using TestUtils for Selectors;
     using SafeCast for uint256;
     using SafeCast for int256;
 
@@ -413,7 +414,7 @@ contract BoundlessMarketTest is Test {
             });
             fills[i] = fill;
             if (requests[i].requirements.selector != bytes4(0)) {
-                selectors.add(i, requests[i].requirements.selector);
+                selectors.addSelector(i, requests[i].requirements.selector);
             }
         }
 
