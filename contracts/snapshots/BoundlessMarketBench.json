@@ -1,4 +1,12 @@
 {
+  "fulfillBatch (with selector): batch of 001": "83622",
+  "fulfillBatch (with selector): batch of 002": "121260",
+  "fulfillBatch (with selector): batch of 004": "198328",
+  "fulfillBatch (with selector): batch of 008": "342472",
+  "fulfillBatch (with selector): batch of 016": "629627",
+  "fulfillBatch (with selector): batch of 032": "1223074",
+  "fulfillBatch (with selector): batch of 064": "2457393",
+  "fulfillBatch (with selector): batch of 128": "5043701",
   "fulfillBatch: batch of 001": "81464",
   "fulfillBatch: batch of 002": "116964",
   "fulfillBatch: batch of 004": "189822",
