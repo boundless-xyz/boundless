@@ -1145,7 +1145,7 @@ mod tests {
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
             FulfillmentAssessor, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
-            ProofStatus, Requirements, Selector, Selectors,
+            ProofStatus, Requirements, Selectors,
         },
         input::InputBuilder,
     };
@@ -1189,14 +1189,10 @@ mod tests {
         ProofRequest::new(
             idx,
             &ctx.customer_signer.address(),
-            Requirements {
-                imageId: to_b256(Digest::from(ECHO_ID)),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                selector: Selector::none(),
-            },
+            Requirements::new(
+                Digest::from(ECHO_ID),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
             Offer {

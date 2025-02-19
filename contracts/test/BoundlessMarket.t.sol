@@ -46,7 +46,7 @@ import {TransientPrice, TransientPriceLibrary} from "../src/types/TransientPrice
 import {ProofRequestLibrary} from "../src/types/ProofRequest.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
-import {Selectors, SelectorLib} from "../src/types/Selector.sol";
+import {Selectors} from "../src/types/Selector.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
@@ -95,7 +95,7 @@ contract Client {
         return Requirements({
             imageId: bytes32(APP_IMAGE_ID),
             predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))}),
-            selector: SelectorLib.none()
+            selector: bytes4(0)
         });
     }
 
@@ -412,8 +412,8 @@ contract BoundlessMarketTest is Test {
                 requirePayment: requirePayment
             });
             fills[i] = fill;
-            if (requests[i].requirements.selector.isSome) {
-                selectors.add(i, requests[i].requirements.selector.unwrap());
+            if (requests[i].requirements.selector != bytes4(0)) {
+                selectors.add(i, requests[i].requirements.selector);
             }
         }
 
@@ -812,7 +812,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x021e392cdE662Ef929775025477f4577Ce314fD2)
+                IBoundlessMarket.InsufficientBalance.selector, address(0xcD75C00ACE8b76c52e2D4a5eb6496915209ae564)
             )
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
@@ -1501,7 +1501,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testPriceAndFulfillWithSelector() external {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
-        request.requirements.selector = SelectorLib.some(setVerifier.SELECTOR());
+        request.requirements.selector = setVerifier.SELECTOR();
 
         (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
@@ -1530,7 +1530,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFulfillRequestWrongSelector() public {
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
-        request.requirements.selector = SelectorLib.some(bytes4(0xdeadbeef));
+        request.requirements.selector = bytes4(0xdeadbeef);
         (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 

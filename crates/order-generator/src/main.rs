@@ -14,7 +14,7 @@ use alloy::{
 use anyhow::{bail, Result};
 use boundless_market::{
     client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements, Selector},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
     storage::StorageProviderConfig,
 };
@@ -184,7 +184,6 @@ async fn run(args: &MainArgs) -> Result<()> {
             .with_requirements(Requirements::new(
                 image_id,
                 Predicate::digest_match(journal.digest()),
-                Selector::none(),
             ))
             .with_offer(
                 Offer::default()

@@ -401,8 +401,12 @@ impl ProofRequest {
 
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
-    pub fn new(image_id: impl Into<Digest>, predicate: Predicate, selector: Selector) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), predicate, selector }
+    pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
+        Self {
+            imageId: <[u8; 32]>::from(image_id.into()).into(),
+            predicate,
+            selector: FixedBytes::<4>([0; 4]),
+        }
     }
 
     /// Sets the image ID.
@@ -416,7 +420,7 @@ impl Requirements {
     }
 
     /// Sets the selector.
-    pub fn with_selector(self, selector: Selector) -> Self {
+    pub fn with_selector(self, selector: FixedBytes<4>) -> Self {
         Self { selector, ..self }
     }
 }
@@ -435,23 +439,6 @@ impl Predicate {
     /// fulfillment will contain a journal with the same prefix.
     pub fn prefix_match(prefix: impl Into<Bytes>) -> Self {
         Self { predicateType: PredicateType::PrefixMatch, data: prefix.into() }
-    }
-}
-
-impl Selector {
-    /// Creates a new selector with the given value.
-    pub fn some(value: [u8; 4]) -> Self {
-        Self { isSome: true, value: FixedBytes::<4>(value) }
-    }
-
-    /// Creates a new selector with no value.
-    pub fn none() -> Self {
-        Self { isSome: false, value: FixedBytes::<4>([0; 4]) }
-    }
-
-    /// Returns true if the selector has a value.
-    pub fn is_some(&self) -> bool {
-        self.isSome
     }
 }
 
@@ -1089,14 +1076,10 @@ mod tests {
 
         let req = ProofRequest {
             id: request_id,
-            requirements: Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                selector: Selector::none(),
-            },
+            requirements: Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             imageUrl: "https://dev.null".to_string(),
             input: Input::builder().build_inline().unwrap(),
             offer: Offer {

@@ -8,7 +8,7 @@
 extern crate alloc;
 
 use alloc::{vec, vec::Vec};
-use alloy_primitives::B256;
+use alloy_primitives::{FixedBytes, B256};
 use alloy_sol_types::SolValue;
 use boundless_assessor::AssessorInput;
 use boundless_market::contracts::{AssessorJournal, Selectors};
@@ -49,8 +49,8 @@ fn main() {
         env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
         claim_digests.push(fill.receipt_claim().digest());
         request_digests.push(request_digest.into());
-        if fill.request.requirements.selector.is_some() {
-            selectors.add(index as u8, *fill.request.requirements.selector.value);
+        if fill.request.requirements.selector != FixedBytes::<4>([0; 4]) {
+            selectors.add(index as u8, *fill.request.requirements.selector);
         }
     }
 

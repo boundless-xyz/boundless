@@ -274,13 +274,13 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Address, B256, U256},
+        primitives::{Address, U256},
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
         boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
-        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements, Selector,
+        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
     use risc0_zkvm::sha::Digest;
@@ -318,14 +318,10 @@ mod tests {
         let max_price = 10;
         let proving_request = ProofRequest {
             id: boundless_market.request_id_from_nonce().await.unwrap(),
-            requirements: Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                selector: Selector::none(),
-            },
+            requirements: Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },
             offer: Offer {

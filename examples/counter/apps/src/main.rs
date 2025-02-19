@@ -13,7 +13,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements, Selector},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -153,11 +153,7 @@ async fn run(
     let request = ProofRequest::builder()
         .with_image_url(image_url)
         .with_input(input_url)
-        .with_requirements(Requirements::new(
-            ECHO_ID,
-            Predicate::digest_match(journal.digest()),
-            Selector::none(),
-        ))
+        .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
         .with_offer(
             Offer::default()
                 // The market uses a reverse Dutch auction mechanism to match requests with provers.

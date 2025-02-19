@@ -395,11 +395,8 @@ mod tests {
         AggregationState, Batch, BatchStatus, Order, OrderStatus,
     };
     use alloy::{
-        network::EthereumWallet,
-        node_bindings::Anvil,
-        primitives::{B256, U256},
-        providers::ProviderBuilder,
-        signers::local::PrivateKeySigner,
+        network::EthereumWallet, node_bindings::Anvil, primitives::U256,
+        providers::ProviderBuilder, signers::local::PrivateKeySigner,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
@@ -407,7 +404,7 @@ mod tests {
         test_utils::{
             deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
         },
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements, Selector,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
@@ -493,14 +490,10 @@ mod tests {
         let order_request = ProofRequest::new(
             market_customer.index_from_nonce().await.unwrap(),
             &customer_addr,
-            Requirements {
-                imageId: B256::from_slice(echo_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                selector: Selector::none(),
-            },
+            Requirements::new(
+                echo_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {

@@ -9,7 +9,6 @@ import {Offer, OfferLibrary} from "./Offer.sol";
 import {Predicate, PredicateLibrary} from "./Predicate.sol";
 import {Input, InputType, InputLibrary} from "./Input.sol";
 import {Requirements, RequirementsLibrary} from "./Requirements.sol";
-import {Selector, SelectorLib} from "./Selector.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IBoundlessMarket} from "../IBoundlessMarket.sol";
 
@@ -42,8 +41,7 @@ library ProofRequestLibrary {
             InputLibrary.INPUT_TYPE,
             OfferLibrary.OFFER_TYPE,
             PredicateLibrary.PREDICATE_TYPE,
-            RequirementsLibrary.REQUIREMENTS_TYPE,
-            SelectorLib.SELECTOR_TYPE
+            RequirementsLibrary.REQUIREMENTS_TYPE
         )
     );
 

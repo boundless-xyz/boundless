@@ -12,7 +12,7 @@ use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
         hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements, Selector,
+        PredicateType, ProofRequest, Requirements,
     },
     input::InputBuilder,
 };
@@ -74,14 +74,10 @@ async fn request_spawner(
         let request = ProofRequest::new(
             ctx.customer_market.index_from_nonce().await?,
             &ctx.customer_signer.address(),
-            Requirements {
-                imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                selector: Selector::none(),
-            },
+            Requirements::new(
+                Digest::from(ECHO_ID),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             elf_url,
             Input {
                 inputType: InputType::Inline,

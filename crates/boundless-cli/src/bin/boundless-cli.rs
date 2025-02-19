@@ -25,7 +25,7 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
-        Address, Bytes, PrimitiveSignature, B256, U256,
+        Address, Bytes, FixedBytes, PrimitiveSignature, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
@@ -49,7 +49,7 @@ use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
-        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements, Selector,
+        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
@@ -590,7 +590,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate, selector: Selector::none() },
+        Requirements { imageId: image_id, predicate, selector: FixedBytes::<4>([0; 4]) },
         elf_url,
         requirements_input,
         offer.clone(),

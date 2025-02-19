@@ -106,7 +106,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-        Requirements, Selector,
+        Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -120,14 +120,10 @@ mod tests {
         ProofRequest::new(
             id,
             &signer,
-            Requirements {
-                imageId: image_id,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: prefix.into(),
-                },
-                selector: Selector::none(),
-            },
+            Requirements::new(
+                Digest::from_bytes(image_id.0),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
+            ),
             "test",
             Input { inputType: InputType::Url, data: Default::default() },
             Offer {

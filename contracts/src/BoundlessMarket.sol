@@ -27,7 +27,7 @@ import {FulfillmentAssessor} from "./types/FulfillmentAssessor.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
-import {Selector, Selectors} from "./types/Selector.sol";
+import {Selectors} from "./types/Selector.sol";
 import {TransientPrice, TransientPriceLibrary} from "./types/TransientPrice.sol";
 
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
