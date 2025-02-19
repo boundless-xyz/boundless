@@ -328,6 +328,7 @@ mod tests {
                 timeout: 1000,
                 rampUpPeriod: 1,
                 lockStake: U256::from(0),
+                lockTimeout: 1000,
             },
         };
         let signature = req.sign_request(&signer, Address::ZERO, 31337).await.unwrap();

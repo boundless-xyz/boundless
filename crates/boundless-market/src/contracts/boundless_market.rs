@@ -1180,6 +1180,7 @@ mod tests {
             biddingStart: 100,
             rampUpPeriod: 100,
             timeout: 500,
+            lockTimeout: 500,
             lockStake: ether("1"),
         }
     }
@@ -1205,6 +1206,7 @@ mod tests {
                 timeout: 100,
                 rampUpPeriod: 1,
                 lockStake: U256::from(10),
+                lockTimeout: 100,
             },
         )
     }

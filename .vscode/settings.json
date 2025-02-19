@@ -1,4 +1,5 @@
 {
+  "solidity.monoRepoSupport": false,
   "rust-analyzer.check.allTargets": true,
   "rust-analyzer.check.features": [],
   "rust-analyzer.server.extraEnv": {
@@ -18,6 +19,7 @@
     "./crates/guest/util/Cargo.toml",
     "./crates/guest/util/echo/Cargo.toml",
     "./crates/guest/util/identity/Cargo.toml",
+    "./examples/counter/Cargo.toml",
   ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",
@@ -29,5 +31,5 @@
   },
   "biome.rename": true,
   "biome.enabled": true,
-  "biome.lspBin": "documentation/node_modules/.bin/biome"
+  "biome.lspBin": "documentation/node_modules/.bin/biome",
 }

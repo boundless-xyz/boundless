@@ -333,6 +333,7 @@ mod tests {
                 maxPrice: U256::from(max_price),
                 biddingStart: 0,
                 timeout: 1000,
+                lockTimeout: 1000,
                 rampUpPeriod: 1,
                 lockStake: U256::from(0),
             },

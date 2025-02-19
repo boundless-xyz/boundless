@@ -194,6 +194,10 @@ pub enum RequestError {
     #[error("offer timeout must be greater than 0")]
     OfferTimeoutIsZero,
 
+    /// The offer lock timeout is zero.
+    #[error("offer lock timeout must be greater than 0")]
+    OfferLockTimeoutIsZero,
+
     /// The offer max price is zero.
     #[error("offer maxPrice must be greater than 0")]
     OfferMaxPriceIsZero,
@@ -342,6 +346,9 @@ impl ProofRequest {
         };
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
+        };
+        if self.offer.lockTimeout == 0 {
+            return Err(RequestError::OfferLockTimeoutIsZero);
         };
         if self.offer.maxPrice == U256::ZERO {
             return Err(RequestError::OfferMaxPriceIsZero);
@@ -523,6 +530,11 @@ impl Offer {
     /// Sets the offer timeout as number of blocks from the bidding start before expiring.
     pub fn with_timeout(self, timeout: u32) -> Self {
         Self { timeout, ..self }
+    }
+
+    /// Sets the offer lock-in timeout as number of blocks from the bidding start before expiring.
+    pub fn with_lock_timeout(self, lock_timeout: u32) -> Self {
+        Self { lockTimeout: lock_timeout, ..self }
     }
 
     /// Sets the offer ramp-up period as number of blocks from the bidding start before the price
@@ -1093,6 +1105,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
+                lockTimeout: 1000,
                 lockStake: U256::from(0),
             },
         };

@@ -610,6 +610,7 @@ mod tests {
                             maxPrice: max_price,
                             biddingStart: 0,
                             timeout: 100,
+                            lockTimeout: 100,
                             rampUpPeriod: 1,
                             lockStake: lock_stake,
                         },

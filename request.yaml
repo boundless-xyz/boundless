@@ -31,4 +31,5 @@ offer:
     biddingStart: 0 # if set to 0, gets overwritten by the current block height
     rampUpPeriod: 100
     timeout: 300 # 1 hour at 12s block times.
+    lockTimeout: 300
     lockStake: 5000000000000000000 # 5 HP tokens (set between 1 and 100)

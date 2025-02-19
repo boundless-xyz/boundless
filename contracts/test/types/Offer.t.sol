@@ -9,6 +9,7 @@ import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 import {Offer} from "../../src/types/Offer.sol";
+import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";
 
 contract OfferTest is Test {
     /// forge-config: default.allow_internal_expect_revert = true
@@ -18,6 +19,7 @@ contract OfferTest is Test {
             maxPrice: 2 ether,
             biddingStart: uint64(100),
             rampUpPeriod: 100,
+            lockTimeout: uint32(500),
             timeout: uint32(500),
             lockStake: 0.1 ether
         });
@@ -44,6 +46,7 @@ contract OfferTest is Test {
             maxPrice: 2 ether,
             biddingStart: uint64(100),
             rampUpPeriod: 100,
+            lockTimeout: uint32(500),
             timeout: uint32(500),
             lockStake: 0.1 ether
         });
@@ -59,5 +62,73 @@ contract OfferTest is Test {
 
         assertEq(offer.priceAtBlock(200), 2 ether);
         assertEq(offer.priceAtBlock(500), 2 ether);
+    }
+
+    function testDeadlines() public pure {
+        Offer memory offer = Offer({
+            minPrice: 1 ether,
+            maxPrice: 2 ether,
+            biddingStart: uint64(100),
+            rampUpPeriod: 100,
+            lockTimeout: uint32(150),
+            timeout: uint32(200),
+            lockStake: 0.1 ether
+        });
+
+        assertEq(offer.lockDeadline(), 250);
+        assertEq(offer.deadline(), 300);
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function testInvalidLockTimeout() public {
+        Offer memory invalidOffer = Offer({
+            minPrice: 1 ether,
+            maxPrice: 2 ether,
+            biddingStart: uint64(100),
+            rampUpPeriod: 100,
+            lockTimeout: uint32(250),
+            timeout: uint32(200),
+            lockStake: 0.1 ether
+        });
+
+        RequestId id = RequestIdLibrary.from(address(this), 1);
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
+        invalidOffer.validate(id);
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function testDeadlineDeltaTooLarge() public {
+        Offer memory invalidOffer = Offer({
+            minPrice: 1 ether,
+            maxPrice: 2 ether,
+            biddingStart: uint64(100),
+            rampUpPeriod: 100,
+            lockTimeout: uint32(500),
+            timeout: uint32(uint32(500) + type(uint24).max + 1), // Makes deadline - lockDeadline > type(uint24).max
+            lockStake: 0.1 ether
+        });
+
+        RequestId id = RequestIdLibrary.from(address(this), 1);
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
+        invalidOffer.validate(id);
+    }
+
+    function testValidTimeouts() public view {
+        Offer memory validOffer = Offer({
+            minPrice: 1 ether,
+            maxPrice: 2 ether,
+            biddingStart: uint64(100),
+            rampUpPeriod: 100,
+            lockTimeout: uint32(500),
+            timeout: uint32(uint32(500) + type(uint24).max), // Maximum valid difference
+            lockStake: 0.1 ether
+        });
+
+        RequestId id = RequestIdLibrary.from(address(this), 1);
+        (uint64 lockDeadline, uint64 deadline) = validOffer.validate(id);
+
+        assertEq(lockDeadline, 600); // biddingStart + lockTimeout
+        assertEq(deadline, uint32(600) + type(uint24).max); // biddingStart + timeout
+        assertEq(deadline - lockDeadline, type(uint24).max); // Maximum allowed difference
     }
 }

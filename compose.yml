@@ -281,6 +281,7 @@ services:
       # RUST_BACKTRACE: 1
       PRIVATE_KEY: ${PRIVATE_KEY}
       RPC_URL: ${RPC_URL}
+      ORDER_STREAM_URL: ${ORDER_STREAM_URL}
 
     entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --set-verifier-addr ${SET_VERIFIER_ADDR} --boundless-market-addr ${BOUNDLESS_MARKET_ADDR} --config-file /app/broker.toml --bento-api-url http://localhost:8081
 

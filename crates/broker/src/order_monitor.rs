@@ -313,6 +313,7 @@ mod tests {
                 biddingStart: 0,
                 rampUpPeriod: 1,
                 timeout: 100,
+                lockTimeout: 100,
                 lockStake: U256::from(0),
             },
         );
@@ -426,6 +427,7 @@ mod tests {
                 biddingStart: 0,
                 rampUpPeriod: 1,
                 timeout: 100,
+                lockTimeout: 100,
                 lockStake: U256::from(0),
             },
         );

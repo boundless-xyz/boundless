@@ -9,8 +9,8 @@ ffi = true
 evm_version = 'cancun'
 via_ir = true
 optimizer = true
-# Use 1k runs because it doesn't seem to slow down compilation, and does shave off a bit of gas.
-optimizer_runs = 1000
+# Use 100 runs only to reduce contract size.
+optimizer_runs = 100
 ast = true
 build_info = true
 extra_output = ["storageLayout"]
