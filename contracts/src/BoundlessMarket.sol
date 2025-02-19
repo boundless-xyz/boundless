@@ -249,19 +249,28 @@ contract BoundlessMarket is
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
-        for (uint8 i = 0; i < fills.length; i++) {
-            requestDigests[i] = fills[i].requestDigest;
-            claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            // Verification that the provided seal matches the required selector.
-            for (uint8 j = 0; j < assessorFill.selectors.indices.length; j++) {
-                if (assessorFill.selectors.indices[j] == i) {
-                    if (assessorFill.selectors.values[j] != bytes4(fills[i].seal[0:4])) {
-                        revert SelectorMismatch(assessorFill.selectors.values[j], bytes4(fills[i].seal[0:4]));
-                    }
-                    break;
+
+        uint256 fillsLength = fills.length;
+        uint256 selectorsLength = assessorFill.selectors.indices.length;
+        uint8 selectorIdx = 0;
+
+        for (uint256 i = 0; i < fillsLength; i++) {
+            // Cache the current fill to avoid multiple calldata lookups.
+            Fulfillment calldata fill = fills[i];
+
+            requestDigests[i] = fill.requestDigest;
+            claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+
+            // If the current index is flagged for selector verification, process it.
+            if (selectorIdx < selectorsLength && assessorFill.selectors.indices[selectorIdx] == i) {
+                // Cache the computed bytes4 value from seal.
+                bytes4 fillSealSelector = bytes4(fill.seal[0:4]);
+                if (assessorFill.selectors.values[selectorIdx] != fillSealSelector) {
+                    revert SelectorMismatch(assessorFill.selectors.values[selectorIdx], fillSealSelector);
                 }
+                selectorIdx++;
             }
-            VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fills[i].seal, claimDigests[i]));
+            VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigests[i]));
         }
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
 
