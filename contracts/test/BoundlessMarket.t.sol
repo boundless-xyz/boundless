@@ -453,7 +453,10 @@ contract BoundlessMarketTest is Test {
         }
     }
 
-    function newBatchWithSelector(uint256 batchSize, bytes4 selector) internal returns (ProofRequest[] memory requests, bytes[] memory journals) {
+    function newBatchWithSelector(uint256 batchSize, bytes4 selector)
+        internal
+        returns (ProofRequest[] memory requests, bytes[] memory journals)
+    {
         requests = new ProofRequest[](batchSize);
         journals = new bytes[](batchSize);
         for (uint256 j = 0; j < 5; j++) {
@@ -1916,8 +1919,9 @@ contract BoundlessMarketBench is BoundlessMarketTest {
         }
     }
 
-     function benchFulfillBatchWithSelector(uint256 batchSize, string memory snapshot) public {
-        (ProofRequest[] memory requests, bytes[] memory journals) = newBatchWithSelector(batchSize, setVerifier.SELECTOR());
+    function benchFulfillBatchWithSelector(uint256 batchSize, string memory snapshot) public {
+        (ProofRequest[] memory requests, bytes[] memory journals) =
+            newBatchWithSelector(batchSize, setVerifier.SELECTOR());
         (Fulfillment[] memory fills, FulfillmentAssessor memory assessorFill) =
             createFillsAndSubmitRoot(requests, journals, address(testProver));
 
@@ -1993,7 +1997,6 @@ contract BoundlessMarketBench is BoundlessMarketTest {
         benchFulfillBatchWithSelector(128, "128");
     }
 }
-
 
 contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
