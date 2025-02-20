@@ -4,7 +4,10 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use alloy::{
+    primitives::{utils::parse_ether, Address, U256},
+    signers::local::PrivateKeySigner,
+};
 use anyhow::{bail, Result};
 use boundless_slasher::SlashService;
 use clap::{Args, Parser};
@@ -35,6 +38,12 @@ struct MainArgs {
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
+    /// Balance threshold at which to log a warning.
+    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    warn_balance_below: Option<U256>,
+    /// Balance threshold at which to log an error.
+    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    error_balance_below: Option<U256>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -69,6 +78,7 @@ async fn main() -> Result<()> {
         &args.db,
         Duration::from_secs(args.interval),
         args.retries,
+        (args.warn_balance_below, args.error_balance_below),
     )
     .await?;
 

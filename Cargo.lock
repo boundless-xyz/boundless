@@ -2414,6 +2414,7 @@ version = "0.6.0"
 dependencies = [
  "alloy 0.9.2",
  "anyhow",
+ "balance-alerts-layer",
  "boundless-market",
  "bytemuck",
  "clap",
@@ -2444,6 +2445,7 @@ dependencies = [
  "alloy 0.9.2",
  "anyhow",
  "async-trait",
+ "balance-alerts-layer",
  "boundless-market",
  "clap",
  "dotenvy",

@@ -2,10 +2,12 @@
 //
 // All rights reserved.
 
+use std::marker::PhantomData;
+
 use alloy::network::Ethereum;
 use alloy::primitives::{Address, U256};
 use alloy::providers::{PendingTransactionBuilder, Provider, ProviderLayer, RootProvider};
-use alloy::transports::{BoxTransport, TransportResult};
+use alloy::transports::{Transport, TransportResult};
 
 /// Configuration for the BalanceAlertLayer
 #[derive(Debug, Clone, Default)]
@@ -45,11 +47,12 @@ impl BalanceAlertLayer {
     }
 }
 
-impl<P> ProviderLayer<P, BoxTransport> for BalanceAlertLayer
+impl<P, T> ProviderLayer<P, T, Ethereum> for BalanceAlertLayer
 where
-    P: Provider,
+    P: Provider<T>,
+    T: Transport + Clone,
 {
-    type Provider = BalanceAlertProvider<P>;
+    type Provider = BalanceAlertProvider<P, T>;
 
     fn layer(&self, inner: P) -> Self::Provider {
         BalanceAlertProvider::new(inner, self.config.clone())
@@ -57,28 +60,31 @@ where
 }
 
 #[derive(Clone, Debug)]
-pub struct BalanceAlertProvider<P> {
+pub struct BalanceAlertProvider<P, T> {
     inner: P,
     config: BalanceAlertConfig,
+    _pd: PhantomData<fn() -> T>,
 }
 
-impl<P> BalanceAlertProvider<P>
+impl<P, T> BalanceAlertProvider<P, T>
 where
-    P: Provider,
+    P: Provider<T>,
+    T: Transport + Clone,
 {
     #[allow(clippy::missing_const_for_fn)]
     fn new(inner: P, config: BalanceAlertConfig) -> Self {
-        Self { inner, config }
+        Self { inner, config, _pd: PhantomData }
     }
 }
 
 #[async_trait::async_trait]
-impl<P> Provider for BalanceAlertProvider<P>
+impl<P, T> Provider<T> for BalanceAlertProvider<P, T>
 where
-    P: Provider,
+    P: Provider<T>,
+    T: Transport + Clone,
 {
     #[inline(always)]
-    fn root(&self) -> &RootProvider<BoxTransport> {
+    fn root(&self) -> &RootProvider<T> {
         self.inner.root()
     }
 
@@ -91,7 +97,7 @@ where
     async fn send_raw_transaction(
         &self,
         encoded_tx: &[u8],
-    ) -> TransportResult<PendingTransactionBuilder<BoxTransport, Ethereum>> {
+    ) -> TransportResult<PendingTransactionBuilder<T, Ethereum>> {
         let res = self.inner.send_raw_transaction(encoded_tx).await;
         let balance = self.inner.get_balance(self.config.watch_address).await?;
 

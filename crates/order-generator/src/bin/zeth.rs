@@ -12,6 +12,7 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{anyhow, bail, Result};
+use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
@@ -91,10 +92,12 @@ struct Args {
     offchain: bool,
     #[clap(long, default_value = "3")]
     max_retries: u32,
+    /// Balance threshold at which to log a warning.
     #[clap(long, value_parser = parse_ether, default_value = "1")]
-    warn_balance_below: U256,
+    warn_balance_below: Option<U256>,
+    /// Balance threshold at which to log an error.
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
-    error_balance_below: U256,
+    error_balance_below: Option<U256>,
 }
 
 #[tokio::main]
