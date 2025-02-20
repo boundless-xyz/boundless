@@ -12,7 +12,6 @@ use alloy::{
     transports::BoxTransport,
 };
 use anyhow::{ensure, Context, Result};
-pub use balance_alert_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, InputType,
@@ -35,7 +34,6 @@ use tokio::task::JoinSet;
 use url::Url;
 
 pub(crate) mod aggregator;
-pub(crate) mod balance_alert_layer;
 pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;

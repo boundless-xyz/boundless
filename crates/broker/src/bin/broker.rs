@@ -10,8 +10,9 @@ use alloy::{
 };
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
+use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
-use broker::{Args, BalanceAlertConfig, BalanceAlertLayer, Broker, Config, CustomRetryPolicy};
+use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
 
 #[tokio::main]
