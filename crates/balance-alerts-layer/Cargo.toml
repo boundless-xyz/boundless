@@ -1,17 +1,17 @@
 [package]
 name = "balance-alerts-layer"
-version.workspace = true
-edition.workspace = true
-homepage.workspace = true
-repository.workspace = true
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 
 [dependencies]
-anyhow = { workspace = true }
 alloy = { workspace = true, features = ["network", "providers", "transports"] }
+anyhow = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["network", "providers", "transports", "signers", "signer-local", "rpc", "rpc-types", "node-bindings"] }
-tracing-test = "0.2"
 tokio = { workspace = true, features = ["full"] }
+tracing-test = "0.2"
