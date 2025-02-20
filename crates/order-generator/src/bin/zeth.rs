@@ -281,10 +281,16 @@ where
         default_executor().execute(guest_env.try_into()?, ZETH_GUESTS_RETH_ETHEREUM_ELF)?;
 
     let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
-    let min_price =
-        params.min.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
-    let max_price =
-        params.max.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
+    let min_price = args
+        .min_price_per_mcycle
+        .checked_mul(U256::from(cycles_count))
+        .unwrap()
+        .div_ceil(U256::from(1_000_000));
+    let max_price = args
+        .max_price_per_mcycle
+        .checked_mul(U256::from(cycles_count))
+        .unwrap()
+        .div_ceil(U256::from(1_000_000));
 
     tracing::info!(
         "{} cycles count {} mcycles count {} min_price in ether {} max_price in ether",
