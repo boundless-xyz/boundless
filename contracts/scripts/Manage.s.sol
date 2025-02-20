@@ -41,7 +41,7 @@ contract RiscZeroManagementScript is Script {
 ///     * BOUNDLESS_MARKET_OWNER owner of the HitPoints contract
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
 contract DeployHitPoints is RiscZeroManagementScript {
     function run() external {
         address marketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
@@ -63,7 +63,7 @@ contract DeployHitPoints is RiscZeroManagementScript {
 ///     * BOUNDLESS_MARKET_OWNER owner of the BoundlessMarket contract
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
 contract DeployBoundlessMarket is RiscZeroManagementScript {
     function run() external {
         address marketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
@@ -111,7 +111,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
 ///     * BOUNDLESS_MARKET_OWNER owner of the BoundlessMarket contract
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
 contract UpgradeBoundlessMarket is RiscZeroManagementScript {
     function run() external {
         address marketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
