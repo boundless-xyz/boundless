@@ -91,6 +91,10 @@ struct Args {
     offchain: bool,
     #[clap(long, default_value = "3")]
     max_retries: u32,
+    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    warn_balance_below: U256
+    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    error_balance_below: U256
 }
 
 #[tokio::main]
@@ -111,8 +115,16 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let wallet = EthereumWallet::from(args.private_key.clone());
+
+    let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+        watch_address: wallet.default_signer().address(),
+        warn_threshold: args.warn_balance_below),
+        error_threshold: args.error_balance_below,),
+    });
+
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()
+        .layer(balance_alerts_layer)
         .wallet(wallet)
         .on_http(args.zeth_rpc_url.clone());
     let rpc = Some(args.zeth_rpc_url.to_string());
