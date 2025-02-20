@@ -145,6 +145,9 @@ interface IBoundlessMarket {
     /// @notice Error when providing a seal with a different selector than required.
     error SelectorMismatch(bytes4 required, bytes4 provided);
 
+    /// @notice Error when the batch size exceeds the limit.
+    error BatchSizeExceedsLimit(uint256 batchSize, uint256 limit);
+
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
     /// @param requestId The ID of the request.
