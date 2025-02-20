@@ -18,7 +18,6 @@ import {Fulfillment} from "./types/Fulfillment.sol";
 import {FulfillmentAssessor} from "./types/FulfillmentAssessor.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
-import {Selectors} from "./types/Selector.sol";
 
 interface IBoundlessMarket {
     /// @notice Event logged when a new proof request is submitted by a client.

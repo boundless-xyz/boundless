@@ -27,7 +27,6 @@ import {FulfillmentAssessor} from "./types/FulfillmentAssessor.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
-import {Selectors} from "./types/Selector.sol";
 import {TransientPrice, TransientPriceLibrary} from "./types/TransientPrice.sol";
 
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
@@ -247,15 +246,14 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function verifyBatchDelivery(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill) public view {
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
-        bytes32[] memory claimDigests = new bytes32[](fills.length);
-        bytes32[] memory requestDigests = new bytes32[](fills.length);
-
         uint256 fillsLength = fills.length;
+        bytes32[] memory claimDigests = new bytes32[](fillsLength);
+        bytes32[] memory requestDigests = new bytes32[](fillsLength);
+
         uint256 selectorsLength = assessorFill.selectors.indices.length;
         uint8 selectorIdx = 0;
 
         for (uint256 i = 0; i < fillsLength; i++) {
-            // Cache the current fill to avoid multiple calldata lookups.
             Fulfillment calldata fill = fills[i];
 
             requestDigests[i] = fill.requestDigest;
@@ -263,10 +261,8 @@ contract BoundlessMarket is
 
             // If the current index is flagged for selector verification, process it.
             if (selectorIdx < selectorsLength && assessorFill.selectors.indices[selectorIdx] == i) {
-                // Cache the computed bytes4 value from seal.
-                bytes4 fillSealSelector = bytes4(fill.seal[0:4]);
-                if (assessorFill.selectors.values[selectorIdx] != fillSealSelector) {
-                    revert SelectorMismatch(assessorFill.selectors.values[selectorIdx], fillSealSelector);
+                if (assessorFill.selectors.values[selectorIdx] != bytes4(fill.seal[0:4])) {
+                    revert SelectorMismatch(assessorFill.selectors.values[selectorIdx], bytes4(fill.seal[0:4]));
                 }
                 selectorIdx++;
             }

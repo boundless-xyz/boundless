@@ -46,7 +46,7 @@ import {TransientPrice, TransientPriceLibrary} from "../src/types/TransientPrice
 import {ProofRequestLibrary} from "../src/types/ProofRequest.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
-import {Selectors} from "../src/types/Selector.sol";
+import {Selectors} from "../src/types/Selectors.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 

@@ -3,7 +3,7 @@
 // All rights reserved.
 pragma solidity ^0.8.20;
 
-import {Selectors} from "./Selector.sol";
+import {Selectors} from "./Selectors.sol";
 
 /// @title Assessor Journal Struct
 /// @notice Represents the structured journal of the Assessor guest which verifies the signature(s)
