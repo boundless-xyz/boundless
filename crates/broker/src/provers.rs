@@ -77,7 +77,6 @@ pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Er
 pub trait Prover {
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError>;
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError>;
-    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError>;
     async fn preflight(
         &self,
         image_id: &str,
@@ -134,12 +133,6 @@ impl Prover for Bonsai {
 
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
         Ok(self.client.upload_img(image_id, image).await.map(|_| ())?)
-    }
-
-    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
-        // upload_img will early return true if the image_id already exists
-        // so calling this with empty data is a way to check this
-        Ok(self.client.upload_img(image_id, vec![]).await?)
     }
 
     async fn preflight(
@@ -429,10 +422,6 @@ impl Prover for MockProver {
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
         self.images.lock().unwrap().insert(image_id.to_string(), image);
         Ok(())
-    }
-
-    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
-        Ok(self.images.lock().unwrap().contains_key(image_id))
     }
 
     async fn preflight(

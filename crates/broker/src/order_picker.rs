@@ -574,7 +574,7 @@ mod tests {
             max_price: U256,
             lock_stake: U256,
         ) -> (U256, Order) {
-            let image_id: B256 = <[u8; 32]>::from(Digest::from(ECHO_ID)).into();
+            let image_id = Digest::from(ECHO_ID);
             let order_index = self.boundless_market.index_from_nonce().await.unwrap();
             (
                 U256::from(order_index),
@@ -585,7 +585,7 @@ mod tests {
                         order_index,
                         &self.provider.default_signer_address(),
                         Requirements {
-                            imageId: image_id,
+                            imageId: <[u8; 32]>::from(image_id).into(),
                             predicate: Predicate {
                                 predicateType: PredicateType::PrefixMatch,
                                 data: Default::default(),
@@ -601,6 +601,7 @@ mod tests {
                             maxPrice: max_price,
                             biddingStart: 0,
                             timeout: 100,
+                            lockTimeout: 100,
                             rampUpPeriod: 1,
                             lockStake: lock_stake,
                         },
@@ -994,32 +995,6 @@ mod tests {
             OrderStatus::Skipped
         );
         assert!(logs_contain("Insufficient available stake to lock order"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn skips_image_download_if_exists_in_prover() {
-        let lockin_stake = U256::from(150);
-        let config = ConfigLock::default();
-        {
-            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
-        }
-        let ctx =
-            TestCtx::builder().with_initial_hp(lockin_stake).with_config(config).build().await;
-        let (_, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::from(10))
-            .await;
-
-        let orders = std::iter::repeat(order.clone()).take(2).collect::<Vec<_>>();
-
-        for (order_id, order) in orders.iter().enumerate() {
-            ctx.db.add_order(U256::from(order_id), order.clone()).await.unwrap();
-            ctx.picker.price_order(U256::from(order_id), order).await.unwrap();
-        }
-        assert!(logs_contain(&format!(
-            "Prover reported that it already has image with ID: {}. Skipping download and upload to prover.",
-            order.request.requirements.imageId.to_string().trim_start_matches("0x")
-        )));
     }
 
     #[tokio::test]

@@ -44,6 +44,7 @@ async fn create_order(
             biddingStart: 0,
             timeout: current_block as u32 + 2,
             rampUpPeriod: 1,
+            lockTimeout: current_block as u32 + 2,
             lockStake: U256::from(0),
         },
     );
@@ -105,7 +106,8 @@ async fn test_basic_usage() {
         Some(event) = stream.next() => {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
-            assert_eq!(request_slashed.prover, ctx.prover_signer.address());
+            // Check that the stake recipient is the market treasury address
+            assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_addr);
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(10)) => {
