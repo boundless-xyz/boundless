@@ -131,7 +131,11 @@ struct StatusPoller {
 }
 
 impl StatusPoller {
-    async fn poll_with_retries(&self, proof_id: &SessionId, client: &BonsaiClient) -> Result<ProofResult, ProverError> {
+    async fn poll_with_retries(
+        &self,
+        proof_id: &SessionId,
+        client: &BonsaiClient,
+    ) -> Result<ProofResult, ProverError> {
         loop {
             let mut status = None;
             for retry_count in 0..self.retry_counts {
@@ -141,7 +145,10 @@ impl StatusPoller {
                         break;
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to get status: {err:?}, retrying {retry_count} / {}", self.retry_counts);
+                        tracing::warn!(
+                            "Failed to get status: {err:?}, retrying {retry_count} / {}",
+                            self.retry_counts
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(self.poll_sleep)).await;
                         continue;
                     }
