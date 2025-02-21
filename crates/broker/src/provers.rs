@@ -232,13 +232,31 @@ impl Prover for Bonsai {
     async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
         let proof_id = SessionId::new(proof_id.into());
 
-        let poll_sleep = {
+        let (poll_sleep, retry_counts) = {
             let config = self.config.lock_all()?;
-            config.prover.status_poll_ms
+            (config.prover.status_poll_ms, config.prover.req_retry_count)
         };
 
         loop {
-            let status = proof_id.status(&self.client).await?;
+            let mut status = None;
+            for retry_count in 0..retry_counts {
+                match proof_id.status(&self.client).await {
+                    Ok(res) => {
+                        status = Some(res);
+                        break;
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to get status: {err:?}, retrying {retry_count} / {retry_counts}");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(poll_sleep)).await;
+                        continue;
+                    }
+                }
+            }
+
+            let Some(status) = status else {
+                return Err(ProverError::StatusFailure);
+            };
+
             match status.status.as_ref() {
                 "RUNNING" => {
                     tokio::time::sleep(tokio::time::Duration::from_millis(poll_sleep)).await;
