@@ -131,7 +131,17 @@ pub(crate) async fn websocket_handler(
     if !state.config.bypass_addrs.contains(&client_addr) {
         let boundless_market =
             IBoundlessMarket::new(state.config.market_address, state.rpc_provider.clone());
-        let balance = boundless_market.balanceOfStake(client_addr).call().await.unwrap()._0;
+        let balance = match boundless_market.balanceOfStake(client_addr).call().await {
+            Ok(balance) => balance._0,
+            Err(err) => {
+                tracing::warn!("Failed to get stake balance for {client_addr}: {err}");
+                // Clean up pending connection
+                let mut pending_connections = state.pending_connections.lock().await;
+                pending_connections.remove(&client_addr);
+                return Ok((StatusCode::INTERNAL_SERVER_ERROR, "Failed to check stake balance")
+                    .into_response());
+            }
+        };
         if balance < state.config.min_balance {
             tracing::warn!("Insufficient stake balance for addr: {client_addr}");
             return Ok((
