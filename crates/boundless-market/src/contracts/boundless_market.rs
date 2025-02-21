@@ -528,7 +528,7 @@ where
         let maybe_log = logs.nth(0);
         if logs.next().is_some() {
             return Err(anyhow!(
-                "more than one PaymentRequirementsFailed event on single fullfillment tx"
+                "more than one PaymentRequirementsFailed event on single fulfillment tx"
             )
             .into());
         }
