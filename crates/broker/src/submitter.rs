@@ -404,9 +404,11 @@ mod tests {
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
-        hit_points::default_allowance, test_utils::{
+        hit_points::default_allowance,
+        test_utils::{
             deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
-        }, Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements
+        },
+        Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};

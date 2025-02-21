@@ -279,7 +279,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements
+        boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Callback,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
     use risc0_zkvm::sha::Digest;

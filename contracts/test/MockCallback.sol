@@ -9,27 +9,28 @@ import {BoundlessMarketCallback} from "../src/BoundlessMarketCallback.sol";
 contract MockCallback is BoundlessMarketCallback {
     uint256 public callCount;
     uint256 public targetGas;
+
     event MockCallbackCalled(bytes32 imageId, bytes journal, bytes seal);
-    
+
     // Store info about each call
     struct CallInfo {
         bytes32 imageId;
         bytes journal;
         bytes seal;
     }
-    
+
     // Mapping used for mocking gas consumption
     mapping(bytes32 => uint256) private gasConsumptionSlots;
 
-    constructor(IRiscZeroVerifier verifier, address boundlessMarket, uint256 _targetGas) 
-        BoundlessMarketCallback(verifier, boundlessMarket) 
+    constructor(IRiscZeroVerifier verifier, address boundlessMarket, uint256 _targetGas)
+        BoundlessMarketCallback(verifier, boundlessMarket)
     {
         targetGas = _targetGas;
     }
 
     function _handleProof(bytes32 imageId, bytes calldata journal, bytes calldata seal) internal override {
         uint256 startGas = gasleft();
-        
+
         emit MockCallbackCalled(imageId, journal, seal);
         callCount++;
 
@@ -45,4 +46,4 @@ contract MockCallback is BoundlessMarketCallback {
     function getCallCount() external view returns (uint256) {
         return callCount;
     }
-} 
+}

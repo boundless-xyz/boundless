@@ -48,4 +48,4 @@ abstract contract BoundlessMarketCallback is IBoundlessMarketCallback {
     /// @param journal The output journal from the RISC Zero guest execution
     /// @param seal The cryptographic seal proving correct execution
     function _handleProof(bytes32 imageId, bytes calldata journal, bytes calldata seal) internal virtual;
-} 
+}

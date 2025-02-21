@@ -1166,7 +1166,9 @@ mod tests {
     use super::BoundlessMarketService;
     use crate::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Callback, Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements
+            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Callback,
+            Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
+            ProofStatus, Requirements,
         },
         input::InputBuilder,
     };

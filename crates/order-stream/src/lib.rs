@@ -318,7 +318,8 @@ mod tests {
     };
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, Callback, Offer, Predicate, ProofRequest, Requirements
+            hit_points::default_allowance, test_utils::TestCtx, Callback, Offer, Predicate,
+            ProofRequest, Requirements,
         },
         input::InputBuilder,
         order_stream_client::Client,

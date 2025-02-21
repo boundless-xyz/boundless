@@ -299,7 +299,7 @@ mod tests {
         signers::local::LocalSigner,
     };
     use boundless_market::contracts::{
-        Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements
+        Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use futures_util::StreamExt;
     use std::sync::Arc;

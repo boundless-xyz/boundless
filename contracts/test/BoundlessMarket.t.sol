@@ -1834,14 +1834,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillLockedRequestWithCallbackZ() public {
         Client client = getClient(1);
-        
+
         // Create request with low gas callback
         ProofRequest memory request = client.request(1);
-        request.requirements.callback = Callback({
-            addr: address(mockCallback),
-            gasLimit: 500_000
-        });
-        
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 500_000});
+
         bytes memory clientSignature = client.sign(request);
         client.snapshotBalance();
         testProver.snapshotBalance();
@@ -1850,7 +1847,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(testProver));
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, bytes memory assessorSeal) = 
+        (Fulfillment memory fill, bytes memory assessorSeal) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         vm.expectEmit(true, true, true, true);
@@ -1873,14 +1870,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillLockedRequestWithCallbackExceedGasLimit() public {
         Client client = getClient(1);
-        
+
         // Create request with high gas callback that will exceed limit
         ProofRequest memory request = client.request(1);
-        request.requirements.callback = Callback({
-            addr: address(mockHighGasCallback),
-            gasLimit: 10_000 
-        });
-        
+        request.requirements.callback = Callback({addr: address(mockHighGasCallback), gasLimit: 10_000});
+
         bytes memory clientSignature = client.sign(request);
         client.snapshotBalance();
         testProver.snapshotBalance();
@@ -1889,7 +1883,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(testProver));
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, bytes memory assessorSeal) = 
+        (Fulfillment memory fill, bytes memory assessorSeal) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         vm.expectEmit(true, true, true, true);
@@ -1912,14 +1906,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillLockedRequestWithCallbackByOtherProverNotRequirePayment() public {
         Client client = getClient(1);
-        
+
         // Create request with low gas callback
         ProofRequest memory request = client.request(1);
-        request.requirements.callback = Callback({
-            addr: address(mockCallback),
-            gasLimit: 100_000
-        });
-        
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 100_000});
+
         bytes memory clientSignature = client.sign(request);
 
         // Lock request with testProver
@@ -1942,7 +1933,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         );
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, APP_JOURNAL, fill.seal);
-        
+
         vm.prank(address(otherProver));
         boundlessMarket.fulfill(fill, assessorSeal, otherProverAddress);
 
@@ -1959,13 +1950,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillLockedRequestWithCallbackAlreadyFulfilledByOtherProver() public {
         Client client = getClient(1);
-        
+
         ProofRequest memory request = client.request(1);
-        request.requirements.callback = Callback({
-            addr: address(mockCallback),
-            gasLimit: 100_000
-        });
-        
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 100_000});
+
         bytes memory clientSignature = client.sign(request);
 
         // Lock request with testProver
@@ -2010,7 +1998,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillWasLockedRequestWithCallbackByOtherProver() public {
         Client client = getClient(1);
-        
+
         // Create request with lock timeout of 50 blocks, overall timeout of 100
         ProofRequest memory request = client.request(
             1,
@@ -2024,11 +2012,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 lockStake: 1 ether
             })
         );
-        request.requirements.callback = Callback({
-            addr: address(mockCallback),
-            gasLimit: 100_000
-        });
-        
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 100_000});
+
         bytes memory clientSignature = client.sign(request);
 
         Client locker = getProver(1);
@@ -2070,7 +2055,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillWasLockedRequestWithCallbackMultipleRequestsSameIndex() public {
         Client client = getClient(1);
-        
+
         // Create first request with callback A
         Offer memory offerA = Offer({
             minPrice: 1 ether,
@@ -2082,10 +2067,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             lockStake: 1 ether
         });
         ProofRequest memory requestA = client.request(1, offerA);
-        requestA.requirements.callback = Callback({
-            addr: address(mockCallback),
-            gasLimit: 10_000
-        });
+        requestA.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 10_000});
         bytes memory clientSignatureA = client.sign(requestA);
 
         // Create second request with same ID but different callback
@@ -2099,10 +2081,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             lockStake: offerA.lockStake
         });
         ProofRequest memory requestB = client.request(1, offerB);
-        requestB.requirements.callback = Callback({
-            addr: address(mockHighGasCallback),
-            gasLimit: 300_000
-        });
+        requestB.requirements.callback = Callback({addr: address(mockHighGasCallback), gasLimit: 300_000});
         bytes memory clientSignatureB = client.sign(requestB);
 
         client.snapshotBalance();
@@ -2117,7 +2096,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         (Fulfillment memory fill, bytes memory assessorSeal) =
             createFillAndSubmitRoot(requestB, APP_JOURNAL, address(testProver));
-        
+
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(requestB.id);
         vm.expectEmit(true, true, true, true);
@@ -2129,14 +2108,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Verify only the second request's callback was called
         assertEq(mockCallback.getCallCount(), 0, "First request's callback should not be called");
         assertEq(mockHighGasCallback.getCallCount(), 1, "Second request's callback should be called once");
-        
+
         // Verify request state and balances
         expectRequestFulfilled(fill.id);
         client.expectBalanceChange(-3 ether);
-        testProver.expectStakeBalanceChange(-1 ether);  // Lost stake from lock
+        testProver.expectStakeBalanceChange(-1 ether); // Lost stake from lock
         expectMarketBalanceUnchanged();
     }
-
 }
 
 contract BoundlessMarketBench is BoundlessMarketTest {

@@ -294,7 +294,7 @@ mod tests {
     use super::*;
     use alloy::{primitives::PrimitiveSignature, signers::local::PrivateKeySigner};
     use boundless_market::contracts::{
-        eip712_domain, Callback, Input, Offer, Predicate, ProofRequest, Requirements
+        eip712_domain, Callback, Input, Offer, Predicate, ProofRequest, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_set_builder::SET_BUILDER_ELF;

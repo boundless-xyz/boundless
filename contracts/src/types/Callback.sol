@@ -22,4 +22,4 @@ library CallbackLibrary {
     function eip712Digest(Callback memory callback) internal pure returns (bytes32) {
         return keccak256(abi.encode(CALLBACK_TYPEHASH, callback.addr, callback.gasLimit));
     }
-} 
+}

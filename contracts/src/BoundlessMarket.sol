@@ -142,7 +142,7 @@ contract BoundlessMarket is
 
     /// @notice Locks the request to the prover. Deducts funds from the client for payment
     /// and funding from the prover for locking stake.
-     function _lockRequest(
+    function _lockRequest(
         ProofRequest calldata request,
         bytes32 requestDigest,
         address client,
@@ -309,9 +309,7 @@ contract BoundlessMarket is
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address assessorProver)
-        internal
-    {
+    function _fulfillAndPay(Fulfillment calldata fill, address assessorProver) internal {
         RequestId id = fill.id;
         (address client, uint32 idx) = id.clientAndIndex();
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
@@ -320,9 +318,11 @@ contract BoundlessMarket is
         address callback;
         uint96 callbackGasLimit;
         if (locked) {
-            (paymentError, callback, callbackGasLimit) = _fulfillAndPayLocked(id, client, idx, fill.requestDigest, fulfilled, assessorProver);
+            (paymentError, callback, callbackGasLimit) =
+                _fulfillAndPayLocked(id, client, idx, fill.requestDigest, fulfilled, assessorProver);
         } else {
-            (paymentError, callback, callbackGasLimit) = _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, assessorProver);
+            (paymentError, callback, callbackGasLimit) =
+                _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, assessorProver);
         }
 
         if (callback != address(0)) {
@@ -345,7 +345,7 @@ contract BoundlessMarket is
     /// - If the request is currently locked, only the prover can fulfill it and receive payment
     /// - If the request lock has now expired, but the request itself has not expired, anyone can fulfill
     ///   it and receive payment
-    /// 
+    ///
     /// Callbacks are only executed the first time a request is marked as fulfilled.
     function _fulfillAndPayLocked(
         RequestId id,
@@ -371,7 +371,7 @@ contract BoundlessMarket is
         // In the case of a request that _was_ locked and the lock expired, the callback to be executed
         // must be the one specified in the fulfillment context, not the one specified in the request lock.
         // This is because it is possible for multiple requests to have the same id, and the callback
-        // stored in the request lock from an original request may not match the callback specified by 
+        // stored in the request lock from an original request may not match the callback specified by
         // the new request.
         if (lock.lockDeadline >= block.number) {
             if (lock.fingerprint != bytes8(requestDigest)) {
@@ -387,9 +387,9 @@ contract BoundlessMarket is
                 callbackGasLimit = lock.callbackGasLimit;
             }
         } else {
-            (paymentError, callback, callbackGasLimit) = _payLockedExpired(id, assessorProver, client, lock.price, requestDigest);
+            (paymentError, callback, callbackGasLimit) =
+                _payLockedExpired(id, assessorProver, client, lock.price, requestDigest);
         }
-
     }
 
     /// The request was locked, and the lock is still ongoing.
@@ -475,7 +475,6 @@ contract BoundlessMarket is
         if (!context.valid) {
             return (abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id)), address(0), 0);
         }
-        
 
         Account storage clientAccount = accounts[client];
         if (!fulfilled) {
@@ -532,11 +531,8 @@ contract BoundlessMarket is
         bytes calldata journal,
         bytes calldata seal
     ) internal {
-        try IBoundlessMarketCallback(callbackAddr).handleProof{gas: callbackGasLimit}(
-            imageId,
-            journal,
-            seal
-        ) {} catch (bytes memory err) {
+        try IBoundlessMarketCallback(callbackAddr).handleProof{gas: callbackGasLimit}(imageId, journal, seal) {}
+        catch (bytes memory err) {
             emit CallbackFailed(id, callbackAddr, err);
         }
     }
@@ -740,6 +736,4 @@ contract BoundlessMarket is
             revert(add(err, 0x20), mload(err))
         }
     }
-
-    
 }

@@ -9,18 +9,9 @@ import {FulfillmentContext, FulfillmentContextLibrary} from "../../src/types/Ful
 
 contract FulfillmentContextLibraryTest is Test {
     /// forge-config: default.fuzz.runs = 10000
-    function testFuzz_PackUnpack(
-        bool valid,
-        uint96 price,
-        address callback,
-        uint96 callbackGaslimit
-    ) public pure {
-        FulfillmentContext memory original = FulfillmentContext({
-            valid: valid,
-            price: price,
-            callback: callback,
-            callbackGaslimit: callbackGaslimit
-        });
+    function testFuzz_PackUnpack(bool valid, uint96 price, address callback, uint96 callbackGaslimit) public pure {
+        FulfillmentContext memory original =
+            FulfillmentContext({valid: valid, price: price, callback: callback, callbackGaslimit: callbackGaslimit});
 
         (uint256 slot0, uint256 slot1) = FulfillmentContextLibrary.pack(original);
         FulfillmentContext memory unpacked = FulfillmentContextLibrary.unpack(slot0, slot1);
@@ -32,18 +23,9 @@ contract FulfillmentContextLibraryTest is Test {
     }
 
     /// forge-config: default.fuzz.runs = 10000
-    function testFuzz_StoreAndLoad(
-        bool valid,
-        uint96 price,
-        address callback,
-        uint96 callbackGaslimit
-    ) public {
-        FulfillmentContext memory original = FulfillmentContext({
-            valid: valid,
-            price: price,
-            callback: callback,
-            callbackGaslimit: callbackGaslimit
-        });
+    function testFuzz_StoreAndLoad(bool valid, uint96 price, address callback, uint96 callbackGaslimit) public {
+        FulfillmentContext memory original =
+            FulfillmentContext({valid: valid, price: price, callback: callback, callbackGaslimit: callbackGaslimit});
         bytes32 slot = keccak256("transient.fulfillment.slot");
 
         // Store the FulfillmentContext in the specified slot

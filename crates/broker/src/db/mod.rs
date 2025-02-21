@@ -953,7 +953,7 @@ mod tests {
     use crate::ProofRequest;
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Callback, Input, InputType, Offer, Predicate, PredicateType, Requirements
+        Callback, Input, InputType, Offer, Predicate, PredicateType, Requirements,
     };
     use risc0_aggregation::GuestState;
 
