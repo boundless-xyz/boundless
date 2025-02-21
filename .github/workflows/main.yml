@@ -94,7 +94,7 @@ jobs:
         run: forge build
 
       - name: cargo check
-        run: cargo check --locked --all-targets --features zeth
+        run: cargo check --locked --all-targets
 
       - name: cargo doc
         run: cargo doc --locked
