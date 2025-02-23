@@ -3,5 +3,5 @@
 # Note: Order is important; the last matching pattern takes the most
 # precedence.
 
-*                                      @boundless-xyz/maintainers @capossele @Wollac @zeroecco
-/docs/                                 @boundless-xyz/maintainers @capossele @Wollac @zeroecco @nuke-web3
+*                                      @boundless-xyz/maintainers @capossele @Wollac @zeroecco @austinabell @willemolding
+/docs/                                 @boundless-xyz/maintainers @capossele @Wollac @zeroecco @austinabell @willemolding

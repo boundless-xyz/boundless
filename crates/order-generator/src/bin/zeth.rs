@@ -6,7 +6,10 @@ use std::cmp::min;
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
-    primitives::{utils::parse_ether, Address, U256},
+    primitives::{
+        utils::{format_units, parse_ether},
+        Address, U256,
+    },
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::Transport,
@@ -276,13 +279,20 @@ where
     // run executor only
     let session_info =
         default_executor().execute(guest_env.try_into()?, ZETH_GUESTS_RETH_ETHEREUM_ELF)?;
-    let mcycles_count = session_info
-        .segments
-        .iter()
-        .map(|segment| 1 << segment.po2)
-        .sum::<u64>()
-        .div_ceil(1_000_000);
-    tracing::info!("{} mcycles count.", mcycles_count);
+
+    let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
+    let min_price =
+        params.min.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
+    let max_price =
+        params.max.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
+
+    tracing::info!(
+        "{} cycles count {} mcycles count {} min_price in ether {} max_price in ether",
+        cycles_count,
+        cycles_count / 1_000_000,
+        format_units(min_price, "ether")?,
+        format_units(max_price, "ether")?
+    );
     let journal = session_info.journal;
 
     let request = ProofRequest::builder()
@@ -294,8 +304,8 @@ where
         ))
         .with_offer(
             Offer::default()
-                .with_min_price_per_mcycle(params.min, mcycles_count)
-                .with_max_price_per_mcycle(params.max, mcycles_count)
+                .with_min_price(min_price)
+                .with_max_price(max_price)
                 .with_ramp_up_period(params.ramp_up)
                 .with_timeout(params.timeout)
                 .with_lock_stake(params.stake),
