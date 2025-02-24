@@ -26,20 +26,14 @@ library PredicateLibrary {
     /// @param hash The hash to match.
     /// @return A Predicate struct with type DigestMatch and the provided hash.
     function createDigestMatchPredicate(bytes32 hash) internal pure returns (Predicate memory) {
-        return Predicate({
-            predicateType: PredicateType.DigestMatch, 
-            data: abi.encode(hash)
-        });
+        return Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(hash)});
     }
 
     /// @notice Creates a prefix match predicate.
     /// @param prefix The prefix to match.
     /// @return A Predicate struct with type PrefixMatch and the provided prefix.
     function createPrefixMatchPredicate(bytes memory prefix) internal pure returns (Predicate memory) {
-        return Predicate({
-            predicateType: PredicateType.PrefixMatch, 
-            data: prefix
-        });
+        return Predicate({predicateType: PredicateType.PrefixMatch, data: prefix});
     }
 
     /// @notice Evaluates the predicate against the given journal and journal digest.
@@ -85,10 +79,6 @@ library PredicateLibrary {
     /// @param predicate The predicate to compute the digest for.
     /// @return The EIP-712 digest of the predicate.
     function eip712Digest(Predicate memory predicate) internal pure returns (bytes32) {
-        return keccak256(abi.encode(
-            PREDICATE_TYPEHASH, 
-            predicate.predicateType, 
-            keccak256(predicate.data)
-        ));
+        return keccak256(abi.encode(PREDICATE_TYPEHASH, predicate.predicateType, keccak256(predicate.data)));
     }
 }

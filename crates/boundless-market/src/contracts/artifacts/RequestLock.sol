@@ -10,7 +10,7 @@ using RequestLockLibrary for RequestLock global;
 /// Fields can be valid or invalid depending where in the lifecycle we are. Integrators should not rely on RequestLock
 /// for determining the status of a request. Instead, they shouldalways use BoundlessMarket's view functions.
 ///
-/// Packed into 3 slots. 
+/// Packed into 3 slots.
 struct RequestLock {
     ///
     /// Storage slot 1
@@ -24,7 +24,6 @@ struct RequestLock {
     uint24 deadlineDelta;
     /// @notice Flags that indicate the state of the request lock.
     uint8 requestLockFlags;
-
     ///
     /// Storage slot 2
     ///
@@ -50,7 +49,6 @@ struct RequestLock {
     /// based on request digest instead of index. As a friction, this would introduce a second
     /// user-facing concept of what identifies a request.
     bytes8 fingerprint;
-
     ///
     /// Storage slot 3
     ///

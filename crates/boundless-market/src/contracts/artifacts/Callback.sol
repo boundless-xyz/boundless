@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
 pragma solidity ^0.8.24;
 
 using CallbackLibrary for Callback global;
@@ -22,4 +24,4 @@ library CallbackLibrary {
     function eip712Digest(Callback memory callback) internal pure returns (bytes32) {
         return keccak256(abi.encode(CALLBACK_TYPEHASH, callback.addr, callback.gasLimit));
     }
-} 
+}

@@ -69,8 +69,8 @@ library AccountLibrary {
         }
     }
 
-    /// @notice Sets the locked flag for the request with the given index. 
-    /// @dev The flag indicates that a request has been locked now or in the past. 
+    /// @notice Sets the locked flag for the request with the given index.
+    /// @dev The flag indicates that a request has been locked now or in the past.
     /// If a requests lock expires this flag will still be set.
     /// @param self The account to set the request flag for.
     /// @param idx The index of the request.

@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
 pragma solidity ^0.8.24;
 
 using CallbackLibrary for Callback global;
