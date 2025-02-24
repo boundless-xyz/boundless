@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use anyhow::ensure;
 use bytemuck::Pod;
+use risc0_aggregation::SetInclusionReceipt;
+use risc0_binfmt::Digestible;
 use risc0_zkvm::serde::to_vec;
-use risc0_zkvm::ExecutorEnv;
+use risc0_zkvm::{sha, ExecutorEnv, MaybePruned, Unknown};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 
@@ -78,7 +81,6 @@ pub enum Error {
 /// [ExecutorEnv] provided by [risc0_zkvm], this struct contains only the options that are
 /// supported by Boundless.
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
 #[non_exhaustive]
 pub struct GuestEnv {
     /// Input data to be provided to the guest as stdin.
@@ -88,6 +90,13 @@ pub struct GuestEnv {
     /// be read. If the guest uses `env::read`, this should be encoded using the default RISC Zero
     /// codec. [InputBuilder::write] will encode the data given using the default codec.
     pub stdin: Vec<u8>,
+
+    /// Additional assumptions that must be resolved for the guest.
+    ///
+    /// This field is optional and should be omitted if empty.
+    // TODO(Wolf): Switch this to a risc0_ethereum_contracts::receipt::Receipt
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assumptions: Vec<SetInclusionReceipt<Unknown>>,
 }
 
 impl GuestEnv {
@@ -97,7 +106,7 @@ impl GuestEnv {
             return Err(Error::EmptyEncodedInput);
         }
         match Version::try_from(bytes[0])? {
-            Version::V0 => Ok(Self { stdin: bytes[1..].to_vec() }),
+            Version::V0 => Ok(Self { stdin: bytes[1..].to_vec(), ..Default::default() }),
             Version::V1 => Ok(rmp_serde::from_read(&bytes[1..])?),
         }
     }
@@ -119,6 +128,10 @@ impl TryFrom<GuestEnv> for ExecutorEnv<'_> {
     /// [risc0_zkvm] [Prover][risc0_zkvm::Prover] and [Executor][risc0_zkvm::Executor] traits, from
     /// the given [GuestEnv].
     fn try_from(env: GuestEnv) -> Result<Self, Self::Error> {
+        ensure!(
+            env.assumptions.is_empty(),
+            "assumptions not supported as they require the Resolve guest"
+        );
         ExecutorEnv::builder().write_slice(&env.stdin).build()
     }
 }
@@ -134,20 +147,26 @@ pub struct InputBuilder {
     ///
     /// See [GuestEnv::stdin]
     pub stdin: Vec<u8>,
+
+    /// Additional assumptions that must be resolved for the guest.
+    ///
+    /// See [GuestEnv::assumptions]
+    pub assumptions: Vec<SetInclusionReceipt<Unknown>>,
 }
 
 impl InputBuilder {
     /// Create a new input builder.
+    #[must_use]
     pub fn new() -> Self {
-        Self { stdin: Vec::new() }
+        Self::default()
     }
 
     /// Build the [GuestEnv] for inclusion in a proof request.
     pub fn build_env(self) -> Result<GuestEnv, Error> {
-        Ok(GuestEnv { stdin: self.stdin })
+        Ok(GuestEnv { stdin: self.stdin, assumptions: self.assumptions })
     }
 
-    /// Build the and encode [GuestEnv] for inclusion in a proof request.
+    /// Build and encode [GuestEnv] for inclusion in a proof request.
     pub fn build_vec(self) -> Result<Vec<u8>, Error> {
         self.build_env()?.encode()
     }
@@ -220,11 +239,35 @@ impl InputBuilder {
         input.extend_from_slice(payload);
         Self { stdin: input, ..self }
     }
+
+    /// Add a [SetInclusionReceipt] for use in composition.
+    pub fn add_assumption<Claim>(self, receipt: SetInclusionReceipt<Claim>) -> Self
+    where
+        Claim: Digestible + Clone + Serialize,
+    {
+        let claim = match receipt.claim {
+            MaybePruned::Value(claim) => MaybePruned::Pruned(claim.digest::<sha::Impl>()),
+            MaybePruned::Pruned(digest) => MaybePruned::Pruned(digest),
+        };
+        // TODO(Wolf): add into_unknown() to SetInclusionReceipt when #228 is merged
+        let mut unknown_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+            claim,
+            receipt.merkle_path,
+            receipt.verifier_parameters,
+        );
+        if let Some(root) = receipt.root {
+            unknown_receipt = unknown_receipt.with_root(root);
+        }
+        let mut assumptions = self.assumptions;
+        assumptions.push(unknown_receipt);
+        Self { assumptions, ..self }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use risc0_zkvm::sha::Digest;
 
     #[test]
     fn test_version_parsing() -> Result<(), Error> {
@@ -250,10 +293,20 @@ mod tests {
     #[test]
     fn test_encode_decode_env() -> Result<(), Error> {
         let timestamp = format! {"{:?}", std::time::SystemTime::now()};
-        let env = InputBuilder::new().write_slice(timestamp.as_bytes()).build_env()?;
+        let receipt = SetInclusionReceipt::<Unknown>::from_path_with_verifier_params(
+            MaybePruned::Pruned(Digest::ZERO),
+            vec![],
+            Digest::ZERO,
+        );
+        let env = InputBuilder::new()
+            .write_slice(timestamp.as_bytes())
+            .add_assumption(receipt.clone())
+            .build_env()?;
 
         let decoded_env = GuestEnv::decode(&env.encode()?)?;
-        assert_eq!(env, decoded_env);
+        assert_eq!(env.stdin, decoded_env.stdin);
+        assert_eq!(receipt.verifier_parameters, decoded_env.assumptions[0].verifier_parameters);
+
         Ok(())
     }
 }

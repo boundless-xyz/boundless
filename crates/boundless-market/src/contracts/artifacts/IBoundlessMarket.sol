@@ -359,6 +359,10 @@ interface IBoundlessMarket {
     /// @return The imageId and its url.
     function imageInfo() external view returns (bytes32, string memory);
 
+    /// @notice Returns the resolve imageId and its url.
+    /// @return The imageId and its url.
+    function resolveImageInfo() external view returns (bytes32, string memory);
+
     /// Returns the address of the token used for stake deposits.
     // solhint-disable-next-line func-name-mixedcase
     function STAKE_TOKEN_CONTRACT() external view returns (address);

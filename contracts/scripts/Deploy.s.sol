@@ -22,10 +22,12 @@ contract Deploy is Script, RiscZeroCheats {
     IRiscZeroVerifier verifier;
     address boundlessMarketAddress;
     bytes32 assessorImageId;
+    bytes32 resolveImageId;
     address stakeToken;
 
     function run() external {
         string memory assessorGuestUrl = "";
+        string memory resolveGuestUrl = "";
 
         // load ENV variables first
         uint256 deployerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
@@ -45,9 +47,15 @@ contract Deploy is Script, RiscZeroCheats {
 
         // Assign parsed config values to the variables
         verifier = IRiscZeroVerifier(deploymentConfig.verifier);
+
         assessorImageId = deploymentConfig.assessorImageId;
         assessorGuestUrl = deploymentConfig.assessorGuestUrl;
+        if (assessorImageId == bytes32(0)) {
+            revert("assessor image ID must be set in deployment.toml");
+        }
 
+        resolveImageId = deploymentConfig.resolveImageId;
+        resolveGuestUrl = deploymentConfig.resolveGuestUrl;
         if (assessorImageId == bytes32(0)) {
             revert("assessor image ID must be set in deployment.toml");
         }
@@ -104,7 +112,8 @@ contract Deploy is Script, RiscZeroCheats {
 
         // Deploy the Boundless market
         bytes32 salt = bytes32(0);
-        address newImplementation = address(new BoundlessMarket{salt: salt}(verifier, assessorImageId, stakeToken));
+        address newImplementation =
+            address(new BoundlessMarket{salt: salt}(verifier, assessorImageId, resolveImageId, stakeToken));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(

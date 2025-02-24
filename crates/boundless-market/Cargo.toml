@@ -16,6 +16,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
+risc0-binfmt = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 sha2 = { workspace = true }
@@ -52,6 +53,7 @@ utoipa = { workspace = true }
 [dev-dependencies]
 boundless-market = { path = ".", features = ["test-utils"] }
 guest-assessor = { workspace = true }
+guest-resolve = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
 tracing-test = { workspace = true }

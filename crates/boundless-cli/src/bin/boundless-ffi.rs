@@ -41,6 +41,9 @@ struct MainArgs {
     /// URL of the Assessor ELF
     #[clap(long)]
     assessor_url: String,
+    /// URL of the Assessor ELF
+    #[clap(long)]
+    resolve_url: String,
     /// Address of the prover
     #[clap(long)]
     prover_address: Address,
@@ -67,12 +70,19 @@ struct MainArgs {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = MainArgs::parse();
-    // Take stdout is ensure no extra data is written to it.
+    // Take stdout is ensured no extra data is written to it.
     let mut stdout = take_stdout()?;
     let set_builder_elf = fetch_url(&args.set_builder_url).await?;
     let assessor_elf = fetch_url(&args.assessor_url).await?;
+    let resolve_elf = fetch_url(&args.resolve_url).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
-    let prover = DefaultProver::new(set_builder_elf, assessor_elf, args.prover_address, domain)?;
+    let prover = DefaultProver::new(
+        set_builder_elf,
+        assessor_elf,
+        resolve_elf,
+        args.prover_address,
+        domain,
+    )?;
     let order = Order {
         request: <ProofRequest>::abi_decode(
             &hex::decode(args.request.trim_start_matches("0x"))?,

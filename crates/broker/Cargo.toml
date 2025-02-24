@@ -20,6 +20,7 @@ bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
+boundless-resolve = { workspace = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -36,7 +37,7 @@ risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true, features = [ "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "json", "migrate", "macros"] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs"] }
@@ -52,6 +53,7 @@ boundless-market = { workspace = true, features = ["test-utils"] }
 broker = { path = ".", features = ["test-utils"] }
 elsa = "1.11"
 guest-assessor = { workspace = true }
+guest-resolve = { workspace = true }
 guest-util = { workspace = true }
 hex = { workspace = true }
 httpmock = "0.7"

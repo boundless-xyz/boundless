@@ -17,6 +17,8 @@ struct DeploymentConfig {
     address stakeToken;
     bytes32 assessorImageId;
     string assessorGuestUrl;
+    bytes32 resolveImageId;
+    string resolveGuestUrl;
 }
 
 library ConfigLoader {

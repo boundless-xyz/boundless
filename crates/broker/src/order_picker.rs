@@ -175,26 +175,40 @@ where
             return Ok(());
         }
 
+        let (config_min_mcycle_price, config_max_assumptions) = {
+            let config = self.config.lock_all().context("Failed to read config")?;
+            (
+                parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?,
+                config.prover.max_assumptions,
+            )
+        };
+
         // TODO: Move URI handling like this into the prover impls
         let image_id = crate::upload_image_uri(&self.prover, order, max_size, fetch_retries)
             .await
             .map_err(PriceOrderErr::FetchImageErr)?;
 
-        let input_id = crate::upload_input_uri(&self.prover, order, max_size, fetch_retries)
+        let guest_env = crate::decode_input(order, max_size, fetch_retries)
             .await
             .map_err(PriceOrderErr::FetchInputErr)?;
+
+        if guest_env.assumptions.len() as u64 > config_max_assumptions {
+            tracing::warn!("Order {order_id:x} too many assumptions, skipping");
+            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            return Ok(());
+        }
+
+        let input_id = self
+            .prover
+            .upload_input(guest_env.stdin)
+            .await
+            .context("Failed to upload input to prover")?;
 
         // Record the image/input IDs for proving stage
         self.db
             .set_image_input_ids(order_id, &image_id, &input_id)
             .await
             .context("Failed to record Input/Image IDs to DB")?;
-
-        // Create a executor limit based on the max price of the order
-        let config_min_mcycle_price = {
-            let config = self.config.lock_all().context("Failed to read config")?;
-            parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?
-        };
 
         let exec_limit: u64 = (U256::from(order.request.offer.maxPrice) / config_min_mcycle_price)
             .try_into()
@@ -211,18 +225,15 @@ where
             return Ok(());
         }
 
+        // TODO(Wolf): also preflight the Resolve guest with the corresponding assumptions
+
         tracing::debug!(
             "Starting preflight execution of {order_id:x} exec limit {exec_limit} mcycles"
         );
         // TODO add a future timeout here to put a upper bound on how long to preflight for
         let proof_res = self
             .prover
-            .preflight(
-                &image_id,
-                &input_id,
-                vec![],
-                /* TODO assumptions */ Some(exec_limit * 1024 * 1024),
-            )
+            .preflight(&image_id, &input_id, vec![], Some(exec_limit * 1024 * 1024))
             .await
             .map_err(|err| match err {
                 ProverError::ProvingFailed(ref err_msg) => {

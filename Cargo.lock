@@ -2315,7 +2315,10 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "boundless-market",
+ "boundless-resolve",
  "guest-assessor",
+ "guest-resolve",
+ "guest-set-builder",
  "guest-util",
  "postcard",
  "risc0-zkvm",
@@ -2332,10 +2335,12 @@ dependencies = [
  "anyhow",
  "boundless-assessor",
  "boundless-market",
+ "boundless-resolve",
  "bytemuck",
  "clap",
  "dotenvy",
  "guest-assessor",
+ "guest-resolve",
  "guest-set-builder",
  "guest-util",
  "hex",
@@ -2371,12 +2376,14 @@ dependencies = [
  "clap",
  "futures-util",
  "guest-assessor",
+ "guest-resolve",
  "guest-set-builder",
  "guest-util",
  "hex",
  "rand 0.9.0",
  "reqwest",
  "risc0-aggregation",
+ "risc0-binfmt",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
  "rmp-serde",
@@ -2426,6 +2433,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-resolve"
+version = "0.6.0"
+dependencies = [
+ "alloy-sol-types",
+ "anyhow",
+ "boundless-market",
+ "boundless-resolve",
+ "guest-resolve",
+ "guest-set-builder",
+ "guest-util",
+ "postcard",
+ "risc0-aggregation",
+ "risc0-zkvm",
+ "serde",
+ "test-log",
+ "tracing",
+]
+
+[[package]]
 name = "boundless-slasher"
 version = "0.6.0"
 dependencies = [
@@ -2464,6 +2490,7 @@ dependencies = [
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
+ "boundless-resolve",
  "broker",
  "bytemuck",
  "chrono",
@@ -2472,6 +2499,7 @@ dependencies = [
  "futures",
  "futures-util",
  "guest-assessor",
+ "guest-resolve",
  "guest-set-builder",
  "guest-util",
  "hex",
@@ -4024,6 +4052,14 @@ name = "guest-assessor"
 version = "0.6.0"
 dependencies = [
  "hex",
+ "risc0-build",
+ "risc0-build-ethereum 1.3.1",
+]
+
+[[package]]
+name = "guest-resolve"
+version = "0.6.0"
+dependencies = [
  "risc0-build",
  "risc0-build-ethereum 1.3.1",
 ]

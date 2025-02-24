@@ -38,6 +38,7 @@ pub struct AggregatorService<P> {
     block_time: u64,
     set_builder_guest_id: Digest,
     assessor_guest_id: Digest,
+    resolve_guest_id: Digest,
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
@@ -56,6 +57,8 @@ where
         set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
         assessor_guest: Vec<u8>,
+        resolve_guest_id: Digest,
+        resolve_guest: Vec<u8>,
         market_addr: Address,
         prover_addr: Address,
         config: ConfigLock,
@@ -72,6 +75,11 @@ where
             .await
             .context("Failed to upload assessor guest")?;
 
+        prover
+            .upload_image(&resolve_guest_id.to_string(), resolve_guest)
+            .await
+            .context("Failed to upload resolve guest")?;
+
         let chain_id = provider.get_chain_id().await?;
 
         Ok(Self {
@@ -82,6 +90,7 @@ where
             prover,
             set_builder_guest_id,
             assessor_guest_id,
+            resolve_guest_id,
             market_addr,
             prover_addr,
             chain_id,
@@ -145,6 +154,7 @@ where
                 &self.set_builder_guest_id.to_string(),
                 &input_id,
                 assumption_ids,
+                vec![],
             )
             .await
             .context("Failed to prove set-builder")?;
@@ -206,6 +216,7 @@ where
                 request: order.request.clone(),
                 signature: order.client_sig.clone().to_vec(),
                 journal,
+                resolve: false,
                 require_payment: true,
             })
         }
@@ -215,6 +226,8 @@ where
             fills,
             domain: eip712_domain(self.market_addr, self.chain_id),
             prover_address: self.prover_addr,
+            set_builder_image_id: self.set_builder_guest_id,
+            resolve_image_id: self.resolve_guest_id,
         };
         let input_data = input.to_vec();
 
@@ -226,7 +239,12 @@ where
 
         let proof_res = self
             .prover
-            .prove_and_monitor_stark(&self.assessor_guest_id.to_string(), &input_id, assumptions)
+            .prove_and_monitor_stark(
+                &self.assessor_guest_id.to_string(),
+                &input_id,
+                assumptions,
+                vec![],
+            )
             .await
             .context("Failed to prove assesor stark")?;
 
@@ -579,6 +597,7 @@ mod tests {
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
+    use guest_resolve::{RESOLVE_GUEST_ELF, RESOLVE_GUEST_ID};
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
     use std::ops::Add;
@@ -616,9 +635,9 @@ mod tests {
             .await
             .unwrap();
         let proof_res_1 =
-            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![], vec![]).await.unwrap();
         let proof_res_2 =
-            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![], vec![]).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn());
@@ -630,6 +649,8 @@ mod tests {
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
+            Digest::from(RESOLVE_GUEST_ID),
+            RESOLVE_GUEST_ELF.to_vec(),
             Address::ZERO,
             prover_addr,
             config,
@@ -777,9 +798,9 @@ mod tests {
             .await
             .unwrap();
         let proof_res_1 =
-            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![], vec![]).await.unwrap();
         let proof_res_2 =
-            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![], vec![]).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn());
@@ -791,6 +812,8 @@ mod tests {
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
+            Digest::from(RESOLVE_GUEST_ID),
+            RESOLVE_GUEST_ELF.to_vec(),
             Address::ZERO,
             prover_addr,
             config,
@@ -954,7 +977,7 @@ mod tests {
             .await
             .unwrap();
         let proof_res =
-            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![], vec![]).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
 
@@ -966,6 +989,8 @@ mod tests {
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
+            Digest::from(RESOLVE_GUEST_ID),
+            RESOLVE_GUEST_ELF.to_vec(),
             Address::ZERO,
             prover_addr,
             config,
@@ -1066,7 +1091,7 @@ mod tests {
             .await
             .unwrap();
         let proof_res =
-            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+            prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![], vec![]).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
 
@@ -1080,6 +1105,8 @@ mod tests {
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
+            Digest::from(RESOLVE_GUEST_ID),
+            RESOLVE_GUEST_ELF.to_vec(),
             Address::ZERO,
             signer.address(),
             config.clone(),
@@ -1185,8 +1212,10 @@ mod tests {
             .upload_input(encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap())
             .await
             .unwrap();
-        let proof_res =
-            mock_prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
+        let proof_res = mock_prover
+            .prove_and_monitor_stark(&image_id_str, &input_id, vec![], vec![])
+            .await
+            .unwrap();
 
         let prover: ProverObj = Arc::new(mock_prover);
 
@@ -1202,6 +1231,8 @@ mod tests {
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
             ASSESSOR_GUEST_ELF.to_vec(),
+            Digest::from(RESOLVE_GUEST_ID),
+            RESOLVE_GUEST_ELF.to_vec(),
             Address::ZERO,
             signer.address(),
             config.clone(),

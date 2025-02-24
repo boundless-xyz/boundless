@@ -17,4 +17,8 @@ struct AssessorJournal {
     bytes32 root;
     /// @notice The address of the prover that produced the assessor receipt.
     address prover;
+    /// @notice Image ID of the SetBuilder guest.
+    bytes32 setBuilderImageID;
+    /// @notice Image ID of the Resolve guest.
+    bytes32 resolveImageID;
 }

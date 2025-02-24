@@ -17,7 +17,7 @@
 #![deny(missing_docs)]
 
 use alloy::{primitives::Address, sol_types::SolStruct};
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
@@ -26,7 +26,7 @@ use risc0_ethereum_contracts::encode_seal;
 use risc0_zkvm::{
     compute_image_id, default_prover,
     sha::{Digest, Digestible},
-    ExecutorEnv, ProverOpts, Receipt, ReceiptClaim,
+    ExecutorEnv, ProverOpts, Receipt, ReceiptClaim, Unknown,
 };
 use url::Url;
 
@@ -35,6 +35,7 @@ use boundless_market::{
     input::GuestEnv,
     order_stream_client::Order,
 };
+use boundless_resolve::{AssumptionReceipt, ResolveInput};
 
 alloy::sol!(
     #[sol(all_derives)]
@@ -128,6 +129,9 @@ pub struct DefaultProver {
     set_builder_elf: Vec<u8>,
     set_builder_image_id: Digest,
     assessor_elf: Vec<u8>,
+    assessor_image_id: Digest,
+    resolve_elf: Vec<u8>,
+    resolve_image_id: Digest,
     address: Address,
     domain: EIP721DomainSaltless,
 }
@@ -137,11 +141,23 @@ impl DefaultProver {
     pub fn new(
         set_builder_elf: Vec<u8>,
         assessor_elf: Vec<u8>,
+        resolve_elf: Vec<u8>,
         address: Address,
         domain: EIP721DomainSaltless,
     ) -> Result<Self> {
         let set_builder_image_id = compute_image_id(&set_builder_elf)?;
-        Ok(Self { set_builder_elf, set_builder_image_id, assessor_elf, address, domain })
+        let assessor_image_id = compute_image_id(&assessor_elf)?;
+        let resolve_image_id = compute_image_id(&resolve_elf)?;
+        Ok(Self {
+            set_builder_elf,
+            set_builder_image_id,
+            assessor_elf,
+            assessor_image_id,
+            resolve_elf,
+            resolve_image_id,
+            address,
+            domain,
+        })
     }
 
     // Proves the given [elf] with the given [input] and [assumptions].
@@ -160,11 +176,38 @@ impl DefaultProver {
                 env.add_assumption(assumption_receipt.clone());
             }
             let env = env.build()?;
-            default_prover().prove_with_opts(env, &elf, &opts)
+            default_prover().prove_with_opts(env, elf.as_ref(), &opts)
         })
         .await??
         .receipt;
         Ok(receipt)
+    }
+
+    // Resolves the given assumptions using the Resolve guest.
+    pub(crate) async fn resolve(
+        &self,
+        conditional: Receipt,
+        assumptions: Vec<SetInclusionReceipt<Unknown>>,
+    ) -> Result<Receipt> {
+        let conditional_claim = conditional.claim()?.value()?;
+        let assumption = match assumptions {
+            vec if vec.len() == 1 => vec.into_iter().next().unwrap(),
+            _ => bail!("expected exactly one assumption"),
+        };
+        ensure!(assumption.root.is_some(), "assumption must have a root");
+
+        let resolve_input = ResolveInput {
+            set_builder_image_id: self.set_builder_image_id,
+            conditional: conditional_claim,
+            assumption: AssumptionReceipt::SetInclusion(assumption),
+        };
+        self.prove(
+            self.resolve_elf.clone(),
+            resolve_input.to_vec(),
+            vec![conditional],
+            ProverOpts::succinct(),
+        )
+        .await
     }
 
     // Finalizes the set builder.
@@ -188,8 +231,13 @@ impl DefaultProver {
         fills: Vec<Fulfillment>,
         receipts: Vec<Receipt>,
     ) -> Result<Receipt> {
-        let assessor_input =
-            AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
+        let assessor_input = AssessorInput {
+            domain: self.domain.clone(),
+            fills,
+            prover_address: self.address,
+            set_builder_image_id: self.set_builder_image_id,
+            resolve_image_id: self.resolve_image_id,
+        };
         self.prove(
             self.assessor_elf.clone(),
             assessor_input.to_vec(),
@@ -216,36 +264,41 @@ impl DefaultProver {
     )> {
         let request = order.request.clone();
         let order_elf = fetch_url(&request.imageUrl).await?;
-        let order_input: Vec<u8> = match request.input.inputType {
-            InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
-            InputType::Url => {
-                GuestEnv::decode(
-                    &fetch_url(
-                        std::str::from_utf8(&request.input.data)
-                            .context("input url is not utf8")?,
-                    )
-                    .await?,
-                )?
-                .stdin
-            }
+        let guest_env = match request.input.inputType {
+            InputType::Inline => GuestEnv::decode(&request.input.data)?,
+            InputType::Url => GuestEnv::decode(
+                &fetch_url(
+                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
+                )
+                .await?,
+            )?,
             _ => bail!("Unsupported input type"),
         };
-        let order_receipt =
-            self.prove(order_elf.clone(), order_input, vec![], ProverOpts::succinct()).await?;
+
+        let mut order_receipt =
+            self.prove(order_elf.clone(), guest_env.stdin, vec![], ProverOpts::succinct()).await?;
         let order_journal = order_receipt.journal.bytes.clone();
         let order_image_id = compute_image_id(&order_elf)?;
+
+        let mut resolve = false;
+        if !guest_env.assumptions.is_empty() {
+            order_receipt = self.resolve(order_receipt, guest_env.assumptions).await?;
+            resolve = true;
+        }
 
         let fill = Fulfillment {
             request: order.request.clone(),
             signature: order.signature.into(),
             journal: order_journal.clone(),
+            resolve,
             require_payment,
         };
 
         let assessor_receipt = self.assessor(vec![fill], vec![order_receipt.clone()]).await?;
         let assessor_journal = assessor_receipt.journal.bytes.clone();
-        let assessor_image_id = compute_image_id(&self.assessor_elf)?;
+        let assessor_image_id = self.assessor_image_id;
 
+        // the order with all its assumptions resolved
         let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
         let order_claim_digest = order_claim.digest();
         let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal);
@@ -297,6 +350,7 @@ mod tests {
         eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
+    use guest_resolve::RESOLVE_GUEST_ELF;
     use guest_set_builder::SET_BUILDER_ELF;
     use guest_util::{ECHO_ID, ECHO_PATH};
     use risc0_zkvm::VerifierContext;
@@ -330,6 +384,7 @@ mod tests {
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
+            RESOLVE_GUEST_ELF.to_vec(),
             Address::ZERO,
             domain,
         )

@@ -1,0 +1,15 @@
+[package]
+name = "guest-resolve"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[build-dependencies]
+risc0-build = { workspace = true, features = ["unstable"] }
+risc0-build-ethereum = { workspace = true }
+
+[package.metadata.risc0]
+methods = ["resolve-guest"]

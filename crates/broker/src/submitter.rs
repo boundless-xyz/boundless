@@ -412,6 +412,7 @@ mod tests {
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
+    use guest_resolve::RESOLVE_GUEST_ID;
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_aggregation::GuestState;
@@ -488,7 +489,7 @@ mod tests {
         prover.upload_image(&assessor_id_str, ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
 
         let echo_proof =
-            prover.prove_and_monitor_stark(&echo_id_str, &input_id, vec![]).await.unwrap();
+            prover.prove_and_monitor_stark(&echo_id_str, &input_id, vec![], vec![]).await.unwrap();
         let echo_receipt = prover.get_receipt(&echo_proof.id).await.unwrap().unwrap();
 
         let order_request = ProofRequest::new(
@@ -529,9 +530,12 @@ mod tests {
                         request: order_request.clone(),
                         signature: client_sig.into(),
                         journal: echo_receipt.journal.bytes.clone(),
+                        resolve: false,
                         require_payment: true,
                     }],
                     prover_address: prover_addr,
+                    set_builder_image_id: Digest::from(SET_BUILDER_ID),
+                    resolve_image_id: Digest::from(RESOLVE_GUEST_ID),
                 }
                 .to_vec(),
             )
@@ -539,7 +543,12 @@ mod tests {
             .unwrap();
 
         let assessor_proof = prover
-            .prove_and_monitor_stark(&assessor_id_str, &assessor_input, vec![echo_proof.id.clone()])
+            .prove_and_monitor_stark(
+                &assessor_id_str,
+                &assessor_input,
+                vec![echo_proof.id.clone()],
+                vec![],
+            )
             .await
             .unwrap();
         let assessor_receipt = prover.get_receipt(&assessor_proof.id).await.unwrap().unwrap();
@@ -568,6 +577,7 @@ mod tests {
                 &set_builder_id_str,
                 &set_builder_input,
                 vec![echo_proof.id.clone(), assessor_proof.id.clone()],
+                vec![],
             )
             .await
             .unwrap();

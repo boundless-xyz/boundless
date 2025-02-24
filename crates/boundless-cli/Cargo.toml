@@ -13,6 +13,7 @@ alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types",
 anyhow = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
+boundless-resolve = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true }
 dotenvy = { workspace = true }
@@ -39,6 +40,7 @@ name = "boundless-ffi"
 [dev-dependencies]
 boundless-market = { workspace = true, features = ["test-utils"] }
 guest-assessor = { workspace = true }
+guest-resolve = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
 tracing-test = { workspace = true }

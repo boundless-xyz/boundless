@@ -7,9 +7,11 @@ members = [
     "crates/broker",
     "crates/broker-stress",
     "crates/guest/assessor",
+    "crates/guest/resolve",
     "crates/guest/util",
     "crates/order-generator",
     "crates/order-stream",
+    "crates/resolve",
     "crates/slasher",
     "documentation/doc-test",
 ]
@@ -25,7 +27,9 @@ async-stream = "0.3"
 boundless-assessor = { version = "0.6.0", path = "crates/assessor" }
 boundless-cli = { version = "0.6.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.6.0", path = "crates/boundless-market" }
+boundless-resolve = { version = "0.6.0", path = "crates/resolve" }
 guest-assessor = { path = "crates/guest/assessor" }
+guest-resolve = { path = "crates/guest/resolve" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
 

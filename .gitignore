@@ -29,7 +29,7 @@ target/
 contracts/src/SetBuilderImageID.sol
 contracts/src/libraries/AssessorImageID.sol
 contracts/src/EchoImageID.sol
-contracts/src/ResolveImageID.sol
+contracts/src/libraries/ResolveImageID.sol
 contracts/src/libraries/UtilImageID.sol
 contracts/test/SetBuilderElf.sol
 contracts/test/AssessorElf.sol

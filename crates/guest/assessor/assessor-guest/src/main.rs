@@ -11,11 +11,12 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::B256;
 use alloy_sol_types::SolValue;
 use boundless_assessor::AssessorInput;
-use boundless_market::contracts::AssessorJournal;
+use boundless_market::contracts::{AssessorJournal, ResolveJournal};
 use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
     sha::{Digest, Digestible},
+    ReceiptClaim,
 };
 
 risc0_zkvm::guest::entry!(main);
@@ -43,8 +44,16 @@ fn main() {
         let request_digest =
             fill.verify_signature(&eip_domain_separator).expect("signature does not verify");
         fill.evaluate_requirements().expect("requirements not met");
-        env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
-        claim_digests.push(fill.receipt_claim().digest());
+        let mut claim = fill.receipt_claim();
+        if fill.resolve {
+            let journal = ResolveJournal {
+                claimDigest: <[u8; 32]>::from(claim.digest()).into(),
+                setBuilderImageID: <[u8; 32]>::from(input.set_builder_image_id).into(),
+            };
+            claim = ReceiptClaim::ok(input.resolve_image_id, journal.abi_encode());
+        }
+        env::verify_integrity(&claim).expect("claim integrity check failed");
+        claim_digests.push(claim.digest());
         request_digests.push(request_digest.into());
     }
 
@@ -55,6 +64,8 @@ fn main() {
         requestDigests: request_digests,
         root: <[u8; 32]>::from(root).into(),
         prover: input.prover_address,
+        setBuilderImageID: <[u8; 32]>::from(input.set_builder_image_id).into(),
+        resolveImageID: <[u8; 32]>::from(input.resolve_image_id).into(),
     };
 
     env::commit_slice(&journal.abi_encode());

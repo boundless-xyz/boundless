@@ -5,23 +5,47 @@
 use crate::{
     config::ConfigLock,
     db::DbObj,
+    decode_input,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Order,
 };
 use alloy::primitives::U256;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
+use boundless_resolve::{AssumptionReceipt, ResolveInput};
+use risc0_zkvm::sha::{Digest, Digestible};
+use risc0_zkvm::Assumption;
 
 #[derive(Clone)]
 pub struct ProvingService {
     db: DbObj,
     prover: ProverObj,
     config: ConfigLock,
+    set_builder_guest_id: Digest,
+    resolve_guest_id: Digest,
 }
 
 impl ProvingService {
-    pub async fn new(db: DbObj, prover: ProverObj, config: ConfigLock) -> Result<Self> {
-        Ok(Self { db, prover, config })
+    pub async fn new(
+        db: DbObj,
+        prover: ProverObj,
+        config: ConfigLock,
+        set_builder_guest_id: Digest,
+        set_builder_guest: Vec<u8>,
+        resolve_guest_id: Digest,
+        resolve_guest: Vec<u8>,
+    ) -> Result<Self> {
+        prover
+            .upload_image(&set_builder_guest_id.to_string(), set_builder_guest)
+            .await
+            .context("Failed to upload resolve guest")?;
+
+        prover
+            .upload_image(&resolve_guest_id.to_string(), resolve_guest)
+            .await
+            .context("Failed to upload resolve guest")?;
+
+        Ok(Self { db, prover, config, set_builder_guest_id, resolve_guest_id })
     }
 
     pub async fn monitor_proof(&self, order_id: U256, proof_id: String) -> Result<()> {
@@ -56,20 +80,82 @@ impl ProvingService {
                 .await
                 .context("Failed to upload image")?,
         };
+        let guest_env = decode_input(&order, max_file_size, fetch_retries)
+            .await
+            .context("Failed to decode order input")?;
         let input_id = match order.input_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::upload_input_uri(&self.prover, &order, max_file_size, fetch_retries)
-                .await
-                .context("Failed to upload input")?,
+            None => {
+                self.prover.upload_input(guest_env.stdin).await.context("Failed to upload input")?
+            }
         };
 
         tracing::info!("Proving order {order_id:x}");
 
-        let proof_id = self
+        let unresolved = guest_env
+            .assumptions
+            .iter()
+            .map(|receipt| Assumption { claim: receipt.claim.digest(), control_root: Digest::ZERO })
+            .collect::<Vec<_>>();
+
+        let mut proof_id = self
             .prover
-            .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
+            .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![], unresolved)
             .await
             .context("Failed to prove customer proof STARK order")?;
+
+        if !guest_env.assumptions.is_empty() {
+            let assumption = match guest_env.assumptions {
+                vec if vec.len() == 1 => vec.into_iter().next().unwrap(),
+                _ => bail!("expected exactly one assumption"),
+            };
+
+            let proof_res =
+                self.prover.wait_for_stark(&proof_id).await.context("Monitoring proof failed")?;
+
+            tracing::info!(
+                "Conditional proof completed for order {}, cycles: {} time: {}",
+                order_id,
+                proof_res.stats.total_cycles,
+                proof_res.elapsed_time
+            );
+
+            let receipt = self
+                .prover
+                .get_receipt(&proof_res.id)
+                .await
+                .with_context(|| format!("Failed to get proof receipt for {proof_id}"))?
+                .with_context(|| format!("Proof receipt not found for {proof_id}"))?;
+            let claim = receipt
+                .claim()
+                .with_context(|| format!("Receipt for {proof_id} missing claim"))?
+                .value()
+                .with_context(|| format!("Receipt for {proof_id} claims pruned"))?;
+
+            let resolve_input = ResolveInput {
+                set_builder_image_id: self.set_builder_guest_id,
+                conditional: claim,
+                assumption: AssumptionReceipt::SetInclusion(assumption),
+            };
+            let input_data = resolve_input.to_vec();
+
+            let input_id = self
+                .prover
+                .upload_input(input_data)
+                .await
+                .context("Failed to upload resolve input")?;
+
+            proof_id = self
+                .prover
+                .prove_stark(
+                    &self.resolve_guest_id.to_string(),
+                    &input_id,
+                    vec![proof_res.id],
+                    vec![],
+                )
+                .await
+                .context("Failed to prove customer proof STARK order")?;
+        }
 
         self.db
             .set_order_proof_id(order_id, &proof_id)
@@ -193,7 +279,10 @@ mod tests {
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
+    use boundless_market::input::GuestEnv;
     use chrono::Utc;
+    use guest_resolve::{RESOLVE_GUEST_ELF, RESOLVE_GUEST_ID};
+    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
@@ -213,8 +302,17 @@ mod tests {
             .await
             .unwrap();
 
-        let proving_service =
-            ProvingService::new(db.clone(), prover, config.clone()).await.unwrap();
+        let proving_service = ProvingService::new(
+            db.clone(),
+            prover,
+            config.clone(),
+            Digest::from(SET_BUILDER_ID),
+            SET_BUILDER_ELF.to_vec(),
+            Digest::from(RESOLVE_GUEST_ID),
+            RESOLVE_GUEST_ELF.to_vec(),
+        )
+        .await
+        .unwrap();
 
         let order_id = U256::ZERO;
         let min_price = 2;
@@ -234,7 +332,10 @@ mod tests {
                     },
                 },
                 imageUrl: "http://risczero.com/image".into(),
-                input: Input { inputType: InputType::Inline, data: Default::default() },
+                input: Input {
+                    inputType: InputType::Inline,
+                    data: GuestEnv::default().encode().unwrap().into(),
+                },
                 offer: Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
@@ -278,10 +379,19 @@ mod tests {
             .unwrap();
 
         // pre-prove the stark so it already exists before the service comes up
-        let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();
+        let proof_id = prover.prove_stark(&image_id, &input_id, vec![], vec![]).await.unwrap();
 
-        let proving_service =
-            ProvingService::new(db.clone(), prover, config.clone()).await.unwrap();
+        let proving_service = ProvingService::new(
+            db.clone(),
+            prover,
+            config.clone(),
+            Digest::from(SET_BUILDER_ID),
+            SET_BUILDER_ELF.to_vec(),
+            Digest::from(RESOLVE_GUEST_ID),
+            RESOLVE_GUEST_ELF.to_vec(),
+        )
+        .await
+        .unwrap();
 
         let order_id = U256::ZERO;
         let min_price = 2;

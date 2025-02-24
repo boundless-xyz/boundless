@@ -39,7 +39,7 @@ use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifi
 use risc0_zkvm::{
     default_executor,
     sha::{Digest, Digestible},
-    ExecutorEnv, Journal, SessionInfo,
+    Journal, SessionInfo,
 };
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -471,6 +471,9 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
+            let (_, resolve_url) = boundless_market.resolve_image_info().await?;
+            tracing::debug!("Fetching Assessor ELF from {}", market_url);
+            let resolve_elf = fetch_url(&resolve_url).await?;
             let domain = boundless_market.eip712_domain().await?;
 
             let mut set_verifier =
@@ -482,7 +485,8 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::debug!("Fetching SetBuilder ELF from {}", set_builder_url);
             let set_builder_elf = fetch_url(&set_builder_url).await?;
 
-            let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
+            let prover =
+                DefaultProver::new(set_builder_elf, assessor_elf, resolve_elf, caller, domain)?;
 
             let (request, sig) =
                 boundless_market.get_submitted_request(request_id, tx_hash).await?;
@@ -753,20 +757,15 @@ where
 
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     let elf = fetch_url(&request.imageUrl).await?;
-    let input = match request.input.inputType {
-        InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
-        InputType::Url => {
-            GuestEnv::decode(
-                &fetch_url(
-                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?,
-                )
+    let guest_env = match request.input.inputType {
+        InputType::Inline => GuestEnv::decode(&request.input.data)?,
+        InputType::Url => GuestEnv::decode(
+            &fetch_url(std::str::from_utf8(&request.input.data).context("input url is not utf8")?)
                 .await?,
-            )?
-            .stdin
-        }
+        )?,
         _ => bail!("Unsupported input type"),
     };
-    let env = ExecutorEnv::builder().write_slice(&input).build()?;
+    let env = guest_env.try_into()?;
     default_executor().execute(env, &elf)
 }
 

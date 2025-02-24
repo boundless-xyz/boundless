@@ -1,0 +1,32 @@
+[package]
+name = "boundless-resolve"
+description = "Resolve guest APIs, part of the Boundless Market"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = { workspace = true }
+guest-util = { workspace = true, optional = true }
+postcard = { workspace = true, features = ["alloc"] }
+risc0-aggregation = { workspace = true }
+risc0-zkvm = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+alloy-sol-types = { workspace = true }
+anyhow = { workspace = true }
+boundless-market = { workspace = true }
+boundless-resolve = { path = ".", features = ["test_helpers"] }
+guest-resolve = { workspace = true }
+guest-set-builder = { workspace = true }
+# TODO(risc0#2342) Remove the requirement that the prove feature be used.
+risc0-zkvm = { workspace = true, features = ["client", "prove", "unstable"] }
+test-log = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+test_helpers = ["dep:guest-util", "risc0-zkvm/client", "risc0-zkvm/prove"]

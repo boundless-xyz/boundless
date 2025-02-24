@@ -51,6 +51,7 @@ Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 bytes32 constant APP_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000001;
 bytes32 constant SET_BUILDER_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000002;
 bytes32 constant ASSESSOR_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000003;
+bytes32 constant RESOLVE_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000004;
 
 bytes constant APP_JOURNAL = bytes("GUEST JOURNAL");
 
@@ -210,7 +211,8 @@ contract BoundlessMarketTest is Test {
         stakeToken = new HitPoints(OWNER_WALLET.addr);
 
         // Deploy the UUPS proxy with the implementation
-        boundlessMarketSource = address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(stakeToken)));
+        boundlessMarketSource =
+            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, RESOLVE_IMAGE_ID, address(stakeToken)));
         proxy = UnsafeUpgrades.deployUUPSProxy(
             boundlessMarketSource,
             abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
@@ -411,7 +413,8 @@ contract BoundlessMarketTest is Test {
         }
 
         // compute the assessor claim
-        ReceiptClaim memory assessorClaim = TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, prover);
+        ReceiptClaim memory assessorClaim =
+            TestUtils.mockAssessor(fills, SET_BUILDER_IMAGE_ID, ASSESSOR_IMAGE_ID, RESOLVE_IMAGE_ID, prover);
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 
@@ -1880,7 +1883,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     function testUnsafeUpgrade() public {
         vm.startPrank(OWNER_WALLET.addr);
         proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))),
+            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, RESOLVE_IMAGE_ID, address(0))),
             abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
         );
         boundlessMarket = BoundlessMarket(proxy);
@@ -1890,7 +1893,10 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy, address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))), "", OWNER_WALLET.addr
+            proxy,
+            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, RESOLVE_IMAGE_ID, address(0))),
+            "",
+            OWNER_WALLET.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);

@@ -57,6 +57,8 @@ contract BoundlessMarket is
     IRiscZeroVerifier public immutable VERIFIER;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 public immutable ASSESSOR_ID;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 public immutable RESOLVE_ID;
     string private imageUrl;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable STAKE_TOKEN_CONTRACT;
@@ -83,10 +85,13 @@ contract BoundlessMarket is
     /// when the fee rate is set to a non-zero value.
     uint256 internal marketBalance;
 
+    string private resolveImageUrl;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
+    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, bytes32 resolveId, address stakeTokenContract) {
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
+        RESOLVE_ID = resolveId;
         STAKE_TOKEN_CONTRACT = stakeTokenContract;
 
         _disableInitializers();
@@ -559,6 +564,11 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function imageInfo() external view returns (bytes32, string memory) {
         return (ASSESSOR_ID, imageUrl);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function resolveImageInfo() external view returns (bytes32, string memory) {
+        return (RESOLVE_ID, resolveImageUrl);
     }
 
     /// @inheritdoc IBoundlessMarket

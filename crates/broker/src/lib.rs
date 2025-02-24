@@ -299,6 +299,40 @@ where
         }
     }
 
+    async fn get_resolve_image(&self) -> Result<(Digest, Vec<u8>)> {
+        let (resolve_path, max_file_size) = {
+            let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
+            (config.prover.resolve_set_guest_path.clone(), config.market.max_file_size)
+        };
+
+        if let Some(path) = resolve_path {
+            let elf_buf = std::fs::read(path).context("Failed to read resolve path")?;
+            let img_id = risc0_zkvm::compute_image_id(&elf_buf)
+                .context("Failed to compute resolve imageId")?;
+
+            Ok((img_id, elf_buf))
+        } else {
+            let boundless_market = BoundlessMarketService::new(
+                self.args.boundless_market_addr,
+                self.provider.clone(),
+                Address::ZERO,
+            );
+
+            let (image_id, image_url_str) = boundless_market
+                .resolve_image_info()
+                .await
+                .context("Failed to get contract resolve_image_info")?;
+            let image_uri = UriHandlerBuilder::new(&image_url_str)
+                .set_max_size(max_file_size)
+                .build()
+                .context("Failed to parse image URI")?;
+            tracing::debug!("Downloading assessor image from: {image_uri}");
+            let image_data = image_uri.fetch().await.context("Failed to download sot image")?;
+
+            Ok((Digest::from_bytes(image_id.0), image_data))
+        }
+    }
+
     async fn get_set_builder_image(&self) -> Result<(Digest, Vec<u8>)> {
         let (set_builder_path, max_file_size) = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
@@ -461,11 +495,19 @@ where
             Ok(())
         });
 
+        let set_builder_img_data = self.get_set_builder_image().await?;
+        let assessor_img_data = self.get_assessor_image().await?;
+        let resolve_img_data = self.get_resolve_image().await?;
+
         let proving_service = Arc::new(
             proving::ProvingService::new(
                 self.db.clone(),
                 prover.clone(),
                 self.config_watcher.config.clone(),
+                set_builder_img_data.0,
+                set_builder_img_data.1.clone(),
+                resolve_img_data.0,
+                resolve_img_data.1.clone(),
             )
             .await
             .context("Failed to initialize proving service")?,
@@ -478,9 +520,6 @@ where
             Ok(())
         });
 
-        let set_builder_img_data = self.get_set_builder_image().await?;
-        let assessor_img_data = self.get_assessor_image().await?;
-
         let prover_addr = self.args.private_key.address();
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
@@ -491,6 +530,8 @@ where
                 set_builder_img_data.1,
                 assessor_img_data.0,
                 assessor_img_data.1,
+                resolve_img_data.0,
+                resolve_img_data.1,
                 self.args.boundless_market_addr,
                 prover_addr,
                 self.config_watcher.config.clone(),
@@ -603,22 +644,12 @@ async fn upload_image_uri(
         Ok(uri.id().context("Invalid image URI type")?)
     }
 }
-async fn upload_input_uri(
-    prover: &ProverObj,
-    order: &Order,
-    max_size: usize,
-    retries: Option<u8>,
-) -> Result<String> {
-    Ok(match order.request.input.inputType {
-        InputType::Inline => prover
-            .upload_input(
-                GuestEnv::decode(&order.request.input.data)
-                    .with_context(|| "Failed to decode input")?
-                    .stdin,
-            )
-            .await
-            .context("Failed to upload input data")?,
 
+async fn decode_input(order: &Order, max_size: usize, retries: Option<u8>) -> Result<GuestEnv> {
+    Ok(match order.request.input.inputType {
+        InputType::Inline => {
+            GuestEnv::decode(&order.request.input.data).context("Failed to decode input")?
+        }
         InputType::Url => {
             let input_uri_str =
                 std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
@@ -629,23 +660,14 @@ async fn upload_input_uri(
                 input_uri = input_uri.set_retries(retry);
             }
             let input_uri = input_uri.build().context("Failed to parse input uri")?;
-
-            if !input_uri.exists() {
-                let input_data = GuestEnv::decode(
-                    &input_uri
-                        .fetch()
-                        .await
-                        .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
-                )
-                .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-                .stdin;
-
-                prover.upload_input(input_data).await.context("Failed to upload input")?
-            } else {
-                input_uri.id().context("invalid input URI type")?
-            }
+            GuestEnv::decode(
+                &input_uri
+                    .fetch()
+                    .await
+                    .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
+            )
+            .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
         }
-        //???
         _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
     })
 }

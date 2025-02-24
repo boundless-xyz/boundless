@@ -994,6 +994,15 @@ where
         Ok((image_id, image_url))
     }
 
+    /// Returns the image ID and URL of the assessor guest.
+    pub async fn resolve_image_info(&self) -> Result<(B256, String)> {
+        tracing::debug!("Calling resolveImageInfo()");
+        let (image_id, image_url) =
+            self.instance.resolveImageInfo().call().await.context("call failed")?.into();
+
+        Ok((image_id, image_url))
+    }
+
     /// Get the chain ID.
     ///
     /// This function implements caching to save the chain ID after the first successful fetch.
@@ -1146,6 +1155,7 @@ mod tests {
         sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
     };
     use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_resolve::RESOLVE_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use guest_util::ECHO_ID;
     use risc0_aggregation::{
@@ -1217,6 +1227,8 @@ mod tests {
             requestDigests: vec![request.eip712_signing_hash(&eip712_domain)],
             root: to_b256(app_claim_digest),
             prover,
+            setBuilderImageID: to_b256(Digest::from(SET_BUILDER_ID)),
+            resolveImageID: to_b256(Digest::from(RESOLVE_GUEST_ID)),
         };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());

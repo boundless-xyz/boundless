@@ -34,6 +34,8 @@ pub struct Fulfillment {
     pub signature: Vec<u8>,
     /// The journal of the request.
     pub journal: Vec<u8>,
+    /// Whether the request is a conditional that was resolved using the Resolve guest.
+    pub resolve: bool,
     /// Whether the fulfillment requires payment.
     ///
     /// When set to true, the fulfill transaction will revert if the payment conditions are not met (e.g. the request is locked to a different prover address)
@@ -83,6 +85,10 @@ pub struct AssessorInput {
     pub domain: EIP721DomainSaltless,
     /// The address of the prover.
     pub prover_address: Address,
+    /// Image ID of the SetBuilder guest.
+    pub set_builder_image_id: Digest,
+    /// Image ID of the Resolve guest.
+    pub resolve_image_id: Digest,
 }
 
 impl AssessorInput {
@@ -108,12 +114,15 @@ mod tests {
         eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
         Requirements,
     };
+    use boundless_resolve::ResolveInput;
     use guest_assessor::ASSESSOR_GUEST_ELF;
-    use guest_util::{ECHO_ELF, ECHO_ID};
+    use guest_resolve::{RESOLVE_GUEST_ELF, RESOLVE_GUEST_ID};
+    use guest_set_builder::SET_BUILDER_ID;
+    use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ID};
     use risc0_zkvm::{
         default_executor,
         sha::{Digest, Digestible},
-        ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
+        Assumption, ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     };
 
     fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
@@ -156,6 +165,7 @@ mod tests {
             request: proving_request,
             signature: signature.as_bytes().to_vec(),
             journal: vec![1, 2, 3],
+            resolve: false,
             require_payment: true,
         };
 
@@ -173,17 +183,20 @@ mod tests {
     }
 
     async fn setup_proving_request_and_signature(
+        image_id: Digest,
+        journal: Vec<u8>,
         signer: &PrivateKeySigner,
     ) -> (ProofRequest, Vec<u8>) {
-        let request = proving_request(
-            1,
-            signer.address(),
-            to_b256(ECHO_ID.into()),
-            "test".as_bytes().to_vec(),
-        );
+        let request = proving_request(1, signer.address(), to_b256(image_id), journal);
         let signature =
             request.sign_request(signer, Address::ZERO, 1).await.unwrap().as_bytes().to_vec();
         (request, signature)
+    }
+
+    async fn setup_echo_proving_request_and_signature(
+        signer: &PrivateKeySigner,
+    ) -> (ProofRequest, Vec<u8>) {
+        setup_proving_request_and_signature(ECHO_ID.into(), b"test".to_vec(), signer).await
     }
 
     fn echo(input: &str) -> Receipt {
@@ -206,6 +219,8 @@ mod tests {
             domain: eip712_domain(Address::ZERO, 1),
             fills: claims,
             prover_address: Address::ZERO,
+            set_builder_image_id: Digest::from(SET_BUILDER_ID),
+            resolve_image_id: Digest::from(RESOLVE_GUEST_ID),
         };
         let mut env_builder = ExecutorEnv::builder();
         env_builder.write_slice(&assessor_input.to_vec());
@@ -217,19 +232,48 @@ mod tests {
         assert_eq!(session.exit_code, ExitCode::Halted(0));
     }
 
+    fn resolve(conditional: Receipt, assumption: Receipt) -> Receipt {
+        let resolve_input = ResolveInput {
+            set_builder_image_id: Digest::from(SET_BUILDER_ID),
+            conditional: conditional.claim().unwrap().value().unwrap(),
+            assumption: Assumption {
+                claim: assumption.claim().unwrap().digest(),
+                control_root: Digest::ZERO,
+            }
+            .into(),
+        };
+        let mut env_builder = ExecutorEnv::builder();
+        env_builder
+            .write_slice(&resolve_input.to_vec())
+            .add_assumption(conditional)
+            .add_assumption(assumption);
+        let env = env_builder.build().unwrap();
+        let session = default_executor().execute(env, RESOLVE_GUEST_ELF).unwrap();
+        Receipt::new(
+            InnerReceipt::Fake(FakeReceipt::new(session.receipt_claim.unwrap())),
+            session.journal.bytes,
+        )
+    }
+
     #[tokio::test]
     #[test_log::test]
     async fn test_assessor_e2e_singleton() {
         let signer = PrivateKeySigner::random();
         // 1. Mock and sign a request
-        let (request, signature) = setup_proving_request_and_signature(&signer).await;
+        let (request, signature) = setup_echo_proving_request_and_signature(&signer).await;
 
         // 2. Prove the request via the application guest
         let application_receipt = echo("test");
         let journal = application_receipt.journal.bytes.clone();
 
         // 3. Prove the Assessor
-        let claims = vec![Fulfillment { request, signature, journal, require_payment: true }];
+        let claims = vec![Fulfillment {
+            request,
+            signature,
+            journal,
+            resolve: false,
+            require_payment: true,
+        }];
         assessor(claims, vec![application_receipt]);
     }
 
@@ -238,15 +282,41 @@ mod tests {
     async fn test_assessor_e2e_two_leaves() {
         let signer = PrivateKeySigner::random();
         // 1. Mock and sign a request
-        let (request, signature) = setup_proving_request_and_signature(&signer).await;
+        let (request, signature) = setup_echo_proving_request_and_signature(&signer).await;
 
         // 2. Prove the request via the application guest
         let application_receipt = echo("test");
         let journal = application_receipt.journal.bytes.clone();
-        let claim = Fulfillment { request, signature, journal, require_payment: true };
+        let claim =
+            Fulfillment { request, signature, journal, resolve: false, require_payment: true };
 
         // 3. Prove the Assessor reusing the same leaf twice
         let claims = vec![claim.clone(), claim];
         assessor(claims, vec![application_receipt.clone(), application_receipt]);
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_assessor_resolve() {
+        // 1. Prove the assumption.
+        let assumption_receipt = echo("test");
+
+        let signer = PrivateKeySigner::random();
+        // 2. Mock and sign a conditional request
+        let (request, signature) =
+            setup_proving_request_and_signature(IDENTITY_ID.into(), vec![], &signer).await;
+
+        // 3. Prove the conditional request
+        let conditional_receipt =
+            boundless_resolve::test_helpers::identity_conditional(&assumption_receipt).unwrap();
+        let journal = conditional_receipt.journal.bytes.clone();
+
+        // 4. Prove that the assumption resolves the conditional using the Resolve guest
+        let resolve_receipt = resolve(conditional_receipt, assumption_receipt);
+
+        // 3. Prove the Assessor
+        let fill =
+            Fulfillment { request, signature, journal, resolve: true, require_payment: true };
+        assessor(vec![fill], vec![resolve_receipt]);
     }
 }
