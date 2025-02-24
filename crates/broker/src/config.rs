@@ -34,6 +34,10 @@ mod defaults {
     pub const fn fulfill_gas_estimate() -> u64 {
         300_000_000
     }
+
+    pub const fn max_submission_attempts() -> u32 {
+        3
+    }
 }
 /// All configuration related to markets mechanics
 #[derive(Deserialize, Serialize)]
@@ -174,6 +178,9 @@ pub struct BatcherConfig {
     /// be present on the deployed contract
     #[serde(default)]
     pub single_txn_fulfill: bool,
+    /// Number of attempts to make to submit a batch before abandoning
+    #[serde(default = "defaults::max_submission_attempts")]
+    pub max_submission_attempts: u32,
 }
 
 impl Default for BatcherConfig {
@@ -187,6 +194,7 @@ impl Default for BatcherConfig {
             txn_timeout: None,
             batch_poll_time_ms: Some(1000),
             single_txn_fulfill: false,
+            max_submission_attempts: defaults::max_submission_attempts(),
         }
     }
 }
