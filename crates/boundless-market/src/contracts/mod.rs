@@ -194,6 +194,10 @@ pub enum RequestError {
     #[error("offer timeout must be greater than 0")]
     OfferTimeoutIsZero,
 
+    /// The offer lock timeout is zero.
+    #[error("offer lock timeout must be greater than 0")]
+    OfferLockTimeoutIsZero,
+
     /// The offer max price is zero.
     #[error("offer maxPrice must be greater than 0")]
     OfferMaxPriceIsZero,
@@ -343,6 +347,9 @@ impl ProofRequest {
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
         };
+        if self.offer.lockTimeout == 0 {
+            return Err(RequestError::OfferLockTimeoutIsZero);
+        };
         if self.offer.maxPrice == U256::ZERO {
             return Err(RequestError::OfferMaxPriceIsZero);
         };
@@ -487,6 +494,11 @@ impl Offer {
     /// Sets the offer timeout as number of blocks from the bidding start before expiring.
     pub fn with_timeout(self, timeout: u32) -> Self {
         Self { timeout, ..self }
+    }
+
+    /// Sets the offer lock-in timeout as number of blocks from the bidding start before expiring.
+    pub fn with_lock_timeout(self, lock_timeout: u32) -> Self {
+        Self { lockTimeout: lock_timeout, ..self }
     }
 
     /// Sets the offer ramp-up period as number of blocks from the bidding start before the price
@@ -945,6 +957,16 @@ pub mod test_utils {
             set_builder_id: Digest,
             assessor_guest_id: Digest,
         ) -> Result<Self> {
+            Self::new_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id)
+                .await
+        }
+
+        pub async fn new_with_rpc_url(
+            anvil: &AnvilInstance,
+            rpc_url: &str,
+            set_builder_id: Digest,
+            assessor_guest_id: Digest,
+        ) -> Result<Self> {
             let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
                 TestCtx::deploy_contracts(anvil, set_builder_id, assessor_guest_id).await.unwrap();
 
@@ -955,19 +977,19 @@ pub mod test_utils {
             let prover_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(prover_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
             let customer_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
             let verifier_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(verifier_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
 
@@ -1046,6 +1068,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
+                lockTimeout: 1000,
                 lockStake: U256::from(0),
             },
         };
