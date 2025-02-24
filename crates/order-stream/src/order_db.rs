@@ -16,15 +16,13 @@ use thiserror::Error as ThisError;
 
 /// Order DB Errors
 #[derive(ThisError, Debug)]
+#[non_exhaustive]
 pub enum OrderDbErr {
     #[error("Missing env var {0}")]
     MissingEnv(&'static str),
 
     #[error("Invalid DB_POOL_SIZE")]
     InvalidPoolSize(#[from] std::num::ParseIntError),
-
-    #[error("Max concurrent connections")]
-    MaxConnections,
 
     #[error("Address not found: {0}")]
     AddrNotFound(Address),
@@ -55,7 +53,6 @@ pub struct OrderDb {
 }
 
 const ORDER_CHANNEL: &str = "new_orders";
-const MAX_BROKER_CONNECTIONS: i32 = 1;
 
 pub type OrderStream = Pin<Box<dyn Stream<Item = Result<DbOrder, OrderDbErr>> + Send>>;
 
@@ -109,55 +106,6 @@ impl OrderDb {
         }
 
         Ok(nonce)
-    }
-
-    /// Connects a broker
-    ///
-    /// Increments a brokers connection count, and faults if over connection MAX
-    pub async fn connect_broker(&self, addr: Address) -> Result<(), OrderDbErr> {
-        let mut txn = self.pool.begin().await?;
-
-        let connections: i32 =
-            sqlx::query_scalar("SELECT connections FROM brokers WHERE addr = $1")
-                .bind(addr.as_slice())
-                .fetch_one(&mut *txn)
-                .await?;
-
-        if connections >= MAX_BROKER_CONNECTIONS {
-            return Err(OrderDbErr::MaxConnections);
-        }
-
-        let res = sqlx::query(
-            "UPDATE brokers SET connections = connections + 1, updated_at = NOW() WHERE addr = $1 AND connections < $2",
-        )
-        .bind(addr.as_slice())
-        .bind(MAX_BROKER_CONNECTIONS)
-        .execute(&mut *txn)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(OrderDbErr::NoRows("connect broker"));
-        }
-
-        txn.commit().await?;
-
-        Ok(())
-    }
-
-    /// Disconnects a broker, decreasing connection count
-    pub async fn disconnect_broker(&self, addr: Address) -> Result<(), OrderDbErr> {
-        let res = sqlx::query(
-            "UPDATE brokers SET connections = connections - 1, updated_at = NOW() WHERE addr = $1",
-        )
-        .bind(addr.as_slice())
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(OrderDbErr::NoRows("disconnect broker"));
-        }
-
-        Ok(())
     }
 
     /// Mark the broker as updated by setting the update_at time
@@ -347,42 +295,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
-    }
-
-    #[sqlx::test]
-    async fn connect_broker(pool: PgPool) {
-        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
-        let addr = Address::ZERO;
-
-        db.add_broker(addr).await.unwrap();
-        db.connect_broker(addr).await.unwrap();
-        let conns: i32 = sqlx::query_scalar("SELECT connections FROM brokers WHERE addr = $1")
-            .bind(addr.as_slice())
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(conns, 1);
-    }
-
-    #[sqlx::test]
-    #[should_panic(expected = "MaxConnections")]
-    async fn connect_max(pool: PgPool) {
-        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
-        let addr = Address::ZERO;
-
-        db.add_broker(addr).await.unwrap();
-        db.connect_broker(addr).await.unwrap();
-        db.connect_broker(addr).await.unwrap();
-    }
-
-    #[sqlx::test]
-    async fn disconnect_broker(pool: PgPool) {
-        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
-        let addr = Address::ZERO;
-
-        db.add_broker(addr).await.unwrap();
-        db.connect_broker(addr).await.unwrap();
-        db.disconnect_broker(addr).await.unwrap();
     }
 
     #[sqlx::test]

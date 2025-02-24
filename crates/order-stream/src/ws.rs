@@ -18,7 +18,7 @@ use boundless_market::{
 };
 use futures_util::{SinkExt, StreamExt};
 use rand::{seq::SliceRandom, Rng};
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -40,7 +40,10 @@ fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg> {
     get,
     path = ORDER_WS_PATH,
     params(
-        ("X-Auth-Data" = AuthMsg, description = "SIWE authentication message (AuthMsg) as a JSON object")
+        (
+            "X-Auth-Data" = AuthMsg, 
+            description = "SIWE authentication message (AuthMsg) as a JSON object"
+        )
     ),
     responses(
         (status = 200, description = "Websocket upgrade body", body = ()),
@@ -96,19 +99,23 @@ pub(crate) async fn websocket_handler(
 
     // Check if the address is already connected
     {
-        match state.db.connect_broker(client_addr).await {
-            Err(OrderDbErr::MaxConnections) => {
-                tracing::warn!("{client_addr} at max connections");
-                return Ok(
-                    (StatusCode::CONFLICT, "Max connections hit".to_string()).into_response()
-                );
-            }
-            Err(err) => return Err(AppError::InternalErr(anyhow::anyhow!(err))),
-            _ => {}
+        let connections = state.connections.read().await;
+        if connections.contains_key(&client_addr) {
+            return Ok((StatusCode::CONFLICT, "Max connections hit (1)").into_response());
         }
-        let connections = state.connections.lock().await;
         if connections.len() >= state.config.max_connections {
             return Ok((StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response());
+        }
+    }
+
+    {
+        // Connection does not exist, add to pending connections.
+        // Note: This is done without holding the lock to state.connections to minimize lock
+        // contention. At worst, the server will upgrade the connection and immediately drop it.
+        let mut pending_connections = state.pending_connections.lock().await;
+        if !pending_connections.insert(client_addr) {
+            // If the connection is already pending, return an error as max connections is 1.
+            return Ok((StatusCode::CONFLICT, "Connection in progress").into_response());
         }
     }
 
@@ -124,9 +131,18 @@ pub(crate) async fn websocket_handler(
     if !state.config.bypass_addrs.contains(&client_addr) {
         let boundless_market =
             IBoundlessMarket::new(state.config.market_address, state.rpc_provider.clone());
-        let balance = boundless_market.balanceOfStake(client_addr).call().await.unwrap()._0;
+        let balance = match boundless_market.balanceOfStake(client_addr).call().await {
+            Ok(balance) => balance._0,
+            Err(err) => {
+                tracing::warn!("Failed to get stake balance for {client_addr}: {err}");
+                // Clean up pending connection
+                let mut pending_connections = state.pending_connections.lock().await;
+                pending_connections.remove(&client_addr);
+                return Ok((StatusCode::INTERNAL_SERVER_ERROR, "Failed to check stake balance")
+                    .into_response());
+            }
+        };
         if balance < state.config.min_balance {
-            state.db.disconnect_broker(client_addr).await.context("Failed to disconnect broker")?;
             tracing::warn!("Insufficient stake balance for addr: {client_addr}");
             return Ok((
                 StatusCode::UNAUTHORIZED,
@@ -155,7 +171,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
 
     // Shuffle the connections
     let connections_list = {
-        let connections = state.connections.lock().await;
+        let connections = state.connections.read().await;
         let mut connections_list: Vec<_> =
             connections.iter().map(|(addr, conn)| (*addr, conn.sender.clone())).collect();
         connections_list.shuffle(&mut rand::rng());
@@ -179,14 +195,9 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
     // Remove the clients that have closed their connections
     if !clients_to_remove.is_empty() {
         {
-            let mut connections = state.connections.lock().await;
+            let mut connections = state.connections.write().await;
             for address in clients_to_remove {
                 connections.remove(&address);
-                if let Err(err) = state.db.disconnect_broker(address).await {
-                    tracing::error!(
-                        "Failed to remove broker connection from DB: {address} - {err:?}"
-                    );
-                }
             }
         }
     }
@@ -203,8 +214,22 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
 
         // Add sender to the list of connections
         {
-            let mut connections = state.connections.lock().await;
-            connections.insert(address, ClientConnection { sender: sender_channel.clone() });
+            let mut connections = state.connections.write().await;
+            match connections.entry(address) {
+                Entry::Occupied(_) => {
+                    tracing::warn!("Client {address} already connected");
+                    return;
+                },
+                Entry::Vacant(entry) => {
+                        entry.insert(ClientConnection { sender: sender_channel.clone()});
+                },
+            }
+        }
+
+        // Clean up the pending connection entry before upgrading
+        {
+            let mut pending_connections = state.pending_connections.lock().await;
+            pending_connections.remove(&address);
         }
 
         let mut errors_counter = 0usize;
@@ -292,11 +317,8 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
             }
         }
         // Remove the connection when the send loop exits
-        let mut connections = state.connections.lock().await;
+        let mut connections = state.connections.write().await;
         connections.remove(&address);
-        if let Err(err) = state.db.disconnect_broker(address).await {
-            tracing::error!("Failed to remove broker connection from DB: {address} - {err:?}");
-        }
         tracing::debug!("WebSocket connection closed: {}", address);
     });
 }
