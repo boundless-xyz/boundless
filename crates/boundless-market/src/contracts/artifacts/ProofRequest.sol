@@ -11,6 +11,7 @@ import {Input, InputType, InputLibrary} from "./Input.sol";
 import {Requirements, RequirementsLibrary} from "./Requirements.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IBoundlessMarket} from "../IBoundlessMarket.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 using ProofRequestLibrary for ProofRequest global;
 
@@ -66,13 +67,29 @@ library ProofRequestLibrary {
     /// @param addr The address of the client.
     /// @param signature The signature to validate.
     /// @return The struct hash if the signature is valid.
-    function verifyClientSignature(ProofRequest calldata, bytes32 structHash, address addr, bytes calldata signature)
-        internal
-        pure
+    function verifySignature(ProofRequest calldata request, bytes32 structHash, address addr, bytes calldata signature)
+        internal 
+        view
         returns (bytes32)
     {
-        if (ECDSA.recover(structHash, signature) != addr) {
-            revert IBoundlessMarket.InvalidSignature();
+        if (addr.code.length == 0) {
+            // If the client is an EOA, we can use ECDSA.recover to verify the signature.
+            if (ECDSA.recover(structHash, signature) != addr) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        } else if (signature.length == 0) {
+            // If the signature is empty and its a smart contract client, we call isValidSignature with the request as the signature.
+            // This flow enables anyone to submit requests on behalf of a client smart contract.
+            if (IERC1271(addr).isValidSignature(structHash, abi.encode(request)) != IERC1271.isValidSignature.selector) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        } else {
+            // If the signature is not empty and its a smart contract client, we call isValidSignature with the signature.
+            // This is the normal flow for a client with a smart contract wallet to submit requests on behalf of themselves,
+            // where we expect them to have constructed the signature their SCW expects off-chain before submitting.
+            if (IERC1271(addr).isValidSignature(structHash, signature) != IERC1271.isValidSignature.selector) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
         }
         return structHash;
     }

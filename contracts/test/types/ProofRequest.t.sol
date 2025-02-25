@@ -33,21 +33,13 @@ contract ProofRequestTestContract {
         return proofRequest.validateForPriceRequest();
     }
 
-    function verifyClientSignature(
+    function verifySignature(
         ProofRequest calldata proofRequest,
         bytes32 structHash,
         address addr,
         bytes calldata signature
-    ) external pure returns (bytes32) {
-        return proofRequest.verifyClientSignature(structHash, addr, signature);
-    }
-
-    function extractProverSignature(
-        ProofRequest calldata proofRequest,
-        bytes32 structHash,
-        bytes calldata proverSignature
-    ) external pure returns (address) {
-        return proofRequest.extractProverSignature(structHash, proverSignature);
+    ) external view {
+        proofRequest.verifySignature(structHash, addr, signature);
     }
 
     function setRequestFulfilled(address wallet1, uint32 idx1) external {
@@ -177,21 +169,8 @@ contract ProofRequestTest is Test {
         bytes32 structHash = proofRequest.eip712Digest();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(clientWallet, structHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-
-        bytes32 result =
-            proofRequestContract.verifyClientSignature(proofRequest, structHash, clientWallet.addr, signature);
-        assertEq(result, structHash, "Signature verification failed");
-    }
-
-    function testExtractProverSignature() public {
-        ProofRequest memory proofRequest = defaultProofRequest;
-        proofRequest.id = RequestIdLibrary.from(clientWallet.addr, 1);
-        bytes32 structHash = proofRequest.eip712Digest();
-        (uint8 vProver, bytes32 rProver, bytes32 sProver) = vm.sign(proverWallet, structHash);
-        bytes memory proverSignature = abi.encodePacked(rProver, sProver, vProver);
-
-        address prover = proofRequestContract.extractProverSignature(proofRequest, structHash, proverSignature);
-        assertEq(prover, proverWallet.addr, "Prover address recovery failed");
+        
+        proofRequestContract.verifySignature(proofRequest, structHash, clientWallet.addr, signature);
     }
 
     function testInvalidClientSignature() public {
@@ -202,6 +181,6 @@ contract ProofRequestTest is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
-        proofRequestContract.verifyClientSignature(proofRequest, structHash, clientWallet.addr, signature);
+        proofRequestContract.verifySignature(proofRequest, structHash, clientWallet.addr, signature);
     }
 }

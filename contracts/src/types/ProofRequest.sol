@@ -11,6 +11,7 @@ import {Input, InputType, InputLibrary} from "./Input.sol";
 import {Requirements, RequirementsLibrary} from "./Requirements.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IBoundlessMarket} from "../IBoundlessMarket.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 using ProofRequestLibrary for ProofRequest global;
 
@@ -61,32 +62,35 @@ library ProofRequestLibrary {
         );
     }
 
-    /// @notice Verifies the client's signature over the proof request.
+    /// @notice Verifies a signature over a proof request.
+    /// @dev Supports EIP1271 for smart contract signatures. If the signature is empty and the client is a smart 
+    /// contract, calls isValidSignature with the abi encoded request as the signature.
     /// @param structHash The EIP-712 struct hash of the proof request.
     /// @param addr The address of the client.
     /// @param signature The signature to validate.
-    /// @return The struct hash if the signature is valid.
-    function verifyClientSignature(ProofRequest calldata, bytes32 structHash, address addr, bytes calldata signature)
-        internal
-        pure
-        returns (bytes32)
+    function verifySignature(ProofRequest calldata request, bytes32 structHash, address addr, bytes calldata signature)
+        internal 
+        view
     {
-        if (ECDSA.recover(structHash, signature) != addr) {
-            revert IBoundlessMarket.InvalidSignature();
+        if (addr.code.length == 0) {
+            // Standard EOA flow.
+            if (ECDSA.recover(structHash, signature) != addr) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        } else if (signature.length == 0) {
+            // If the signature is empty and the client is a smart contract, we provide the request as the signature.
+            // This flow is intended to enable anyone to submit requests on behalf of a client smart contract.
+            // The client smart contract is expected to validate the request was constructed correctly.
+            if (IERC1271(addr).isValidSignature(structHash, abi.encode(request)) != IERC1271.isValidSignature.selector) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        } else {
+            // If the signature is not empty and its a smart contract client, we call isValidSignature with the provided signature.
+            // This is the standard flow for a client using a smart contract wallet to submit requests.
+            if (IERC1271(addr).isValidSignature(structHash, signature) != IERC1271.isValidSignature.selector) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
         }
-        return structHash;
-    }
-
-    /// @notice Extracts the prover's signature for the given proof request.
-    /// @param structHash The EIP-712 struct hash of the proof request.
-    /// @param proverSignature The prover's signature to extract.
-    /// @return The address of the prover.
-    function extractProverSignature(ProofRequest calldata, bytes32 structHash, bytes calldata proverSignature)
-        internal
-        pure
-        returns (address)
-    {
-        return ECDSA.recover(structHash, proverSignature);
     }
 
     /// @notice Validates the proof request with the intention for it to be priced.
