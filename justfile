@@ -25,9 +25,9 @@ cargo-test-example-counter:
     RISC0_DEV_MODE=1 cargo test
 
 cargo-test-db $DATABASE_URL=DEFAULT_DATABASE_URL: setup-db
-    sqlx migrate run --source ./crates/bento/taskdb/migrations/
+    sqlx migrate run --source ./bento/crates/taskdb/migrations/
     cd bento && RISC0_DEV_MODE=1 cargo test -p taskdb
-    cd bento && RISC0_DEV_MODE=1 cargo test -p order-stream
+    RISC0_DEV_MODE=1 cargo test -p order-stream
     just clean-db
 
 cargo-clippy:

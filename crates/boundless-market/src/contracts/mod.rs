@@ -573,9 +573,6 @@ pub mod boundless_market;
 #[cfg(not(target_os = "zkvm"))]
 /// The Hit Points module.
 pub mod hit_points;
-#[cfg(not(target_os = "zkvm"))]
-/// The Set Verifier module.
-pub mod set_verifier;
 
 #[cfg(not(target_os = "zkvm"))]
 #[derive(Error, Debug)]
@@ -712,13 +709,13 @@ pub mod test_utils {
         transports::{BoxTransport, Transport},
     };
     use anyhow::{Context, Result};
+    use risc0_ethereum_contracts::set_verifier::SetVerifierService;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
 
     use crate::contracts::{
         boundless_market::BoundlessMarketService,
         hit_points::{default_allowance, HitPointsService},
-        set_verifier::SetVerifierService,
     };
 
     // Bytecode for the contracts is copied from the contract build output by the build script. It
