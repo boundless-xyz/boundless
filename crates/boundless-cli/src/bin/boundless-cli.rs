@@ -35,7 +35,7 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
-use risc0_ethereum_contracts::IRiscZeroVerifier;
+use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
     default_executor,
     sha::{Digest, Digestible},
@@ -48,8 +48,8 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
-        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        boundless_market::BoundlessMarketService, Input, InputType, Offer, Predicate,
+        PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
@@ -141,6 +141,12 @@ enum Command {
         /// The proof request identifier
         request_id: U256,
         /// The image id of the original request
+        image_id: B256,
+    },
+    GetSetInclusionReceipt {
+        /// The proof request identifier
+        request_id: U256,
+        /// The image id of the request
         image_id: B256,
     },
     /// Get the status of a given request
@@ -421,6 +427,23 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .await
                 .map_err(|_| anyhow::anyhow!("Verification failed"))?;
             tracing::info!("Proof for request id 0x{request_id:x} verified successfully.");
+        }
+        Command::GetSetInclusionReceipt { request_id, image_id } => {
+            let client = ClientBuilder::default()
+                .with_private_key(args.private_key.clone())
+                .with_rpc_url(args.rpc_url.clone())
+                .with_boundless_market_address(args.boundless_market_address)
+                .with_set_verifier_address(args.set_verifier_address)
+                .with_timeout(args.tx_timeout)
+                .build()
+                .await?;
+            let (journal, receipt) =
+                client.fetch_set_inclusion_receipt(request_id, image_id).await?;
+            tracing::info!(
+                "Journal: {} - Receipt: {}",
+                serde_json::to_string_pretty(&journal)?,
+                serde_json::to_string_pretty(&receipt)?
+            );
         }
         Command::Status { request_id, expires_at } => {
             let status = boundless_market.get_status(request_id, expires_at).await?;
@@ -717,7 +740,6 @@ where
 
     if wait {
         let (journal, seal) = client
-            .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
         tracing::info!(

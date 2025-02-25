@@ -13,11 +13,11 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, encode_seal, set_verifier::SetVerifierService,
-    Fulfillment,
+    boundless_market::BoundlessMarketService, encode_seal, Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
