@@ -247,7 +247,7 @@ mod tests {
         signers::local::LocalSigner,
     };
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use futures_util::StreamExt;
     use std::sync::Arc;
@@ -265,6 +265,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                callback: Callback::default(),
             },
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },

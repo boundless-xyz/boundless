@@ -24,7 +24,10 @@ use alloy::{
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
-use alloy_primitives::{aliases::U160, Address, Bytes, B256, U256};
+use alloy_primitives::{
+    aliases::{U160, U96},
+    Address, Bytes, B256, U256,
+};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
@@ -401,8 +404,16 @@ impl ProofRequest {
 
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
-    pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), predicate }
+    pub fn new(
+        image_id: impl Into<Digest>,
+        predicate: Predicate,
+        callback: impl Into<Option<Callback>>,
+    ) -> Self {
+        Self {
+            imageId: <[u8; 32]>::from(image_id.into()).into(),
+            predicate,
+            callback: callback.into().unwrap_or_default(),
+        }
     }
 
     /// Sets the image ID.
@@ -413,6 +424,11 @@ impl Requirements {
     /// Sets the predicate.
     pub fn with_predicate(self, predicate: Predicate) -> Self {
         Self { predicate, ..self }
+    }
+
+    /// Sets the callback.
+    pub fn with_callback(self, callback: Callback) -> Self {
+        Self { callback, ..self }
     }
 }
 
@@ -430,6 +446,18 @@ impl Predicate {
     /// fulfillment will contain a journal with the same prefix.
     pub fn prefix_match(prefix: impl Into<Bytes>) -> Self {
         Self { predicateType: PredicateType::PrefixMatch, data: prefix.into() }
+    }
+}
+
+impl Callback {
+    /// Sets the address of the callback.
+    pub fn with_addr(self, addr: impl Into<Address>) -> Self {
+        Self { addr: addr.into(), ..self }
+    }
+
+    /// Sets the gas limit of the callback.
+    pub fn with_gas_limit(self, gas_limit: u64) -> Self {
+        Self { gasLimit: U96::from(gas_limit), ..self }
     }
 }
 
@@ -1059,6 +1087,7 @@ mod tests {
                     predicateType: PredicateType::PrefixMatch,
                     data: Default::default(),
                 },
+                callback: Callback::default(),
             },
             imageUrl: "https://dev.null".to_string(),
             input: Input::builder().build_inline().unwrap(),

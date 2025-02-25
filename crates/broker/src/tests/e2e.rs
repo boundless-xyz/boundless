@@ -13,8 +13,8 @@ use tempfile::NamedTempFile;
 // use broker::Broker;
 use crate::{config::Config, Args, Broker};
 use boundless_market::contracts::{
-    hit_points::default_allowance, test_utils::TestCtx, Input, Offer, Predicate, PredicateType,
-    ProofRequest, Requirements,
+    hit_points::default_allowance, test_utils::TestCtx, Callback, Input, Offer, Predicate,
+    PredicateType, ProofRequest, Requirements,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -91,6 +91,7 @@ async fn simple_e2e() {
                 predicateType: PredicateType::PrefixMatch,
                 data: Default::default(),
             },
+            callback: Callback::default(),
         },
         &image_uri,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),

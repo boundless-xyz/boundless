@@ -17,7 +17,7 @@ use alloy::{
 use anyhow::{anyhow, bail, Result};
 use boundless_market::{
     client::{Client, ClientBuilder},
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
     storage::{StorageProvider, StorageProviderConfig},
 };
 use clap::Parser;
@@ -301,6 +301,7 @@ where
         .with_requirements(Requirements::new(
             ZETH_GUESTS_RETH_ETHEREUM_ID,
             Predicate::digest_match(journal.digest()),
+            Callback::default(),
         ))
         .with_offer(
             Offer::default()

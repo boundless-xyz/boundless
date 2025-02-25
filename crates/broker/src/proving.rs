@@ -191,7 +191,7 @@ mod tests {
     };
     use alloy::primitives::{Bytes, B256, U256};
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -232,6 +232,7 @@ mod tests {
                         predicateType: PredicateType::PrefixMatch,
                         data: Default::default(),
                     },
+                    callback: Callback::default(),
                 },
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
@@ -299,6 +300,7 @@ mod tests {
                         predicateType: PredicateType::PrefixMatch,
                         data: Default::default(),
                     },
+                    callback: Callback::default(),
                 },
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
