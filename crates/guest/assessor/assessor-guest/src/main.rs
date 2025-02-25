@@ -11,7 +11,7 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::{FixedBytes, B256};
 use alloy_sol_types::SolValue;
 use boundless_assessor::AssessorInput;
-use boundless_market::contracts::{AssessorJournal, Selectors};
+use boundless_market::contracts::{AssessorJournal, Selector};
 use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
@@ -33,7 +33,7 @@ fn main() {
     // list of ReceiptClaim digests used as leaves in the aggregation set
     let mut claim_digests: Vec<Digest> = Vec::with_capacity(input.fills.len());
     // list of optional Selectors specified as part of the requests requirements
-    let mut selectors = Selectors::new();
+    let mut selectors = Vec::<Selector>::new();
 
     let eip_domain_separator = input.domain.alloy_struct();
     // For each fill we
@@ -50,7 +50,8 @@ fn main() {
         claim_digests.push(fill.receipt_claim().digest());
         request_digests.push(request_digest.into());
         if fill.request.requirements.selector != FixedBytes::<4>([0; 4]) {
-            selectors.add(index as u8, *fill.request.requirements.selector);
+            selectors
+                .push(Selector { index: index as u16, value: fill.request.requirements.selector });
         }
     }
 

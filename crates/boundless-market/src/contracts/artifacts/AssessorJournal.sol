@@ -3,7 +3,7 @@
 // All rights reserved.
 pragma solidity ^0.8.20;
 
-import {Selectors} from "./Selectors.sol";
+import {Selector} from "./Selector.sol";
 
 /// @title Assessor Journal Struct
 /// @notice Represents the structured journal of the Assessor guest which verifies the signature(s)
@@ -16,7 +16,7 @@ struct AssessorJournal {
     bytes32[] requestDigests;
     /// @notice The (optional) selectors for the requests committed by the assessor.
     /// @dev This is used to verify the fulfillment of the request against its selector's seal.
-    Selectors selectors;
+    Selector[] selectors;
     /// @notice Root of the Merkle tree committing to the set of proven claims.
     /// @dev In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;

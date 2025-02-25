@@ -33,7 +33,6 @@ use url::Url;
 use boundless_market::{
     contracts::{
         EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, FulfillmentAssessor, InputType,
-        Selectors,
     },
     input::GuestEnv,
     order_stream_client::Order,
@@ -68,7 +67,7 @@ impl OrderFulfilled {
         let root_seal = encode_seal(&root_receipt)?;
         let assessor_seal = assessor_receipt.abi_encode_seal()?;
         let assessor_fill =
-            FulfillmentAssessor { seal: assessor_seal.into(), selectors: Selectors::new(), prover };
+            FulfillmentAssessor { seal: assessor_seal.into(), selectors: vec![], prover };
 
         Ok(OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),

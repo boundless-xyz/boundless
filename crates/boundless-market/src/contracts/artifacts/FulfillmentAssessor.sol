@@ -3,7 +3,7 @@
 // All rights reserved.
 pragma solidity ^0.8.20;
 
-import {Selectors} from "./Selectors.sol";
+import {Selector} from "./Selector.sol";
 import {RequestId} from "./RequestId.sol";
 
 using FulfillmentAssessorLibrary for FulfillmentAssessor global;
@@ -15,7 +15,7 @@ struct FulfillmentAssessor {
     /// @dev This will be sent to the `IRiscZeroVerifier` associated with this contract.
     bytes seal;
     /// @notice Optional selectors committed into the journal.
-    Selectors selectors;
+    Selector[] selectors;
     /// @notice Address of the prover
     address prover;
 }

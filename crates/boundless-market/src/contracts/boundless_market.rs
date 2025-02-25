@@ -1112,7 +1112,7 @@ mod tests {
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
             FulfillmentAssessor, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
-            ProofStatus, Requirements, Selectors,
+            ProofStatus, Requirements,
         },
         input::InputBuilder,
     };
@@ -1189,7 +1189,7 @@ mod tests {
 
         let assessor_journal = AssessorJournal {
             requestDigests: vec![request.eip712_signing_hash(&eip712_domain)],
-            selectors: Selectors::new(),
+            selectors: vec![],
             root: to_b256(app_claim_digest),
             prover,
         };
@@ -1430,7 +1430,7 @@ mod tests {
 
         let assessor_fill = FulfillmentAssessor {
             seal: assessor_seal,
-            selectors: Selectors::new(),
+            selectors: vec![],
             prover: ctx.prover_signer.address(),
         };
         // fulfill the request
@@ -1495,7 +1495,7 @@ mod tests {
         let fulfillments = vec![fulfillment];
         let assessor_fill = FulfillmentAssessor {
             seal: assessor_seal,
-            selectors: Selectors::new(),
+            selectors: vec![],
             prover: ctx.prover_signer.address(),
         };
         // publish the committed root + fulfillments
@@ -1554,7 +1554,7 @@ mod tests {
         let fulfillments = vec![fulfillment];
         let assessor_fill = FulfillmentAssessor {
             seal: assessor_seal,
-            selectors: Selectors::new(),
+            selectors: vec![],
             prover: ctx.prover_signer.address(),
         };
         // publish the committed root
@@ -1635,7 +1635,7 @@ mod tests {
 
             let assessor_fill = FulfillmentAssessor {
                 seal: assessor_seal,
-                selectors: Selectors::new(),
+                selectors: vec![],
                 prover: some_other_address,
             };
 
@@ -1674,7 +1674,7 @@ mod tests {
 
         let assessor_fill = FulfillmentAssessor {
             seal: assessor_seal,
-            selectors: Selectors::new(),
+            selectors: vec![],
             prover: ctx.prover_signer.address(),
         };
 
