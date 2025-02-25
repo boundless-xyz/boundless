@@ -46,7 +46,7 @@ import {TransientPrice, TransientPriceLibrary} from "../src/types/TransientPrice
 import {ProofRequestLibrary} from "../src/types/ProofRequest.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
-import {Selectors} from "../src/types/Selectors.sol";
+import {Selector} from "../src/types/Selector.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
@@ -178,7 +178,7 @@ contract BoundlessMarketTest is Test {
     using BoundlessMarketLib for ProofRequest;
     using BoundlessMarketLib for Offer;
     using TestUtils for RiscZeroSetVerifier;
-    using TestUtils for Selectors;
+    using TestUtils for Selector[];
     using SafeCast for uint256;
     using SafeCast for int256;
 
@@ -400,7 +400,7 @@ contract BoundlessMarketTest is Test {
         // initialize the fullfillments; one for each request;
         // the seal is filled in later, by calling fillInclusionProof
         fills = new Fulfillment[](requests.length);
-        Selectors memory selectors = Selectors({indices: new uint8[](0), values: new bytes4[](0)});
+        Selector[] memory selectors = new Selector[](0);
         for (uint8 i = 0; i < requests.length; i++) {
             Fulfillment memory fill = Fulfillment({
                 id: requests[i].id,
@@ -1552,17 +1552,20 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFulfillRequestWrongSelector() public {
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
-        request.requirements.selector = bytes4(0xdeadbeef);
+        request.requirements.selector = setVerifier.SELECTOR();
+        bytes memory clientSignature = client.sign(request);
         (Fulfillment memory fill, FulfillmentAssessor memory assessorFill) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         // Attempt to fulfill a request with wrong selector.
+        assessorFill.selectors = new Selector[](1);
+        assessorFill.selectors[0] = Selector({index: 0, value: bytes4(0xdeadbeef)});
         vm.expectRevert(
             abi.encodeWithSelector(
                 IBoundlessMarket.SelectorMismatch.selector, bytes4(0xdeadbeef), setVerifier.SELECTOR()
             )
         );
-        boundlessMarket.fulfill(fill, assessorFill);
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorFill);
 
         expectMarketBalanceUnchanged();
     }

@@ -236,8 +236,8 @@ contract BoundlessMarket is
             )
         );
         // Verification that the provided seal matches the required selector.
-        if (assessorFill.selectors.indices.length == 1 && assessorFill.selectors.values[0] != bytes4(fill.seal[0:4])) {
-            revert SelectorMismatch(assessorFill.selectors.values[0], bytes4(fill.seal[0:4]));
+        if (assessorFill.selectors.length == 1 && assessorFill.selectors[0].value != bytes4(fill.seal[0:4])) {
+            revert SelectorMismatch(assessorFill.selectors[0].value, bytes4(fill.seal[0:4]));
         }
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorFill.seal, ASSESSOR_ID, assessorJournalDigest);
@@ -255,7 +255,7 @@ contract BoundlessMarket is
         bytes32[] memory claimDigests = new bytes32[](fillsLength);
         bytes32[] memory requestDigests = new bytes32[](fillsLength);
 
-        uint256 selectorsLength = assessorFill.selectors.indices.length;
+        uint256 selectorsLength = assessorFill.selectors.length;
         uint8 selectorIdx = 0;
 
         for (uint256 i = 0; i < fillsLength; i++) {
@@ -265,9 +265,9 @@ contract BoundlessMarket is
             claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
 
             // If the current index is flagged for selector verification, process it.
-            if (selectorIdx < selectorsLength && assessorFill.selectors.indices[selectorIdx] == i) {
-                if (assessorFill.selectors.values[selectorIdx] != bytes4(fill.seal[0:4])) {
-                    revert SelectorMismatch(assessorFill.selectors.values[selectorIdx], bytes4(fill.seal[0:4]));
+            if (selectorIdx < selectorsLength && assessorFill.selectors[selectorIdx].index == i) {
+                if (assessorFill.selectors[selectorIdx].value != bytes4(fill.seal[0:4])) {
+                    revert SelectorMismatch(assessorFill.selectors[selectorIdx].value, bytes4(fill.seal[0:4]));
                 }
                 selectorIdx++;
             }

@@ -6,7 +6,7 @@ pragma solidity ^0.8.20;
 
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
-import {Selectors} from "../src/types/Selectors.sol";
+import {Selector} from "../src/types/Selector.sol";
 import "../src/BoundlessMarket.sol";
 
 library TestUtils {
@@ -15,7 +15,7 @@ library TestUtils {
     function mockAssessor(
         Fulfillment[] memory fills,
         bytes32 assessorImageId,
-        Selectors memory selectors,
+        Selector[] memory selectors,
         address prover
     ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory claimDigests = new bytes32[](fills.length);
@@ -197,32 +197,29 @@ library TestUtils {
     /// @param self The Selectors struct to modify
     /// @param index The index where to add the selector
     /// @param selector The selector to add
-    function addSelector(Selectors memory self, uint8 index, bytes4 selector) internal pure {
+    function addSelector(Selector[] memory self, uint8 index, bytes4 selector) internal pure {
         // Check if index already exists
-        for (uint256 i = 0; i < self.indices.length; i++) {
-            if (self.indices[i] == index) {
+        for (uint256 i = 0; i < self.length; i++) {
+            if (self[i].index == index) {
                 // Update existing
-                self.values[i] = selector;
+                self[i].value = selector;
                 return;
             }
         }
 
         // Create new arrays with increased size
-        uint8[] memory newIndices = new uint8[](self.indices.length + 1);
-        bytes4[] memory newSelectors = new bytes4[](self.values.length + 1);
+        Selector[] memory newSelectors = new Selector[](self.length + 1);
 
         // Copy existing elements
-        for (uint256 i = 0; i < self.indices.length; i++) {
-            newIndices[i] = self.indices[i];
-            newSelectors[i] = self.values[i];
+        for (uint256 i = 0; i < self.length; i++) {
+            newSelectors[i] = self[i];
         }
 
         // Add new element
-        newIndices[self.indices.length] = index;
-        newSelectors[self.values.length] = selector;
+        newSelectors[self.length].index = index;
+        newSelectors[self.length].value = selector;
 
-        // Update arrays
-        self.indices = newIndices;
-        self.values = newSelectors;
+        // Update
+        self = newSelectors;
     }
 }
