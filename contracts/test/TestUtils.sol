@@ -197,29 +197,17 @@ library TestUtils {
     /// @param self The Selectors struct to modify
     /// @param index The index where to add the selector
     /// @param selector The selector to add
-    function addSelector(Selector[] memory self, uint8 index, bytes4 selector) internal pure {
-        // Check if index already exists
-        for (uint256 i = 0; i < self.length; i++) {
-            if (self[i].index == index) {
-                // Update existing
-                self[i].value = selector;
-                return;
-            }
-        }
-
-        // Create new arrays with increased size
+    function addSelector(Selector[] memory self, uint8 index, bytes4 selector)
+        internal
+        pure
+        returns (Selector[] memory)
+    {
+        // Create a new array with one additional element.
         Selector[] memory newSelectors = new Selector[](self.length + 1);
-
-        // Copy existing elements
         for (uint256 i = 0; i < self.length; i++) {
             newSelectors[i] = self[i];
         }
-
-        // Add new element
-        newSelectors[self.length].index = index;
-        newSelectors[self.length].value = selector;
-
-        // Update
-        self = newSelectors;
+        newSelectors[self.length] = Selector(index, selector);
+        return newSelectors;
     }
 }

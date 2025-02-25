@@ -414,7 +414,7 @@ contract BoundlessMarketTest is Test {
             });
             fills[i] = fill;
             if (requests[i].requirements.selector != bytes4(0)) {
-                selectors.addSelector(i, requests[i].requirements.selector);
+                selectors = selectors.addSelector(i, requests[i].requirements.selector);
             }
         }
 
@@ -1558,7 +1558,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         // Attempt to fulfill a request with wrong selector.
-        assessorFill.selectors = new Selector[](1);
         assessorFill.selectors[0] = Selector({index: 0, value: bytes4(0xdeadbeef)});
         vm.expectRevert(
             abi.encodeWithSelector(
