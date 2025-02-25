@@ -1311,6 +1311,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "balance-alerts-layer"
+version = "0.6.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "tracing",
+]
+
+[[package]]
 name = "base16ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1533,6 +1543,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "async-trait",
+ "balance-alerts-layer",
  "bincode",
  "bonsai-sdk",
  "boundless-assessor",

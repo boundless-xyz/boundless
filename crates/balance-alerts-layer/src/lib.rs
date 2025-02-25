@@ -1,0 +1,172 @@
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
+
+use std::marker::PhantomData;
+
+use alloy::network::Ethereum;
+use alloy::primitives::{Address, U256};
+use alloy::providers::{PendingTransactionBuilder, Provider, ProviderLayer, RootProvider};
+use alloy::transports::{Transport, TransportResult};
+
+/// Configuration for the BalanceAlertLayer
+#[derive(Debug, Clone, Default)]
+pub struct BalanceAlertConfig {
+    /// Address to periodically check the balance of
+    pub watch_address: Address,
+    /// Threshold at which to log a warning
+    pub warn_threshold: Option<U256>,
+    /// Threshold at which to log an error
+    pub error_threshold: Option<U256>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BalanceAlertLayer {
+    config: BalanceAlertConfig,
+}
+
+/// A ProviderLayer that can be added to an alloy Provider
+/// to log warnings and errors when the balance of a given address
+/// falls below certain thresholds.
+///
+/// This checks the balance after every transaction sent via send_transaction
+/// and errors, warns or trace logs accordingly
+///
+/// # Examples
+/// ```ignore
+/// let provider = ProviderBuilder::new()
+///     .layer(BalanceAlertLayer::new(BalanceAlertConfig {
+///         watch_address: wallet.default_signer().address(),
+///         warn_threshold: parse_ether("0.1")?,
+///         error_threshold: parse_ether("0.1")?,
+///     }));
+/// ```
+impl BalanceAlertLayer {
+    pub fn new(config: BalanceAlertConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl<P, T> ProviderLayer<P, T, Ethereum> for BalanceAlertLayer
+where
+    P: Provider<T>,
+    T: Transport + Clone,
+{
+    type Provider = BalanceAlertProvider<P, T>;
+
+    fn layer(&self, inner: P) -> Self::Provider {
+        BalanceAlertProvider::new(inner, self.config.clone())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BalanceAlertProvider<P, T> {
+    inner: P,
+    config: BalanceAlertConfig,
+    _pd: PhantomData<fn() -> T>,
+}
+
+impl<P, T> BalanceAlertProvider<P, T>
+where
+    P: Provider<T>,
+    T: Transport + Clone,
+{
+    #[allow(clippy::missing_const_for_fn)]
+    fn new(inner: P, config: BalanceAlertConfig) -> Self {
+        Self { inner, config, _pd: PhantomData }
+    }
+}
+
+#[async_trait::async_trait]
+impl<P, T> Provider<T> for BalanceAlertProvider<P, T>
+where
+    P: Provider<T>,
+    T: Transport + Clone,
+{
+    #[inline(always)]
+    fn root(&self) -> &RootProvider<T> {
+        self.inner.root()
+    }
+
+    /// Broadcasts a raw transaction RLP bytes to the network.
+    ///
+    /// This override checks the watched address after sending the transaction and
+    /// logs a warning or error if the balance falls below the configured thresholds.
+    ///
+    /// See [`send_transaction`](Self::send_transaction) for more details.
+    async fn send_raw_transaction(
+        &self,
+        encoded_tx: &[u8],
+    ) -> TransportResult<PendingTransactionBuilder<T, Ethereum>> {
+        let res = self.inner.send_raw_transaction(encoded_tx).await;
+        let balance = self.inner.get_balance(self.config.watch_address).await?;
+
+        if balance < self.config.error_threshold.unwrap_or(U256::MAX) {
+            tracing::error!(
+                "balance of {} < error threshold: {}",
+                self.config.watch_address,
+                balance
+            );
+        } else if balance < self.config.warn_threshold.unwrap_or(U256::MAX) {
+            tracing::warn!(
+                "balance of {} < warning threshold: {}",
+                self.config.watch_address,
+                balance
+            );
+        } else {
+            tracing::trace!("balance of {} is: {}", self.config.watch_address, balance);
+        }
+        res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{
+        network::{EthereumWallet, TransactionBuilder},
+        node_bindings::Anvil,
+        primitives::utils::parse_ether,
+        providers::ProviderBuilder,
+        rpc::{client::RpcClient, types::TransactionRequest},
+        signers::local::LocalSigner,
+    };
+
+    async fn burn_eth(provider: impl Provider, amount: U256) -> anyhow::Result<()> {
+        let tx = TransactionRequest::default().with_to(Address::ZERO).with_value(amount);
+        provider.send_transaction(tx).await?.watch().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_balance_alert_layer() -> anyhow::Result<()> {
+        // Initial wallet balance is 10 eth, set up to warn if < 9 and error if < 5
+        let anvil = Anvil::default().args(["--balance", "10"]).spawn();
+        let wallet = EthereumWallet::from(LocalSigner::from(anvil.keys()[0].clone()));
+        let client = RpcClient::builder().http(anvil.endpoint_url()).boxed();
+
+        let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: Some(parse_ether("9").unwrap()),
+            error_threshold: Some(parse_ether("5").unwrap()),
+        });
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .layer(balance_alerts_layer)
+            .wallet(wallet)
+            .on_client(client);
+
+        burn_eth(&provider, parse_ether("0.5").unwrap()).await?;
+        assert!(!logs_contain("< warning threshold")); // no log yet
+
+        burn_eth(&provider, parse_ether("0.6").unwrap()).await?;
+        assert!(logs_contain("< warning threshold"));
+
+        burn_eth(&provider, parse_ether("6").unwrap()).await?;
+        assert!(logs_contain("< error threshold"));
+
+        Ok(())
+    }
+}

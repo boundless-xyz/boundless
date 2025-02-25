@@ -17,6 +17,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::{http::Http, RpcError, Transport, TransportErrorKind},
 };
+use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider};
 use boundless_market::contracts::boundless_market::{BoundlessMarketService, MarketError};
 use db::{DbError, DbObj, SqliteDb};
 use reqwest::Client as HttpClient;
@@ -34,7 +35,7 @@ type ProviderWallet = FillProvider<
         >,
         WalletFiller<EthereumWallet>,
     >,
-    RootProvider<Http<HttpClient>>,
+    BalanceAlertProvider<RootProvider<Http<HttpClient>>, Http<HttpClient>>,
     Http<HttpClient>,
     Ethereum,
 >;
@@ -79,11 +80,20 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
         db_conn: &str,
         interval: Duration,
         retries: u32,
+        balance_log_thresholds: (Option<U256>, Option<U256>), // (warn, error)
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
+
+        let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: balance_log_thresholds.0,
+            error_threshold: balance_log_thresholds.1,
+        });
+
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
+            .layer(balance_alerts_layer)
             .wallet(wallet.clone())
             .on_http(rpc_url);
 
