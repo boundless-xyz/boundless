@@ -50,7 +50,7 @@ jobs:
         run: forge build
 
       - name: cargo install boundless-cli
-        run: cargo install boundless-cli --path crates/boundless-cli
+        run: cargo install boundless-cli --path crates/boundless-cli --locked
 
       - name: forge test
         run: forge test -vvv --fork-url="$RPC_URL"
@@ -88,7 +88,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0'
+          risczero-version: '~1.2.0'
           toolchain-version: 'r0.1.81.0'
 
       - name: forge build
