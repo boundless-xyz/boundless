@@ -247,16 +247,16 @@ contract BoundlessMarket is
     function verifyBatchDelivery(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill) public view {
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         uint256 fillsLength = fills.length;
-        // We can't handle more than 255 fills in a single batch.
+        // We can't handle more than 65535 fills in a single batch.
         // This is a limitation of the current Selectors implementation, and can be increased in the future.
-        if (fillsLength > type(uint8).max) {
-            revert BatchSizeExceedsLimit(fillsLength, type(uint8).max);
+        if (fillsLength > type(uint16).max) {
+            revert BatchSizeExceedsLimit(fillsLength, type(uint16).max);
         }
         bytes32[] memory claimDigests = new bytes32[](fillsLength);
         bytes32[] memory requestDigests = new bytes32[](fillsLength);
 
         uint256 selectorsLength = assessorFill.selectors.length;
-        uint8 selectorIdx = 0;
+        uint16 selectorIdx = 0;
 
         for (uint256 i = 0; i < fillsLength; i++) {
             Fulfillment calldata fill = fills[i];
