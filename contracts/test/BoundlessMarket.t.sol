@@ -14,6 +14,7 @@ import {ReceiptClaim, ReceiptClaimLib, VerificationFailed} from "risc0/IRiscZero
 import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
+import {Client} from "./clients/Client.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
@@ -46,7 +47,9 @@ import {ProofRequestLibrary} from "../src/types/ProofRequest.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
 
-import {MockSmartContractWallet} from "./MockSmartContractWallet.sol";
+import {MockSmartContractWallet} from "./clients/MockSmartContractWallet.sol";
+import {SmartContractClient} from "./clients/SmartContractClient.sol";
+import {BaseClient} from "./clients/BaseClient.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -56,128 +59,6 @@ bytes32 constant SET_BUILDER_IMAGE_ID = 0x00000000000000000000000000000000000000
 bytes32 constant ASSESSOR_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000003;
 
 bytes constant APP_JOURNAL = bytes("GUEST JOURNAL");
-
-contract Client {
-    using SafeCast for uint256;
-    using SafeCast for int256;
-
-    string public identifier;
-    Vm.Wallet public wallet;
-    IBoundlessMarket public boundlessMarket;
-    HitPoints public stakeToken;
-
-    /// A snapshot of the client balance for later comparison.
-    int256 internal balanceSnapshot;
-    int256 internal stakeBalanceSnapshot;
-
-    receive() external payable {}
-
-    constructor(Vm.Wallet memory _wallet) {
-        wallet = _wallet;
-    }
-
-    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, HitPoints _stakeToken) public {
-        identifier = _identifier;
-        boundlessMarket = _boundlessMarket;
-        stakeToken = _stakeToken;
-        balanceSnapshot = type(int256).max;
-    }
-
-    function addr() public view returns (address) {
-        return wallet.addr;
-    }
-
-    function defaultOffer() public view returns (Offer memory) {
-        return Offer({
-            minPrice: 1 ether,
-            maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
-            rampUpPeriod: uint32(10),
-            lockTimeout: uint32(100),
-            timeout: uint32(100),
-            lockStake: 1 ether
-        });
-    }
-
-    function defaultRequirements() public pure returns (Requirements memory) {
-        return Requirements({
-            imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))})
-        });
-    }
-
-    function request(uint32 idx) public view returns (ProofRequest memory) {
-        return ProofRequest({
-            id: RequestIdLibrary.from(wallet.addr, idx),
-            requirements: defaultRequirements(),
-            imageUrl: "https://image.dev.null",
-            input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
-            offer: defaultOffer()
-        });
-    }
-
-    function request(uint32 idx, Offer memory offer) public view returns (ProofRequest memory) {
-        return ProofRequest({
-            id: RequestIdLibrary.from(wallet.addr, idx),
-            requirements: defaultRequirements(),
-            imageUrl: "https://image.dev.null",
-            input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
-            offer: offer
-        });
-    }
-
-    function sign(ProofRequest calldata req) public returns (bytes memory) {
-        bytes32 structDigest =
-            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), req.eip712Digest());
-        (uint8 v, bytes32 r, bytes32 s) = VM.sign(wallet, structDigest);
-        return abi.encodePacked(r, s, v);
-    }
-
-    function signPermit(address spender, uint256 value, uint256 deadline)
-        public
-        returns (uint8 v, bytes32 r, bytes32 s)
-    {
-        return VM.sign(
-            wallet,
-            MessageHashUtils.toTypedDataHash(
-                stakeToken.DOMAIN_SEPARATOR(),
-                TestUtils.getPermitHash(
-                    wallet.addr, spender, value, ERC20Permit(address(stakeToken)).nonces(wallet.addr), deadline
-                )
-            )
-        );
-    }
-
-    function snapshotBalance() public {
-        balanceSnapshot = boundlessMarket.balanceOf(wallet.addr).toInt256();
-        //console.log("%s balance at block %d: %d", identifier, block.number, balanceSnapshot.toUint256());
-    }
-
-    function snapshotStakeBalance() public {
-        stakeBalanceSnapshot = boundlessMarket.balanceOfStake(wallet.addr).toInt256();
-        //console.log("%s stake balance at block %d: %d", identifier, block.number, stakeBalanceSnapshot.toUint256());
-    }
-
-    function expectBalanceChange(int256 change) public view {
-        require(balanceSnapshot != type(int256).max, "balance snapshot is not set");
-        int256 newBalance = boundlessMarket.balanceOf(wallet.addr).toInt256();
-        console.log("%s balance at block %d: %d", identifier, block.number, newBalance.toUint256());
-        int256 expectedBalance = balanceSnapshot + change;
-        require(expectedBalance >= 0, "expected balance cannot be less than 0");
-        console.log("%s expected balance at block %d: %d", identifier, block.number, expectedBalance.toUint256());
-        require(expectedBalance == newBalance, "balance is not equal to expected value");
-    }
-
-    function expectStakeBalanceChange(int256 change) public view {
-        require(stakeBalanceSnapshot != type(int256).max, "stake balance snapshot is not set");
-        int256 newBalance = boundlessMarket.balanceOfStake(wallet.addr).toInt256();
-        console.log("%s stake balance at block %d: %d", identifier, block.number, newBalance.toUint256());
-        int256 expectedBalance = stakeBalanceSnapshot + change;
-        require(expectedBalance >= 0, "expected stake balance cannot be less than 0");
-        console.log("%s expected stake balance at block %d: %d", identifier, block.number, expectedBalance.toUint256());
-        require(expectedBalance == newBalance, "stake balance is not equal to expected value");
-    }
-}
 
 contract BoundlessMarketTest is Test {
     using ReceiptClaimLib for ReceiptClaim;
@@ -197,6 +78,7 @@ contract BoundlessMarketTest is Test {
     HitPoints internal stakeToken;
     mapping(uint256 => Client) internal clients;
     mapping(uint256 => Client) internal provers;
+    mapping(uint256 => SmartContractClient) internal smartContractClients;
     Client internal testProver;
     address internal testProverAddress;
     uint256 initialBalance;
@@ -228,7 +110,6 @@ contract BoundlessMarketTest is Test {
         );
         boundlessMarket = BoundlessMarket(proxy);
 
-        console.log("OWNER_WALLET.addr", OWNER_WALLET.addr);
         stakeToken.grantMinterRole(OWNER_WALLET.addr);
         stakeToken.grantAuthorizedTransferRole(proxy);
         vm.stopPrank();
@@ -238,6 +119,7 @@ contract BoundlessMarketTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             getClient(i);
             getProver(i);
+            // getSmartContractClient(i);
         }
 
         initialBalance = address(boundlessMarket).balance;
@@ -322,6 +204,18 @@ contract BoundlessMarketTest is Test {
         return client;
     }
 
+    // Creates a client account with the given index, gives it some Ether,
+    // gives it some Stake Token, and deposits both into the market.
+    function getSmartContractClient(uint256 index) internal returns (SmartContractClient) {
+        if (address(smartContractClients[index]) != address(0)) {
+            return smartContractClients[index];
+        }
+        SmartContractClient client = createSmartContractClientContract(string.concat("SC_CLIENT_", vm.toString(index)));
+        fundSmartContractClient(client);
+        smartContractClients[index] = client;
+        return client;
+    }
+
     // Creates a prover account with the given index, gives it some Ether,
     // gives it some Stake Token, and deposits both into the market.
     function getProver(uint256 index) internal returns (Client) {
@@ -357,10 +251,55 @@ contract BoundlessMarketTest is Test {
         client.snapshotStakeBalance();
     }
 
+    function fundSmartContractClient(SmartContractClient client) internal {
+        address walletAddress = client.addr();
+        address signerAddress = client.signerAddr();
+
+        // Deal the SCW some Ether and deposit it in the market.
+        vm.deal(walletAddress, DEFAULT_BALANCE);
+        vm.prank(signerAddress);
+        client.execute(
+            address(boundlessMarket),
+            abi.encodeWithSelector(IBoundlessMarket.deposit.selector, DEFAULT_BALANCE),
+            DEFAULT_BALANCE
+        );
+
+        // Snapshot their initial ETH balance.
+        client.snapshotBalance();
+
+        // Mint some stake tokens.
+        vm.prank(OWNER_WALLET.addr);
+        stakeToken.mint(walletAddress, DEFAULT_BALANCE);
+
+        vm.prank(signerAddress);
+        client.execute(
+            address(stakeToken), abi.encodeWithSelector(IERC20.approve.selector, boundlessMarket, DEFAULT_BALANCE)
+        );
+
+        vm.prank(signerAddress);
+        client.execute(
+            address(boundlessMarket), abi.encodeWithSelector(IBoundlessMarket.depositStake.selector, DEFAULT_BALANCE)
+        );
+
+        // check balances
+        assertEq(boundlessMarket.balanceOf(walletAddress), DEFAULT_BALANCE);
+        assertEq(boundlessMarket.balanceOfStake(walletAddress), DEFAULT_BALANCE);
+
+        // Snapshot their initial stake balance.
+        client.snapshotStakeBalance();
+    }
+
     // Create a client, using a trick to set the address equal to the wallet address.
     function createClientContract(string memory identifier) internal returns (Client) {
         Vm.Wallet memory wallet = vm.createWallet(identifier);
         Client client = new Client(wallet);
+        client.initialize(identifier, boundlessMarket, stakeToken);
+        return client;
+    }
+
+    function createSmartContractClientContract(string memory identifier) internal returns (SmartContractClient) {
+        Vm.Wallet memory signer = vm.createWallet(string.concat(identifier, "_SIGNER"));
+        SmartContractClient client = new SmartContractClient(signer);
         client.initialize(identifier, boundlessMarket, stakeToken);
         return client;
     }
@@ -992,7 +931,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(request, clientSignature);
         } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
-            boundlessMarket.lockRequestWithSignature(request, clientSignature, testProverAddress, testProver.sign(request));
+            boundlessMarket.lockRequestWithSignature(
+                request, clientSignature, testProverAddress, testProver.sign(request)
+            );
         }
 
         (Fulfillment memory fill, bytes memory assessorSeal) =
@@ -1061,7 +1002,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
 
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProverAddress, testProver.sign(request));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProverAddress, testProver.sign(request)
+        );
 
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
@@ -1089,7 +1032,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
 
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProverAddress, testProver.sign(request));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProverAddress, testProver.sign(request)
+        );
 
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
@@ -1161,7 +1106,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         ProofRequest memory request = client.request(3);
 
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProverAddress, testProver.sign(request));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProverAddress, testProver.sign(request)
+        );
         // address(3) is just a standin for some other address.
         address mockOtherProverAddr = address(uint160(3));
         (Fulfillment memory fill, bytes memory assessorSeal) =
@@ -1422,7 +1369,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 vm.roll(request.offer.blockAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
-                boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProverAddress, testProver.sign(request));
+                boundlessMarket.lockRequestWithSignature(
+                    request, client.sign(request), testProverAddress, testProver.sign(request)
+                );
 
                 requests[idx] = request;
                 journals[idx] = APP_JOURNAL;
@@ -1512,7 +1461,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(requestA, clientSignatureA);
         } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
-            boundlessMarket.lockRequestWithSignature(requestA, clientSignatureA, testProverAddress, testProver.sign(requestA));
+            boundlessMarket.lockRequestWithSignature(
+                requestA, clientSignatureA, testProverAddress, testProver.sign(requestA)
+            );
         }
 
         // Attempt to fill request B.
@@ -1642,7 +1593,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory request = client.request(1);
 
         // Lock to "testProver" but "prover2" fulfills the request
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProverAddress, testProver.sign(request));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProverAddress, testProver.sign(request)
+        );
 
         Client testProver2 = getClient(2);
         (address testProver2Address,,,) = testProver2.wallet();
@@ -1831,139 +1784,103 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.slash(request.id);
     }
 
-    // function testLockRequestSmartContractSignature() public {
-    //     Client client = getClient(1);
-    //     ProofRequest memory request = client.request(1);
-        
-    //     // Create a mock smart contract wallet for the client
-    //     bytes memory expectedClientSig = bytes("client_valid_signature");
-    //     MockSmartContractWallet clientSCWallet = new MockSmartContractWallet(expectedClientSig);
-        
-    //     // Create request with smart contract wallet as client
-    //     request.id = RequestIdLibrary.from(address(clientSCWallet), 1);
-        
-    //     // Expect isValidSignature to be called on the smart contract wallet
-    //     bytes32 requestHash = boundlessMarket.eip712DomainSeparator().toTypedDataHash(request.eip712Digest());
-    //     vm.expectCall(
-    //         address(clientSCWallet),
-    //         abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, expectedClientSig)
-    //     );
+    function testLockRequestSmartContractSignature() public {
+        SmartContractClient client = getSmartContractClient(1);
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSig = client.sign(request);
 
-    //     // Call lockRequest with the smart contract signature
-    //     vm.prank(testProverAddress);
-    //     boundlessMarket.lockRequest(request, expectedClientSig);
+        // Expect isValidSignature to be called on the smart contract wallet
+        bytes32 requestHash =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
+        vm.expectCall(client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSig));
 
-    //     // Verify the lock request
-    //     assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
-    // }
+        // Call lockRequest with the smart contract signature
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSig);
 
-    // function testLockRequestSmartContractSignatureInvalid() public {
-    //     Client client = getClient(1);
-    //     ProofRequest memory request = client.request(1);
-        
-    //     // Create a mock smart contract wallet for the client
-    //     bytes memory expectedClientSig = bytes("client_valid_signature");
-    //     bytes memory invalidSig = bytes("invalid_signature");
-    //     MockSmartContractWallet clientWallet = new MockSmartContractWallet(expectedClientSig);
-        
-    //     // Create request with smart contract wallet as client
-    //     request.id = RequestId.wrap(bytes32(uint256(uint160(address(clientWallet)))));
-        
-    //     // Expect isValidSignature to be called on the smart contract wallet
-    //     bytes32 requestHash = boundlessMarket.eip712DomainSeparator().toTypedDataHash(request.eip712Digest());
-    //     vm.expectCall(
-    //         address(clientWallet),
-    //         abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, invalidSig)
-    //     );
+        // Verify the lock request
+        assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked");
+    }
 
-    //     // Attempt to lock with invalid signature
-    //     vm.prank(testProverAddress);
-    //     vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
-    //     boundlessMarket.lockRequest(request, invalidSig);
-    // }
+    // Test that the smart contract client receives the proof request when isValidSignature is called,
+    // if the client signature provided is empty. This enables custom smart contract clients that want to authorize
+    // payments based on how a proof request is structured.
+    function testLockRequestSmartContractClientValidatesProofRequest() public {
+        SmartContractClient client = getSmartContractClient(1);
+        ProofRequest memory request = client.request(1);
+        client.setExpectedSignature(abi.encode(request));
+        bytes memory clientSig = bytes("");
 
-    // function testLockRequestWithSignatureSmartContractSignature() public {
-    //     Client client = getClient(1);
-    //     ProofRequest memory request = client.request(1);
-        
-    //     // Create mock smart contract wallets for both client and prover
-    //     bytes memory expectedClientSig = bytes("client_valid_signature");
-    //     bytes memory expectedProverSig = bytes("prover_valid_signature");
-    //     MockSmartContractWallet clientWallet = new MockSmartContractWallet(expectedClientSig);
-    //     MockSmartContractWallet proverWallet = new MockSmartContractWallet(expectedProverSig);
-        
-    //     // Create request with smart contract wallet as client
-    //     request.id = RequestId.wrap(bytes32(uint256(uint160(address(clientWallet)))));
-        
-    //     // Expect isValidSignature to be called on both wallets
-    //     bytes32 requestHash = boundlessMarket.eip712DomainSeparator().toTypedDataHash(request.eip712Digest());
-    //     vm.expectCall(
-    //         address(clientWallet),
-    //         abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, expectedClientSig)
-    //     );
-    //     vm.expectCall(
-    //         address(proverWallet),
-    //         abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, expectedProverSig)
-    //     );
+        // Expect isValidSignature to be called on the smart contract wallet with the proof request as the signature.
+        bytes32 requestHash =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
+        vm.expectCall(
+            client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, abi.encode(request))
+        );
 
-    //     // Call lockRequestWithSignature with both smart contract signatures
-    //     boundlessMarket.lockRequestWithSignature(
-    //         request, 
-    //         expectedClientSig,
-    //         address(proverWallet),
-    //         expectedProverSig
-    //     );
+        // Call lockRequest with the smart contract signature
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSig);
 
-    //     // Verify the lock request
-    //     assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
-    // }
+        // Verify the lock request
+        assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked");
+    }
 
-    // function testLockRequestWithSignatureSmartContractSignatureInvalid() public {
-    //     Client client = getClient(1);
-    //     ProofRequest memory request = client.request(1);
-        
-    //     // Create mock smart contract wallets for both client and prover
-    //     bytes memory expectedClientSig = bytes("client_valid_signature");
-    //     bytes memory expectedProverSig = bytes("prover_valid_signature");
-    //     bytes memory invalidSig = bytes("invalid_signature");
-    //     MockSmartContractWallet clientWallet = new MockSmartContractWallet(expectedClientSig);
-    //     MockSmartContractWallet proverWallet = new MockSmartContractWallet(expectedProverSig);
-        
-    //     // Create request with smart contract wallet as client
-    //     request.id = RequestId.wrap(bytes32(uint256(uint160(address(clientWallet)))));
-        
-    //     bytes32 requestHash = boundlessMarket.eip712DomainSeparator().toTypedDataHash(request.eip712Digest());
+    function testLockRequestSmartContractSignatureInvalid() public {
+        SmartContractClient client = getSmartContractClient(1);
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSig = bytes("invalid_signature");
 
-    //     // Test invalid client signature
-    //     vm.expectCall(
-    //         address(clientWallet),
-    //         abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, invalidSig)
-    //     );
-    //     vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
-    //     boundlessMarket.lockRequestWithSignature(
-    //         request,
-    //         invalidSig,
-    //         address(proverWallet),
-    //         expectedProverSig
-    //     );
+        // Expect isValidSignature to be called on the smart contract wallet
+        bytes32 requestHash =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
+        vm.expectCall(client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSig));
 
-    //     // Test invalid prover signature
-    //     vm.expectCall(
-    //         address(clientWallet),
-    //         abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, expectedClientSig)
-    //     );
-    //     vm.expectCall(
-    //         address(proverWallet),
-    //         abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, invalidSig)
-    //     );
-    //     vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
-    //     boundlessMarket.lockRequestWithSignature(
-    //         request,
-    //         expectedClientSig,
-    //         address(proverWallet),
-    //         invalidSig
-    //     );
-    // }
+        // Call lockRequest with the smart contract signature
+        vm.prank(testProverAddress);
+        vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
+        boundlessMarket.lockRequest(request, clientSig);
+    }
+
+    function testLockRequestWithSignatureSmartContractSignatures() public {
+        SmartContractClient client = getSmartContractClient(1);
+        SmartContractClient prover = getSmartContractClient(2);
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSig = client.sign(request);
+        bytes memory proverSig = prover.sign(request);
+        address proverAddress = prover.addr();
+
+        address other = getClient(3).addr();
+        vm.prank(other);
+        boundlessMarket.lockRequestWithSignature(request, clientSig, proverAddress, proverSig);
+    }
+
+    function testLockRequestWithSignatureClientSmartContractSignatureInvalid() public {
+        SmartContractClient client = getSmartContractClient(1);
+        SmartContractClient prover = getSmartContractClient(2);
+
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSig = bytes("invalid_signature");
+        bytes memory proverSig = prover.sign(request);
+        address proverAddress = prover.addr();
+
+        vm.prank(proverAddress);
+        vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
+        boundlessMarket.lockRequestWithSignature(request, clientSig, proverAddress, proverSig);
+    }
+
+    function testLockRequestWithSignatureProverSmartContractSignatureInvalid() public {
+        SmartContractClient client = getSmartContractClient(1);
+        SmartContractClient prover = getSmartContractClient(2);
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSig = client.sign(request);
+        bytes memory proverSig = bytes("invalid_signature");
+        address proverAddress = prover.addr();
+
+        vm.prank(proverAddress);
+        vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
+        boundlessMarket.lockRequestWithSignature(request, clientSig, proverAddress, proverSig);
+    }
 }
 
 contract BoundlessMarketBench is BoundlessMarketTest {
@@ -2054,5 +1971,3 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         assertEq(boundlessMarket.owner(), newOwner, "Owner should be changed");
     }
 }
-
-

@@ -384,6 +384,7 @@ where
         &self,
         request: &ProofRequest,
         client_sig: &Bytes,
+        prover_address: Address,
         prover_sig: &Bytes,
         _priority_gas: Option<u128>,
     ) -> Result<u64, MarketError> {
@@ -395,15 +396,21 @@ where
         }
 
         tracing::debug!(
-            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?})",
+            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?}, {:x?})",
             request,
             client_sig,
+            prover_address,
             prover_sig
         );
 
         let call = self
             .instance
-            .lockRequestWithSignature(request.clone(), client_sig.clone(), prover_sig.clone())
+            .lockRequestWithSignature(
+                request.clone(),
+                client_sig.clone(),
+                prover_address,
+                prover_sig.clone(),
+            )
             .from(self.caller);
         let pending_tx = call.send().await.context("Failed to lock")?;
 

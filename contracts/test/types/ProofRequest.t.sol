@@ -169,7 +169,7 @@ contract ProofRequestTest is Test {
         bytes32 structHash = proofRequest.eip712Digest();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(clientWallet, structHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        
+
         proofRequestContract.verifySignature(proofRequest, structHash, clientWallet.addr, signature);
     }
 

@@ -31,8 +31,6 @@ import {TransientPrice, TransientPriceLibrary} from "./types/TransientPrice.sol"
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "./libraries/MerkleProofish.sol";
 
-import "forge-std/console.sol";
-
 contract BoundlessMarket is
     IBoundlessMarket,
     Initializable,
@@ -165,7 +163,6 @@ contract BoundlessMarket is
         // Compute the current price offered by the reverse Dutch auction.
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
 
-        console.log("LOCKING", client, prover, price);
         // Deduct payment from the client account and stake from the prover account.
         Account storage clientAccount = accounts[client];
         if (clientAccount.balance < price) {
