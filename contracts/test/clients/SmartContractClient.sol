@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
 pragma solidity ^0.8.13;
 
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";

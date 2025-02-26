@@ -63,13 +63,13 @@ library ProofRequestLibrary {
     }
 
     /// @notice Verifies a signature over a proof request.
-    /// @dev Supports EIP-1271 for smart contract signatures. If the signature is empty and the client is a smart 
+    /// @dev Supports EIP-1271 for smart contract signatures. If the signature is empty and the client is a smart
     /// contract, calls isValidSignature with the abi encoded request as the signature.
     /// @param structHash The EIP-712 struct hash of the proof request.
     /// @param addr The address of the client.
     /// @param signature The signature to validate.
     function verifySignature(ProofRequest calldata request, bytes32 structHash, address addr, bytes calldata signature)
-        internal 
+        internal
         view
     {
         if (addr.code.length == 0) {
@@ -81,7 +81,8 @@ library ProofRequestLibrary {
             // If the signature is empty and the client is a smart contract, we provide the request as the signature.
             // This flow is intended to enable anyone to submit requests on behalf of a client smart contract.
             // The client smart contract is expected to validate the request was constructed correctly.
-            if (IERC1271(addr).isValidSignature(structHash, abi.encode(request)) != IERC1271.isValidSignature.selector) {
+            if (IERC1271(addr).isValidSignature(structHash, abi.encode(request)) != IERC1271.isValidSignature.selector)
+            {
                 revert IBoundlessMarket.InvalidSignature();
             }
         } else {
