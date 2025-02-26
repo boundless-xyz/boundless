@@ -17,6 +17,7 @@ use boundless_market::{
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
 };
+use broker_api::BrokerApi;
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 use config::ConfigWatcher;
@@ -31,6 +32,7 @@ use tokio::task::JoinSet;
 use url::Url;
 
 pub(crate) mod aggregator;
+pub(crate) mod broker_api;
 pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
@@ -55,6 +57,17 @@ pub struct Args {
     /// RPC URL
     #[clap(long, env, default_value = "http://localhost:8545")]
     pub rpc_url: Url,
+
+    /// Enables Broker API listen IP / port
+    ///
+    /// Not setting this toggles "simple mode"
+    ///
+    /// Simple mode enables broker to work just from the broker.toml and automatically pick up work, process it and finalize it
+    /// WARNING: this mode is not optimized and can easily waste gas with simple default configs
+    ///
+    /// Value example: "http://localhost:8082"
+    #[clap(long)]
+    pub broker_api: Option<Url>,
 
     /// Order stream server URL
     #[clap(long, env)]
@@ -211,7 +224,7 @@ enum BatchStatus {
     Failed,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct AggregationState {
     pub guest_state: risc0_aggregation::GuestState,
     /// All claim digests in this aggregation.
@@ -220,30 +233,54 @@ struct AggregationState {
     /// Proof ID for the STARK proof that compresses the root of the aggregation tree.
     pub proof_id: String,
     /// Proof ID for the Groth16 proof that compresses the root of the aggregation tree.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub groth16_proof_id: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 struct Batch {
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.
     pub orders: Vec<U256>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assessor_claim_digest: Option<Digest>,
     /// Tuple of the current aggregation state, as committed by the set builder guest, and the
     /// proof ID for the receipt that attests to the correctness of this state.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregation_state: Option<AggregationState>,
     /// When the batch was initially created.
     pub start_time: DateTime<Utc>,
     /// The deadline for the batch, which is the earliest deadline for any order in the batch.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_deadline: Option<u64>,
     /// The total fees for the batch, which is the sum of fees from all orders.
     pub fees: U256,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_msg: Option<String>,
+}
+
+const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
+
+/// Queries chain history to sample for the median block time
+pub async fn get_block_time(provider: &Arc<impl Provider>) -> Result<u64> {
+    let current_block = provider.get_block_number().await.context("failed to get current block")?;
+
+    let mut timestamps = vec![];
+    let sample_start = current_block - std::cmp::min(current_block, BLOCK_TIME_SAMPLE_SIZE);
+    for i in sample_start..current_block {
+        let block = provider
+            .get_block_by_number(i.into(), false.into())
+            .await
+            .with_context(|| format!("Failed get block {i}"))?
+            .with_context(|| format!("Missing block {i}"))?;
+
+        timestamps.push(block.header.timestamp);
+    }
+
+    let mut block_times = timestamps.windows(2).map(|elm| elm[1] - elm[0]).collect::<Vec<u64>>();
+    block_times.sort();
+
+    Ok(block_times[block_times.len() / 2])
 }
 
 pub struct Broker<P> {
@@ -358,45 +395,54 @@ where
             Ok(())
         });
 
-        // spin up a supervisor for the market monitor
-        let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
-            loopback_blocks,
-            self.args.boundless_market_addr,
-            self.provider.clone(),
-            self.db.clone(),
-            chain_monitor.clone(),
-        ));
-
-        let block_times =
-            market_monitor.get_block_time().await.context("Failed to sample block times")?;
-
-        tracing::debug!("Estimated block time: {block_times}");
-
-        supervisor_tasks.spawn(async move {
-            task::supervisor(1, market_monitor).await.context("Failed to start market monitor")?;
-            Ok(())
-        });
-
-        let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client = self
-            .args
-            .order_stream_url
-            .clone()
-            .map(|url| OrderStreamClient::new(url, self.args.boundless_market_addr, chain_id));
-        // spin up a supervisor for the offchain market monitor
-        if let Some(client) = client {
-            let offchain_market_monitor =
-                Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
-                    self.db.clone(),
-                    client.clone(),
-                    self.args.private_key.clone(),
-                ));
+        // Spin up broker API if configured
+        if let Some(broker_api_addr) = &self.args.broker_api {
+            let broker_api_task =
+                Arc::new(BrokerApi::new(self.db.clone(), broker_api_addr.clone()));
             supervisor_tasks.spawn(async move {
-                task::supervisor(1, offchain_market_monitor)
+                task::supervisor(1, broker_api_task)
                     .await
-                    .context("Failed to start offchain market monitor")?;
+                    .context("Failed to start market monitor")?;
                 Ok(())
             });
+        } else {
+            // Start automatic order discovery is the broker_api is not configured
+            // spin up a supervisor for the market monitor
+            let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
+                loopback_blocks,
+                self.args.boundless_market_addr,
+                self.provider.clone(),
+                self.db.clone(),
+                chain_monitor.clone(),
+            ));
+
+            supervisor_tasks.spawn(async move {
+                task::supervisor(1, market_monitor)
+                    .await
+                    .context("Failed to start market monitor")?;
+                Ok(())
+            });
+
+            let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
+            let client =
+                self.args.order_stream_url.clone().map(|url| {
+                    OrderStreamClient::new(url, self.args.boundless_market_addr, chain_id)
+                });
+            // spin up a supervisor for the offchain market monitor
+            if let Some(client) = client {
+                let offchain_market_monitor =
+                    Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
+                        self.db.clone(),
+                        client.clone(),
+                        self.args.private_key.clone(),
+                    ));
+                supervisor_tasks.spawn(async move {
+                    task::supervisor(1, offchain_market_monitor)
+                        .await
+                        .context("Failed to start offchain market monitor")?;
+                    Ok(())
+                });
+            }
         }
 
         // Construct the prover object interface
@@ -432,6 +478,10 @@ where
         } else {
             anyhow::bail!("Failed to select a proving backend");
         };
+
+        let block_times =
+            get_block_time(&self.provider).await.context("Failed to sample block times")?;
+        tracing::debug!("Estimated block time: {block_times}");
 
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
@@ -706,6 +756,7 @@ pub mod test_utils {
                 bento_api_url: None,
                 bonsai_api_key: None,
                 bonsai_api_url: None,
+                broker_api: None,
                 deposit_amount: None,
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
@@ -729,3 +780,29 @@ pub mod test_utils {
 
 #[cfg(test)]
 pub mod tests;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use alloy::{
+        network::EthereumWallet,
+        node_bindings::Anvil,
+        providers::{ext::AnvilApi, ProviderBuilder},
+        rpc::client::RpcClient,
+    };
+
+    #[tokio::test]
+    async fn block_times() {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let client = RpcClient::builder().http(anvil.endpoint().parse().unwrap()).boxed();
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(EthereumWallet::from(signer))
+            .on_client(client);
+
+        provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
+        let block_time = get_block_time(&Arc::new(provider)).await.unwrap();
+        assert_eq!(block_time, 2);
+    }
+}

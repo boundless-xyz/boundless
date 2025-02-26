@@ -18,6 +18,8 @@ use anyhow::{Context, Result};
 use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
 use thiserror::Error;
 
+const ONE_MILLION: U256 = U256::from_limbs([1_000_000, 0, 0, 0]);
+
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum PriceOrderErr {
@@ -287,14 +289,12 @@ where
             return Ok(());
         }
 
-        let one_mill = U256::from(1_000_000);
-
         let mcycle_price_min = (U256::from(order.request.offer.minPrice)
             / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
+            * ONE_MILLION;
         let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
             / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
+            * ONE_MILLION;
 
         tracing::info!(
             "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
@@ -329,7 +329,7 @@ where
         // TODO: Clean up and do more testing on this since its just a rough shot first draft
         else {
             let target_min_price =
-                config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill;
+                config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / ONE_MILLION;
             tracing::debug!("Target price: {target_min_price}");
 
             let target_block: u64 = self
