@@ -230,11 +230,6 @@ impl DefaultProver {
             }
             _ => bail!("Unsupported input type"),
         };
-        // Doing composite here for proofOpts would be very expensive when doing verify_env in
-        // Doing groth16 would be very costly
-        // Most efficient way to verify a receipt within R0 is currently with succinct, but in future
-        // we hope to get better at doing groth16s. Like if we want to bring into another zkVM,
-        // we can do a groth16s.
         let order_receipt =
             self.prove(order_elf.clone(), order_input, vec![], ProverOpts::succinct()).await?;
         let order_journal = order_receipt.journal.bytes.clone();
@@ -255,33 +250,24 @@ impl DefaultProver {
         let order_claim_digest = order_claim.digest();
         let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal);
         let assessor_claim_digest = assessor_claim.digest();
-
-        // Simplified set builder. Builds an aggregated root.
         let root_receipt = self
             .finalize(
                 vec![order_claim.clone(), assessor_claim.clone()],
-                // we verify the original receipt of the content of the leaf
                 vec![order_receipt, assessor_receipt],
             )
             .await?;
 
-        // This is what hte seal will look like on chain
         let order_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 0);
         let assessor_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 1);
 
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_image_id };
 
-        // This is basically arust utility that will attach the selector necessary to the merkle path, and abi encode
         let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
             order_claim,
             order_path,
             verifier_parameters.digest(),
         );
-
-        // This is where we add teh selector so it can be routed correctly in our router on-chain.
-        // unagg proofs was possible before, there was just no way for the market to enforce whether the seal that is emitted
-        // is a merkle path or a proof itself.
         let order_seal = order_inclusion_receipt.abi_encode_seal()?;
 
         let assessor_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
@@ -296,7 +282,7 @@ impl DefaultProver {
             imageId: request.requirements.imageId,
             journal: order_journal.into(),
             requirePayment: require_payment,
-            seal: order_seal.into(), // this is the seal with the selector attached.
+            seal: order_seal.into(),
         };
 
         Ok((fulfillment, root_receipt, order_inclusion_receipt, assessor_inclusion_receipt))
@@ -308,7 +294,7 @@ mod tests {
     use super::*;
     use alloy::{primitives::PrimitiveSignature, signers::local::PrivateKeySigner};
     use boundless_market::contracts::{
-        eip712_domain, Callback, Input, Offer, Predicate, ProofRequest, Requirements,
+        eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_set_builder::SET_BUILDER_ELF;
@@ -324,7 +310,6 @@ mod tests {
             Requirements {
                 imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
                 predicate: Predicate::prefix_match(vec![1]),
-                callback: Callback::default(),
             },
             format!("file://{ECHO_PATH}"),
             Input::inline(vec![1, 2, 3, 4]),
