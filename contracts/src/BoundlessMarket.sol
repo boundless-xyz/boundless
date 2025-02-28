@@ -344,14 +344,6 @@ contract BoundlessMarket is
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
 
-        if (lock.fingerprint != bytes8(requestDigest)) {
-            revert RequestLockFingerprintDoesNotMatch({
-                requestId: id,
-                provided: bytes8(requestDigest),
-                locked: lock.fingerprint
-            });
-        }
-
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
             emit RequestFulfilled(id);
@@ -360,9 +352,16 @@ contract BoundlessMarket is
         // At this point the request has been fulfilled. The remaining logic determines whether
         // payment should be sent and to whom.
         if (lock.lockDeadline >= block.number) {
+            if (lock.fingerprint != bytes8(requestDigest)) {
+                revert RequestLockFingerprintDoesNotMatch({
+                    requestId: id,
+                    provided: bytes8(requestDigest),
+                    locked: lock.fingerprint
+                });
+            }
             return _payLockedCurrently(id, assessorProver, lock.prover, lock.price, lock.stake);
         } else {
-            return _payLockedExpired(id, assessorProver, client, lock.price, requestDigest);
+            return _payLockedExpired(id, assessorProver, client, lock.price, lock.fingerprint, requestDigest);
         }
     }
 
@@ -395,6 +394,7 @@ contract BoundlessMarket is
         address assessorProver,
         address client,
         uint96 lockPrice,
+        bytes8 lockFingerprint,
         bytes32 requestDigest
     ) internal returns (bytes memory paymentError) {
         // If the request was not priced in advance, no payment is sent.
@@ -405,6 +405,16 @@ contract BoundlessMarket is
             return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
         }
         uint96 price = tprice.price;
+        
+
+        if (lockFingerprint != bytes8(requestDigest)) {
+            revert RequestLockFingerprintDoesNotMatch({
+                requestId: id,
+                provided: bytes8(requestDigest),
+                locked: lockFingerprint
+            });
+        }
+
 
         // Deduct any additionally owned funds from client account. The client was already charged
         // for the price at lock time once when the request was locked. We only need to charge any

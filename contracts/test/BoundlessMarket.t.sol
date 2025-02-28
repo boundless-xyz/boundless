@@ -1325,6 +1325,78 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (request, locker);
     }
 
+    function testFulfillWasLockedRepeatIndexStakeRollover() public {
+        Client client = getClient(1);
+
+        // Create two distinct requests with the same ID. It should be the case that only one can be
+        // filled, and if one is locked, the other cannot be filled.
+        Offer memory offerA = client.defaultOffer();
+        Offer memory offerB = client.defaultOffer();
+        offerB.maxPrice = 3 ether;
+        ProofRequest memory requestA = client.request(1, offerA);
+        ProofRequest memory requestB = client.request(1, offerB);
+        bytes memory clientSignatureA = client.sign(requestA);
+
+        Client locker = getProver(1);
+        Client fulfiller = getProver(2);
+
+        client.snapshotBalance();
+        locker.snapshotBalance();
+        fulfiller.snapshotBalance();
+
+        // Lock-in request A.
+        vm.prank(address(testProver);
+        boundlessMarket.lockRequest(requestA, clientSignatureA);
+
+        // Attempt to fill request B.
+        (Fulfillment memory fill, bytes memory assessorSeal) =
+            createFillAndSubmitRoot(requestB, APP_JOURNAL, address(testProver));
+
+        if (lockinMethod == LockRequestMethod.None) {
+            // Annoying boilerplate for creating singleton lists.
+            Fulfillment[] memory fills = new Fulfillment[](1);
+            fills[0] = fill;
+            // Here we price with request A and try to fill with request B.
+            ProofRequest[] memory requests = new ProofRequest[](1);
+            requests[0] = requestA;
+            bytes[] memory clientSignatures = new bytes[](1);
+            clientSignatures[0] = clientSignatureA;
+
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, requestA.id));
+            boundlessMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorSeal, address(testProver));
+        } else {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    IBoundlessMarket.RequestLockFingerprintDoesNotMatch.selector,
+                    requestA.id,
+                    bytes8(
+                        MessageHashUtils.toTypedDataHash(
+                            boundlessMarket.eip712DomainSeparator(), ProofRequestLibrary.eip712Digest(requestB)
+                        )
+                    ),
+                    bytes8(
+                        MessageHashUtils.toTypedDataHash(
+                            boundlessMarket.eip712DomainSeparator(), ProofRequestLibrary.eip712Digest(requestA)
+                        )
+                    )
+                )
+            );
+            boundlessMarket.fulfill(fill, assessorSeal, address(testProver));
+        }
+
+        // Check that the request ID is not marked as fulfilled.
+        expectRequestNotFulfilled(fill.id);
+
+        if (lockinMethod == LockRequestMethod.None) {
+            client.expectBalanceChange(0 ether);
+            testProver.expectBalanceChange(0 ether);
+        } else {
+            client.expectBalanceChange(-1 ether);
+            testProver.expectStakeBalanceChange(-1 ether);
+        }
+        expectMarketBalanceUnchanged();
+    }
+
     function testFulfillNeverLocked() public {
         _testFulfillSameBlock(1, LockRequestMethod.None, "priceAndFulfillBatch: a single request that was not locked");
     }
