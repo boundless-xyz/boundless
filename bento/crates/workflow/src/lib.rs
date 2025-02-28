@@ -20,7 +20,7 @@ use std::{
 };
 use taskdb::ReadyTask;
 use tokio::time;
-use workflow_common::{TaskType, COPROC_WORK_TYPE};
+use workflow_common::{TaskType, KECCAK_WORK_TYPE, UNION_WORK_TYPE};
 
 mod redis;
 mod tasks;
@@ -181,7 +181,8 @@ impl Agent {
         let verifier_ctx = VerifierContext::default();
         let prover = if args.task_stream == PROVE_WORK_TYPE
             || args.task_stream == JOIN_WORK_TYPE
-            || args.task_stream == COPROC_WORK_TYPE
+            || args.task_stream == KECCAK_WORK_TYPE
+            || args.task_stream == UNION_WORK_TYPE
         {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts).context("Failed to initialize prover server")?;
@@ -294,6 +295,10 @@ impl Agent {
                     .context("Resolve failed")?,
             )
             .context("Failed to serialize join response")?,
+            TaskType::Union(req) => serde_json::to_value(
+                tasks::union::union(self, &task.job_id, &req).await.context("Union failed")?,
+            )
+            .context("Failed to serialize union response")?,
             TaskType::Finalize(req) => serde_json::to_value(
                 tasks::finalize::finalize(self, &task.job_id, &req)
                     .await

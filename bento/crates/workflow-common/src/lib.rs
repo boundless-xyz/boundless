@@ -17,7 +17,10 @@ pub const EXEC_WORK_TYPE: &str = "exec";
 pub const PROVE_WORK_TYPE: &str = "prove";
 
 /// keccak/coproc worker stream identifier
-pub const COPROC_WORK_TYPE: &str = "coproc";
+pub const KECCAK_WORK_TYPE: &str = "keccak";
+
+/// union worker stream identifier
+pub const UNION_WORK_TYPE: &str = "union";
 
 /// join worker stream identifier
 pub const JOIN_WORK_TYPE: &str = "join";
@@ -97,6 +100,8 @@ pub struct JoinReq {
 pub struct ResolveReq {
     /// Index of the final joined receipt
     pub max_idx: usize,
+    /// Index of the final unioned receipt
+    pub union_max_idx: Option<usize>,
 }
 
 /// Input request
@@ -131,6 +136,19 @@ pub struct KeccakReq {
     pub po2: usize,
     /// The control root which identifies a particular keccak circuit revision.
     pub control_root: Digest,
+    /// The index of the left or right branch
+    pub left_or_right_index: usize,
+}
+
+/// Union prove request
+#[derive(Serialize, Deserialize)]
+pub struct UnionReq {
+    /// Node index
+    pub idx: usize,
+    /// index of the left branch
+    pub left: usize,
+    /// index of the right branch
+    pub right: usize,
 }
 
 /// High level enum of different sub task types and data
@@ -142,13 +160,15 @@ pub enum TaskType {
     Prove(ProveReq),
     /// Join task
     Join(JoinReq),
+    /// Union task
+    Union(UnionReq),
     /// Resolve task
     Resolve(ResolveReq),
     /// Finalize task
     Finalize(FinalizeReq),
     /// Stark 2 Snark task
     Snark(SnarkReq),
-    /// Keccak coproc callback req
+    /// Keccak callback req
     Keccak(KeccakReq),
 }
 
@@ -160,6 +180,7 @@ impl TaskType {
             Self::Executor(_) => "executor".into(),
             Self::Prove(_) => "prove-lift".into(),
             Self::Join(_) => "join".into(),
+            Self::Union(_) => "union".into(),
             Self::Resolve(_) => "resolve".into(),
             Self::Finalize(_) => "finalize".into(),
             Self::Snark(_) => "snark".into(),

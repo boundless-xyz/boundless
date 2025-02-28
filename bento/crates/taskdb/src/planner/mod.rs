@@ -5,7 +5,7 @@
 pub mod task;
 
 use crate::planner::task::Task;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::VecDeque};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -26,6 +26,11 @@ pub struct Planner {
     /// A task is a "peak" if (1) it is either a Segment or Join command AND (2) no other join
     /// tasks depend on it.
     peaks: Vec<usize>,
+
+    /// List of current `keccak_peaks`. Sorted in order of decreasing height.
+    ///
+    /// A task is a `keccak_peak` if (1) it is either a Keccak Segment or Union command AND (2) no other union tasks depend on it.
+    pub keccak_peaks: VecDeque<usize>,
 
     /// Iterator position. Used by `self.next_task()`.
     consumer_position: usize,
@@ -66,6 +71,18 @@ impl core::fmt::Debug for Planner {
                 Command::Segment => {
                     write!(f, "{:?} Segment", task.task_number)?;
                 }
+                Command::Union => {
+                    write!(f, "{:?} Union", task.task_number)?;
+                    stack.push((indent + 2, task.depends_on[0]));
+                    stack.push((indent + 2, task.depends_on[1]));
+                }
+                Command::Keccak => {
+                    write!(f, "{:?} Keccak", task.task_number)?;
+                }
+                Command::FinalizeUnions => {
+                    write!(f, "{:?} FinalizeUnions", task.task_number)?;
+                    stack.push((indent + 2, task.depends_on[0]));
+                }
             }
         }
 
@@ -101,7 +118,55 @@ impl Planner {
         Ok(task_number)
     }
 
+    pub fn enqueue_keccak(&mut self) -> Result<usize, PlannerErr> {
+        if self.last_task.is_some() {
+            return Err(PlannerErr::PlanFinalized);
+        }
+
+        let task_number = self.next_task_number();
+        self.tasks.push(Task::new_keccak(task_number));
+
+        let mut new_peak = task_number;
+        while let Some(smallest_peak) = self.keccak_peaks.back().copied() {
+            let new_height = self.get_task(new_peak).task_height;
+            let smallest_peak_height = self.get_task(smallest_peak).task_height;
+            match new_height.cmp(&smallest_peak_height) {
+                Ordering::Less => break,
+                Ordering::Equal => {
+                    self.keccak_peaks.pop_back();
+                    new_peak = self.enqueue_union(smallest_peak, new_peak);
+                }
+                Ordering::Greater => unreachable!(),
+            }
+        }
+        self.keccak_peaks.push_back(new_peak);
+
+        Ok(task_number)
+    }
+
+    fn finish_unions(&mut self) -> Option<usize> {
+        // this assumes that there's always a minimum of 1 segment
+        if self.keccak_peaks.is_empty() {
+            return None;
+        }
+
+        // Join remaining peaks
+        while 2 <= self.keccak_peaks.len() {
+            let peak_0 = self.keccak_peaks.pop_front().unwrap();
+            let peak_1 = self.keccak_peaks.pop_front().unwrap();
+
+            let peak_3 = self.enqueue_union(peak_1, peak_0);
+            self.keccak_peaks.push_front(peak_3);
+        }
+
+        self.enqueue_finalize_keccak(vec![self.keccak_peaks[0]]);
+        Some(self.keccak_peaks[0])
+    }
+
     pub fn finish(&mut self) -> Result<usize, PlannerErr> {
+        // finish unions first
+        let keccak_depends_on = self.finish_unions();
+
         // Return error if plan has not yet started
         if self.peaks.is_empty() {
             return Err(PlannerErr::PlanNotStartedString);
@@ -119,7 +184,11 @@ impl Planner {
             }
 
             // Add the Finalize task
-            self.last_task = Some(self.enqueue_finalize(self.peaks[0]));
+            let keccak_vec = match keccak_depends_on {
+                Some(idx) => vec![idx],
+                None => vec![],
+            };
+            self.last_task = Some(self.enqueue_finalize(self.peaks[0], keccak_vec));
         }
 
         Ok(self.last_task.unwrap())
@@ -155,10 +224,30 @@ impl Planner {
         task_number
     }
 
-    fn enqueue_finalize(&mut self, depends_on: usize) -> usize {
+    fn enqueue_union(&mut self, left: usize, right: usize) -> usize {
+        let task_number = self.next_task_number();
+        let task_height =
+            1 + u32::max(self.get_task(left).task_height, self.get_task(right).task_height);
+        self.tasks.push(Task::new_union(task_number, task_height, left, right));
+        task_number
+    }
+
+    fn enqueue_finalize(&mut self, depends_on: usize, keccak_depends_on: Vec<usize>) -> usize {
         let task_number = self.next_task_number();
         let task_height = 1 + self.get_task(depends_on).task_height;
-        self.tasks.push(Task::new_finalize(task_number, task_height, depends_on));
+        self.tasks.push(Task::new_finalize(
+            task_number,
+            task_height,
+            depends_on,
+            keccak_depends_on,
+        ));
+        task_number
+    }
+
+    fn enqueue_finalize_keccak(&mut self, depends_on: Vec<usize>) -> usize {
+        let task_number = self.next_task_number();
+        let task_height = 1 + self.get_task(depends_on[0]).task_height;
+        self.tasks.push(Task::new_finalize_unions(task_number, task_height, depends_on));
         task_number
     }
 

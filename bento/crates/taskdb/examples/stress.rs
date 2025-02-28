@@ -160,6 +160,54 @@ async fn process_task(pool: &PgPool, tree_task: &Task, db_task: &ReadyTask) -> R
             .await
             .context("Failed to create finalize task")?;
         }
+        TaskCmd::Union => {
+            let task_def = serde_json::json!({
+                "Union": {
+                    "left": tree_task.keccak_depends_on[0],
+                    "right": tree_task.keccak_depends_on[1],
+                    "index": tree_task.task_number
+                }, "user_id": user_id
+            });
+            let prereqs = serde_json::json!([
+                format!("{}", tree_task.keccak_depends_on[0]),
+                format!("{}", tree_task.keccak_depends_on[1])
+            ]);
+            let task_name = format!("{}", tree_task.task_number);
+
+            // tracing::debug!("inserting union {} - {:?}", task_name, prereqs);
+            taskdb::create_task(
+                pool,
+                &db_task.job_id,
+                &task_name,
+                &gpu_stream,
+                &task_def,
+                &prereqs,
+                2,
+                2,
+            )
+            .await
+            .context("Failed to create Union task")?;
+        }
+        TaskCmd::FinalizeUnions => {}
+        TaskCmd::Keccak => {
+            let task_def = serde_json::json!({"Prove": { "keccak": tree_task.task_number }, "user_id": user_id });
+            let prereqs = serde_json::json!([]);
+            let task_name = format!("{}", tree_task.task_number);
+
+            // tracing::debug!("inserting: keccak {}", task_name);
+            taskdb::create_task(
+                pool,
+                &db_task.job_id,
+                &task_name,
+                &gpu_stream,
+                &task_def,
+                &prereqs,
+                2,
+                60,
+            )
+            .await
+            .context("Failed to create Prove task")?;
+        }
     }
     Ok(())
 }
@@ -176,7 +224,11 @@ async fn run_exec_task(pool: &PgPool, task: &ReadyTask, args: &Args) -> Result<(
     tracing::info!("Executor running job: {}", task.job_id);
     for _ in 0..segments {
         planner.enqueue_segment().unwrap();
+        while let Some(tree_task) = planner.next_task() {
+            process_task(pool, tree_task, task).await.unwrap();
+        }
 
+        planner.enqueue_keccak().unwrap();
         while let Some(tree_task) = planner.next_task() {
             process_task(pool, tree_task, task).await.unwrap();
         }

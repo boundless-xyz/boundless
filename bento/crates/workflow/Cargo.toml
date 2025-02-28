@@ -12,7 +12,6 @@ release = false
 
 [dependencies]
 anyhow = { workspace = true }
-async-channel = "2.3"
 bincode = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true, features = ["env", "derive"] }

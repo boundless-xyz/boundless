@@ -21,19 +21,31 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     let left_path_key = format!("{recur_receipts_prefix}:{}", request.left);
     let right_path_key = format!("{recur_receipts_prefix}:{}", request.right);
 
-    let left_receipt: Vec<u8> = conn
+    let left_receipt_bytes: Vec<u8> = conn
         .get::<_, Vec<u8>>(&left_path_key)
         .await
         .with_context(|| format!("segment data not found for segment key: {left_path_key}"))?;
-    let left_receipt =
-        deserialize_obj(&left_receipt).context("Failed to deserialize left receipt")?;
 
-    let right_receipt: Vec<u8> = conn
+    // Use our version-aware deserialization function to handle potential version mismatches
+    let left_receipt = deserialize_obj(&left_receipt_bytes).with_context(|| {
+        format!(
+            "Failed to deserialize left receipt for job: {job_id}, request idx: {}",
+            request.idx
+        )
+    })?;
+
+    let right_receipt_bytes: Vec<u8> = conn
         .get::<_, Vec<u8>>(&right_path_key)
         .await
         .with_context(|| format!("segment data not found for segment key: {right_path_key}"))?;
-    let right_receipt =
-        deserialize_obj(&right_receipt).context("Failed to deserialize right receipt")?;
+
+    // Use the same version-aware deserialization for the right receipt
+    let right_receipt = deserialize_obj(&right_receipt_bytes).with_context(|| {
+        format!(
+            "Failed to deserialize right receipt for job: {job_id}, request idx: {}",
+            request.idx
+        )
+    })?;
 
     tracing::info!("Joining {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 

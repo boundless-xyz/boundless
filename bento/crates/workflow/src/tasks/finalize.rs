@@ -26,13 +26,16 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
     let root_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{max_id}");
 
     // pull the root receipt from redis
-    let root_receipt: Vec<u8> = conn
+    let root_receipt_bytes: Vec<u8> = conn
         .get::<_, Vec<u8>>(&root_receipt_key)
         .await
         .with_context(|| format!("failed to get the root receipt key: {root_receipt_key}"))?;
 
-    let root_receipt: SuccinctReceipt<ReceiptClaim> =
-        deserialize_obj(&root_receipt).context("could not deseriailize the root receipt")?;
+    // Use our version-aware deserialization to handle potential version mismatches
+    let root_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&root_receipt_bytes)
+        .with_context(|| {
+            format!("Failed to deserialize root receipt for job: {job_id}, max_idx: {max_id}")
+        })?;
 
     // construct the journal key and grab the journal from redis
     let journal_key = format!("{job_prefix}:journal");
