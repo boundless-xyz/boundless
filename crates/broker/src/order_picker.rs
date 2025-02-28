@@ -100,8 +100,8 @@ where
         // TODO: Filter bases on supported selectors
         // Drop orders that specify a selector
         if order.request.requirements.selector != FixedBytes::<4>([0; 4]) {
-            tracing::warn!("Removing order {order_id:x} because it has a selector");
-            self.db.skip_order(order_id).await.context("Order has selector")?;
+            tracing::warn!("Removing order {order_id:x} because it has a selector requirement");
+            self.db.skip_order(order_id).await.context("Order has a selector requirement")?;
             return Ok(());
         }
 

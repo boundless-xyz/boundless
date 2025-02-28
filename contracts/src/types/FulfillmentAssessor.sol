@@ -9,8 +9,8 @@ import {RequestId} from "./RequestId.sol";
 using FulfillmentAssessorLibrary for FulfillmentAssessor global;
 
 /// @title FulfillmentAssessor Struct and Library
-/// @notice Represents the information posted by the prover that fulfills an Assessor.
-struct FulfillmentAssessor {
+/// @notice Represents the output of the assessor and proof of correctness, allowing request fulfillment.
+struct AssesorReceipt {
     /// @notice Cryptographic proof for the validity of the execution results.
     /// @dev This will be sent to the `IRiscZeroVerifier` associated with this contract.
     bytes seal;
