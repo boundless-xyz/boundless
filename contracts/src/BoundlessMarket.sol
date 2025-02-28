@@ -118,26 +118,27 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        bytes32 requestDigest =
-            request.verifyClientSignature(_hashTypedDataV4(request.eip712Digest()), client, clientSignature);
+        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
+        request.verifySignature(requestHash, client, clientSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
-        _lockRequest(request, requestDigest, client, idx, msg.sender, lockDeadline, deadline);
+        _lockRequest(request, requestHash, client, idx, msg.sender, lockDeadline, deadline);
     }
 
     /// @inheritdoc IBoundlessMarket
     function lockRequestWithSignature(
         ProofRequest calldata request,
         bytes calldata clientSignature,
+        address prover,
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
-        address prover = request.extractProverSignature(requestHash, proverSignature);
+        request.verifySignature(requestHash, client, clientSignature);
+        request.verifySignature(requestHash, prover, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
-        _lockRequest(request, requestDigest, client, idx, prover, lockDeadline, deadline);
+        _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
     }
 
     /// @notice Locks the request to the prover. Deducts funds from the client for payment
@@ -195,13 +196,31 @@ contract BoundlessMarket is
         emit RequestLocked(request.id, prover);
     }
 
+    /// @inheritdoc IBoundlessMarket
+    function submitRoot(address setVerifierAddress, bytes32 root, bytes calldata seal) external {
+        IRiscZeroSetVerifier(address(setVerifierAddress)).submitMerkleRoot(root, seal);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function submitRootAndFulfillBatch(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        bytes calldata assessorSeal,
+        address prover
+    ) external {
+        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        fulfillBatch(fills, assessorSeal, prover);
+    }
+
     /// Validates the request and records the price to transient storage such that it can be
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
         (address client,) = request.id.clientAndIndex();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
+        request.verifySignature(requestHash, client, clientSignature);
 
         request.validateForPriceRequest();
 
@@ -209,7 +228,7 @@ contract BoundlessMarket is
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
 
         // Record the price in transient storage, such that the order can be filled in this same transaction.
-        TransientPrice({valid: true, price: price}).store(requestDigest);
+        TransientPrice({valid: true, price: price}).store(requestHash);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -483,24 +502,6 @@ contract BoundlessMarket is
         uint96 fee = proverPayment * MARKET_FEE_BPS / 10000;
         marketBalance += fee;
         return proverPayment - fee;
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function submitRoot(address setVerifierAddress, bytes32 root, bytes calldata seal) external {
-        IRiscZeroSetVerifier(address(setVerifierAddress)).submitMerkleRoot(root, seal);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function submitRootAndFulfillBatch(
-        address setVerifier,
-        bytes32 root,
-        bytes calldata seal,
-        Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        address prover
-    ) external {
-        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        fulfillBatch(fills, assessorSeal, prover);
     }
 
     /// @inheritdoc IBoundlessMarket
