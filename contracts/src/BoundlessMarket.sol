@@ -23,7 +23,7 @@ import {IBoundlessMarket} from "./IBoundlessMarket.sol";
 import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
-import {FulfillmentAssessor} from "./types/FulfillmentAssessor.sol";
+import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
@@ -214,7 +214,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyDelivery(Fulfillment calldata fill, FulfillmentAssessor calldata assessorFill) public view {
+    function verifyDelivery(Fulfillment calldata fill, AssessorReceipt calldata assessorFill) public view {
         // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
@@ -244,7 +244,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyBatchDelivery(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill) public view {
+    function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorFill) public view {
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         uint256 fillsLength = fills.length;
         // We can't handle more than 65535 fills in a single batch.
@@ -296,7 +296,7 @@ contract BoundlessMarket is
         ProofRequest calldata request,
         bytes calldata clientSignature,
         Fulfillment calldata fill,
-        FulfillmentAssessor calldata assessorFill
+        AssessorReceipt calldata assessorFill
     ) external {
         priceRequest(request, clientSignature);
         fulfill(fill, assessorFill);
@@ -307,7 +307,7 @@ contract BoundlessMarket is
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
-        FulfillmentAssessor calldata assessorFill
+        AssessorReceipt calldata assessorFill
     ) external {
         for (uint256 i = 0; i < requests.length; i++) {
             priceRequest(requests[i], clientSignatures[i]);
@@ -316,7 +316,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment calldata fill, FulfillmentAssessor calldata assessorFill) public {
+    function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorFill) public {
         verifyDelivery(fill, assessorFill);
         _fulfillAndPay(fill.id, fill.requestDigest, assessorFill.prover, fill.requirePayment);
 
@@ -324,7 +324,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfillBatch(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill) public {
+    function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorFill) public {
         verifyBatchDelivery(fills, assessorFill);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
@@ -532,7 +532,7 @@ contract BoundlessMarket is
         bytes32 root,
         bytes calldata seal,
         Fulfillment[] calldata fills,
-        FulfillmentAssessor calldata assessorFill
+        AssessorReceipt calldata assessorFill
     ) external {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
         fulfillBatch(fills, assessorFill);

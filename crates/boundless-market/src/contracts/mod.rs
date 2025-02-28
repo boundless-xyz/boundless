@@ -442,20 +442,6 @@ impl Predicate {
     }
 }
 
-impl Selectors {
-    /// Initialize a new Selectors
-    pub fn new() -> Self {
-        Self { indices: vec![], values: vec![] }
-    }
-
-    /// Add a new selector with the given index and value.
-    pub fn add(&mut self, index: u8, value: [u8; 4]) -> &mut Self {
-        self.indices.push(index);
-        self.values.push(FixedBytes(value));
-        self
-    }
-}
-
 impl Input {
     /// Create a new [InputBuilder] for use in constructing and encoding the guest zkVM environment.
     #[cfg(not(target_os = "zkvm"))]

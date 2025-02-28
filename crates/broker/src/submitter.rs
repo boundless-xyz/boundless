@@ -13,7 +13,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, encode_seal, Fulfillment, FulfillmentAssessor,
+    boundless_market::BoundlessMarketService, encode_seal, AssessorReceipt, Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -243,7 +243,7 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             config.batcher.single_txn_fulfill
         };
-        let assessor_fill = FulfillmentAssessor {
+        let assessor_fill = AssessorReceipt {
             seal: assessor_seal.into(),
             selectors: vec![],
             prover: self.prover_address,

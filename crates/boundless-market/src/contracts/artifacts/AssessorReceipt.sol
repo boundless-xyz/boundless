@@ -6,11 +6,9 @@ pragma solidity ^0.8.20;
 import {Selector} from "./Selector.sol";
 import {RequestId} from "./RequestId.sol";
 
-using FulfillmentAssessorLibrary for FulfillmentAssessor global;
-
-/// @title FulfillmentAssessor Struct and Library
+/// @title AssessorReceipt Struct and Library
 /// @notice Represents the output of the assessor and proof of correctness, allowing request fulfillment.
-struct AssesorReceipt {
+struct AssessorReceipt {
     /// @notice Cryptographic proof for the validity of the execution results.
     /// @dev This will be sent to the `IRiscZeroVerifier` associated with this contract.
     bytes seal;
@@ -19,5 +17,3 @@ struct AssesorReceipt {
     /// @notice Address of the prover
     address prover;
 }
-
-library FulfillmentAssessorLibrary {}

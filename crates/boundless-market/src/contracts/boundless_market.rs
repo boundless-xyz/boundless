@@ -36,7 +36,7 @@ use thiserror::Error;
 use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
-    eip712_domain, request_id, EIP721DomainSaltless, Fulfillment, FulfillmentAssessor,
+    eip712_domain, request_id, AssessorReceipt, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
     Offer, ProofRequest, ProofStatus, RequestError, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
@@ -464,7 +464,7 @@ where
     pub async fn fulfill(
         &self,
         fulfillment: &Fulfillment,
-        assessor_fill: FulfillmentAssessor,
+        assessor_fill: AssessorReceipt,
     ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         tracing::debug!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_fill);
         let call = self.instance.fulfill(fulfillment.clone(), assessor_fill).from(self.caller);
@@ -511,7 +511,7 @@ where
     pub async fn fulfill_batch(
         &self,
         fulfillments: Vec<Fulfillment>,
-        assessor_fill: FulfillmentAssessor,
+        assessor_fill: AssessorReceipt,
     ) -> Result<Vec<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
         tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_fill:?})");
@@ -550,7 +550,7 @@ where
         root: B256,
         seal: Bytes,
         fulfillments: Vec<Fulfillment>,
-        assessor_fill: FulfillmentAssessor,
+        assessor_fill: AssessorReceipt,
     ) -> Result<(), MarketError> {
         tracing::debug!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_fill:?})");
         let call = self
@@ -579,7 +579,7 @@ where
         requests: Vec<ProofRequest>,
         client_sigs: Vec<Bytes>,
         fulfillments: Vec<Fulfillment>,
-        assessor_fill: FulfillmentAssessor,
+        assessor_fill: AssessorReceipt,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
         for request in requests.iter() {
@@ -1110,8 +1110,8 @@ mod tests {
     use super::BoundlessMarketService;
     use crate::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, Fulfillment,
-            FulfillmentAssessor, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
+            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, AssessorReceipt,
+            Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
             ProofStatus, Requirements,
         },
         input::InputBuilder,
@@ -1428,7 +1428,7 @@ mod tests {
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-        let assessor_fill = FulfillmentAssessor {
+        let assessor_fill = AssessorReceipt {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
@@ -1493,7 +1493,7 @@ mod tests {
             mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
-        let assessor_fill = FulfillmentAssessor {
+        let assessor_fill = AssessorReceipt {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
@@ -1552,7 +1552,7 @@ mod tests {
             mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
         let fulfillments = vec![fulfillment];
-        let assessor_fill = FulfillmentAssessor {
+        let assessor_fill = AssessorReceipt {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
@@ -1633,7 +1633,7 @@ mod tests {
             // publish the committed root
             ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-            let assessor_fill = FulfillmentAssessor {
+            let assessor_fill = AssessorReceipt {
                 seal: assessor_seal,
                 selectors: vec![],
                 prover: some_other_address,
@@ -1672,7 +1672,7 @@ mod tests {
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-        let assessor_fill = FulfillmentAssessor {
+        let assessor_fill = AssessorReceipt {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),

@@ -15,7 +15,7 @@
 pragma solidity ^0.8.20;
 
 import {Fulfillment} from "./types/Fulfillment.sol";
-import {FulfillmentAssessor} from "./types/FulfillmentAssessor.sol";
+import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 
@@ -245,27 +245,27 @@ interface IBoundlessMarket {
     /// @param fill The fulfillment information, including the journal and seal.
     /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function fulfill(Fulfillment calldata fill, FulfillmentAssessor calldata assessorFill) external;
+    function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorFill) external;
 
     /// @notice Fulfills a batch of requests. See IBoundlessMarket.fulfill for more information.
     /// @param fills The array of fulfillment information.
     /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function fulfillBatch(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill) external;
+    function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorFill) external;
 
     /// @notice Verify the application and assessor receipts, ensuring that the provided fulfillment
     /// satisfies the request.
     /// @param fill The fulfillment information, including the journal and seal.
     /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function verifyDelivery(Fulfillment calldata fill, FulfillmentAssessor calldata assessorFill) external view;
+    function verifyDelivery(Fulfillment calldata fill, AssessorReceipt calldata assessorFill) external view;
 
     /// @notice Verify the application and assessor receipts for the batch, ensuring that the provided
     /// fulfillments satisfy the requests.
     /// @param fills The array of fulfillment information.
     /// @param assessorFill The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function verifyBatchDelivery(Fulfillment[] calldata fills, FulfillmentAssessor calldata assessorFill)
+    function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorFill)
         external
         view;
 
@@ -291,7 +291,7 @@ interface IBoundlessMarket {
         ProofRequest calldata request,
         bytes calldata clientSignature,
         Fulfillment calldata fill,
-        FulfillmentAssessor calldata assessorFill
+        AssessorReceipt calldata assessorFill
     ) external;
 
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
@@ -306,7 +306,7 @@ interface IBoundlessMarket {
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
-        FulfillmentAssessor calldata assessorFill
+        AssessorReceipt calldata assessorFill
     ) external;
 
     /// @notice Submit a new root to a set-verifier.
@@ -329,7 +329,7 @@ interface IBoundlessMarket {
         bytes32 root,
         bytes calldata seal,
         Fulfillment[] calldata fills,
-        FulfillmentAssessor calldata assessorFill
+        AssessorReceipt calldata assessorFill
     ) external;
 
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn
