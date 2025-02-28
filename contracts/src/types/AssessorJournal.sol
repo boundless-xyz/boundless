@@ -3,6 +3,8 @@
 // All rights reserved.
 pragma solidity ^0.8.20;
 
+import {AssessorJournalCallback} from "./AssessorJournalCallback.sol";
+
 /// @title Assessor Journal Struct
 /// @notice Represents the structured journal of the Assessor guest which verifies the signature(s)
 /// from client(s) and that the requirements are met by claim digest(s) in the Merkle tree committed
@@ -12,6 +14,8 @@ struct AssessorJournal {
     /// @dev When a client signs two requests with the same ID, only one can ever be fulfilled.
     /// Using the digest here ensures that the request validated by the assessor matches the one that was locked / priced.
     bytes32[] requestDigests;
+    /// @notice The (optional) callbacks for the requests committed by the assessor.
+    AssessorJournalCallback[] callbacks;
     /// @notice Root of the Merkle tree committing to the set of proven claims.
     /// @dev In the case of a batch of size one, this may simply be a claim digest.
     bytes32 root;

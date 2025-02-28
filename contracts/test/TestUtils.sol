@@ -24,7 +24,7 @@ library TestUtils {
         }
         bytes32 root = MerkleProofish.processTree(claimDigests);
 
-        bytes memory journal = abi.encode(AssessorJournal({requestDigests: requestDigests, root: root, prover: prover}));
+        bytes memory journal = abi.encode(AssessorJournal({requestDigests: requestDigests, root: root, prover: prover, callbacks: new AssessorJournalCallback[](0)}));
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 

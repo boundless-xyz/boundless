@@ -22,6 +22,7 @@ import {IBoundlessMarket} from "./IBoundlessMarket.sol";
 import {IBoundlessMarketCallback} from "./IBoundlessMarketCallback.sol";
 import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
+import {AssessorJournalCallback} from "./types/AssessorJournalCallback.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
@@ -232,7 +233,7 @@ contract BoundlessMarket is
         bytes32[] memory requestDigests = new bytes32[](1);
         requestDigests[0] = fill.requestDigest;
         bytes32 assessorJournalDigest =
-            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: claimDigest, prover: prover})));
+            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: claimDigest, prover: prover, callbacks: new AssessorJournalCallback[](0)})));
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
     }
@@ -255,7 +256,7 @@ contract BoundlessMarket is
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32 assessorJournalDigest =
-            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: batchRoot, prover: prover})));
+            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: batchRoot, prover: prover, callbacks: new AssessorJournalCallback[](0)})));
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
     }
