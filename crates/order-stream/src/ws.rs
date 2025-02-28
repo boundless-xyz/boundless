@@ -253,7 +253,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                                     errors_counter = 0;
                                 }
                                 Err(err) => {
-                                    tracing::warn!("Failed to send message to client {}: {}", address, err);
+                                    tracing::warn!("Failed to send message to client {address}: {err}");
                                     errors_counter += 1;
                                     if errors_counter > 10 {
                                         tracing::warn!(
@@ -276,7 +276,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                     // Send ping
                     let random_bytes: Vec<u8> = rand::rng().random::<[u8; 16]>().into();
                     if let Err(err) = sender_ws.send(Message::Ping(random_bytes.clone())).await {
-                        tracing::warn!("Failed to send Ping: {err:?}");
+                        tracing::warn!("Failed to send Ping to {address}: {err:?}");
                         break;
                     }
                     tracing::trace!("Send Ping: {address}");
@@ -309,8 +309,14 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                             break;
                             // TODO: cleaner management of Some(Ok(Message::Close))
                         }
-                        _ => {
-                            tracing::debug!("Empty recv, closing connections");
+                        Some(Ok(msg)) => {
+                            tracing::warn!("Received unexpected message from {address}: {msg:?}");
+                        }
+                        Some(Err(err)) => {
+                            tracing::warn!("Error receiving message from {address}: {err:?}");
+                        }
+                        None => {
+                            tracing::debug!("Empty recv from {address}, closing connections");
                             break;
                         }
                     }
