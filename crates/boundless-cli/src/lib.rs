@@ -32,7 +32,7 @@ use url::Url;
 
 use boundless_market::{
     contracts::{
-        EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, AssessorReceipt, InputType,
+        AssessorReceipt, EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, InputType,
     },
     input::GuestEnv,
     order_stream_client::Order,
@@ -49,7 +49,7 @@ alloy::sol!(
         /// The fulfillments of the order.
         BoundlessFulfillment[] fills;
         /// The fulfillment of the assessor.
-        AssessorReceipt assessorFill;
+        AssessorReceipt assessorReceipt;
     }
 );
 
@@ -73,7 +73,7 @@ impl OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),
             seal: root_seal.into(),
             fills: vec![fill],
-            assessorFill: assessor_fill,
+            assessorReceipt: assessor_fill,
         })
     }
 }

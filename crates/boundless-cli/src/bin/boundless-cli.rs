@@ -513,7 +513,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     requests_to_price,
                     vec![sig],
                     order_fulfilled.fills,
-                    order_fulfilled.assessorFill,
+                    order_fulfilled.assessorReceipt,
                     None,
                 )
                 .await

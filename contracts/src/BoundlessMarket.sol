@@ -214,7 +214,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyDelivery(Fulfillment calldata fill, AssessorReceipt calldata assessorFill) public view {
+    function verifyDelivery(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public view {
         // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
@@ -229,22 +229,22 @@ contract BoundlessMarket is
             abi.encode(
                 AssessorJournal({
                     requestDigests: requestDigests,
-                    selectors: assessorFill.selectors,
+                    selectors: assessorReceipt.selectors,
                     root: claimDigest,
-                    prover: assessorFill.prover
+                    prover: assessorReceipt.prover
                 })
             )
         );
         // Verification that the provided seal matches the required selector.
-        if (assessorFill.selectors.length == 1 && assessorFill.selectors[0].value != bytes4(fill.seal[0:4])) {
-            revert SelectorMismatch(assessorFill.selectors[0].value, bytes4(fill.seal[0:4]));
+        if (assessorReceipt.selectors.length == 1 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
+            revert SelectorMismatch(assessorReceipt.selectors[0].value, bytes4(fill.seal[0:4]));
         }
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorFill.seal, ASSESSOR_ID, assessorJournalDigest);
+        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorFill) public view {
+    function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public view {
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         uint256 fillsLength = fills.length;
         // We can't handle more than 65535 fills in a single batch.
@@ -255,7 +255,7 @@ contract BoundlessMarket is
         bytes32[] memory claimDigests = new bytes32[](fillsLength);
         bytes32[] memory requestDigests = new bytes32[](fillsLength);
 
-        uint256 selectorsLength = assessorFill.selectors.length;
+        uint256 selectorsLength = assessorReceipt.selectors.length;
         uint16 selectorIdx = 0;
 
         for (uint256 i = 0; i < fillsLength; i++) {
@@ -265,9 +265,9 @@ contract BoundlessMarket is
             claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
 
             // If the current index is flagged for selector verification, process it.
-            if (selectorIdx < selectorsLength && assessorFill.selectors[selectorIdx].index == i) {
-                if (assessorFill.selectors[selectorIdx].value != bytes4(fill.seal[0:4])) {
-                    revert SelectorMismatch(assessorFill.selectors[selectorIdx].value, bytes4(fill.seal[0:4]));
+            if (selectorIdx < selectorsLength && assessorReceipt.selectors[selectorIdx].index == i) {
+                if (assessorReceipt.selectors[selectorIdx].value != bytes4(fill.seal[0:4])) {
+                    revert SelectorMismatch(assessorReceipt.selectors[selectorIdx].value, bytes4(fill.seal[0:4]));
                 }
                 selectorIdx++;
             }
@@ -282,13 +282,13 @@ contract BoundlessMarket is
                 AssessorJournal({
                     requestDigests: requestDigests,
                     root: batchRoot,
-                    selectors: assessorFill.selectors,
-                    prover: assessorFill.prover
+                    selectors: assessorReceipt.selectors,
+                    prover: assessorReceipt.prover
                 })
             )
         );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorFill.seal, ASSESSOR_ID, assessorJournalDigest);
+        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -296,10 +296,10 @@ contract BoundlessMarket is
         ProofRequest calldata request,
         bytes calldata clientSignature,
         Fulfillment calldata fill,
-        AssessorReceipt calldata assessorFill
+        AssessorReceipt calldata assessorReceipt
     ) external {
         priceRequest(request, clientSignature);
-        fulfill(fill, assessorFill);
+        fulfill(fill, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -307,31 +307,31 @@ contract BoundlessMarket is
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorFill
+        AssessorReceipt calldata assessorReceipt
     ) external {
         for (uint256 i = 0; i < requests.length; i++) {
             priceRequest(requests[i], clientSignatures[i]);
         }
-        fulfillBatch(fills, assessorFill);
+        fulfillBatch(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorFill) public {
-        verifyDelivery(fill, assessorFill);
-        _fulfillAndPay(fill.id, fill.requestDigest, assessorFill.prover, fill.requirePayment);
+    function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public {
+        verifyDelivery(fill, assessorReceipt);
+        _fulfillAndPay(fill.id, fill.requestDigest, assessorReceipt.prover, fill.requirePayment);
 
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorFill) public {
-        verifyBatchDelivery(fills, assessorFill);
+    function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public {
+        verifyBatchDelivery(fills, assessorReceipt);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillAndPay(fills[i].id, fills[i].requestDigest, assessorFill.prover, fills[i].requirePayment);
+            _fulfillAndPay(fills[i].id, fills[i].requestDigest, assessorReceipt.prover, fills[i].requirePayment);
 
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
@@ -532,10 +532,10 @@ contract BoundlessMarket is
         bytes32 root,
         bytes calldata seal,
         Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorFill
+        AssessorReceipt calldata assessorReceipt
     ) external {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        fulfillBatch(fills, assessorFill);
+        fulfillBatch(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
