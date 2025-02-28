@@ -506,6 +506,10 @@ mod tests {
         let pending_connection = app_state.set_pending_connection(addr).await;
         assert!(pending_connection, "Should return true for a timed out connection");
 
+        // Newly set connection should result in pending_connection == false
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(!pending_connection, "Should return false for a replaced connection within timeout");
+
         // Test removing a pending connection
         app_state.remove_pending_connection(&addr).await;
         let pending_connection = app_state.set_pending_connection(addr).await;
