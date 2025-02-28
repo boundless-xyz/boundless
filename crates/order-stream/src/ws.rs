@@ -311,9 +311,11 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                         }
                         Some(Ok(msg)) => {
                             tracing::warn!("Received unexpected message from {address}: {msg:?}");
+                            break;
                         }
                         Some(Err(err)) => {
                             tracing::warn!("Error receiving message from {address}: {err:?}");
+                            break;
                         }
                         None => {
                             tracing::debug!("Empty recv from {address}, closing connections");
