@@ -216,6 +216,24 @@ impl AppState {
             shutdown: CancellationToken::new(),
         }))
     }
+
+    /// Set a pending connection and return true if the connection is not already pending.
+    pub(crate) async fn set_pending_connection(&self, addr: Address) -> bool {
+        let mut pending_connections = self.pending_connections.lock().await;
+        pending_connections.insert(addr)
+    }
+
+    /// Remove a pending connection for a given address.
+    pub(crate) async fn remove_pending_connection(&self, addr: &Address) {
+        let mut pending_connections = self.pending_connections.lock().await;
+        pending_connections.remove(addr);
+    }
+
+    /// Removes connection for a given address.
+    pub(crate) async fn remove_connection(&self, addr: &Address) {
+        let mut connections = self.connections.write().await;
+        connections.remove(addr);
+    }
 }
 
 const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb

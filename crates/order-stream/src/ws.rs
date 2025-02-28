@@ -108,15 +108,12 @@ pub(crate) async fn websocket_handler(
         }
     }
 
-    {
-        // Connection does not exist, add to pending connections.
-        // Note: This is done without holding the lock to state.connections to minimize lock
-        // contention. At worst, the server will upgrade the connection and immediately drop it.
-        let mut pending_connections = state.pending_connections.lock().await;
-        if !pending_connections.insert(client_addr) {
-            // If the connection is already pending, return an error as max connections is 1.
-            return Ok((StatusCode::CONFLICT, "Connection in progress").into_response());
-        }
+    // Connection does not exist, add to pending connections.
+    // Note: This is done without holding the lock to state.connections to minimize lock
+    // contention. At worst, the server will upgrade the connection and immediately drop it.
+    if !state.set_pending_connection(client_addr).await {
+        // If the connection is already pending, return an error as max connections is 1.
+        return Ok((StatusCode::CONFLICT, "Connection in progress").into_response());
     }
 
     // Check the balance
@@ -136,8 +133,7 @@ pub(crate) async fn websocket_handler(
             Err(err) => {
                 tracing::warn!("Failed to get stake balance for {client_addr}: {err}");
                 // Clean up pending connection
-                let mut pending_connections = state.pending_connections.lock().await;
-                pending_connections.remove(&client_addr);
+                state.remove_pending_connection(&client_addr).await;
                 return Ok((StatusCode::INTERNAL_SERVER_ERROR, "Failed to check stake balance")
                     .into_response());
             }
@@ -156,7 +152,11 @@ pub(crate) async fn websocket_handler(
 
     // Proceed with WebSocket upgrade
     tracing::info!("New webSocket connection from {client_addr}");
-    Ok(ws.on_upgrade(move |socket| websocket_connection(socket, client_addr, state)))
+    Ok(ws
+        .on_failed_upgrade(move |error| {
+            tracing::warn!("Failed to upgrade connection for {client_addr}: {error:?}");
+        })
+        .on_upgrade(move |socket| websocket_connection(socket, client_addr, state)))
 }
 
 // Function to broadcast an order to all WebSocket clients in random order
@@ -212,24 +212,28 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
 
         let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
 
+        let is_connected;
         // Add sender to the list of connections
         {
             let mut connections = state.connections.write().await;
             match connections.entry(address) {
                 Entry::Occupied(_) => {
+                    is_connected = true;
                     tracing::warn!("Client {address} already connected");
-                    return;
                 },
                 Entry::Vacant(entry) => {
-                        entry.insert(ClientConnection { sender: sender_channel.clone()});
+                    is_connected = false;
+                    entry.insert(ClientConnection { sender: sender_channel.clone()});
                 },
             }
         }
 
         // Clean up the pending connection entry before upgrading
-        {
-            let mut pending_connections = state.pending_connections.lock().await;
-            pending_connections.remove(&address);
+        state.remove_pending_connection(&address).await;
+
+        if is_connected {
+            // Address is already connected, drop additional connection.
+            return;
         }
 
         let mut errors_counter = 0usize;
@@ -317,8 +321,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
             }
         }
         // Remove the connection when the send loop exits
-        let mut connections = state.connections.write().await;
-        connections.remove(&address);
+        state.remove_connection(&address).await;
         tracing::debug!("WebSocket connection closed: {}", address);
     });
 }
