@@ -274,7 +274,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Address, B256, U256},
+        primitives::{Address, U256},
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
     };
@@ -318,13 +318,10 @@ mod tests {
         let max_price = 10;
         let proving_request = ProofRequest {
             id: boundless_market.request_id_from_nonce().await.unwrap(),
-            requirements: Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            requirements: Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },
             offer: Offer {

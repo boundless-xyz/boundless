@@ -74,13 +74,10 @@ async fn request_spawner(
         let request = ProofRequest::new(
             ctx.customer_market.index_from_nonce().await?,
             &ctx.customer_signer.address(),
-            Requirements {
-                imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                Digest::from(ECHO_ID),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             elf_url,
             Input {
                 inputType: InputType::Inline,

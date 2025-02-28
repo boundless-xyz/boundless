@@ -24,7 +24,7 @@ use alloy::{
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
-use alloy_primitives::{aliases::U160, Address, Bytes, B256, U256};
+use alloy_primitives::{aliases::U160, Address, Bytes, FixedBytes, B256, U256};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
@@ -402,7 +402,11 @@ impl ProofRequest {
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
     pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), predicate }
+        Self {
+            imageId: <[u8; 32]>::from(image_id.into()).into(),
+            predicate,
+            selector: FixedBytes::<4>([0; 4]),
+        }
     }
 
     /// Sets the image ID.
@@ -413,6 +417,11 @@ impl Requirements {
     /// Sets the predicate.
     pub fn with_predicate(self, predicate: Predicate) -> Self {
         Self { predicate, ..self }
+    }
+
+    /// Sets the selector.
+    pub fn with_selector(self, selector: FixedBytes<4>) -> Self {
+        Self { selector, ..self }
     }
 }
 
@@ -1050,13 +1059,10 @@ mod tests {
 
         let req = ProofRequest {
             id: request_id,
-            requirements: Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            requirements: Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             imageUrl: "https://dev.null".to_string(),
             input: Input::builder().build_inline().unwrap(),
             offer: Offer {

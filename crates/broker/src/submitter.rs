@@ -13,7 +13,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, encode_seal, Fulfillment,
+    boundless_market::BoundlessMarketService, encode_seal, AssessorReceipt, Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -243,7 +243,11 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             config.batcher.single_txn_fulfill
         };
-
+        let assessor_fill = AssessorReceipt {
+            seal: assessor_seal.into(),
+            selectors: vec![],
+            prover: self.prover_address,
+        };
         if single_txn_fulfill {
             if let Err(err) = self
                 .market
@@ -252,8 +256,7 @@ where
                     root,
                     batch_seal.into(),
                     fulfillments.clone(),
-                    assessor_seal.into(),
-                    self.prover_address,
+                    assessor_fill,
                 )
                 .await
             {
@@ -291,11 +294,7 @@ where
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
 
-            if let Err(err) = self
-                .market
-                .fulfill_batch(fulfillments.clone(), assessor_seal.into(), self.prover_address)
-                .await
-            {
+            if let Err(err) = self.market.fulfill_batch(fulfillments.clone(), assessor_fill).await {
                 tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
                 for fulfillment in fulfillments.iter() {
                     if let Err(db_err) = self
@@ -414,7 +413,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{B256, U256},
+        primitives::U256,
         providers::{
             fillers::{
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -531,13 +530,10 @@ mod tests {
         let order_request = ProofRequest::new(
             market_customer.index_from_nonce().await.unwrap(),
             &customer_addr,
-            Requirements {
-                imageId: B256::from_slice(echo_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                echo_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
