@@ -270,7 +270,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                 }
                 _ = ping_interval.tick() => {
                     if ping_data.is_some() {
-                        tracing::error!("Client {address} never responded to ping, closing conn");
+                        tracing::warn!("Client {address} never responded to ping, closing conn");
                         break;
                     }
                     // Send ping
@@ -279,7 +279,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                         tracing::warn!("Failed to send Ping to {address}: {err:?}");
                         break;
                     }
-                    tracing::trace!("Send Ping: {address}");
+                    tracing::trace!("Sent Ping to {address}");
                     ping_data = Some(random_bytes);
                 }
                 ws_msg = recver_ws.next() => {
@@ -288,26 +288,33 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                     // connection.
                     match ws_msg {
                         Some(Ok(Message::Pong(data))) => {
-                            tracing::trace!("Got Pong: {address}");
-                            if let Some(send_data) = ping_data.as_ref() {
-                                if *send_data != data {
-                                    tracing::error!("Invalid ping data from client {address}, closing conn");
+                            tracing::trace!("Got Pong from {address}");
+                            if let Some(send_data) = ping_data.take() {
+                                if send_data != data {
+                                    tracing::warn!("Invalid ping data from client {address}, closing conn");
                                     break;
                                 }
-                                ping_data = None;
                                 if let Err(err) = state.db.broker_update(address).await {
                                     tracing::error!("Failed to update broker timestamp: {err:?}");
                                     break;
                                 }
                             } else {
-                                tracing::warn!("Client {address} send out of order pong, closing conn");
+                                tracing::warn!("Client {address} sent out of order pong, closing conn");
                                 break;
                             }
                         }
                         Some(Ok(Message::Close(_))) => {
-                            tracing::warn!("Client sent close message, closing conn");
+                            tracing::warn!("Client {address} sent close message, closing conn");
                             break;
                             // TODO: cleaner management of Some(Ok(Message::Close))
+                        }
+                        Some(Ok(Message::Ping(data))) => {
+                            // Send pong back to client
+                            if let Err(err) = sender_ws.send(Message::Pong(data)).await {
+                                tracing::warn!("Failed to send Pong to {address}: {err:?}");
+                                break;
+                            }
+                            tracing::trace!("Sent Pong to {address}");
                         }
                         Some(Ok(msg)) => {
                             tracing::warn!("Received unexpected message from {address}: {msg:?}");
