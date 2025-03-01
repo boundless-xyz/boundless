@@ -405,7 +405,8 @@ async fn prove_stark(
         _aux_stream,
         exec_stream,
         _gpu_prove_stream,
-        _gpu_coproc_stream,
+        _gpu_keccak_stream,
+        _gpu_union_stream,
         _gpu_join_stream,
         _snark_stream,
     ) = helpers::get_or_create_streams(&state.db_pool, &api_key)
@@ -564,7 +565,8 @@ async fn prove_groth16(
         _aux_stream,
         _exec_stream,
         _gpu_prove_stream,
-        _gpu_coproc_stream,
+        _gpu_keccak_stream,
+        _gpu_union_stream,
         _gpu_join_stream,
         snark_stream,
     ) = helpers::get_or_create_streams(&state.db_pool, &api_key)

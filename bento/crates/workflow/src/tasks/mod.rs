@@ -14,7 +14,7 @@ pub(crate) mod keccak;
 pub(crate) mod prove;
 pub(crate) mod resolve;
 pub(crate) mod snark;
-
+pub(crate) mod union;
 /// Recursion receipts key prefix
 pub(crate) const RECUR_RECEIPT_PATH: &str = "recursion_receipts";
 
@@ -24,8 +24,7 @@ pub(crate) const SEGMENTS_PATH: &str = "segments";
 /// Receipts key prefix for redis
 pub(crate) const RECEIPT_PATH: &str = "receipts";
 
-/// Coprocessor callback prefix for redis
-pub(crate) const COPROC_CB_PATH: &str = "coproc";
+pub(crate) const KECCAK_RECEIPT_PATH: &str = "keccak_receipts";
 
 /// Reads the [`IMAGE_ID_FILE`] and returns a [Digest]
 pub(crate) fn read_image_id(image_id: &str) -> Result<Digest> {
@@ -37,7 +36,7 @@ pub(crate) fn serialize_obj<T: Serialize>(item: &T) -> Result<Vec<u8>> {
     bincode::serialize(item).map_err(anyhow::Error::new)
 }
 
-/// Deserializes a an encoded function
+/// Deserializes an encoded function
 pub(crate) fn deserialize_obj<T: for<'de> Deserialize<'de>>(encoded: &[u8]) -> Result<T> {
     let decoded = bincode::deserialize(encoded)?;
     Ok(decoded)

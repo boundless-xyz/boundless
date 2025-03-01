@@ -147,6 +147,65 @@ async fn e2e(pool: PgPool) -> Result<()> {
                 .await
                 .unwrap();
             }
+            TaskCmd::Union => {
+                let task_def = serde_json::json!({"Prove": { "union": tree_task.task_number }});
+                let prereqs = serde_json::json!([]);
+                let task_name = format!("{}", tree_task.task_number);
+
+                // println!("inserting: union {}", task_name);
+                taskdb::create_task(
+                    pool,
+                    &db_task.job_id,
+                    &task_name,
+                    gpu_stream,
+                    &task_def,
+                    &prereqs,
+                    0,
+                    10,
+                )
+                .await
+                .unwrap();
+            }
+            TaskCmd::Keccak => {
+                let task_def = serde_json::json!({"Prove": { "keccak": tree_task.task_number }});
+                let prereqs = serde_json::json!([]);
+                let task_name = format!("{}", tree_task.task_number);
+
+                // println!("inserting: keccak {}", task_name);
+                taskdb::create_task(
+                    pool,
+                    &db_task.job_id,
+                    &task_name,
+                    gpu_stream,
+                    &task_def,
+                    &prereqs,
+                    0,
+                    10,
+                )
+                .await
+                .unwrap();
+            }
+            TaskCmd::FinalizeUnions => {
+                let task_def = serde_json::json!({
+                    "FinalizeUnions": {
+                    }
+                });
+                let prereqs = serde_json::json!([]);
+
+                // println!("inserting: finalize unions {:?}", prereqs);
+                taskdb::create_task(
+                    pool,
+                    &db_task.job_id,
+                    "finalize_unions",
+                    aux_stream,
+                    &task_def,
+                    &prereqs,
+                    0,
+                    10,
+                )
+                .await
+                .unwrap();
+            }
         }
         Ok(())
     }

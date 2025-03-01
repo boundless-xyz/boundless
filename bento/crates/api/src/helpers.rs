@@ -6,14 +6,14 @@ use anyhow::{Context, Result};
 use sqlx::PgPool;
 use uuid::Uuid;
 use workflow_common::{
-    ExecutorResp, AUX_WORK_TYPE, COPROC_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
-    SNARK_WORK_TYPE,
+    ExecutorResp, AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, KECCAK_WORK_TYPE, PROVE_WORK_TYPE,
+    SNARK_WORK_TYPE, UNION_WORK_TYPE,
 };
 
 pub async fn get_or_create_streams(
     pool: &PgPool,
     user_id: &str,
-) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid, Uuid)> {
+) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid, Uuid, Uuid)> {
     let aux_stream = if let Some(res) = taskdb::get_stream(pool, user_id, AUX_WORK_TYPE)
         .await
         .context("Failed to get aux stream")?
@@ -44,22 +44,34 @@ pub async fn get_or_create_streams(
     {
         res
     } else {
-        tracing::info!("Creating a new gpu stream for key: {user_id}");
+        tracing::info!("Creating a new gpu prove stream for key: {user_id}");
         taskdb::create_stream(pool, PROVE_WORK_TYPE, 0, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu prove stream")?
     };
 
-    let gpu_coproc_stream = if let Some(res) = taskdb::get_stream(pool, user_id, COPROC_WORK_TYPE)
+    let gpu_keccak_stream = if let Some(res) = taskdb::get_stream(pool, user_id, KECCAK_WORK_TYPE)
         .await
-        .context("Failed to get gpu prove stream")?
+        .context("Failed to get gpu keccak stream")?
     {
         res
     } else {
-        tracing::info!("Creating a new gpu stream for key: {user_id}");
-        taskdb::create_stream(pool, COPROC_WORK_TYPE, 0, 1.0, user_id)
+        tracing::info!("Creating a new gpu keccak stream for key: {user_id}");
+        taskdb::create_stream(pool, KECCAK_WORK_TYPE, 0, 1.0, user_id)
             .await
-            .context("Failed to create taskdb gpu coproc stream")?
+            .context("Failed to create taskdb gpu keccak stream")?
+    };
+
+    let gpu_union_stream = if let Some(res) = taskdb::get_stream(pool, user_id, UNION_WORK_TYPE)
+        .await
+        .context("Failed to get gpu union stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new gpu union stream for key: {user_id}");
+        taskdb::create_stream(pool, UNION_WORK_TYPE, 0, 1.0, user_id)
+            .await
+            .context("Failed to create taskdb gpu union stream")?
     };
 
     let gpu_join_stream = if let Some(res) = taskdb::get_stream(pool, user_id, JOIN_WORK_TYPE)
@@ -90,7 +102,8 @@ pub async fn get_or_create_streams(
         aux_stream,
         exec_stream,
         gpu_prove_stream,
-        gpu_coproc_stream,
+        gpu_keccak_stream,
+        gpu_union_stream,
         gpu_join_stream,
         snark_stream,
     ))
