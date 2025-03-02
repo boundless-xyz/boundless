@@ -12,10 +12,11 @@ struct Requirements {
     bytes32 imageId;
     Callback callback;
     Predicate predicate;
+    bytes4 selector;
 }
 
 library RequirementsLibrary {
-    string constant REQUIREMENTS_TYPE = "Requirements(bytes32 imageId,Callback callback,Predicate predicate)";
+    string constant REQUIREMENTS_TYPE = "Requirements(bytes32 imageId,Callback callback,Predicate predicate,bytes4 selector)";
     bytes32 constant REQUIREMENTS_TYPEHASH =
         keccak256(abi.encodePacked(REQUIREMENTS_TYPE, CallbackLibrary.CALLBACK_TYPE, PredicateLibrary.PREDICATE_TYPE));
 
@@ -28,7 +29,8 @@ library RequirementsLibrary {
                 REQUIREMENTS_TYPEHASH,
                 requirements.imageId,
                 CallbackLibrary.eip712Digest(requirements.callback),
-                PredicateLibrary.eip712Digest(requirements.predicate)
+                PredicateLibrary.eip712Digest(requirements.predicate),
+                requirements.selector
             )
         );
     }

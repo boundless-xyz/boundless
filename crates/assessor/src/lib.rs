@@ -105,7 +105,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
+        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
         Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
@@ -116,18 +116,14 @@ mod tests {
         ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     };
 
-    fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
+    fn proving_request(id: u32, signer: Address, _image_id: B256, prefix: Vec<u8>) -> ProofRequest {
         ProofRequest::new(
             id,
             &signer,
-            Requirements {
-                imageId: image_id,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: prefix.into(),
-                },
-                callback: Callback::default(),
-            },
+            Requirements::new(
+                Digest::from(ECHO_ID),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
+            ),
             "test",
             Input { inputType: InputType::Url, data: Default::default() },
             Offer {

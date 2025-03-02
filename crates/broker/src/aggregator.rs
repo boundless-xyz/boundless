@@ -571,12 +571,12 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{B256, U256},
+        primitives::U256,
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
@@ -647,14 +647,10 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                callback: Callback::default(),
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
@@ -694,14 +690,10 @@ mod tests {
         let order_request = ProofRequest::new(
             1,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                callback: Callback::default(),
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
@@ -810,14 +802,10 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                callback: Callback::default(),
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
@@ -872,14 +860,10 @@ mod tests {
         let order_request = ProofRequest::new(
             1,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                callback: Callback::default(),
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
@@ -986,14 +970,10 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                callback: Callback::default(),
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
@@ -1101,14 +1081,10 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                callback: Callback::default(),
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
@@ -1224,14 +1200,10 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                callback: Callback::default(),
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {

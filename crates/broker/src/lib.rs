@@ -13,10 +13,7 @@ use alloy::{
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
-    contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, InputType,
-        ProofRequest,
-    },
+    contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
 };
@@ -25,6 +22,7 @@ use clap::Parser;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
 use provers::ProverObj;
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};

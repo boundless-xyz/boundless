@@ -15,7 +15,7 @@ struct Callback {
 }
 
 library CallbackLibrary {
-    string constant CALLBACK_TYPE = "Callback(address addr,uint80 gasLimit)";
+    string constant CALLBACK_TYPE = "Callback(address addr,uint96 gasLimit)";
     bytes32 constant CALLBACK_TYPEHASH = keccak256(bytes(CALLBACK_TYPE));
 
     /// @notice Computes the EIP-712 digest for the given callback

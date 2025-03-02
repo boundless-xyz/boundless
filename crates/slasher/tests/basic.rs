@@ -6,13 +6,12 @@ use std::{process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{Address, Bytes, U256},
     providers::Provider,
     signers::Signer,
 };
 use boundless_market::contracts::{
-    test_utils::TestCtx, Callback, Input, Offer, Predicate, PredicateType, ProofRequest,
-    Requirements,
+    test_utils::TestCtx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
 };
 use futures_util::StreamExt;
 use guest_assessor::ASSESSOR_GUEST_ID;
@@ -30,14 +29,10 @@ async fn create_order(
     let req = ProofRequest::new(
         order_id,
         &signer_addr,
-        Requirements {
-            imageId: B256::ZERO,
-            predicate: Predicate {
-                predicateType: PredicateType::PrefixMatch,
-                data: Default::default(),
-            },
-            callback: Callback::default(),
-        },
+        Requirements::new(
+            Digest::ZERO,
+            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+        ),
         "https://dev.null".to_string(),
         Input::builder().build_inline().unwrap(),
         Offer {

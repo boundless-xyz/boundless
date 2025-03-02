@@ -22,8 +22,9 @@ import {IBoundlessMarket} from "./IBoundlessMarket.sol";
 import {IBoundlessMarketCallback} from "./IBoundlessMarketCallback.sol";
 import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
-import {AssessorJournalCallback} from "./types/AssessorJournalCallback.sol";
+import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
+import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
@@ -189,9 +190,7 @@ contract BoundlessMarket is
             lockDeadline: lockDeadline,
             deadlineDelta: uint256(deadline - lockDeadline).toUint24(),
             stake: request.offer.lockStake.toUint96(),
-            fingerprint: bytes8(requestDigest),
-            callbackAddress: request.requirements.callback.addr,
-            callbackGasLimit: request.requirements.callback.gasLimit
+            fingerprint: bytes8(requestDigest)
         });
 
         clientAccount.setRequestLocked(idx);
@@ -221,7 +220,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
+    function verifyDelivery(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public view {
         // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
@@ -232,33 +231,72 @@ contract BoundlessMarket is
         // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32[] memory requestDigests = new bytes32[](1);
         requestDigests[0] = fill.requestDigest;
-        bytes32 assessorJournalDigest =
-            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: claimDigest, prover: prover, callbacks: new AssessorJournalCallback[](0)})));
+        bytes32 assessorJournalDigest = sha256(
+            abi.encode(
+                AssessorJournal({
+                    requestDigests: requestDigests,
+                    selectors: assessorReceipt.selectors,
+                    callbacks: assessorReceipt.callbacks,
+                    root: claimDigest,
+                    prover: assessorReceipt.prover
+                })
+            )
+        );
+        // Verification that the provided seal matches the required selector.
+        if (assessorReceipt.selectors.length == 1 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
+            revert SelectorMismatch(assessorReceipt.selectors[0].value, bytes4(fill.seal[0:4]));
+        }
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
+        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyBatchDelivery(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover)
-        public
-        view
-    {
+    function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public view {
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
-        bytes32[] memory claimDigests = new bytes32[](fills.length);
-        bytes32[] memory requestDigests = new bytes32[](fills.length);
-        for (uint256 i = 0; i < fills.length; i++) {
-            requestDigests[i] = fills[i].requestDigest;
-            claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fills[i].seal, claimDigests[i]));
+        uint256 fillsLength = fills.length;
+        // We can't handle more than 65535 fills in a single batch.
+        // This is a limitation of the current Selectors implementation, and can be increased in the future.
+        if (fillsLength > type(uint16).max) {
+            revert BatchSizeExceedsLimit(fillsLength, type(uint16).max);
+        }
+        bytes32[] memory claimDigests = new bytes32[](fillsLength);
+        bytes32[] memory requestDigests = new bytes32[](fillsLength);
+
+        uint256 selectorsLength = assessorReceipt.selectors.length;
+        uint16 selectorIdx = 0;
+
+        for (uint256 i = 0; i < fillsLength; i++) {
+            Fulfillment calldata fill = fills[i];
+
+            requestDigests[i] = fill.requestDigest;
+            claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+
+            // If the current index is flagged for selector verification, process it.
+            if (selectorIdx < selectorsLength && assessorReceipt.selectors[selectorIdx].index == i) {
+                if (assessorReceipt.selectors[selectorIdx].value != bytes4(fill.seal[0:4])) {
+                    revert SelectorMismatch(assessorReceipt.selectors[selectorIdx].value, bytes4(fill.seal[0:4]));
+                }
+                selectorIdx++;
+            }
+            VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigests[i]));
         }
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.
-        bytes32 assessorJournalDigest =
-            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: batchRoot, prover: prover, callbacks: new AssessorJournalCallback[](0)})));
+        bytes32 assessorJournalDigest = sha256(
+            abi.encode(
+                AssessorJournal({
+                    requestDigests: requestDigests,
+                    root: batchRoot,
+                    callbacks: assessorReceipt.callbacks,
+                    selectors: assessorReceipt.selectors,
+                    prover: assessorReceipt.prover
+                })
+            )
+        );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
+        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -266,11 +304,10 @@ contract BoundlessMarket is
         ProofRequest calldata request,
         bytes calldata clientSignature,
         Fulfillment calldata fill,
-        bytes calldata assessorSeal,
-        address prover
+        AssessorReceipt calldata assessorReceipt
     ) external {
         priceRequest(request, clientSignature);
-        fulfill(fill, assessorSeal, prover);
+        fulfill(fill, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -278,55 +315,72 @@ contract BoundlessMarket is
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        address prover
+        AssessorReceipt calldata assessorReceipt
     ) external {
         for (uint256 i = 0; i < requests.length; i++) {
             priceRequest(requests[i], clientSignatures[i]);
         }
-        fulfillBatch(fills, assessorSeal, prover);
+        fulfillBatch(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public {
-        verifyDelivery(fill, assessorSeal, prover);
-        _fulfillAndPay(fill, prover);
+    function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public {
+        verifyDelivery(fill, assessorReceipt);
+
+        if (assessorReceipt.callbacks.length > 0) {
+            AssessorCallback memory callback = assessorReceipt.callbacks[0];
+            _fulfillAndPay(fill, assessorReceipt.prover, callback.addr, callback.gasLimit);
+        } else {
+            _fulfillAndPay(fill, assessorReceipt.prover, address(0), 0);
+        }
 
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
-        verifyBatchDelivery(fills, assessorSeal, prover);
-
-        // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
-        // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
-        // this savings is marginal, and will be outweighed by complicated memory management if not careful.
+    /// @dev It would be slightly more efficient to keep balances and request flags in memory until a single
+    /// batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
+    /// this savings is marginal, and will be outweighed by complicated memory management if not careful.
+    function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public {
+        verifyBatchDelivery(fills, assessorReceipt);
+        
+        uint16 callbackIdx = 0;
+        uint256 callbacksLength = assessorReceipt.callbacks.length;
         for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillAndPay(fills[i], prover);
-
+            if (callbackIdx < callbacksLength && assessorReceipt.callbacks[callbackIdx].index == i) {
+                AssessorCallback memory callback = assessorReceipt.callbacks[callbackIdx];
+                _fulfillAndPay(fills[i], assessorReceipt.prover, callback.addr, callback.gasLimit);
+                callbackIdx++;
+            } else {
+                _fulfillAndPay(fills[i], assessorReceipt.prover, address(0), 0);
+            }
+            
             emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address assessorProver) internal {
+    function _fulfillAndPay(Fulfillment calldata fill, address prover, address callback, uint96 callbackGasLimit) internal {
         RequestId id = fill.id;
         (address client, uint32 idx) = id.clientAndIndex();
-        (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
+        Account storage clientAccount = accounts[client];
+        (bool locked, bool fulfilled) = clientAccount.requestFlags(idx);
 
         bytes memory paymentError;
-        address callback;
-        uint96 callbackGasLimit;
         if (locked) {
-            (paymentError, callback, callbackGasLimit) =
-                _fulfillAndPayLocked(id, client, idx, fill.requestDigest, fulfilled, assessorProver);
+            RequestLock memory lock = requestLocks[id];
+            if (lock.lockDeadline >= block.number) {
+                paymentError = _fulfillAndPayLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
+            } else {
+                paymentError = _fulfillAndPayWasLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
+            }
         } else {
-            (paymentError, callback, callbackGasLimit) =
-                _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, assessorProver);
+            paymentError = _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
         }
 
-        if (callback != address(0)) {
+        // Callbacks are only executed the first time a request is marked as fulfilled.
+        (, bool fulfilledAfter) = clientAccount.requestFlags(idx);
+        if (!fulfilled && fulfilledAfter && callback != address(0)) {
             _executeCallback(id, callback, callbackGasLimit, fill.imageId, fill.journal, fill.seal);
         }
 
@@ -339,15 +393,9 @@ contract BoundlessMarket is
         }
     }
 
-    /// @notice For a request that has once been locked (could be locked now or the lock could have expired),
-    /// mark the request as fulfilled, transfer payment if eligible, and determine if a callback should be executed.
+    /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.
     /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
-    /// Whether they will receive payment depends on the following conditions:
-    /// - If the request is currently locked, only the prover can fulfill it and receive payment
-    /// - If the request lock has now expired, but the request itself has not expired, anyone can fulfill
-    ///   it and receive payment
-    ///
-    /// Callbacks are only executed the first time a request is marked as fulfilled.
+    /// If the request is currently locked, only the prover can fulfill it and receive payment
     function _fulfillAndPayLocked(
         RequestId id,
         address client,
@@ -355,10 +403,18 @@ contract BoundlessMarket is
         bytes32 requestDigest,
         bool fulfilled,
         address assessorProver
-    ) internal returns (bytes memory paymentError, address callback, uint96 callbackGasLimit) {
+    ) internal returns (bytes memory paymentError) {
         RequestLock memory lock = requestLocks[id];
         if (lock.isProverPaid()) {
-            return (abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id)), address(0), 0);
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
+        }
+
+        if (lock.fingerprint != bytes8(requestDigest)) {
+            revert RequestLockFingerprintDoesNotMatch({
+                requestId: id,
+                provided: bytes8(requestDigest),
+                locked: lock.fingerprint
+            });
         }
 
         if (!fulfilled) {
@@ -367,81 +423,60 @@ contract BoundlessMarket is
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
-        // payment should be sent and to whom, and determines the callback to execute, if specified.
-        //
-        // In the case of a request that _was_ locked and the lock expired, the callback to be executed
-        // must be the one specified in the fulfillment context, not the one specified in the request lock.
-        // This is because it is possible for multiple requests to have the same id, and the callback
-        // stored in the request lock from an original request may not match the callback specified by
-        // the new request.
-        if (lock.lockDeadline >= block.number) {
-            if (lock.fingerprint != bytes8(requestDigest)) {
-                revert RequestLockFingerprintDoesNotMatch({
-                    requestId: id,
-                    provided: bytes8(requestDigest),
-                    locked: lock.fingerprint
-                });
-            }
-            paymentError = _payLockedCurrently(id, assessorProver, lock.prover, lock.price, lock.stake);
-            if (!fulfilled) {
-                callback = lock.callbackAddress;
-                callbackGasLimit = lock.callbackGasLimit;
-            }
-        } else {
-            (paymentError, callback, callbackGasLimit) =
-                _payLockedExpired(id, assessorProver, client, lock.price, requestDigest);
-        }
-    }
-
-    /// The request was locked, and the lock is still ongoing.
-    /// Determines whether payment should be sent, and sends if so.
-    function _payLockedCurrently(
-        RequestId id,
-        address assessorProver,
-        address lockProver,
-        uint96 price,
-        uint96 lockStake
-    ) internal returns (bytes memory paymentError) {
+        // payment should be sent and to whom.
         // While the request is locked, only the locker is eligible for payment.
-        if (lockProver != assessorProver) {
+        if (lock.prover != assessorProver) {
             return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
         }
         requestLocks[id].setProverPaidBeforeLockDeadline();
 
+        uint96 price = lock.price;
         if (MARKET_FEE_BPS > 0) {
             price = _applyMarketFee(price);
         }
         accounts[assessorProver].balance += price;
-        accounts[assessorProver].stakeBalance += lockStake;
+        accounts[assessorProver].stakeBalance += lock.stake;
     }
 
-    /// The request was locked, the lock is now expired, but the request itself has not expired.
-    /// Determines whether payment should be sent, and sends if so.
-    function _payLockedExpired(
+    /// @notice For a request that was locked, and now the lock has expired. Marks the request as fulfilled,
+    /// and transfers payment if eligible.
+    /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
+    /// If the request was locked, and now the lock has expired, and the request as a whole has not expired,
+    /// anyone can fulfill it and receive payment.
+    function _fulfillAndPayWasLocked(
         RequestId id,
-        address assessorProver,
         address client,
-        uint96 lockPrice,
-        bytes32 requestDigest
-    ) internal returns (bytes memory paymentError, address callback, uint96 callbackGasLimit) {
+        uint32 idx,
+        bytes32 requestDigest,
+        bool fulfilled,
+        address assessorProver
+    ) internal returns (bytes memory paymentError) {
+        RequestLock memory lock = requestLocks[id];
+        if (lock.isProverPaid()) {
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
+        }
+
+        if (!fulfilled) {
+            accounts[client].setRequestFulfilled(idx);
+            emit RequestFulfilled(id);
+        }
+
         // If no fulfillment context was stored for this request digest (via priceRequest),
         // then payment cannot be processed. This check also serves as an expiration check since
         // fulfillment contexts cannot be created for expired requests.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            return (abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id)), address(0), 0);
+            return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
         }
         uint96 price = context.price;
-        callback = context.callback;
-        callbackGasLimit = context.callbackGaslimit;
 
         // Deduct any additionally owned funds from client account. The client was already charged
         // for the price at lock time once when the request was locked. We only need to charge any
         // additional price increases from the dutch auction between lock time to now.
         Account storage clientAccount = accounts[client];
-        uint96 clientOwes = price - lockPrice;
+        uint96 clientOwes = price - lock.price;
         if (clientAccount.balance < clientOwes) {
-            return (abi.encodeWithSelector(InsufficientBalance.selector, client), address(0), 0);
+            return abi.encodeWithSelector(InsufficientBalance.selector, client);
         }
         requestLocks[id].setProverPaidAfterLockDeadline(assessorProver);
 
@@ -454,7 +489,7 @@ contract BoundlessMarket is
         accounts[assessorProver].balance += price;
     }
 
-    /// Fulfill a request that has never been locked.
+    /// @notice For a request that has never been locked. Marks the request as fulfilled, and transfers payment if eligible.
     /// @dev If a never locked request is fulfilled, but fails the requirements for payment, no
     /// payment can ever be rendered for this order in the future.
     function _fulfillAndPayNeverLocked(
@@ -464,9 +499,11 @@ contract BoundlessMarket is
         bytes32 requestDigest,
         bool fulfilled,
         address assessorProver
-    ) internal returns (bytes memory paymentError, address callback, uint96 callbackGasLimit) {
+    ) internal returns (bytes memory paymentError) {
+        // When never locked, the fulfilled flag _does_ indicate that payment has already been transferred,
+        // so we return early here.
         if (fulfilled) {
-            return (abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id)), address(0), 0);
+            return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
 
         // If no fulfillment context was stored for this request digest (via priceRequest),
@@ -474,28 +511,16 @@ contract BoundlessMarket is
         // fulfillment contexts cannot be created for expired requests.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            return (abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id)), address(0), 0);
+            return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
         }
+        uint96 price = context.price;
 
         Account storage clientAccount = accounts[client];
         if (!fulfilled) {
             clientAccount.setRequestFulfilled(idx);
-            callback = context.callback;
-            callbackGasLimit = context.callbackGaslimit;
             emit RequestFulfilled(id);
         }
 
-        paymentError = _payNeverLocked(context.price, client, clientAccount, accounts[assessorProver]);
-    }
-
-    /// The request was never locked and was fulfilled in this transaction.
-    /// Determines whether payment should be sent, and sends if so.
-    function _payNeverLocked(
-        uint96 price,
-        address client,
-        Account storage clientAccount,
-        Account storage assessorProverAccount
-    ) internal returns (bytes memory paymentError) {
         // Deduct the funds from client account.
         if (clientAccount.balance < price) {
             return abi.encodeWithSelector(InsufficientBalance.selector, client);
@@ -507,7 +532,7 @@ contract BoundlessMarket is
         if (MARKET_FEE_BPS > 0) {
             price = _applyMarketFee(price);
         }
-        assessorProverAccount.balance += price;
+        accounts[assessorProver].balance += price;
     }
 
     function _applyMarketFee(uint96 proverPayment) internal returns (uint96) {
@@ -549,11 +574,10 @@ contract BoundlessMarket is
         bytes32 root,
         bytes calldata seal,
         Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        address prover
+        AssessorReceipt calldata assessorReceipt
     ) external {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        fulfillBatch(fills, assessorSeal, prover);
+        fulfillBatch(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -738,3 +762,4 @@ contract BoundlessMarket is
         }
     }
 }
+

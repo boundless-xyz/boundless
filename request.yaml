@@ -12,6 +12,7 @@ requirements:
     callback:
         addr: "0x0000000000000000000000000000000000000000"
         gasLimit: 0
+    selector: "00000000"
 
 # A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.

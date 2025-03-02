@@ -20,9 +20,7 @@ contract RequestLockTest is Test {
             requestLockFlags: 0,
             price: 1 ether,
             stake: 1 ether,
-            fingerprint: bytes8(0x1234567890abcdef),
-            callbackAddress: address(0),
-            callbackGasLimit: 0
+            fingerprint: bytes8(0x1234567890abcdef)
         });
     }
 
@@ -35,15 +33,11 @@ contract RequestLockTest is Test {
         assertEq(slot, 0, "Slot is not zero");
     }
 
-    function assertSlot2Clear() private view {
+    function assertSlot1Clear() private view {
         assertSlotClear(1);
     }
 
-    function assertSlot3Clear() private view {
-        assertSlotClear(2);
-    }
-
-    function testDeadline() public {
+    function testDeadline() public view {
         uint64 expectedDeadline = requestLock.lockDeadline + requestLock.deadlineDelta;
         assertEq(requestLock.deadline(), expectedDeadline, "Deadline calculation is incorrect");
     }
@@ -58,8 +52,7 @@ contract RequestLockTest is Test {
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
         assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
-        assertSlot2Clear();
-        assertSlot3Clear();
+        assertSlot1Clear();
     }
 
     function testSetProverPaidAfterLockDeadline() public {
@@ -77,8 +70,7 @@ contract RequestLockTest is Test {
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
         assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
-        assertSlot2Clear();
-        assertSlot3Clear();
+        assertSlot1Clear();
     }
 
     function testIsProverPaidBeforeLockDeadline() public {
@@ -92,7 +84,6 @@ contract RequestLockTest is Test {
         assertNotEq(requestLock.price, 0, "Price not zeroed out");
         assertNotEq(requestLock.stake, 0, "Stake not zeroed out");
         assertNotEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
-        assertSlot3Clear();
     }
 
     function testIsProverPaid() public {

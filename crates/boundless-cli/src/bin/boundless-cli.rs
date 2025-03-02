@@ -26,7 +26,7 @@ use alloy::{
     primitives::{
         aliases::U96,
         utils::{format_ether, parse_ether},
-        Address, Bytes, PrimitiveSignature, B256, U256,
+        Address, Bytes, FixedBytes, PrimitiveSignature, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
@@ -36,7 +36,7 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
-use risc0_ethereum_contracts::IRiscZeroVerifier;
+use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
     default_executor,
     sha::{Digest, Digestible},
@@ -49,8 +49,8 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Callback,
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
+        PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
@@ -142,6 +142,12 @@ enum Command {
         /// The proof request identifier
         request_id: U256,
         /// The image id of the original request
+        image_id: B256,
+    },
+    GetSetInclusionReceipt {
+        /// The proof request identifier
+        request_id: U256,
+        /// The image id of the request
         image_id: B256,
     },
     /// Get the status of a given request
@@ -429,6 +435,23 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .map_err(|_| anyhow::anyhow!("Verification failed"))?;
             tracing::info!("Proof for request id 0x{request_id:x} verified successfully.");
         }
+        Command::GetSetInclusionReceipt { request_id, image_id } => {
+            let client = ClientBuilder::default()
+                .with_private_key(args.private_key.clone())
+                .with_rpc_url(args.rpc_url.clone())
+                .with_boundless_market_address(args.boundless_market_address)
+                .with_set_verifier_address(args.set_verifier_address)
+                .with_timeout(args.tx_timeout)
+                .build()
+                .await?;
+            let (journal, receipt) =
+                client.fetch_set_inclusion_receipt(request_id, image_id).await?;
+            tracing::info!(
+                "Journal: {} - Receipt: {}",
+                serde_json::to_string_pretty(&journal)?,
+                serde_json::to_string_pretty(&receipt)?
+            );
+        }
         Command::Status { request_id, expires_at } => {
             let status = boundless_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
@@ -492,14 +515,12 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     .then_some(order.request)
                     .into_iter()
                     .collect();
-
             match boundless_market
                 .price_and_fulfill_batch(
                     requests_to_price,
                     vec![sig],
                     order_fulfilled.fills,
-                    order_fulfilled.assessorSeal,
-                    caller,
+                    order_fulfilled.assessorReceipt,
                     None,
                 )
                 .await
@@ -604,7 +625,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate, callback },
+        Requirements { imageId: image_id, predicate, callback, selector: FixedBytes::<4>([0; 4]) },
         elf_url,
         requirements_input,
         offer.clone(),
@@ -729,7 +750,6 @@ where
 
     if wait {
         let (journal, seal) = client
-            .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
         tracing::info!(

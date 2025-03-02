@@ -24,8 +24,8 @@ contract MockCallback is BoundlessMarketCallback {
     // Mapping used for mocking gas consumption
     mapping(bytes32 => uint256) private gasConsumptionSlots;
 
-    constructor(IRiscZeroVerifier verifier, address boundlessMarket, uint256 _targetGas)
-        BoundlessMarketCallback(verifier, boundlessMarket)
+    constructor(IRiscZeroVerifier verifier, address boundlessMarket, bytes32 imageId, uint256 _targetGas)
+        BoundlessMarketCallback(verifier, boundlessMarket, imageId)
     {
         targetGas = _targetGas;
     }

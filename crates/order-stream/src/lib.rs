@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
@@ -27,7 +27,7 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use utoipa::OpenApi;
@@ -42,7 +42,7 @@ use api::{
     list_orders, submit_order,
 };
 use order_db::OrderDb;
-use ws::{start_broadcast_task, websocket_handler, ConnectionsMap, __path_websocket_handler};
+use ws::{__path_websocket_handler, start_broadcast_task, websocket_handler, ConnectionsMap};
 
 /// Error type for the application
 #[derive(Error, Debug)]
@@ -179,7 +179,9 @@ pub struct AppState {
     /// Database backend
     db: OrderDb,
     /// Map of WebSocket connections by address
-    connections: Arc<Mutex<ConnectionsMap>>,
+    connections: Arc<RwLock<ConnectionsMap>>,
+    /// Map of pending connections by address
+    pending_connections: Arc<Mutex<HashSet<Address>>>,
     /// Ethereum RPC provider
     rpc_provider: RootProvider<Http<Client>>,
     /// Configuration
@@ -205,7 +207,8 @@ impl AppState {
             provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
         Ok(Arc::new(Self {
             db,
-            connections: Arc::new(Mutex::new(HashMap::new())),
+            connections: Arc::new(RwLock::new(HashMap::new())),
+            pending_connections: Arc::new(Mutex::new(HashSet::new())),
             rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
             config: config.clone(),
             chain_id,
@@ -312,14 +315,11 @@ async fn shutdown_signal(state: Arc<AppState>) {
 mod tests {
     use super::*;
     use crate::order_db::{DbOrder, OrderDbErr};
-    use alloy::{
-        node_bindings::Anvil,
-        primitives::{B256, U256},
-    };
+    use alloy::{node_bindings::Anvil, primitives::U256};
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, Callback, Offer, Predicate,
-            ProofRequest, Requirements,
+            hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
+            Requirements,
         },
         input::InputBuilder,
         order_stream_client::Client,
@@ -340,11 +340,7 @@ mod tests {
         ProofRequest::new(
             idx,
             addr,
-            Requirements {
-                imageId: B256::from([1u8; 32]),
-                predicate: Predicate::prefix_match([]),
-                callback: Callback::default(),
-            },
+            Requirements::new(Digest::ZERO, Predicate::prefix_match([])),
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
             Offer {

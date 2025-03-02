@@ -2,7 +2,9 @@ name: Lint / Format / Test
 
 on:
   pull_request:
-    branches: [main]
+    branches: 
+      - main
+      - 'release-*'
   workflow_dispatch:
 
 concurrency:
@@ -69,7 +71,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0'
+          risczero-version: '~1.2.0'
           toolchain-version: 'r0.1.81.0'
 
       - name: install cargo-sort

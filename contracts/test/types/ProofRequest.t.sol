@@ -85,7 +85,8 @@ contract ProofRequestTest is Test {
                     predicateType: PredicateType.DigestMatch,
                     data: abi.encode(sha256(bytes("GUEST JOURNAL")))
                 }),
-                callback: Callback({gasLimit: 0, addr: address(0)})
+                callback: Callback({gasLimit: 0, addr: address(0)}),
+                selector: bytes4(0)
             }),
             imageUrl: "https://image.dev.null",
             input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),

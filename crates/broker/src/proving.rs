@@ -189,9 +189,9 @@ mod tests {
         provers::{encode_input, MockProver},
         OrderStatus,
     };
-    use alloy::primitives::{Bytes, B256, U256};
+    use alloy::primitives::{Bytes, U256};
     use boundless_market::contracts::{
-        Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -226,14 +226,13 @@ mod tests {
             target_block: Some(0),
             request: ProofRequest {
                 id: U256::ZERO,
-                requirements: Requirements {
-                    imageId: B256::ZERO,
-                    predicate: Predicate {
+                requirements: Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
                         predicateType: PredicateType::PrefixMatch,
                         data: Default::default(),
                     },
-                    callback: Callback::default(),
-                },
+                ),
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
@@ -294,14 +293,13 @@ mod tests {
             target_block: Some(0),
             request: ProofRequest {
                 id: order_id,
-                requirements: Requirements {
-                    imageId: B256::ZERO,
-                    predicate: Predicate {
+                requirements: Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
                         predicateType: PredicateType::PrefixMatch,
                         data: Default::default(),
                     },
-                    callback: Callback::default(),
-                },
+                ),
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {

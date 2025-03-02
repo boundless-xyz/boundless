@@ -26,7 +26,7 @@ use alloy::{
 };
 use alloy_primitives::{
     aliases::{U160, U96},
-    Address, Bytes, B256, U256,
+    Address, Bytes, FixedBytes, B256, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
@@ -404,15 +404,12 @@ impl ProofRequest {
 
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
-    pub fn new(
-        image_id: impl Into<Digest>,
-        predicate: Predicate,
-        callback: impl Into<Option<Callback>>,
-    ) -> Self {
+    pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
         Self {
             imageId: <[u8; 32]>::from(image_id.into()).into(),
             predicate,
-            callback: callback.into().unwrap_or_default(),
+            callback: Callback::default(),
+            selector: FixedBytes::<4>([0; 4]),
         }
     }
 
@@ -429,6 +426,11 @@ impl Requirements {
     /// Sets the callback.
     pub fn with_callback(self, callback: Callback) -> Self {
         Self { callback, ..self }
+    }
+
+    /// Sets the selector.
+    pub fn with_selector(self, selector: FixedBytes<4>) -> Self {
+        Self { selector, ..self }
     }
 }
 
@@ -578,9 +580,6 @@ pub mod boundless_market;
 #[cfg(not(target_os = "zkvm"))]
 /// The Hit Points module.
 pub mod hit_points;
-#[cfg(not(target_os = "zkvm"))]
-/// The Set Verifier module.
-pub mod set_verifier;
 
 #[cfg(not(target_os = "zkvm"))]
 #[derive(Error, Debug)]
@@ -717,13 +716,13 @@ pub mod test_utils {
         transports::{BoxTransport, Transport},
     };
     use anyhow::{Context, Result};
+    use risc0_ethereum_contracts::set_verifier::SetVerifierService;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
 
     use crate::contracts::{
         boundless_market::BoundlessMarketService,
         hit_points::{default_allowance, HitPointsService},
-        set_verifier::SetVerifierService,
     };
 
     // Bytecode for the contracts is copied from the contract build output by the build script. It
@@ -1081,14 +1080,10 @@ mod tests {
 
         let req = ProofRequest {
             id: request_id,
-            requirements: Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-                callback: Callback::default(),
-            },
+            requirements: Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             imageUrl: "https://dev.null".to_string(),
             input: Input::builder().build_inline().unwrap(),
             offer: Offer {

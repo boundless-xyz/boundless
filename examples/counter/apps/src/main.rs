@@ -153,11 +153,7 @@ async fn run(
     let request = ProofRequest::builder()
         .with_image_url(image_url)
         .with_input(input_url)
-        .with_requirements(Requirements::new(
-            ECHO_ID,
-            Predicate::digest_match(journal.digest()),
-            Callback::default(),
-        ))
+        .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
         .with_offer(
             Offer::default()
                 // The market uses a reverse Dutch auction mechanism to match requests with provers.

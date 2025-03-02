@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -8,10 +8,10 @@
 extern crate alloc;
 
 use alloc::{vec, vec::Vec};
-use alloy_primitives::{Address, B256};
+use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_sol_types::SolValue;
 use boundless_assessor::AssessorInput;
-use boundless_market::contracts::{AssessorJournal, AssessorJournalCallback};
+use boundless_market::contracts::{AssessorCallback, AssessorJournal, Selector};
 use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
@@ -33,7 +33,9 @@ fn main() {
     // list of ReceiptClaim digests used as leaves in the aggregation set
     let mut claim_digests: Vec<Digest> = Vec::with_capacity(input.fills.len());
     // sparse list of callbacks to be recorded in the journal
-    let mut callbacks: Vec<AssessorJournalCallback> = Vec::<AssessorJournalCallback>::new();
+    let mut callbacks: Vec<AssessorCallback> = Vec::<AssessorCallback>::new();
+    // list of optional Selectors specified as part of the requests requirements
+    let mut selectors = Vec::<Selector>::new();
 
     let eip_domain_separator = input.domain.alloy_struct();
     // For each fill we
@@ -41,6 +43,7 @@ fn main() {
     // - evaluate the request's requirements
     // - verify the integrity of its claim
     // - record the callback if it exists
+    // - record the selector if it is present
     // We additionally collect the request and claim digests.
     for (index, fill) in input.fills.iter().enumerate() {
         let request_digest =
@@ -50,10 +53,16 @@ fn main() {
         claim_digests.push(fill.receipt_claim().digest());
         request_digests.push(request_digest.into());
         if fill.request.requirements.callback.addr != Address::ZERO {
-            callbacks.push(AssessorJournalCallback {
+            callbacks.push(AssessorCallback {
                 index: index.try_into().expect("callback index overflow"),
                 addr: fill.request.requirements.callback.addr,
                 gasLimit: fill.request.requirements.callback.gasLimit,
+            });
+        }
+        if fill.request.requirements.selector != FixedBytes::<4>([0; 4]) {
+            selectors.push(Selector {
+                index: index.try_into().expect("selector index overflow"),
+                value: fill.request.requirements.selector,
             });
         }
     }
@@ -64,6 +73,7 @@ fn main() {
     let journal = AssessorJournal {
         requestDigests: request_digests,
         callbacks,
+        selectors,
         root: <[u8; 32]>::from(root).into(),
         prover: input.prover_address,
     };
