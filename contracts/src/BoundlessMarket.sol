@@ -343,7 +343,7 @@ contract BoundlessMarket is
     /// this savings is marginal, and will be outweighed by complicated memory management if not careful.
     function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public {
         verifyBatchDelivery(fills, assessorReceipt);
-        
+
         uint256 callbacksLength = assessorReceipt.callbacks.length;
         if (callbacksLength > 0) {
             uint256 callbackIdx = 0;
@@ -366,7 +366,9 @@ contract BoundlessMarket is
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address prover, address callback, uint96 callbackGasLimit) internal {
+    function _fulfillAndPay(Fulfillment calldata fill, address prover, address callback, uint96 callbackGasLimit)
+        internal
+    {
         RequestId id = fill.id;
         (address client, uint32 idx) = id.clientAndIndex();
         Account storage clientAccount = accounts[client];
@@ -770,4 +772,3 @@ contract BoundlessMarket is
         }
     }
 }
-

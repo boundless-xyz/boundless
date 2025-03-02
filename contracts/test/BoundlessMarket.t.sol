@@ -427,16 +427,19 @@ contract BoundlessMarketTest is Test {
                 selectors = selectors.addSelector(i, requests[i].requirements.selector);
             }
             if (requests[i].requirements.callback.addr != address(0)) {
-                callbacks = callbacks.addCallback(AssessorCallback({
-                    index: i,
-                    gasLimit: requests[i].requirements.callback.gasLimit,
-                    addr: requests[i].requirements.callback.addr
-                }));
+                callbacks = callbacks.addCallback(
+                    AssessorCallback({
+                        index: i,
+                        gasLimit: requests[i].requirements.callback.gasLimit,
+                        addr: requests[i].requirements.callback.addr
+                    })
+                );
             }
         }
 
         // compute the assessor claim
-        ReceiptClaim memory assessorClaim = TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, selectors, callbacks, prover);
+        ReceiptClaim memory assessorClaim =
+            TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, selectors, callbacks, prover);
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 
@@ -2261,8 +2264,7 @@ contract BoundlessMarketBench is BoundlessMarketTest {
     }
 
     function benchFulfillBatchWithCallback(uint256 batchSize, string memory snapshot) public {
-        (ProofRequest[] memory requests, bytes[] memory journals) =
-            newBatchWithCallback(batchSize);
+        (ProofRequest[] memory requests, bytes[] memory journals) = newBatchWithCallback(batchSize);
         (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
             createFillsAndSubmitRoot(requests, journals, address(testProver));
 
@@ -2329,7 +2331,7 @@ contract BoundlessMarketBench is BoundlessMarketTest {
     function testBenchFulfillBatchWithSelector032() public {
         benchFulfillBatchWithSelector(32, "032");
     }
-    
+
     function testBenchFulfillBatchWithCallback001() public {
         benchFulfillBatchWithCallback(1, "001");
     }

@@ -4,7 +4,9 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {IRiscZeroVerifier, Receipt as RiscZeroReceipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {
+    IRiscZeroVerifier, Receipt as RiscZeroReceipt, ReceiptClaim, ReceiptClaimLib
+} from "risc0/IRiscZeroVerifier.sol";
 import {BoundlessMarketCallback} from "../src/BoundlessMarketCallback.sol";
 
 // Test implementation of BoundlessMarketCallback
@@ -48,7 +50,7 @@ contract BoundlessMarketCallbackTest is Test {
 
         // Expect a call to verify with the correct parameters
         bytes32 expectedJournalDigest = ReceiptClaimLib.ok(TEST_IMAGE_ID, sha256(TEST_JOURNAL)).digest();
-        
+
         vm.prank(boundlessMarket);
         vm.expectCall(
             address(verifier),

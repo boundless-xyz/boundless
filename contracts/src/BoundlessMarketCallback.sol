@@ -17,7 +17,7 @@ abstract contract BoundlessMarketCallback is IBoundlessMarketCallback {
     IRiscZeroVerifier public immutable VERIFIER;
     address public immutable BOUNDLESS_MARKET;
     bytes32 public immutable IMAGE_ID;
-    
+
     /// @notice Initializes the callback contract with verifier and market addresses
     /// @param verifier The RISC Zero verifier contract address
     /// @param boundlessMarket The BoundlessMarket contract address
