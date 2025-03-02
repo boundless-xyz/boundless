@@ -492,6 +492,28 @@ contract BoundlessMarketTest is Test {
             journals[i] = APP_JOURNAL;
         }
     }
+
+    function newBatchWithCallback(uint256 batchSize)
+        internal
+        returns (ProofRequest[] memory requests, bytes[] memory journals)
+    {
+        requests = new ProofRequest[](batchSize);
+        journals = new bytes[](batchSize);
+        for (uint256 j = 0; j < 5; j++) {
+            getClient(j);
+        }
+        for (uint256 i = 0; i < batchSize; i++) {
+            Client client = clients[i % 5];
+            ProofRequest memory request = client.request(uint32(i / 5));
+            request.requirements.callback.addr = address(mockCallback);
+            request.requirements.callback.gasLimit = 500_000;
+            bytes memory clientSignature = client.sign(request);
+            vm.prank(address(testProver));
+            boundlessMarket.lockRequest(request, clientSignature);
+            requests[i] = request;
+            journals[i] = APP_JOURNAL;
+        }
+    }
 }
 
 contract BoundlessMarketBasicTest is BoundlessMarketTest {
@@ -2238,6 +2260,20 @@ contract BoundlessMarketBench is BoundlessMarketTest {
         }
     }
 
+    function benchFulfillBatchWithCallback(uint256 batchSize, string memory snapshot) public {
+        (ProofRequest[] memory requests, bytes[] memory journals) =
+            newBatchWithCallback(batchSize);
+        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
+            createFillsAndSubmitRoot(requests, journals, address(testProver));
+
+        boundlessMarket.fulfillBatch(fills, assessorReceipt);
+        vm.snapshotGasLastCall(string.concat("fulfillBatch (with callback): batch of ", snapshot));
+
+        for (uint256 j = 0; j < fills.length; j++) {
+            expectRequestFulfilled(fills[j].id);
+        }
+    }
+
     function testBenchFulfillBatch001() public {
         benchFulfillBatch(1, "001");
     }
@@ -2284,6 +2320,38 @@ contract BoundlessMarketBench is BoundlessMarketTest {
 
     function testBenchFulfillBatchWithSelector008() public {
         benchFulfillBatchWithSelector(8, "008");
+    }
+
+    function testBenchFulfillBatchWithSelector016() public {
+        benchFulfillBatchWithSelector(16, "016");
+    }
+
+    function testBenchFulfillBatchWithSelector032() public {
+        benchFulfillBatchWithSelector(32, "032");
+    }
+    
+    function testBenchFulfillBatchWithCallback001() public {
+        benchFulfillBatchWithCallback(1, "001");
+    }
+
+    function testBenchFulfillBatchWithCallback002() public {
+        benchFulfillBatchWithCallback(2, "002");
+    }
+
+    function testBenchFulfillBatchWithCallback004() public {
+        benchFulfillBatchWithCallback(4, "004");
+    }
+
+    function testBenchFulfillBatchWithCallback008() public {
+        benchFulfillBatchWithCallback(8, "008");
+    }
+
+    function testBenchFulfillBatchWithCallback016() public {
+        benchFulfillBatchWithCallback(16, "016");
+    }
+
+    function testBenchFulfillBatchWithCallback032() public {
+        benchFulfillBatchWithCallback(32, "032");
     }
 }
 

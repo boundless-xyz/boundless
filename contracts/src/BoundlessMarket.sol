@@ -344,18 +344,24 @@ contract BoundlessMarket is
     function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public {
         verifyBatchDelivery(fills, assessorReceipt);
         
-        uint16 callbackIdx = 0;
         uint256 callbacksLength = assessorReceipt.callbacks.length;
-        for (uint256 i = 0; i < fills.length; i++) {
-            if (callbackIdx < callbacksLength && assessorReceipt.callbacks[callbackIdx].index == i) {
-                AssessorCallback memory callback = assessorReceipt.callbacks[callbackIdx];
-                _fulfillAndPay(fills[i], assessorReceipt.prover, callback.addr, callback.gasLimit);
-                callbackIdx++;
-            } else {
-                _fulfillAndPay(fills[i], assessorReceipt.prover, address(0), 0);
+        if (callbacksLength > 0) {
+            uint256 callbackIdx = 0;
+            for (uint256 i = 0; i < fills.length; i++) {
+                if (callbackIdx < callbacksLength && assessorReceipt.callbacks[callbackIdx].index == i) {
+                    AssessorCallback memory callback = assessorReceipt.callbacks[callbackIdx];
+                    _fulfillAndPay(fills[i], assessorReceipt.prover, callback.addr, callback.gasLimit);
+                    callbackIdx++;
+                } else {
+                    _fulfillAndPay(fills[i], assessorReceipt.prover, address(0), 0);
+                }
+                emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
             }
-            
-            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+        } else {
+            for (uint256 i = 0; i < fills.length; i++) {
+                _fulfillAndPay(fills[i], assessorReceipt.prover, address(0), 0);
+                emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+            }
         }
     }
 
@@ -379,9 +385,11 @@ contract BoundlessMarket is
         }
 
         // Callbacks are only executed the first time a request is marked as fulfilled.
-        (, bool fulfilledAfter) = clientAccount.requestFlags(idx);
-        if (!fulfilled && fulfilledAfter && callback != address(0)) {
-            _executeCallback(id, callback, callbackGasLimit, fill.imageId, fill.journal, fill.seal);
+        if (callback != address(0) && !fulfilled) {
+            (, bool fulfilledAfter) = clientAccount.requestFlags(idx);
+            if (fulfilledAfter) {
+                _executeCallback(id, callback, callbackGasLimit, fill.imageId, fill.journal, fill.seal);
+            }
         }
 
         if (paymentError.length > 0) {
