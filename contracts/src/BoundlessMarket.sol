@@ -376,9 +376,9 @@ contract BoundlessMarket is
         if (locked) {
             RequestLock memory lock = requestLocks[id];
             if (lock.lockDeadline >= block.number) {
-                paymentError = _fulfillAndPayLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
+                paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
             } else {
-                paymentError = _fulfillAndPayWasLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
+                paymentError = _fulfillAndPayWasLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
             }
         } else {
             paymentError = _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
@@ -405,6 +405,7 @@ contract BoundlessMarket is
     /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
     /// If the request is currently locked, only the prover can fulfill it and receive payment
     function _fulfillAndPayLocked(
+        RequestLock memory lock,
         RequestId id,
         address client,
         uint32 idx,
@@ -412,7 +413,6 @@ contract BoundlessMarket is
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
-        RequestLock memory lock = requestLocks[id];
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
@@ -452,6 +452,7 @@ contract BoundlessMarket is
     /// If the request was locked, and now the lock has expired, and the request as a whole has not expired,
     /// anyone can fulfill it and receive payment.
     function _fulfillAndPayWasLocked(
+        RequestLock memory lock,
         RequestId id,
         address client,
         uint32 idx,
@@ -459,7 +460,6 @@ contract BoundlessMarket is
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
-        RequestLock memory lock = requestLocks[id];
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
