@@ -10,8 +10,9 @@ use alloy::{
 use httpmock::prelude::*;
 use risc0_zkvm::sha::Digest;
 use tempfile::NamedTempFile;
+use url::Url;
 // use broker::Broker;
-use crate::{config::Config, Args, Broker};
+use crate::{config::Config, Args, Broker, Order};
 use boundless_market::contracts::{
     hit_points::default_allowance, test_utils::TestCtx, Input, Offer, Predicate, PredicateType,
     ProofRequest, Requirements,
@@ -22,9 +23,11 @@ use guest_util::{ECHO_ELF, ECHO_ID};
 use tokio::time::Duration;
 use tracing_test::traced_test;
 
+const BROKER_URL: &str = "localhost:5312";
+
 #[tokio::test]
 #[traced_test]
-async fn simple_e2e() {
+async fn e2e_manual() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
@@ -65,7 +68,7 @@ async fn simple_e2e() {
         boundless_market_addr: ctx.boundless_market_addr,
         set_verifier_addr: ctx.set_verifier_addr,
         rpc_url: anvil.endpoint_url(),
-        broker_api: None,
+        broker_api: Some(Url::parse(BROKER_URL).unwrap()),
         order_stream_url: None,
         private_key: ctx.prover_signer,
         bento_api_url: None,
@@ -81,8 +84,23 @@ async fn simple_e2e() {
         broker.start_service().await.unwrap();
     });
 
-    // Submit a order
+    let client = reqwest::Client::new();
 
+    // Poll the latest batches endpoint with a maximum of 5 attempts
+    const MAX_ATTEMPTS: u32 = 20;
+
+    // Wait for the broker API to start up
+    for _ in 0..MAX_ATTEMPTS {
+        let res = client.get(format!("http://{}/v1/batches/latest", BROKER_URL)).send().await;
+        if res.as_ref().map(|r| r.status().is_success()).unwrap_or(false) {
+            // println!("batch: {:?}", res.unwrap().json::<Batch>().await.unwrap());
+
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Submit an order.
     let request = ProofRequest::new(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
@@ -105,8 +123,20 @@ async fn simple_e2e() {
             lockStake: U256::from(10),
         },
     );
+    let signature = request
+        .sign_request(&ctx.customer_signer, ctx.boundless_market_addr, anvil.chain_id())
+        .await
+        .unwrap();
 
-    ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+    let order = Order::new(request.clone(), signature.as_bytes().into());
+
+    let res = client
+        .post(format!("http://{}/v1/orders/new", BROKER_URL))
+        .json(&order)
+        .send()
+        .await
+        .unwrap();
+    println!("res: {:?}", res);
 
     ctx.customer_market
         .wait_for_request_fulfillment(

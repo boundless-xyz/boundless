@@ -708,7 +708,7 @@ where
     }
 
     if preflight {
-        tracing::info!("Running request preflight");
+        tracing::info!("Running request preflight: {}", request.imageUrl);
         let session_info = execute(&request).await?;
         let journal = session_info.journal.bytes;
         if let Some(claim) = session_info.receipt_claim {

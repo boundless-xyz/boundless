@@ -23,6 +23,7 @@ workflow-common = { path = "crates/workflow-common" }
 anyhow = { version = "1.0" }
 async-trait = "0.1"
 aws-sdk-s3 = "1.34" # used for minio for max compatibility
+axum = "0.7"
 bincode = "1.3"
 bytemuck = "1.16"
 deadpool-redis = "0.15"

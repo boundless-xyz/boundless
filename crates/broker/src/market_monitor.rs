@@ -12,7 +12,7 @@ use alloy::{
     sol_types::SolEvent,
     transports::BoxTransport,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use boundless_market::contracts::{
     boundless_market::BoundlessMarketService, IBoundlessMarket, ProofStatus,
 };
@@ -24,8 +24,6 @@ use crate::{
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, Order,
 };
-
-const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
 
 pub struct MarketMonitor<P> {
     lookback_blocks: u64,
@@ -47,30 +45,6 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Self {
         Self { lookback_blocks, market_addr, provider, db, chain_monitor }
-    }
-
-    /// Queries chain history to sample for the median block time
-    pub async fn get_block_time(&self) -> Result<u64> {
-        let current_block = self.chain_monitor.current_block_number().await?;
-
-        let mut timestamps = vec![];
-        let sample_start = current_block - std::cmp::min(current_block, BLOCK_TIME_SAMPLE_SIZE);
-        for i in sample_start..current_block {
-            let block = self
-                .provider
-                .get_block_by_number(i.into(), false.into())
-                .await
-                .with_context(|| format!("Failed get block {i}"))?
-                .with_context(|| format!("Missing block {i}"))?;
-
-            timestamps.push(block.header.timestamp);
-        }
-
-        let mut block_times =
-            timestamps.windows(2).map(|elm| elm[1] - elm[0]).collect::<Vec<u64>>();
-        block_times.sort();
-
-        Ok(block_times[block_times.len() / 2])
     }
 
     async fn find_open_orders(
@@ -275,7 +249,7 @@ mod tests {
         network::EthereumWallet,
         node_bindings::Anvil,
         primitives::{Address, B256, U256},
-        providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
+        providers::{ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -354,29 +328,5 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(orders, 1);
-    }
-
-    #[tokio::test]
-    async fn block_times() {
-        let anvil = Anvil::new().spawn();
-        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
-                .await
-                .unwrap(),
-        );
-
-        provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
-
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let market_monitor = MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor);
-
-        let block_time = market_monitor.get_block_time().await.unwrap();
-        assert_eq!(block_time, 2);
     }
 }
