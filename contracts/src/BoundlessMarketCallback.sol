@@ -7,10 +7,12 @@ import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/I
 import {IBoundlessMarketCallback} from "./IBoundlessMarketCallback.sol";
 
 /// @notice Contract for handling proofs delivered by the Boundless Market's callback mechanism.
-/// @dev This contract provides a framework for applications to safely handle proofs delivered by the Boundless Market for a specific image ID.
-/// The intention is for developers to inherit the contract and implement the internal `_handleProof` function.
-/// @dev We verify the proof here even though the Boundless Market already verifies the proof as part of its fulfillment process.
-/// This allows proofs to be submitted directly to the application without going through the Boundless Market.
+/// @dev This contract provides a framework for applications to safely handle proofs delivered by 
+/// the Boundless Market for a specific image ID. The intention is for developers to inherit the contract 
+/// and implement the internal `_handleProof` function.
+/// @dev We recommend a best practice of "trust but verify" whenever receiving proofs, so we verify the proof 
+/// here even though the Boundless Market already verifies the proof as part of its fulfillment process. 
+/// Proof verification in Boundless is cheap as it is just a merkle proof, so this adds minimal overhead.
 abstract contract BoundlessMarketCallback is IBoundlessMarketCallback {
     using ReceiptClaimLib for ReceiptClaim;
 
