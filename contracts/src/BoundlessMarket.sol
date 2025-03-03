@@ -40,6 +40,7 @@ contract BoundlessMarket is
 {
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for uint256;
+    using SafeCast for int256;
     using SafeERC20 for IERC20;
 
     /// @dev The version of the contract, with respect to upgrades.
@@ -361,7 +362,7 @@ contract BoundlessMarket is
             }
             return _payLockedCurrently(id, assessorProver, lock.prover, lock.price, lock.stake);
         } else {
-            return _payLockedExpired(id, assessorProver, client, lock.price, lock.fingerprint, requestDigest);
+            return _payLockedExpired(id, assessorProver, client, lock.price, requestDigest);
         }
     }
 
@@ -387,14 +388,14 @@ contract BoundlessMarket is
         accounts[assessorProver].stakeBalance += lockStake;
     }
 
-    /// The request was locked, the lock is now expired, but the request itself has not expired.
+    /// A request was locked and that lock is now expired. The request being evaluated
+    /// could be the original request, or it could be a new request with the same ID.
     /// Determines whether payment should be sent, and sends if so.
     function _payLockedExpired(
         RequestId id,
         address assessorProver,
         address client,
         uint96 lockPrice,
-        bytes8 lockFingerprint,
         bytes32 requestDigest
     ) internal returns (bytes memory paymentError) {
         // If the request was not priced in advance, no payment is sent.
@@ -405,30 +406,28 @@ contract BoundlessMarket is
             return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
         }
         uint96 price = tprice.price;
-        
 
-        if (lockFingerprint != bytes8(requestDigest)) {
-            revert RequestLockFingerprintDoesNotMatch({
-                requestId: id,
-                provided: bytes8(requestDigest),
-                locked: lockFingerprint
-            });
-        }
-
-
-        // Deduct any additionally owned funds from client account. The client was already charged
-        // for the price at lock time once when the request was locked. We only need to charge any
-        // additional price increases from the dutch auction between lock time to now.
         Account storage clientAccount = accounts[client];
-        uint96 clientOwes = price - lockPrice;
-        if (clientAccount.balance < clientOwes) {
-            return abi.encodeWithSelector(InsufficientBalance.selector, client);
-        }
-        requestLocks[id].setProverPaidAfterLockDeadline(assessorProver);
 
-        unchecked {
-            clientAccount.balance -= clientOwes;
+        // If the request has the same id, but is different to the request that was locked, the fulfillment
+        // price could be either higher or lower than the price that was previously locked. 
+        // If the price is higher, we charge the client the difference.
+        // If the price is lower, we refund the client the difference.
+        if (price > lockPrice) {
+            uint96 clientOwes = price - lockPrice;
+            if (clientAccount.balance < clientOwes) {
+                return abi.encodeWithSelector(InsufficientBalance.selector, client);
+            }
+            unchecked {
+                clientAccount.balance -= clientOwes;
+            }
+        } else {
+            int256 delta = uint256(price).toInt256() - uint256(lockPrice).toInt256();
+            uint96 clientOwed = (-delta).toUint256().toUint96();
+            clientAccount.balance += clientOwed;
         }
+
+        requestLocks[id].setProverPaidAfterLockDeadline(assessorProver);
         if (MARKET_FEE_BPS > 0) {
             price = _applyMarketFee(price);
         }
