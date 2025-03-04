@@ -248,7 +248,7 @@ contract BoundlessMarket is
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         uint256 fillsLength = fills.length;
         // We can't handle more than 65535 fills in a single batch.
-        // This is a limitation of the current Selector implementation, 
+        // This is a limitation of the current Selector implementation,
         // that uses a uint16 for the index, and can be increased in the future.
         if (fillsLength > type(uint16).max) {
             revert BatchSizeExceedsLimit(fillsLength, type(uint16).max);
