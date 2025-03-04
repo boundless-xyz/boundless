@@ -236,7 +236,8 @@ contract BoundlessMarket is
             )
         );
         // Verification that the provided seal matches the required selector.
-        if (assessorReceipt.selectors.length == 1 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
+        // NOTE: Assessor guest ensures that the number of selectors <= the number of request digests in the journal.
+        if (assessorReceipt.selectors.length > 0 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
             revert SelectorMismatch(assessorReceipt.selectors[0].value, bytes4(fill.seal[0:4]));
         }
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
