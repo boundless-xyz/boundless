@@ -7,12 +7,23 @@ use crate::{
     tasks::{serialize_obj, COPROC_CB_PATH, RECEIPT_PATH},
     Agent,
 };
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use risc0_zkvm::{MaybePruned, ProveKeccakRequest};
 use uuid::Uuid;
 use workflow_common::KeccakReq;
 
-/// Run the keccak prove + life operation
+fn try_keccak_bytes_to_input(input: &[u8]) -> Result<Vec<[u64; 25]>> {
+    let chunks = input.chunks_exact(std::mem::size_of::<[u64; 25]>());
+    if !chunks.remainder().is_empty() {
+        bail!("Input length must be a multiple of KeccakState size");
+    }
+    chunks
+        .map(bytemuck::try_pod_read_unaligned)
+        .collect::<Result<_, _>>()
+        .map_err(|e| anyhow!("Failed to convert input bytes to KeccakState: {}", e))
+}
+
+/// Run the keccak prove + lift operation
 pub async fn keccak(agent: &Agent, job_id: &Uuid, request: &KeccakReq) -> Result<()> {
     let mut conn = redis::get_connection(&agent.redis_pool).await?;
 
@@ -26,7 +37,7 @@ pub async fn keccak(agent: &Agent, job_id: &Uuid, request: &KeccakReq) -> Result
         claim_digest: request.claim_digest,
         po2: request.po2,
         control_root: request.control_root,
-        input: keccak_input,
+        input: try_keccak_bytes_to_input(&keccak_input)?,
     };
 
     tracing::info!("Keccak proving {}", request.claim_digest);

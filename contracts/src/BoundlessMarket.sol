@@ -5,7 +5,6 @@
 
 pragma solidity ^0.8.24;
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
@@ -24,6 +23,7 @@ import {IBoundlessMarket} from "./IBoundlessMarket.sol";
 import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
+import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
@@ -46,9 +46,9 @@ contract BoundlessMarket is
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
 
-    // Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
+    /// Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
     mapping(RequestId => RequestLock) public requestLocks;
-    // Mapping of address to account state.
+    /// Mapping of address to account state.
     mapping(address => Account) internal accounts;
 
     // Using immutable here means the image ID and verifier address is linked to the implementation
@@ -68,18 +68,17 @@ contract BoundlessMarket is
     uint256 public constant FULFILL_MAX_GAS_FOR_VERIFY = 50000;
 
     /// @notice When a prover is slashed for failing to fulfill a request, a portion of the stake
-    /// is burned, and a portion is sent to the client. This fraction controls that ratio.
-    // NOTE: Currently set to burn the entire stake. Can be changed via contract upgrade.
-    uint256 public constant SLASHING_BURN_FRACTION_NUMERATOR = 1;
-    uint256 public constant SLASHING_BURN_FRACTION_DENOMINATOR = 1;
+    /// is burned, and the remaining portion is either send to the prover that ultimately fulfilled
+    /// the order, or to the market treasury. This fraction controls that ratio.
+    /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
+    /// gas of an SLOAD. Can only be changed via contract upgrade.
+    uint256 public constant SLASHING_BURN_BPS = 7500;
 
     /// @notice When an order is fulfilled, the market takes a fee based on the price of the order.
     /// This fraction is multiplied by the price to decide the fee.
     /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
-    /// gas of an SLOAD. This means the fee can only be changed by an implementation upgrade.
-    /// Note that it is currently set to zero.
-    uint256 public constant MARKET_FEE_NUMERATOR = 0;
-    uint256 public constant MARKET_FEE_DENOMINATOR = 1;
+    /// gas of an SLOAD. Can only be changed via contract upgrade.
+    uint96 public constant MARKET_FEE_BPS = 0;
 
     /// @notice Balance owned by the market contract itself. This balance is collected from fees,
     /// when the fee rate is set to a non-zero value.
@@ -122,9 +121,9 @@ contract BoundlessMarket is
         (address client, uint32 idx) = request.id.clientAndIndex();
         bytes32 requestDigest =
             request.verifyClientSignature(_hashTypedDataV4(request.eip712Digest()), client, clientSignature);
-        uint64 deadline = request.validateRequest(accounts, client, idx);
+        (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
-        _lockRequest(request, requestDigest, client, idx, msg.sender, deadline);
+        _lockRequest(request, requestDigest, client, idx, msg.sender, lockDeadline, deadline);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -137,9 +136,9 @@ contract BoundlessMarket is
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
         address prover = request.extractProverSignature(requestHash, proverSignature);
-        uint64 deadline = request.validateRequest(accounts, client, idx);
+        (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
-        _lockRequest(request, requestDigest, client, idx, prover, deadline);
+        _lockRequest(request, requestDigest, client, idx, prover, lockDeadline, deadline);
     }
 
     /// @notice Locks the request to the prover. Deducts funds from the client for payment
@@ -150,12 +149,21 @@ contract BoundlessMarket is
         address client,
         uint32 idx,
         address prover,
+        uint64 lockDeadline,
         uint64 deadline
     ) internal {
+        (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
+        if (locked) {
+            revert RequestIsLocked({requestId: request.id});
+        }
+        if (fulfilled) {
+            revert RequestIsFulfilled({requestId: request.id});
+        }
+
         // Compute the current price offered by the reverse Dutch auction.
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
 
-        // Deduct funds from the client account and prover HP account.
+        // Deduct payment from the client account and stake from the prover account.
         Account storage clientAccount = accounts[client];
         if (clientAccount.balance < price) {
             revert InsufficientBalance(client);
@@ -164,7 +172,7 @@ contract BoundlessMarket is
         if (proverAccount.isFrozen()) {
             revert AccountFrozen(prover);
         }
-        if (proverAccount.stakeBalance < request.offer.lockStake.toUint96()) {
+        if (proverAccount.stakeBalance < request.offer.lockStake) {
             revert InsufficientBalance(prover);
         }
 
@@ -177,7 +185,9 @@ contract BoundlessMarket is
         requestLocks[request.id] = RequestLock({
             prover: prover,
             price: price,
-            deadline: deadline,
+            requestLockFlags: 0,
+            lockDeadline: lockDeadline,
+            deadlineDelta: uint256(deadline - lockDeadline).toUint24(),
             stake: request.offer.lockStake.toUint96(),
             fingerprint: bytes8(requestDigest)
         });
@@ -188,12 +198,13 @@ contract BoundlessMarket is
 
     /// Validates the request and records the price to transient storage such that it can be
     /// fulfilled within the same transaction without taking a lock on it.
+    /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client, uint32 idx) = request.id.clientAndIndex();
+        (address client,) = request.id.clientAndIndex();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
 
-        request.validateRequest(accounts, client, idx);
+        request.validateForPriceRequest();
 
         // Compute the current price offered by the reverse Dutch auction.
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
@@ -203,7 +214,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyDelivery(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) public view {
+    function verifyDelivery(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public view {
         // Verify the application guest proof. We need to verify it here, even though the assessor
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
@@ -214,55 +225,86 @@ contract BoundlessMarket is
         // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32[] memory requestDigests = new bytes32[](1);
         requestDigests[0] = fill.requestDigest;
-        bytes32 assessorJournalDigest =
-            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: claimDigest, prover: prover})));
+        bytes32 assessorJournalDigest = sha256(
+            abi.encode(
+                AssessorJournal({
+                    requestDigests: requestDigests,
+                    selectors: assessorReceipt.selectors,
+                    root: claimDigest,
+                    prover: assessorReceipt.prover
+                })
+            )
+        );
+        // Verification that the provided seal matches the required selector.
+        // NOTE: Assessor guest ensures that the number of selectors <= the number of request digests in the journal.
+        if (assessorReceipt.selectors.length > 0 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
+            revert SelectorMismatch(assessorReceipt.selectors[0].value, bytes4(fill.seal[0:4]));
+        }
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
+        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyBatchDelivery(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover)
-        public
-        view
-    {
+    function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public view {
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
-        bytes32[] memory claimDigests = new bytes32[](fills.length);
-        bytes32[] memory requestDigests = new bytes32[](fills.length);
-        for (uint256 i = 0; i < fills.length; i++) {
-            requestDigests[i] = fills[i].requestDigest;
-            claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fills[i].seal, claimDigests[i]));
+        uint256 fillsLength = fills.length;
+        // We can't handle more than 65535 fills in a single batch.
+        // This is a limitation of the current Selector implementation,
+        // that uses a uint16 for the index, and can be increased in the future.
+        if (fillsLength > type(uint16).max) {
+            revert BatchSizeExceedsLimit(fillsLength, type(uint16).max);
         }
+        bytes32[] memory claimDigests = new bytes32[](fillsLength);
+        bytes32[] memory requestDigests = new bytes32[](fillsLength);
+
+        // Check the selector constraints.
+        // NOTE: The assessor guest adds non-zero selector values to the list.
+        uint256 selectorsLength = assessorReceipt.selectors.length;
+        for (uint256 i = 0; i < selectorsLength; i++) {
+            bytes4 expected = assessorReceipt.selectors[i].value;
+            bytes4 received = bytes4(fills[assessorReceipt.selectors[i].index].seal[0:4]);
+            if (expected != received) {
+                revert SelectorMismatch(expected, received);
+            }
+        }
+
+        // Verify the application receipts.
+        for (uint256 i = 0; i < fillsLength; i++) {
+            Fulfillment calldata fill = fills[i];
+
+            requestDigests[i] = fill.requestDigest;
+            claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+
+            VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigests[i]));
+        }
+
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.
-        bytes32 assessorJournalDigest =
-            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: batchRoot, prover: prover})));
+        bytes32 assessorJournalDigest = sha256(
+            abi.encode(
+                AssessorJournal({
+                    requestDigests: requestDigests,
+                    root: batchRoot,
+                    selectors: assessorReceipt.selectors,
+                    prover: assessorReceipt.prover
+                })
+            )
+        );
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
+        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment calldata fill, bytes calldata assessorSeal, address prover) external {
-        verifyDelivery(fill, assessorSeal, prover);
-        _fulfillVerified(fill.id, fill.requestDigest, prover, fill.requirePayment);
-
-        emit ProofDelivered(fill.id, fill.journal, fill.seal);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function fulfillBatch(Fulfillment[] calldata fills, bytes calldata assessorSeal, address prover) public {
-        verifyBatchDelivery(fills, assessorSeal, prover);
-
-        // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
-        // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
-        // this savings is marginal, and will be outweighed by complicated memory management if not careful.
-        for (uint256 i = 0; i < fills.length; i++) {
-            _fulfillVerified(fills[i].id, fills[i].requestDigest, prover, fills[i].requirePayment);
-
-            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
-        }
+    function priceAndFulfill(
+        ProofRequest calldata request,
+        bytes calldata clientSignature,
+        Fulfillment calldata fill,
+        AssessorReceipt calldata assessorReceipt
+    ) external {
+        priceRequest(request, clientSignature);
+        fulfill(fill, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -270,28 +312,48 @@ contract BoundlessMarket is
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        address prover
+        AssessorReceipt calldata assessorReceipt
     ) external {
         for (uint256 i = 0; i < requests.length; i++) {
             priceRequest(requests[i], clientSignatures[i]);
         }
-        fulfillBatch(fills, assessorSeal, prover);
+        fulfillBatch(fills, assessorReceipt);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public {
+        verifyDelivery(fill, assessorReceipt);
+        _fulfillAndPay(fill.id, fill.requestDigest, assessorReceipt.prover, fill.requirePayment);
+
+        emit ProofDelivered(fill.id, fill.journal, fill.seal);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public {
+        verifyBatchDelivery(fills, assessorReceipt);
+
+        // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
+        // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
+        // this savings is marginal, and will be outweighed by complicated memory management if not careful.
+        for (uint256 i = 0; i < fills.length; i++) {
+            _fulfillAndPay(fills[i].id, fills[i].requestDigest, assessorReceipt.prover, fills[i].requirePayment);
+
+            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+        }
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillVerified(RequestId id, bytes32 requestDigest, address assessorProver, bool requirePayment)
+    function _fulfillAndPay(RequestId id, bytes32 requestDigest, address assessorProver, bool requirePayment)
         internal
     {
         (address client, uint32 idx) = id.clientAndIndex();
-
         (bool locked, bool fulfilled) = accounts[client].requestFlags(idx);
 
         bytes memory paymentError;
         if (locked) {
-            paymentError = _fulfillVerifiedLocked(id, client, idx, requestDigest, fulfilled, assessorProver);
+            paymentError = _fulfillAndPayLocked(id, client, idx, requestDigest, fulfilled, assessorProver);
         } else {
-            paymentError = _fulfillVerifiedUnlocked(id, client, idx, requestDigest, fulfilled, assessorProver);
+            paymentError = _fulfillAndPayNeverLocked(id, client, idx, requestDigest, fulfilled, assessorProver);
         }
 
         if (paymentError.length > 0) {
@@ -303,7 +365,14 @@ contract BoundlessMarket is
         }
     }
 
-    function _fulfillVerifiedLocked(
+    /// @notice For a request that has once been locked (could be locked now or the lock could have expired),
+    /// mark the request as fulfilled and transfer payment if eligible.
+    /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
+    /// Whether they will receive payment depends on the following conditions:
+    /// - If the request is currently locked, only the prover can fulfill it and receive payment
+    /// - If the request lock has now expired, but the request itself has not expired, anyone can fulfill
+    ///   it and receive payment
+    function _fulfillAndPayLocked(
         RequestId id,
         address client,
         uint32 idx,
@@ -312,13 +381,10 @@ contract BoundlessMarket is
         address assessorProver
     ) internal returns (bytes memory paymentError) {
         RequestLock memory lock = requestLocks[id];
-
-        // Check pre-conditions for transferring payment.
-        if (lock.prover == address(0)) {
-            // NOTE: This check is not strictly needed, as the fact that the lock has already been
-            // zeroed out means zero value can be transferred. It is provided for clarity.
+        if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
+
         if (lock.fingerprint != bytes8(requestDigest)) {
             revert RequestLockFingerprintDoesNotMatch({
                 requestId: id,
@@ -327,36 +393,83 @@ contract BoundlessMarket is
             });
         }
 
-        // Mark the request as fulfilled.
-        // NOTE: A request can become fulfilled even if the following checks fail, which control
-        // whether payment will be sent. A later transaction can come to transfer the payment.
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
             emit RequestFulfilled(id);
         }
 
-        if (lock.deadline < block.number) {
-            return abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id), lock.deadline);
+        // At this point the request has been fulfilled. The remaining logic determines whether
+        // payment should be sent and to whom.
+        if (lock.lockDeadline >= block.number) {
+            return _payLockedCurrently(id, assessorProver, lock.prover, lock.price, lock.stake);
+        } else {
+            return _payLockedExpired(id, assessorProver, client, lock.price, requestDigest);
         }
-        if (lock.prover != assessorProver) {
-            return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
-        }
-
-        // Zero-out the lock to indicate that payment has been delivered and get a bit of a refund on gas.
-        requestLocks[id] = RequestLock(address(0), uint96(0), uint64(0), uint96(0), bytes8(0));
-
-        uint96 valueToProver = lock.price;
-        if (MARKET_FEE_NUMERATOR > 0) {
-            uint256 fee = uint256(lock.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
-            valueToProver -= fee.toUint96();
-            marketBalance += fee;
-        }
-        Account storage proverAccount = accounts[lock.prover];
-        proverAccount.balance += valueToProver;
-        proverAccount.stakeBalance += lock.stake;
     }
 
-    function _fulfillVerifiedUnlocked(
+    /// The request was locked, and the lock is still ongoing.
+    /// Determines whether payment should be sent, and sends if so.
+    function _payLockedCurrently(
+        RequestId id,
+        address assessorProver,
+        address lockProver,
+        uint96 price,
+        uint96 lockStake
+    ) internal returns (bytes memory paymentError) {
+        // While the request is locked, only the locker is eligible for payment.
+        if (lockProver != assessorProver) {
+            return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
+        }
+        requestLocks[id].setProverPaidBeforeLockDeadline();
+
+        if (MARKET_FEE_BPS > 0) {
+            price = _applyMarketFee(price);
+        }
+        accounts[assessorProver].balance += price;
+        accounts[assessorProver].stakeBalance += lockStake;
+    }
+
+    /// The request was locked, the lock is now expired, but the request itself has not expired.
+    /// Determines whether payment should be sent, and sends if so.
+    function _payLockedExpired(
+        RequestId id,
+        address assessorProver,
+        address client,
+        uint96 lockPrice,
+        bytes32 requestDigest
+    ) internal returns (bytes memory paymentError) {
+        // If the request was not priced in advance, no payment is sent.
+        // It is not possible for an expired request to be priced, so this check doubles as a check
+        // for whether the request has expired.
+        TransientPrice memory tprice = TransientPriceLibrary.load(requestDigest);
+        if (!tprice.valid) {
+            return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
+        }
+        uint96 price = tprice.price;
+
+        // Deduct any additionally owned funds from client account. The client was already charged
+        // for the price at lock time once when the request was locked. We only need to charge any
+        // additional price increases from the dutch auction between lock time to now.
+        Account storage clientAccount = accounts[client];
+        uint96 clientOwes = price - lockPrice;
+        if (clientAccount.balance < clientOwes) {
+            return abi.encodeWithSelector(InsufficientBalance.selector, client);
+        }
+        requestLocks[id].setProverPaidAfterLockDeadline(assessorProver);
+
+        unchecked {
+            clientAccount.balance -= clientOwes;
+        }
+        if (MARKET_FEE_BPS > 0) {
+            price = _applyMarketFee(price);
+        }
+        accounts[assessorProver].balance += price;
+    }
+
+    /// Fulfill a request that has never been locked.
+    /// @dev If a never locked request is fulfilled, but fails the requirements for payment, no
+    /// payment can ever be rendered for this order in the future.
+    function _fulfillAndPayNeverLocked(
         RequestId id,
         address client,
         uint32 idx,
@@ -364,40 +477,53 @@ contract BoundlessMarket is
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
-        // When not locked, the fulfilled flag _does_ indicate that payment has already been transferred.
         if (fulfilled) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
 
+        // It is not possible for an expired request to be priced, so this check functions as a check
+        // for whether the request has expired.
         TransientPrice memory tprice = TransientPriceLibrary.load(requestDigest);
-
         if (!tprice.valid) {
             return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
         }
 
-        // Mark the request as fulfilled.
-        // NOTE: If an unlocked request is fulfilled, but fails the requirements for payment, no
-        // payment can ever be rendered for this order.
         Account storage clientAccount = accounts[client];
-        clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id);
+        if (!fulfilled) {
+            clientAccount.setRequestFulfilled(idx);
+            emit RequestFulfilled(id);
+        }
 
+        Account storage assessorProverAccount = accounts[assessorProver];
+        _payNeverLocked(tprice.price, client, clientAccount, assessorProverAccount);
+    }
+
+    /// The request was never locked and was fulfilled in this transaction.
+    /// Determines whether payment should be sent, and sends if so.
+    function _payNeverLocked(
+        uint96 price,
+        address client,
+        Account storage clientAccount,
+        Account storage assessorProverAccount
+    ) internal returns (bytes memory paymentError) {
         // Deduct the funds from client account.
-        if (clientAccount.balance < tprice.price) {
+        if (clientAccount.balance < price) {
             return abi.encodeWithSelector(InsufficientBalance.selector, client);
         }
         unchecked {
-            clientAccount.balance -= tprice.price;
+            clientAccount.balance -= price;
         }
 
-        // Pay the prover.
-        uint96 valueToProver = tprice.price;
-        if (MARKET_FEE_NUMERATOR > 0) {
-            uint256 fee = uint256(tprice.price) * MARKET_FEE_NUMERATOR / MARKET_FEE_DENOMINATOR;
-            valueToProver -= fee.toUint96();
-            marketBalance += fee;
+        if (MARKET_FEE_BPS > 0) {
+            price = _applyMarketFee(price);
         }
-        accounts[assessorProver].balance += valueToProver;
+        assessorProverAccount.balance += price;
+    }
+
+    function _applyMarketFee(uint96 proverPayment) internal returns (uint96) {
+        uint96 fee = proverPayment * MARKET_FEE_BPS / 10000;
+        marketBalance += fee;
+        return proverPayment - fee;
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -411,60 +537,63 @@ contract BoundlessMarket is
         bytes32 root,
         bytes calldata seal,
         Fulfillment[] calldata fills,
-        bytes calldata assessorSeal,
-        address prover
+        AssessorReceipt calldata assessorReceipt
     ) external {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        fulfillBatch(fills, assessorSeal, prover);
+        fulfillBatch(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
     function slash(RequestId requestId) external {
         (address client, uint32 idx) = requestId.clientAndIndex();
         (bool locked,) = accounts[client].requestFlags(idx);
-
-        // Ensure the request is locked, and fetch the lock into memory.
         if (!locked) {
             revert RequestIsNotLocked({requestId: requestId});
         }
+
         RequestLock memory lock = requestLocks[requestId];
-
-        if (lock.deadline >= block.number) {
-            revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline});
-        }
-
-        // If the lock was cleared, the request is already finalized, either by fulfillment or slashing.
-        if (lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0)) {
-            if (lock.prover == address(0)) {
-                revert RequestIsFulfilled({requestId: requestId});
-            }
+        if (lock.isSlashed()) {
             revert RequestIsSlashed({requestId: requestId});
         }
+        if (lock.isProverPaidBeforeLockDeadline()) {
+            revert RequestIsFulfilled({requestId: requestId});
+        }
 
-        // Zero out deadline, stake and fingerprint in storage to indicate that the request has been slashed.
-        RequestLock storage lockStorage = requestLocks[requestId];
-        lockStorage.deadline = 0;
-        lockStorage.stake = 0;
-        lockStorage.fingerprint = bytes8(0);
+        // You can only slash a request after the request fully expires, so that if the request
+        // does get fulfilled, we know which prover should receive a portion of the stake.
+        if (block.number <= lock.deadline()) {
+            revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline()});
+        }
 
-        // Calculate the portion of stake that should be burned vs sent to the client.
-        // NOTE: If the burn fraction is not properly set, this can overflow.
-        // The maximum feasible stake multiplied by the numerator must be less than 2^256.
-        uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_FRACTION_NUMERATOR / SLASHING_BURN_FRACTION_DENOMINATOR;
-        uint256 transferValue = uint256(lock.stake) - burnValue;
+        // Request was either fulfilled after the lock deadline or the request expired unfulfilled.
+        // In both cases the locker should be slashed.
+        requestLocks[requestId].setSlashed();
 
-        // Return the price to the client, plus the transfer value. Then burn the burn value.
-        accounts[client].balance += lock.price;
-        accounts[client].stakeBalance += transferValue.toUint96();
+        // Calculate the portion of stake that should be burned vs sent to the prover.
+        uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_BPS / 10000;
+        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
+
+        // If a prover fulfilled the request after the lock deadline, that prover
+        // receives the unburned portion of the stake as a reward.
+        // Otherwise the request expired unfulfilled, unburnt stake accrues to the market treasury,
+        // and we refund the client the price they paid for the request at lock time.
+        uint96 transferValue = (uint256(lock.stake) - burnValue).toUint96();
+        address stakeRecipient = lock.prover;
+        if (lock.isProverPaidAfterLockDeadline()) {
+            // At this point lock.prover is the prover that ultimately fulfilled the request, not
+            // the prover that locked the request. Transfer them the unburnt stake.
+            accounts[lock.prover].stakeBalance += transferValue;
+        } else {
+            stakeRecipient = address(this);
+            accounts[address(this)].stakeBalance += transferValue;
+            accounts[client].balance += lock.price;
+        }
 
         // Freeze the prover account.
         Account storage proverAccount = accounts[lock.prover];
         proverAccount.setFrozen();
 
-        // Transfer tokens from market to address zero.
-        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
-
-        emit ProverSlashed(requestId, lock.prover, burnValue, transferValue);
+        emit ProverSlashed(requestId, burnValue, transferValue, stakeRecipient);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -557,7 +686,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function requestIsLocked(RequestId id) external view returns (bool) {
+    function requestIsLocked(RequestId id) public view returns (bool) {
         (address client, uint32 idx) = id.clientAndIndex();
         (bool locked,) = accounts[client].requestFlags(idx);
         return locked;
@@ -565,17 +694,23 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function requestIsSlashed(RequestId id) external view returns (bool) {
-        id.clientAndIndex();
+        return requestLocks[id].isSlashed();
+    }
 
-        RequestLock memory lock = requestLocks[id];
-        // Note, a stake and fingerprint of zero can exist on a valid request, however a deadline of zero cannot as
-        // the request would be immediately expired, and expired requests cannot be locked in.
-        return lock.deadline == 0 && lock.stake == 0 && lock.fingerprint == bytes8(0) && lock.prover != address(0);
+    /// @inheritdoc IBoundlessMarket
+    function requestLockDeadline(RequestId id) external view returns (uint64) {
+        if (!requestIsLocked(id)) {
+            revert RequestIsNotLocked({requestId: id});
+        }
+        return requestLocks[id].lockDeadline;
     }
 
     /// @inheritdoc IBoundlessMarket
     function requestDeadline(RequestId id) external view returns (uint64) {
-        return requestLocks[id].deadline;
+        if (!requestIsLocked(id)) {
+            revert RequestIsNotLocked({requestId: id});
+        }
+        return requestLocks[id].deadline();
     }
 
     /// @inheritdoc IBoundlessMarket

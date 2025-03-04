@@ -120,13 +120,10 @@ mod tests {
         ProofRequest::new(
             id,
             &signer,
-            Requirements {
-                imageId: image_id,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: prefix.into(),
-                },
-            },
+            Requirements::new(
+                Digest::from_bytes(image_id.0),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
+            ),
             "test",
             Input { inputType: InputType::Url, data: Default::default() },
             Offer {
@@ -135,6 +132,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
+                lockTimeout: 1000,
                 lockStake: U256::from(0),
             },
         )

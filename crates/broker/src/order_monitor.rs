@@ -242,7 +242,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Address, B256, U256},
+        primitives::{Address, U256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -297,13 +297,10 @@ mod tests {
         let request = ProofRequest::new(
             1,
             &signer.address(),
-            Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
@@ -312,6 +309,7 @@ mod tests {
                 biddingStart: 0,
                 rampUpPeriod: 1,
                 timeout: 100,
+                lockTimeout: 100,
                 lockStake: U256::from(0),
             },
         );
@@ -409,13 +407,10 @@ mod tests {
         let request = ProofRequest::new(
             boundless_market.index_from_nonce().await.unwrap(),
             &signer.address(),
-            Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
@@ -424,6 +419,7 @@ mod tests {
                 biddingStart: 0,
                 rampUpPeriod: 1,
                 timeout: 100,
+                lockTimeout: 100,
                 lockStake: U256::from(0),
             },
         );

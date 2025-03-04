@@ -34,7 +34,7 @@ ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
 
 RUN curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install rust r0.1.81.0
+    PATH="$PATH:/root/.risc0/bin" rzup install rust 1.81.0
 
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4229

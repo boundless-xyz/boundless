@@ -413,7 +413,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             redis::set_key_with_expiry(
                 &mut coproc_redis,
                 &redis_key,
-                keccak_req.input,
+                bytemuck::cast_slice::<_, u8>(&keccak_req.input).to_vec(),
                 Some(redis_ttl),
             )
             .await
