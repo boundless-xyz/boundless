@@ -28,6 +28,13 @@ fn main() {
 
     let input: AssessorInput = postcard::from_bytes(&bytes).expect("failed to deserialize input");
 
+    // Ensure that the number of fills is within the bounds of the supported max set size.
+    // This limitation is imposed by the Selector struct, which uses a u16 to store the index of the
+    // fill in the set.
+    if input.fills.len() >= u16::MAX.into() {
+        panic!("too many fills: {}", input.fills.len());
+    }
+
     // list of request digests
     let mut request_digests: Vec<B256> = Vec::with_capacity(input.fills.len());
     // list of ReceiptClaim digests used as leaves in the aggregation set
