@@ -242,14 +242,12 @@ impl OrderDb {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{
-        primitives::{B256, U256},
-        signers::local::LocalSigner,
-    };
+    use alloy::{primitives::U256, signers::local::LocalSigner};
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use futures_util::StreamExt;
+    use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
     use tokio::task::JoinHandle;
 
@@ -259,13 +257,10 @@ mod tests {
         let signer = LocalSigner::random();
         let req = ProofRequest {
             id: U256::ZERO,
-            requirements: Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            requirements: Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             imageUrl: "test".to_string(),
             input: Input { inputType: InputType::Url, data: Default::default() },
             offer: Offer {
