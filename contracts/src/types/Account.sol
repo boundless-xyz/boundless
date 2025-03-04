@@ -4,7 +4,7 @@
 pragma solidity ^0.8.20;
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
-uint256 constant REQUEST_FLAGS_INITIAL_BITS = 56;
+uint256 constant REQUEST_FLAGS_INITIAL_BITS = 64;
 
 using AccountLibrary for Account global;
 
@@ -16,13 +16,11 @@ struct Account {
     uint96 balance;
     /// @dev Balance of staked tokens.
     uint96 stakeBalance;
-    /// @dev flags is a bitfield for account-wide flags. Currently unused.
-    uint8 flags;
-    /// @notice 28 pairs of 2 bits representing the status of a request. One bit is for lock-in and
+    /// @notice 32 pairs of 2 bits representing the status of a request. One bit is for lock-in and
     /// the other is for fulfillment.
     /// @dev Request state flags are packed into a uint64 to make balance and flags for the first
-    /// 28 requests fit in one slot.
-    uint56 requestFlagsInitial;
+    /// 32 requests fit in one slot.
+    uint64 requestFlagsInitial;
     /// @dev Flags for the remaining requests are in a storage array.
     /// Each uint256 holds the packed flags for 128 requests, indexed in a linear fashion.
     /// Note that this struct cannot be instantiated in memory.
@@ -59,7 +57,7 @@ library AccountLibrary {
     function setRequestFlags(Account storage self, uint32 idx, uint8 flags) internal {
         assert(flags < (1 << REQUEST_FLAGS_BITWIDTH));
         if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
-            uint56 mask = uint56(flags) << uint56(idx * REQUEST_FLAGS_BITWIDTH);
+            uint64 mask = uint64(flags) << uint64(idx * REQUEST_FLAGS_BITWIDTH);
             self.requestFlagsInitial |= mask;
         } else {
             uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
