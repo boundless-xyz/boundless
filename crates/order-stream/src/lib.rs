@@ -364,10 +364,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
 mod tests {
     use super::*;
     use crate::order_db::{DbOrder, OrderDbErr};
-    use alloy::{
-        node_bindings::Anvil,
-        primitives::{B256, U256},
-    };
+    use alloy::{node_bindings::Anvil, primitives::U256};
     use boundless_market::{
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
@@ -392,7 +389,7 @@ mod tests {
         ProofRequest::new(
             idx,
             addr,
-            Requirements { imageId: B256::from([1u8; 32]), predicate: Predicate::prefix_match([]) },
+            Requirements::new(Digest::ZERO, Predicate::prefix_match([])),
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
             Offer {

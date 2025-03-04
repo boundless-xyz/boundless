@@ -6,7 +6,7 @@ use std::{process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{Address, Bytes, U256},
     providers::Provider,
     signers::Signer,
 };
@@ -29,13 +29,10 @@ async fn create_order(
     let req = ProofRequest::new(
         order_id,
         &signer_addr,
-        Requirements {
-            imageId: B256::ZERO,
-            predicate: Predicate {
-                predicateType: PredicateType::PrefixMatch,
-                data: Default::default(),
-            },
-        },
+        Requirements::new(
+            Digest::ZERO,
+            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+        ),
         "https://dev.null".to_string(),
         Input::builder().build_inline().unwrap(),
         Offer {

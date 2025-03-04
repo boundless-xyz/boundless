@@ -965,13 +965,13 @@ mod tests {
             request: ProofRequest::new(
                 1,
                 &Address::ZERO,
-                Requirements {
-                    imageId: Default::default(),
-                    predicate: Predicate {
-                        predicateType: PredicateType::DigestMatch,
-                        data: B256::ZERO.into(),
+                Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
+                        predicateType: PredicateType::PrefixMatch,
+                        data: Default::default(),
                     },
-                },
+                ),
                 "http://risczero.com",
                 Input { inputType: InputType::Inline, data: "".into() },
                 Offer {

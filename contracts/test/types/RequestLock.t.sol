@@ -33,7 +33,7 @@ contract RequestLockTest is Test {
         return slot2;
     }
 
-    function testDeadline() public {
+    function testDeadline() public view {
         uint64 expectedDeadline = requestLock.lockDeadline + requestLock.deadlineDelta;
         assertEq(requestLock.deadline(), expectedDeadline, "Deadline calculation is incorrect");
     }

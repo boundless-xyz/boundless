@@ -83,7 +83,8 @@ contract ProofRequestTest is Test {
                 predicate: Predicate({
                     predicateType: PredicateType.DigestMatch,
                     data: abi.encode(sha256(bytes("GUEST JOURNAL")))
-                })
+                }),
+                selector: bytes4(0)
             }),
             imageUrl: "https://image.dev.null",
             input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
