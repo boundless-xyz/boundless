@@ -454,7 +454,7 @@ contract BoundlessMarket is
         }
 
         Account storage assessorProverAccount = accounts[assessorProver];
-        _payNeverLocked(tprice.price, client, clientAccount, assessorProverAccount);
+        return _payNeverLocked(tprice.price, client, clientAccount, assessorProverAccount);
     }
 
     /// The request was never locked and was fulfilled in this transaction.

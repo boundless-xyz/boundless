@@ -1325,6 +1325,41 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (request, locker);
     }
 
+    function testFulfillWasLockedClientWithdrawsBalance() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(
+            1,
+            Offer({
+                minPrice: 1 ether,
+                maxPrice: 2 ether,
+                biddingStart: uint64(block.number),
+                rampUpPeriod: uint32(50),
+                lockTimeout: uint32(50),
+                timeout: uint32(100),
+                lockStake: 1 ether
+            })
+        );
+        bytes memory clientSignature = client.sign(request);
+
+        vm.prank(address(testProver));
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        vm.prank(address(client));
+        uint256 balance = boundlessMarket.balanceOf(address(client));
+        vm.prank(address(client));
+        boundlessMarket.withdraw(balance);
+
+        // Advance the chain ahead to simulate the lock timeout.
+        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+
+        (Fulfillment memory fill, bytes memory assessorSeal) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
+
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, client));
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(testProver));
+        expectRequestNotFulfilled(fill.id);
+    }
+
     function testFulfillNeverLocked() public {
         _testFulfillSameBlock(1, LockRequestMethod.None, "priceAndFulfillBatch: a single request that was not locked");
     }
@@ -1386,6 +1421,24 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
 
         return (client, request);
+    }
+
+    function testFulfillNeverLockedClientWithdrawsBalance() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSignature = client.sign(request);
+
+        (Fulfillment memory fill, bytes memory assessorSeal) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
+
+        vm.prank(address(client));
+        uint256 balance = boundlessMarket.balanceOf(address(client));
+        vm.prank(address(client));
+        boundlessMarket.withdraw(balance);
+
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, client));
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(testProver));
+        expectRequestNotFulfilled(fill.id);
     }
 
     function testFulfillNeverLockedRequestMultipleRequestsSameIndex() public {
