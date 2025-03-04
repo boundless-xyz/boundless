@@ -239,6 +239,27 @@ impl Client {
         Ok(order)
     }
 
+    /// Fetch a proof request(s) from the order stream server
+    pub async fn fetch_request(&self, id: U256) -> Result<Vec<ProofRequest>> {
+        let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            let error_message = match response.json::<serde_json::Value>().await {
+                Ok(json_body) => {
+                    json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
+                }
+                Err(_) => "Failed to read server error message".to_string(),
+            };
+
+            return Err(anyhow::Error::msg(error_message));
+        }
+
+        let order_data: Vec<OrderData> = response.json().await?;
+        let requests = order_data.into_iter().map(|data| data.order.request).collect();
+        Ok(requests)
+    }
+
     /// Get the nonce from the order stream service for websocket auth
     pub async fn get_nonce(&self, address: Address) -> Result<Nonce> {
         let url = self.base_url.join(AUTH_GET_NONCE)?.join(&address.to_string())?;

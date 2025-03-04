@@ -1,5 +1,6 @@
 CREATE TABLE orders (
     id BIGSERIAL NOT NULL PRIMARY KEY,
+    request_id TEXT NOT NULL,
     order_data JSONB NOT NULL
 );
 

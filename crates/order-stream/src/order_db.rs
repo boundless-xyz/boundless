@@ -164,8 +164,9 @@ impl OrderDb {
     pub async fn add_order(&self, order: Order) -> Result<i64, OrderDbErr> {
         let mut txn = self.pool.begin().await?;
         let row_res: Option<(i64, DateTime<Utc>)> = sqlx::query_as(
-            "INSERT INTO orders (order_data, created_at) VALUES ($1, NOW()) RETURNING id, created_at",
+            "INSERT INTO orders (request_id, order_data, created_at) VALUES ($1, $2, NOW()) RETURNING id, created_at",
         )
+        .bind(order.request.id.to_string())
         .bind(sqlx::types::Json(order.clone()))
         .fetch_optional(&mut *txn)
         .await?;
@@ -202,6 +203,21 @@ impl OrderDb {
         } else {
             Ok(())
         }
+    }
+
+    /// Find orders by request ID
+    ///
+    /// Returns a list of orders that match the request ID
+    pub async fn find_orders_by_request_id(
+        &self,
+        request_id: String,
+    ) -> Result<Vec<DbOrder>, OrderDbErr> {
+        let rows: Vec<DbOrder> = sqlx::query_as("SELECT * FROM orders WHERE request_id = $1")
+            .bind(request_id)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows)
     }
 
     /// List orders with pagination

@@ -470,6 +470,30 @@ where
             self.set_verifier.fetch_receipt_with_claim(seal, claim, journal.to_vec()).await?;
         Ok((journal, receipt))
     }
+
+    /// Fetch a proof request.
+    ///
+    /// If the request is not found in the boundless market, it will be fetched from the order stream service.
+    pub async fn fetch_proof_request(
+        &self,
+        request_id: U256,
+        tx_hash: Option<B256>,
+    ) -> Result<ProofRequest, ClientError> {
+        match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
+            Ok((request, _)) => Ok(request),
+            Err(_) => {
+                let requests = self
+                    .offchain_client
+                    .as_ref()
+                    .context(
+                        "Order stream client not available. Please provide an order stream URL",
+                    )?
+                    .fetch_request(request_id)
+                    .await?;
+                Ok(requests[0].clone())
+            }
+        }
+    }
 }
 
 impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
