@@ -168,9 +168,6 @@ contract BoundlessMarket is
             revert InsufficientBalance(client);
         }
         Account storage proverAccount = accounts[prover];
-        if (proverAccount.isFrozen()) {
-            revert AccountFrozen(prover);
-        }
         if (proverAccount.stakeBalance < request.offer.lockStake) {
             revert InsufficientBalance(prover);
         }
@@ -549,10 +546,6 @@ contract BoundlessMarket is
             accounts[client].balance += lock.price;
         }
 
-        // Freeze the prover account.
-        Account storage proverAccount = accounts[lock.prover];
-        proverAccount.setFrozen();
-
         emit ProverSlashed(requestId, burnValue, transferValue, stakeRecipient);
     }
 
@@ -624,18 +617,6 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function balanceOfStake(address addr) public view returns (uint256) {
         return uint256(accounts[addr].stakeBalance);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function accountIsFrozen(address addr) external view returns (bool) {
-        Account storage prover = accounts[addr];
-        return prover.isFrozen();
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function unfreezeAccount() public {
-        Account storage prover = accounts[msg.sender];
-        prover.unsetFrozen();
     }
 
     /// @inheritdoc IBoundlessMarket

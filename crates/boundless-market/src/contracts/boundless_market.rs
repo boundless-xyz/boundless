@@ -236,31 +236,6 @@ where
         Ok(balance)
     }
 
-    /// Returns the frozen state of the given account.
-    pub async fn account_is_frozen(&self, account: Address) -> Result<bool, MarketError> {
-        tracing::debug!("Calling accountIdFrozen({account})");
-        let frozen = self.instance.accountIsFrozen(account).call().await?._0;
-
-        Ok(frozen)
-    }
-
-    /// Unfreeze the account.
-    /// This function can only be called by the account owner.
-    pub async fn unfreeze_account(&self) -> Result<(), MarketError> {
-        tracing::debug!("Calling unfreezeAccount()");
-        let call = self.instance.unfreezeAccount().from(self.caller);
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting unfreezeAccount tx {}", pending_tx.tx_hash());
-        let tx_hash = pending_tx
-            .with_timeout(Some(self.timeout))
-            .watch()
-            .await
-            .context("failed to confirm tx")?;
-        tracing::debug!("Submitted unfreezeAccount {}", tx_hash);
-
-        Ok(())
-    }
-
     /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on. Includes the specified value, which will be deposited to the account of msg.sender.
     pub async fn submit_request_with_value(

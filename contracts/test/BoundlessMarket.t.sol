@@ -701,44 +701,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-    function _testLockRequestAfterFreeze(bool withSig) private {
-        Client client = getClient(1);
-        ProofRequest memory request = client.request(2);
-        bytes memory clientSignature = client.sign(request);
-        bytes memory proverSignature = testProver.sign(request);
-
-        // Attempt to lock in the request
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.AccountFrozen.selector, address(testProver)));
-        if (withSig) {
-            boundlessMarket.lockRequestWithSignature(request, clientSignature, proverSignature);
-        } else {
-            vm.prank(address(testProver));
-            boundlessMarket.lockRequest(request, clientSignature);
-        }
-
-        // Unfreeze the account
-        vm.prank(address(testProver));
-        boundlessMarket.unfreezeAccount();
-        vm.snapshotGasLastCall("unfreezeAccount");
-
-        // Expect the event to be emitted
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestLocked(request.id, address(testProver));
-        if (withSig) {
-            boundlessMarket.lockRequestWithSignature(request, clientSignature, proverSignature);
-        } else {
-            vm.prank(address(testProver));
-            boundlessMarket.lockRequest(request, clientSignature);
-        }
-
-        // Ensure the balances are correct
-        client.expectBalanceChange(-1 ether);
-        testProver.expectStakeBalanceChange(-2 ether);
-
-        // Verify the lockin
-        assertTrue(boundlessMarket.requestIsLocked(request.id), "Request should be locked-in");
-    }
-
     function testLockRequestAlreadyLocked() public {
         return _testLockRequestAlreadyLocked(true);
     }
@@ -1556,23 +1518,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             testProver.expectStakeBalanceChange(-1 ether);
         }
         expectMarketBalanceUnchanged();
-    }
-
-    function _testFreezeAccount(bool withSig) public {
-        testSlashLockedRequestFullyExpired();
-
-        bool frozen = boundlessMarket.accountIsFrozen(address(testProver));
-        assertTrue(frozen, "Prover account should be frozen");
-
-        _testLockRequestAfterFreeze(withSig);
-    }
-
-    function testFreezeAccount() public {
-        _testFreezeAccount(false);
-    }
-
-    function testFreezeAccountWithSig() public {
-        _testFreezeAccount(true);
     }
 
     function testSubmitRootAndFulfillBatch() public {

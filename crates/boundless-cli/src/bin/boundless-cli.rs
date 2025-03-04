@@ -189,8 +189,6 @@ enum Command {
         #[arg(long, default_value = "false")]
         require_payment: bool,
     },
-    /// Unfreeze a prover's account after being slashed
-    Unfreeze,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -527,10 +525,6 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     tracing::error!("Failed to fulfill request 0x{:x}: {}", request_id, e);
                 }
             }
-        }
-        Command::Unfreeze => {
-            boundless_market.unfreeze_account().await?;
-            tracing::info!("Account unfrozen");
         }
     };
 

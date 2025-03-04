@@ -16,8 +16,7 @@ struct Account {
     uint96 balance;
     /// @dev Balance of staked tokens.
     uint96 stakeBalance;
-    /// @dev flags is a bitfield for account-wide flags. Currently only the least significant
-    /// bit is used to indicate that the account is frozen.
+    /// @dev flags is a bitfield for account-wide flags. Currently unused.
     uint8 flags;
     /// @notice 28 pairs of 2 bits representing the status of a request. One bit is for lock-in and
     /// the other is for fulfillment.
@@ -81,24 +80,5 @@ library AccountLibrary {
     /// @param idx The index of the request.
     function setRequestFulfilled(Account storage self, uint32 idx) internal {
         setRequestFlags(self, idx, 2);
-    }
-
-    /// @notice Sets the frozen flag for the account
-    /// @param account The account to set as frozen
-    function setFrozen(Account storage account) internal {
-        account.flags |= 1;
-    }
-
-    /// @notice Unsets the frozen flag for the account
-    /// @param account The account to unfreeze
-    function unsetFrozen(Account storage account) internal {
-        account.flags &= ~uint8(1);
-    }
-
-    /// @notice Checks if an account is frozen
-    /// @param account The account to check
-    /// @return True if the account is frozen, false otherwise
-    function isFrozen(Account storage account) internal view returns (bool) {
-        return account.flags & 1 != 0;
     }
 }
