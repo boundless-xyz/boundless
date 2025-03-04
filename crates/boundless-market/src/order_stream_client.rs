@@ -239,8 +239,10 @@ impl Client {
         Ok(order)
     }
 
-    /// Fetch a proof request(s) from the order stream server
-    pub async fn fetch_request(&self, id: U256) -> Result<Vec<Order>> {
+    /// Fetch an order from the order stream server.
+    ///
+    /// Since multiple orders with the same ID might exist, the server might return a list of orders.
+    pub async fn fetch_order(&self, id: U256) -> Result<Vec<Order>> {
         let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
         let response = self.client.get(url).send().await?;
 

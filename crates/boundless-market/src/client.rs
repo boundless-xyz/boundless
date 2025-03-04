@@ -492,7 +492,7 @@ where
                     .context(
                         "Order stream client not available. Please provide an order stream URL",
                     )?
-                    .fetch_request(request_id)
+                    .fetch_order(request_id)
                     .await?;
                 if orders.is_empty() {
                     return Err(ClientError::Error(anyhow!("Order not found")));

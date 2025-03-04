@@ -457,10 +457,10 @@ mod tests {
         // 3. Broker receives the request
         let db_order = task.await.unwrap().unwrap();
 
-        // 4. Fetch the request from the order stream
-        let requests = client.fetch_request(request.id).await.unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0], request);
+        // 4. Fetch the order from the order stream
+        let orders = client.fetch_order(request.id).await.unwrap();
+        assert_eq!(orders.len(), 1);
+        assert_eq!(orders[0], order);
 
         assert_eq!(order, db_order.order);
     }
