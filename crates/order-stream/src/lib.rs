@@ -2,7 +2,9 @@
 //
 // All rights reserved.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
@@ -27,7 +29,7 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use utoipa::OpenApi;
@@ -42,7 +44,7 @@ use api::{
     list_orders, submit_order,
 };
 use order_db::OrderDb;
-use ws::{start_broadcast_task, websocket_handler, ConnectionsMap, __path_websocket_handler};
+use ws::{__path_websocket_handler, start_broadcast_task, websocket_handler, ConnectionsMap};
 
 /// Error type for the application
 #[derive(Error, Debug)]
@@ -179,7 +181,9 @@ pub struct AppState {
     /// Database backend
     db: OrderDb,
     /// Map of WebSocket connections by address
-    connections: Arc<Mutex<ConnectionsMap>>,
+    connections: Arc<RwLock<ConnectionsMap>>,
+    /// Map of pending connections by address with their timestamp
+    pending_connections: Arc<Mutex<HashMap<Address, Instant>>>,
     /// Ethereum RPC provider
     rpc_provider: RootProvider<Http<Client>>,
     /// Configuration
@@ -205,13 +209,53 @@ impl AppState {
             provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
         Ok(Arc::new(Self {
             db,
-            connections: Arc::new(Mutex::new(HashMap::new())),
+            connections: Arc::new(RwLock::new(HashMap::new())),
+            pending_connections: Arc::new(Mutex::new(HashMap::new())),
             rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
             config: config.clone(),
             chain_id,
             ws_tasks: TaskTracker::new(),
             shutdown: CancellationToken::new(),
         }))
+    }
+
+    /// Pending connection timeout on failed upgrade.
+    const PENDING_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
+
+    /// Set a pending connection and return true if the connection is not already pending
+    /// or if the existing pending connection has timed out.
+    pub(crate) async fn set_pending_connection(&self, addr: Address) -> bool {
+        let mut pending_connections = self.pending_connections.lock().await;
+        let now = Instant::now();
+
+        match pending_connections.entry(addr) {
+            Entry::Occupied(mut entry) => {
+                if now.duration_since(*entry.get()) < Self::PENDING_CONNECTION_TIMEOUT {
+                    // Connection is still pending and within timeout
+                    false
+                } else {
+                    // Connection has timed out, update the timestamp
+                    entry.insert(now);
+                    true
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(now);
+                true
+            }
+        }
+    }
+
+    /// Remove a pending connection for a given address.
+    pub(crate) async fn remove_pending_connection(&self, addr: &Address) {
+        let mut pending_connections = self.pending_connections.lock().await;
+        pending_connections.remove(addr);
+    }
+
+    /// Removes connection for a given address.
+    pub(crate) async fn remove_connection(&self, addr: &Address) {
+        let mut connections = self.connections.write().await;
+        connections.remove(addr);
     }
 }
 
@@ -312,10 +356,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
 mod tests {
     use super::*;
     use crate::order_db::{DbOrder, OrderDbErr};
-    use alloy::{
-        node_bindings::Anvil,
-        primitives::{B256, U256},
-    };
+    use alloy::{node_bindings::Anvil, primitives::U256};
     use boundless_market::{
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
@@ -340,7 +381,7 @@ mod tests {
         ProofRequest::new(
             idx,
             addr,
-            Requirements { imageId: B256::from([1u8; 32]), predicate: Predicate::prefix_match([]) },
+            Requirements::new(Digest::ZERO, Predicate::prefix_match([])),
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
             Offer {
@@ -348,6 +389,7 @@ mod tests {
                 maxPrice: U256::from(40000000000000u64),
                 biddingStart: 1,
                 timeout: 100,
+                lockTimeout: 100,
                 rampUpPeriod: 1,
                 lockStake: U256::from(10),
             },
@@ -410,5 +452,67 @@ mod tests {
         let db_order = task.await.unwrap().unwrap();
 
         assert_eq!(order, db_order.order);
+    }
+
+    #[sqlx::test]
+    async fn test_pending_connection_timeout(pool: PgPool) {
+        let anvil = Anvil::new().spawn();
+        let rpc_url = anvil.endpoint_url();
+
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
+
+        ctx.prover_market
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        let config = Config {
+            rpc_url,
+            market_address: *ctx.prover_market.instance().address(),
+            min_balance: parse_ether("2").unwrap(),
+            max_connections: 1,
+            queue_size: 10,
+            domain: "0.0.0.0:8585".parse().unwrap(),
+            bypass_addrs: vec![],
+            ping_time: 20,
+        };
+        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
+        let addr = ctx.prover_signer.address();
+
+        // Test case 1: New connection (vacant entry)
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(pending_connection, "Should return true for a new connection");
+
+        // Test case 2: Existing connection within timeout (occupied entry, not timed out)
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(!pending_connection, "Should return false for a connection within timeout");
+
+        // Test case 3: Existing connection that has timed out
+        // Manually set the timestamp to be older than the timeout
+        {
+            let mut pending_connections = app_state.pending_connections.lock().await;
+            let old_time =
+                Instant::now() - (AppState::PENDING_CONNECTION_TIMEOUT + Duration::from_secs(1));
+            pending_connections.insert(addr, old_time);
+        }
+
+        // Now it should allow a new connection since the old one timed out
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(pending_connection, "Should return true for a timed out connection");
+
+        // Newly set connection should result in pending_connection == false
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(
+            !pending_connection,
+            "Should return false for a replaced connection within timeout"
+        );
+
+        // Test removing a pending connection
+        app_state.remove_pending_connection(&addr).await;
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(pending_connection, "Should return true after removing the connection");
     }
 }

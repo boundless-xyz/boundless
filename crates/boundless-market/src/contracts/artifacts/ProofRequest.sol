@@ -89,19 +89,35 @@ library ProofRequestLibrary {
         return ECDSA.recover(structHash, proverSignature);
     }
 
-    /// @notice Validates the proof request.
+    /// @notice Validates the proof request with the intention for it to be priced.
+    ///         Does not check if the request is already locked or fulfilled, but
+    ///         does check if it has expired.
+    /// @param request The proof request to validate.
+    /// @return lockDeadline1 The deadline for when a lock expires for the request.
+    /// @return deadline1 The deadline for the request as a whole.
+    function validateForPriceRequest(ProofRequest calldata request)
+        internal
+        view
+        returns (uint64 lockDeadline1, uint64 deadline1)
+    {
+        (lockDeadline1, deadline1) = request.offer.validate(request.id);
+    }
+
+    /// @notice Validates the proof request with the intention for it to be locked.
+    ///         Checks that the request is not already locked or fulfilled.
     /// @param request The proof request to validate.
     /// @param accounts The mapping of accounts.
     /// @param client The address of the client.
     /// @param idx The index of the request.
-    /// @return deadline1 The deadline for the request.
-    function validateRequest(
+    /// @return lockDeadline1 The deadline for when a lock expires for the request.
+    /// @return deadline1 The deadline for the request as a whole.
+    function validateForLockRequest(
         ProofRequest calldata request,
         mapping(address => Account) storage accounts,
         address client,
         uint32 idx
-    ) internal view returns (uint64 deadline1) {
-        deadline1 = request.offer.validate(request.id);
+    ) internal view returns (uint64 lockDeadline1, uint64 deadline1) {
+        (lockDeadline1, deadline1) = request.offer.validate(request.id);
 
         // Check that the request is not already locked or fulfilled.
         // TODO: Currently these checks are run here as part of the priceRequest path.

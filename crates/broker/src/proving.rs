@@ -189,7 +189,7 @@ mod tests {
         provers::{encode_input, MockProver},
         OrderStatus,
     };
-    use alloy::primitives::{Bytes, B256, U256};
+    use alloy::primitives::{Bytes, U256};
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
@@ -226,13 +226,13 @@ mod tests {
             target_block: Some(0),
             request: ProofRequest {
                 id: U256::ZERO,
-                requirements: Requirements {
-                    imageId: B256::ZERO,
-                    predicate: Predicate {
+                requirements: Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
                         predicateType: PredicateType::PrefixMatch,
                         data: Default::default(),
                     },
-                },
+                ),
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
@@ -240,6 +240,7 @@ mod tests {
                     maxPrice: U256::from(max_price),
                     biddingStart: 4,
                     rampUpPeriod: 1,
+                    lockTimeout: 100,
                     timeout: 100,
                     lockStake: U256::from(10),
                 },
@@ -292,13 +293,13 @@ mod tests {
             target_block: Some(0),
             request: ProofRequest {
                 id: order_id,
-                requirements: Requirements {
-                    imageId: B256::ZERO,
-                    predicate: Predicate {
+                requirements: Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
                         predicateType: PredicateType::PrefixMatch,
                         data: Default::default(),
                     },
-                },
+                ),
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
@@ -307,6 +308,7 @@ mod tests {
                     biddingStart: 4,
                     rampUpPeriod: 1,
                     timeout: 100,
+                    lockTimeout: 100,
                     lockStake: U256::from(10),
                 },
             },

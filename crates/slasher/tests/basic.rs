@@ -6,7 +6,7 @@ use std::{process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{Address, Bytes, U256},
     providers::Provider,
     signers::Signer,
 };
@@ -29,13 +29,10 @@ async fn create_order(
     let req = ProofRequest::new(
         order_id,
         &signer_addr,
-        Requirements {
-            imageId: B256::ZERO,
-            predicate: Predicate {
-                predicateType: PredicateType::PrefixMatch,
-                data: Default::default(),
-            },
-        },
+        Requirements::new(
+            Digest::ZERO,
+            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+        ),
         "https://dev.null".to_string(),
         Input::builder().build_inline().unwrap(),
         Offer {
@@ -44,6 +41,7 @@ async fn create_order(
             biddingStart: 0,
             timeout: current_block as u32 + 2,
             rampUpPeriod: 1,
+            lockTimeout: current_block as u32 + 2,
             lockStake: U256::from(0),
         },
     );
@@ -105,7 +103,8 @@ async fn test_basic_usage() {
         Some(event) = stream.next() => {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
-            assert_eq!(request_slashed.prover, ctx.prover_signer.address());
+            // Check that the stake recipient is the market treasury address
+            assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_addr);
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(10)) => {

@@ -8,7 +8,10 @@ use std::{
 };
 
 use alloy::{
-    primitives::{utils::parse_ether, Address, U256},
+    primitives::{
+        utils::{format_units, parse_ether},
+        Address, U256,
+    },
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
@@ -71,6 +74,9 @@ struct MainArgs {
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
     #[clap(long, default_value = "0")]
     ramp_up: u32,
+    /// Number of blocks before the request lock-in expires.
+    #[clap(long, default_value = "300")]
+    lock_timeout: u32,
     /// Number of blocks before the request expires.
     #[clap(long, default_value = "300")]
     timeout: u32,
@@ -167,13 +173,27 @@ async fn run(args: &MainArgs) -> Result<()> {
         };
 
         let session_info = default_executor().execute(env.clone().try_into()?, &elf)?;
-        let mcycles_count = session_info
-            .segments
-            .iter()
-            .map(|segment| 1 << segment.po2)
-            .sum::<u64>()
-            .div_ceil(1_000_000);
         let journal = session_info.journal;
+
+        let cycles_count =
+            session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
+        let min_price = args
+            .min_price_per_mcycle
+            .checked_mul(U256::from(cycles_count))
+            .unwrap()
+            .div_ceil(U256::from(1_000_000));
+        let max_price = args
+            .max_price_per_mcycle
+            .checked_mul(U256::from(cycles_count))
+            .unwrap()
+            .div_ceil(U256::from(1_000_000));
+
+        tracing::info!(
+            "{} cycles count {} min_price in ether {} max_price in ether",
+            cycles_count,
+            format_units(min_price, "ether")?,
+            format_units(max_price, "ether")?
+        );
 
         let request = ProofRequest::builder()
             .with_image_url(image_url.clone())
@@ -184,13 +204,16 @@ async fn run(args: &MainArgs) -> Result<()> {
             ))
             .with_offer(
                 Offer::default()
-                    .with_min_price_per_mcycle(args.min_price_per_mcycle, mcycles_count)
-                    .with_max_price_per_mcycle(args.max_price_per_mcycle, mcycles_count)
+                    .with_min_price(min_price)
+                    .with_max_price(max_price)
                     .with_lock_stake(args.lockin_stake)
                     .with_ramp_up_period(args.ramp_up)
-                    .with_timeout(args.timeout),
+                    .with_timeout(args.timeout)
+                    .with_lock_timeout(args.lock_timeout),
             )
             .build()?;
+
+        tracing::info!("Request: {:?}", request);
 
         let submit_offchain = args.order_stream_url.is_some();
         let (request_id, _) = if submit_offchain {
@@ -259,6 +282,7 @@ mod tests {
             bidding_start_offset: 5,
             ramp_up: 0,
             timeout: 1000,
+            lock_timeout: 1000,
             elf: None,
             input: OrderInput { input: None, input_file: None },
             encode_input: false,

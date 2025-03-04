@@ -6,7 +6,10 @@ use std::cmp::min;
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
-    primitives::{utils::parse_ether, Address, U256},
+    primitives::{
+        utils::{format_units, parse_ether},
+        Address, U256,
+    },
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::Transport,
@@ -29,7 +32,6 @@ use zeth_guests::{ZETH_GUESTS_RETH_ETHEREUM_ELF, ZETH_GUESTS_RETH_ETHEREUM_ID};
 use zeth_preflight::BlockBuilder;
 use zeth_preflight_ethereum::RethBlockBuilder;
 
-const MAX_RETRY_ATTEMPTS: u32 = 5;
 const RETRY_DELAY_SECS: u64 = 5;
 
 /// Arguments of order-generator-zeth CLI.
@@ -81,7 +83,6 @@ struct Args {
     #[clap(long, default_value = "1000")]
     timeout: u32,
     /// Ramp-up period in blocks.
-    ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
     #[clap(long, default_value = "0")]
     ramp_up: u32,
@@ -91,6 +92,8 @@ struct Args {
     /// Submit the request offchain.
     #[clap(long)]
     offchain: bool,
+    #[clap(long, default_value = "3")]
+    max_retries: u32,
 }
 
 #[tokio::main]
@@ -140,14 +143,12 @@ async fn main() -> Result<()> {
     loop {
         // Attempt to get the current block number.
         let current_block = match provider.get_block_number().await {
-            Ok(number) => {
-                consecutive_failures = 0; // Reset failures on success.
-                number
-            }
+            Ok(number) => number,
             Err(err) => {
                 if let Err(e) = handle_failure(
                     &mut consecutive_failures,
                     format!("Failed to get block number: {}", err),
+                    args.max_retries,
                 )
                 .await
                 {
@@ -159,9 +160,12 @@ async fn main() -> Result<()> {
 
         // Ensure that the chain has advanced enough.
         if current_block < block_number {
-            if let Err(e) =
-                handle_failure(&mut consecutive_failures, "Current block is behind expected block")
-                    .await
+            if let Err(e) = handle_failure(
+                &mut consecutive_failures,
+                "Current block is behind expected block",
+                args.max_retries,
+            )
+            .await
             {
                 break Err(e);
             }
@@ -210,6 +214,7 @@ async fn main() -> Result<()> {
                         block_number + block_count - 1,
                         err
                     ),
+                    args.max_retries,
                 )
                 .await
                 {
@@ -274,13 +279,20 @@ where
     // run executor only
     let session_info =
         default_executor().execute(guest_env.try_into()?, ZETH_GUESTS_RETH_ETHEREUM_ELF)?;
-    let mcycles_count = session_info
-        .segments
-        .iter()
-        .map(|segment| 1 << segment.po2)
-        .sum::<u64>()
-        .div_ceil(1_000_000);
-    tracing::info!("{} mcycles count.", mcycles_count);
+
+    let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
+    let min_price =
+        params.min.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
+    let max_price =
+        params.max.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
+
+    tracing::info!(
+        "{} cycles count {} mcycles count {} min_price in ether {} max_price in ether",
+        cycles_count,
+        cycles_count / 1_000_000,
+        format_units(min_price, "ether")?,
+        format_units(max_price, "ether")?
+    );
     let journal = session_info.journal;
 
     let request = ProofRequest::builder()
@@ -292,8 +304,8 @@ where
         ))
         .with_offer(
             Offer::default()
-                .with_min_price_per_mcycle(params.min, mcycles_count)
-                .with_max_price_per_mcycle(params.max, mcycles_count)
+                .with_min_price(min_price)
+                .with_max_price(max_price)
                 .with_ramp_up_period(params.ramp_up)
                 .with_timeout(params.timeout)
                 .with_lock_stake(params.stake),
@@ -307,19 +319,25 @@ where
         boundless_client.submit_request(&request).await?
     };
 
+    tracing::info!(
+        "Submitted request for block {} {} with id {}",
+        build_args.block_number,
+        params.offchain.then(|| "offchain").unwrap_or("onchain"),
+        request_id
+    );
+
     Ok(request_id)
 }
 
-async fn handle_failure(consecutive_failures: &mut u32, context: impl AsRef<str>) -> Result<()> {
+async fn handle_failure(
+    consecutive_failures: &mut u32,
+    context: impl AsRef<str>,
+    max_retries: u32,
+) -> Result<()> {
     *consecutive_failures += 1;
-    tracing::warn!(
-        "{} (attempt {}/{})",
-        context.as_ref(),
-        consecutive_failures,
-        MAX_RETRY_ATTEMPTS
-    );
-    if *consecutive_failures >= MAX_RETRY_ATTEMPTS {
-        return Err(anyhow!("Operation failed after {} attempts", MAX_RETRY_ATTEMPTS));
+    tracing::info!("(attempt {}/{}) {}", consecutive_failures, max_retries, context.as_ref());
+    if *consecutive_failures >= max_retries {
+        return Err(anyhow!("Operation failed after {} attempts", max_retries));
     }
     tokio::time::sleep(Duration::from_secs(RETRY_DELAY_SECS)).await;
     Ok(())

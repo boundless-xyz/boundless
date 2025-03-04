@@ -16,6 +16,9 @@ use thiserror::Error;
 
 use crate::{AggregationState, Batch, BatchStatus, Order, OrderStatus, ProofRequest};
 
+#[cfg(test)]
+mod fuzz_db;
+
 #[derive(Error, Debug)]
 pub enum DbError {
     #[error("Order key {0} not found in DB")]
@@ -196,6 +199,7 @@ struct DbBatch {
 #[async_trait]
 impl BrokerDb for SqliteDb {
     async fn add_order(&self, id: U256, order: Order) -> Result<Option<Order>, DbError> {
+        // TODO(austin): https://github.com/boundless-xyz/boundless/issues/162
         sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2)")
             .bind(format!("{id:x}"))
             .bind(sqlx::types::Json(&order))
@@ -304,8 +308,11 @@ impl BrokerDb for SqliteDb {
         // TODO: can we work out how to correctly
         // use bind + a json field with out string formatting
         // the sql query?
-        .bind(lock_block as i64)
-        .bind(expire_block as i64)
+        .bind(i64::try_from(lock_block).map_err(|_| DbError::BadBlockNumb(lock_block.to_string()))?)
+        .bind(
+            i64::try_from(expire_block)
+                .map_err(|_| DbError::BadBlockNumb(expire_block.to_string()))?,
+        )
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
         .execute(&self.pool)
@@ -625,6 +632,7 @@ impl BrokerDb for SqliteDb {
         for order in orders.into_iter() {
             agg_orders.push(AggregationOrder {
                 order_id: U256::from_str_radix(&order.id, 16)?,
+                // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
                 proof_id: order
                     .data
                     .proof_id
@@ -957,13 +965,13 @@ mod tests {
             request: ProofRequest::new(
                 1,
                 &Address::ZERO,
-                Requirements {
-                    imageId: Default::default(),
-                    predicate: Predicate {
-                        predicateType: PredicateType::DigestMatch,
-                        data: B256::ZERO.into(),
+                Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
+                        predicateType: PredicateType::PrefixMatch,
+                        data: Default::default(),
                     },
-                },
+                ),
                 "http://risczero.com",
                 Input { inputType: InputType::Inline, data: "".into() },
                 Offer {
@@ -971,6 +979,7 @@ mod tests {
                     maxPrice: U256::from(2),
                     biddingStart: 0,
                     timeout: 100,
+                    lockTimeout: 100,
                     rampUpPeriod: 1,
                     lockStake: U256::from(0),
                 },

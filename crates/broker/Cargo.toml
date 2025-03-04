@@ -32,6 +32,7 @@ http = "1.1"
 notify = "6.1"
 reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -49,11 +50,16 @@ uuid = { workspace = true }
 alloy = { workspace = true, features = ["node-bindings"] }
 boundless-market = { workspace = true, features = ["test-utils"] }
 broker = { path = ".", features = ["test-utils"] }
+elsa = "1.11"
 guest-assessor = { workspace = true }
 guest-util = { workspace = true }
 hex = { workspace = true }
 httpmock = "0.7"
+proptest = "1.4"
+proptest-derive = "0.4"
+rand = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["full"] }
 tracing-test = "0.2"
 
 [features]

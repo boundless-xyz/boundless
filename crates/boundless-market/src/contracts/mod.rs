@@ -24,7 +24,7 @@ use alloy::{
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
-use alloy_primitives::{aliases::U160, Address, Bytes, B256, U256};
+use alloy_primitives::{aliases::U160, Address, Bytes, FixedBytes, B256, U256};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
@@ -194,6 +194,10 @@ pub enum RequestError {
     #[error("offer timeout must be greater than 0")]
     OfferTimeoutIsZero,
 
+    /// The offer lock timeout is zero.
+    #[error("offer lock timeout must be greater than 0")]
+    OfferLockTimeoutIsZero,
+
     /// The offer max price is zero.
     #[error("offer maxPrice must be greater than 0")]
     OfferMaxPriceIsZero,
@@ -343,6 +347,9 @@ impl ProofRequest {
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
         };
+        if self.offer.lockTimeout == 0 {
+            return Err(RequestError::OfferLockTimeoutIsZero);
+        };
         if self.offer.maxPrice == U256::ZERO {
             return Err(RequestError::OfferMaxPriceIsZero);
         };
@@ -395,7 +402,11 @@ impl ProofRequest {
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
     pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), predicate }
+        Self {
+            imageId: <[u8; 32]>::from(image_id.into()).into(),
+            predicate,
+            selector: FixedBytes::<4>([0; 4]),
+        }
     }
 
     /// Sets the image ID.
@@ -406,6 +417,11 @@ impl Requirements {
     /// Sets the predicate.
     pub fn with_predicate(self, predicate: Predicate) -> Self {
         Self { predicate, ..self }
+    }
+
+    /// Sets the selector.
+    pub fn with_selector(self, selector: FixedBytes<4>) -> Self {
+        Self { selector, ..self }
     }
 }
 
@@ -489,6 +505,11 @@ impl Offer {
         Self { timeout, ..self }
     }
 
+    /// Sets the offer lock-in timeout as number of blocks from the bidding start before expiring.
+    pub fn with_lock_timeout(self, lock_timeout: u32) -> Self {
+        Self { lockTimeout: lock_timeout, ..self }
+    }
+
     /// Sets the offer ramp-up period as number of blocks from the bidding start before the price
     /// starts to increase until the maximum price.
     pub fn with_ramp_up_period(self, ramp_up_period: u32) -> Self {
@@ -538,9 +559,6 @@ pub mod boundless_market;
 #[cfg(not(target_os = "zkvm"))]
 /// The Hit Points module.
 pub mod hit_points;
-#[cfg(not(target_os = "zkvm"))]
-/// The Set Verifier module.
-pub mod set_verifier;
 
 #[cfg(not(target_os = "zkvm"))]
 #[derive(Error, Debug)]
@@ -677,13 +695,13 @@ pub mod test_utils {
         transports::{BoxTransport, Transport},
     };
     use anyhow::{Context, Result};
+    use risc0_ethereum_contracts::set_verifier::SetVerifierService;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
 
     use crate::contracts::{
         boundless_market::BoundlessMarketService,
         hit_points::{default_allowance, HitPointsService},
-        set_verifier::SetVerifierService,
     };
 
     // Bytecode for the contracts is copied from the contract build output by the build script. It
@@ -945,6 +963,16 @@ pub mod test_utils {
             set_builder_id: Digest,
             assessor_guest_id: Digest,
         ) -> Result<Self> {
+            Self::new_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id)
+                .await
+        }
+
+        pub async fn new_with_rpc_url(
+            anvil: &AnvilInstance,
+            rpc_url: &str,
+            set_builder_id: Digest,
+            assessor_guest_id: Digest,
+        ) -> Result<Self> {
             let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
                 TestCtx::deploy_contracts(anvil, set_builder_id, assessor_guest_id).await.unwrap();
 
@@ -955,19 +983,19 @@ pub mod test_utils {
             let prover_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(prover_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
             let customer_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
             let verifier_provider = ProviderBuilder::new()
                 .with_recommended_fillers()
                 .wallet(EthereumWallet::from(verifier_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .on_builtin(rpc_url)
                 .await
                 .unwrap();
 
@@ -1031,13 +1059,10 @@ mod tests {
 
         let req = ProofRequest {
             id: request_id,
-            requirements: Requirements {
-                imageId: B256::ZERO,
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            requirements: Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             imageUrl: "https://dev.null".to_string(),
             input: Input::builder().build_inline().unwrap(),
             offer: Offer {
@@ -1046,6 +1071,7 @@ mod tests {
                 biddingStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
+                lockTimeout: 1000,
                 lockStake: U256::from(0),
             },
         };
