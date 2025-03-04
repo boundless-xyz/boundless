@@ -410,7 +410,7 @@ contract BoundlessMarket is
         Account storage clientAccount = accounts[client];
 
         // If the request has the same id, but is different to the request that was locked, the fulfillment
-        // price could be either higher or lower than the price that was previously locked. 
+        // price could be either higher or lower than the price that was previously locked.
         // If the price is higher, we charge the client the difference.
         // If the price is lower, we refund the client the difference.
         if (price > lockPrice) {

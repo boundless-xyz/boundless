@@ -73,7 +73,7 @@ library RequestLockLibrary {
 
     function setProverPaidAfterLockDeadline(RequestLock storage requestLock, address prover) internal {
         requestLock.prover = prover;
-        requestLock.requestLockFlags = PROVER_PAID_AFTER_LOCK_FLAG;
+        requestLock.requestLockFlags |= PROVER_PAID_AFTER_LOCK_FLAG;
         // We don't zero out the second slot as stake information is required for slashing.
     }
 
@@ -83,10 +83,6 @@ library RequestLockLibrary {
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
         requestLock.fingerprint = bytes8(0);
-    }
-
-    function hasBeenLocked(RequestLock memory requestLock) internal pure returns (bool) {
-        return requestLock.prover != address(0);
     }
 
     /// @notice Returns true if the request was fulfilled by the locker
