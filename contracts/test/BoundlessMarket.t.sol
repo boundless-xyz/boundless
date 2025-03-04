@@ -1355,6 +1355,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment memory fill, bytes memory assessorSeal) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
+        // NOTE: While the lock does have enough funds escrowed to cover the original price, the auction further
+        // raised the price in the time that passed between the lock transaction and this fulfill transaction. As a
+        // result, the escrowed funds are no longer sufficient.
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, client));
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorSeal, address(testProver));
         expectRequestNotFulfilled(fill.id);
