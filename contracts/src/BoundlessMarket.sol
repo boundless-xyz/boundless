@@ -257,24 +257,27 @@ contract BoundlessMarket is
         bytes32[] memory claimDigests = new bytes32[](fillsLength);
         bytes32[] memory requestDigests = new bytes32[](fillsLength);
 
+        // Check the selector constraints.
+        // NOTE: The assessor guest adds non-zero selector values to the list.
         uint256 selectorsLength = assessorReceipt.selectors.length;
-        uint16 selectorIdx = 0;
+        for (uint256 i = 0; i < selectorsLength; i++) {
+            bytes4 expected = assessorReceipt.selectors[i].value;
+            bytes4 received = bytes4(fills[assessorReceipt.selectors[i].index].seal[0:4]);
+            if (expected != received) {
+                revert SelectorMismatch(expected, received);
+            }
+        }
 
+        // Verify the application receipts.
         for (uint256 i = 0; i < fillsLength; i++) {
             Fulfillment calldata fill = fills[i];
 
             requestDigests[i] = fill.requestDigest;
             claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
 
-            // If the current index is flagged for selector verification, process it.
-            if (selectorIdx < selectorsLength && assessorReceipt.selectors[selectorIdx].index == i) {
-                if (assessorReceipt.selectors[selectorIdx].value != bytes4(fill.seal[0:4])) {
-                    revert SelectorMismatch(assessorReceipt.selectors[selectorIdx].value, bytes4(fill.seal[0:4]));
-                }
-                selectorIdx++;
-            }
             VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigests[i]));
         }
+
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
