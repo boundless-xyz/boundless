@@ -240,7 +240,7 @@ impl Client {
     }
 
     /// Fetch a proof request(s) from the order stream server
-    pub async fn fetch_request(&self, id: U256) -> Result<Vec<ProofRequest>> {
+    pub async fn fetch_request(&self, id: U256) -> Result<Vec<Order>> {
         let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
         let response = self.client.get(url).send().await?;
 
@@ -256,8 +256,8 @@ impl Client {
         }
 
         let order_data: Vec<OrderData> = response.json().await?;
-        let requests = order_data.into_iter().map(|data| data.order.request).collect();
-        Ok(requests)
+        let orders = order_data.into_iter().map(|data| data.order).collect();
+        Ok(orders)
     }
 
     /// Get the nonce from the order stream service for websocket auth

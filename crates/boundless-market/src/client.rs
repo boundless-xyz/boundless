@@ -31,7 +31,7 @@ use alloy::{
     },
     transports::{http::Http, Transport},
 };
-use alloy_primitives::B256;
+use alloy_primitives::{PrimitiveSignature, B256};
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client as HttpClient;
 use risc0_aggregation::SetInclusionReceipt;
@@ -44,7 +44,7 @@ use crate::{
         boundless_market::{BoundlessMarketService, MarketError},
         ProofRequest, RequestError,
     },
-    order_stream_client::Client as OrderStreamClient,
+    order_stream_client::{Client as OrderStreamClient, Order},
     storage::{
         storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider,
         BuiltinStorageProviderError, StorageProvider, StorageProviderConfig,
@@ -471,18 +471,22 @@ where
         Ok((journal, receipt))
     }
 
-    /// Fetch a proof request.
+    /// Fetch an order as a proof request and signature pair.
     ///
     /// If the request is not found in the boundless market, it will be fetched from the order stream service.
-    pub async fn fetch_proof_request(
+    pub async fn fetch_order(
         &self,
         request_id: U256,
         tx_hash: Option<B256>,
-    ) -> Result<ProofRequest, ClientError> {
+    ) -> Result<Order, ClientError> {
         match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
-            Ok((request, _)) => Ok(request),
+            Ok((request, signature_bytes)) => Ok(Order {
+                request,
+                signature: PrimitiveSignature::try_from(signature_bytes.as_ref())
+                    .map_err(|_| ClientError::Error(anyhow!("Failed to parse signature")))?,
+            }),
             Err(_) => {
-                let requests = self
+                let orders = self
                     .offchain_client
                     .as_ref()
                     .context(
@@ -490,7 +494,11 @@ where
                     )?
                     .fetch_request(request_id)
                     .await?;
-                Ok(requests[0].clone())
+                if orders.is_empty() {
+                    return Err(ClientError::Error(anyhow!("Order not found")));
+                }
+                // TODO: Handle multiple orders
+                Ok(orders[0].clone())
             }
         }
     }
