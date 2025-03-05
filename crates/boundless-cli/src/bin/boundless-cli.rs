@@ -254,10 +254,10 @@ struct SubmitOfferRequirements {
     #[clap(long)]
     journal_prefix: Option<String>,
     /// Address of the callback to use in the requirements.
-    #[clap(long)]
+    #[clap(long, requires = "callback_gas_limit")]
     callback_addr: Option<Address>,
     /// Gas limit of the callback to use in the requirements.
-    #[clap(long)]
+    #[clap(long, requires = "callback_addr")]
     callback_gas_limit: Option<u64>,
 }
 
