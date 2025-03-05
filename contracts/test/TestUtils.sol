@@ -7,7 +7,7 @@ pragma solidity ^0.8.20;
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import "../src/BoundlessMarket.sol";
-
+import "../src/types/SteelCommitment.sol";
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;
 
@@ -24,7 +24,7 @@ library TestUtils {
         }
         bytes32 root = MerkleProofish.processTree(claimDigests);
 
-        bytes memory journal = abi.encode(AssessorJournal({requestDigests: requestDigests, root: root, prover: prover}));
+        bytes memory journal = abi.encode(AssessorJournal({requestDigests: requestDigests, root: root, prover: prover, commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})}));
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 

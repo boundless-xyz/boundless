@@ -165,6 +165,16 @@ pub(crate) fn request_id(addr: &Address, id: u32) -> U256 {
     (U256::from(addr) << 32) | U256::from(id)
 }
 
+/// Converts a request id to an address, an index, and a smart contract signature flag
+pub fn request_id_to_parts(request_id: U256) -> (Address, u32, bool) {
+    let mut addr_u256 = request_id >> U256::from(32);
+    addr_u256 = addr_u256 & ((U256::from(1) << U256::from(160)) - U256::from(1));
+    let addr = Address::from(addr_u256.to::<U160>());
+    let id = (request_id & (U256::MAX << U256::from(32))).to::<u32>();
+    let is_smart_contract = (request_id & (U256::from(1) << 192)) != U256::ZERO;
+    (addr, id, is_smart_contract)
+}
+
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 /// Errors that can occur when creating a proof request.
@@ -1105,5 +1115,26 @@ mod tests {
 
         client_sig[0] = 1;
         req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_request_id_to_parts() {
+        // Test case 1: Regular signature
+        let request_id1 =
+            U256::from_str("3130239009558586413752262552917257075388277690201777635428").unwrap();
+        let (addr1, idx1, is_smart_contract1) = request_id_to_parts(request_id1);
+
+        assert_eq!(addr1, Address::from_str("0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496").unwrap());
+        assert_eq!(idx1, 100);
+        assert!(!is_smart_contract1);
+
+        // Test case 2: Smart contract signature
+        let request_id2 =
+            U256::from_str("9407340744945267177588051976124923491490633134665812148266").unwrap();
+        let (addr2, idx2, is_smart_contract2) = request_id_to_parts(request_id2);
+
+        assert_eq!(addr2, Address::from_str("0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496").unwrap());
+        assert_eq!(idx2, 42);
+        assert!(is_smart_contract2);
     }
 }

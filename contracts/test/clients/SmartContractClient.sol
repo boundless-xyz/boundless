@@ -13,6 +13,9 @@ import "forge-std/Test.sol";
 import {MockSmartContractWallet} from "./MockSmartContractWallet.sol";
 import "forge-std/Vm.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
+import {RequestIdLibrary} from "../../src/types/RequestId.sol";
+import {Input, InputType} from "../../src/types/Input.sol";
+import {Offer} from "../../src/types/Offer.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
@@ -44,6 +47,26 @@ contract SmartContractClient is BaseClient, Test {
 
     function signerAddr() public view returns (address) {
         return signer.addr;
+    }
+
+    function request(uint32 idx) public view override returns (ProofRequest memory) {
+        return ProofRequest({
+            id: RequestIdLibrary.from(addr(), idx, true),
+            requirements: defaultRequirements(),
+            imageUrl: "https://image.dev.null",
+            input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
+            offer: defaultOffer()
+        });
+    }
+
+    function request(uint32 idx, Offer memory offer) public view override returns (ProofRequest memory) {
+        return ProofRequest({
+            id: RequestIdLibrary.from(addr(), idx, true),
+            requirements: defaultRequirements(),
+            imageUrl: "https://image.dev.null",
+            input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
+            offer: offer
+        });
     }
 
     function sign(ProofRequest calldata) public view override returns (bytes memory) {

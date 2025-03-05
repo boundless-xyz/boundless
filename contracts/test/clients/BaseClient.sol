@@ -79,25 +79,9 @@ abstract contract BaseClient {
         });
     }
 
-    function request(uint32 idx) public view returns (ProofRequest memory) {
-        return ProofRequest({
-            id: RequestIdLibrary.from(addr(), idx),
-            requirements: defaultRequirements(),
-            imageUrl: "https://image.dev.null",
-            input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
-            offer: defaultOffer()
-        });
-    }
+    function request(uint32 idx) public virtual returns (ProofRequest memory);
 
-    function request(uint32 idx, Offer memory offer) public view returns (ProofRequest memory) {
-        return ProofRequest({
-            id: RequestIdLibrary.from(addr(), idx),
-            requirements: defaultRequirements(),
-            imageUrl: "https://image.dev.null",
-            input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
-            offer: offer
-        });
-    }
+    function request(uint32 idx, Offer memory offer) public virtual returns (ProofRequest memory);
 
     function snapshotBalance() public {
         balanceSnapshot = boundlessMarket.balanceOf(addr()).toInt256();

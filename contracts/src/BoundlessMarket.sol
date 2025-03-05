@@ -20,6 +20,7 @@ import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/I
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket} from "./IBoundlessMarket.sol";
+import {SteelCommitment} from "./types/SteelCommitment.sol";
 import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
@@ -117,9 +118,9 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
-        (address client, uint32 idx) = request.id.clientAndIndex();
+        (address client, uint32 idx, bool isSmartContractSig) = request.id.clientIndexAndSignatureType();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        request.verifySignature(requestHash, client, clientSignature);
+        request.verifyClientSignature(requestHash, client, clientSignature, isSmartContractSig);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
         _lockRequest(request, requestHash, client, idx, msg.sender, lockDeadline, deadline);
@@ -132,10 +133,10 @@ contract BoundlessMarket is
         address prover,
         bytes calldata proverSignature
     ) external {
-        (address client, uint32 idx) = request.id.clientAndIndex();
+        (address client, uint32 idx, bool isSmartContractSig) = request.id.clientIndexAndSignatureType();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        request.verifySignature(requestHash, client, clientSignature);
-        request.verifySignature(requestHash, prover, proverSignature);
+        request.verifyClientSignature(requestHash, client, clientSignature, isSmartContractSig);
+        request.verifyProverSignature(requestHash, prover, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
         _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
@@ -218,9 +219,9 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client,) = request.id.clientAndIndex();
+        (address client, , bool isSmartContractSig) = request.id.clientIndexAndSignatureType();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        request.verifySignature(requestHash, client, clientSignature);
+        request.verifyClientSignature(requestHash, client, clientSignature, isSmartContractSig);
 
         request.validateForPriceRequest();
 
@@ -244,7 +245,7 @@ contract BoundlessMarket is
         bytes32[] memory requestDigests = new bytes32[](1);
         requestDigests[0] = fill.requestDigest;
         bytes32 assessorJournalDigest =
-            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: claimDigest, prover: prover})));
+            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: claimDigest, prover: prover, commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})})));
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
     }
@@ -267,7 +268,7 @@ contract BoundlessMarket is
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.
         bytes32 assessorJournalDigest =
-            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: batchRoot, prover: prover})));
+            sha256(abi.encode(AssessorJournal({requestDigests: requestDigests, root: batchRoot, prover: prover, commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})})));
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorSeal, ASSESSOR_ID, assessorJournalDigest);
     }
