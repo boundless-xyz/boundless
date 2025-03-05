@@ -20,7 +20,8 @@ library TestUtils {
         bytes32 assessorImageId,
         Selector[] memory selectors,
         AssessorCallback[] memory callbacks,
-        address prover
+        address prover,
+        SteelCommitment memory commitment
     ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
@@ -36,8 +37,8 @@ library TestUtils {
                 root: root,
                 selectors: selectors,
                 callbacks: callbacks,
-                prover: prover, 
-                commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})
+                prover: prover,
+                commitment: commitment
             })
         );
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));

@@ -17,6 +17,7 @@ import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC2
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
+import {Steel} from "risc0/Steel/Steel.sol";
 
 import {IBoundlessMarket} from "./IBoundlessMarket.sol";
 import {SteelCommitment} from "./types/SteelCommitment.sol";
@@ -220,7 +221,7 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client, , bool isSmartContractSig) = request.id.clientIndexAndSignatureType();
+        (address client,, bool isSmartContractSig) = request.id.clientIndexAndSignatureType();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         request.verifyClientSignature(requestHash, client, clientSignature, isSmartContractSig);
 
@@ -260,7 +261,16 @@ contract BoundlessMarket is
 
         // Validate the Steel commitment if it is provided. The presence of a Steel commitment indicates that
         // a smart contract signature was validated by the assessor.
-        if (assessorReceipt.commitment.digest != bytes32(0) && !Steel.validateCommitment(assessorReceipt.commitment)) {
+        if (
+            assessorReceipt.commitment.digest != bytes32(0)
+                && !Steel.validateCommitment(
+                    Steel.Commitment(
+                        assessorReceipt.commitment.id,
+                        assessorReceipt.commitment.digest,
+                        assessorReceipt.commitment.configID
+                    )
+                )
+        ) {
             revert InvalidCommitment();
         }
 

@@ -47,10 +47,10 @@ contract RequestIdTest is Test {
 
         RequestId id1 = RequestIdLibrary.from(testClient, testIndex);
         RequestId id2 = RequestIdLibrary.from(testClient, testIndex, false);
-        
+
         (address client1, uint32 index1, bool flag1) = id1.clientIndexAndSignatureType();
         (address client2, uint32 index2, bool flag2) = id2.clientIndexAndSignatureType();
-        
+
         assertEq(client1, client2);
         assertEq(index1, index2);
         assertEq(flag1, flag2);

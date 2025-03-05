@@ -65,13 +65,12 @@ library ProofRequestLibrary {
         );
     }
 
-    /// @notice Verifies a signature over a proof request.
-    /// @dev Supports EIP-1271 for smart contract signatures. If the signature is empty and the client is a smart
-    /// contract, calls isValidSignature with the abi encoded request as the signature.
+    /// @notice Verifies a prover signature over a proof request.
+    /// @dev Supports EIP-1271 for smart contract signatures.
     /// @param structHash The EIP-712 struct hash of the proof request.
-    /// @param addr The address of the client.
+    /// @param addr The address of the prover.
     /// @param signature The signature to validate.
-    function verifyProverSignature(ProofRequest calldata request, bytes32 structHash, address addr, bytes calldata signature)
+    function verifyProverSignature(ProofRequest calldata, bytes32 structHash, address addr, bytes calldata signature)
         internal
         view
     {
@@ -89,26 +88,28 @@ library ProofRequestLibrary {
         }
     }
 
-    /// @notice Verifies a signature over a proof request.
-    /// @dev Supports EIP-1271 for smart contract signatures. If the signature is empty and the client is a smart
-    /// contract, calls isValidSignature with the abi encoded request as the signature.
+    /// @notice Verifies a signature over a proof request. Additionally validates the flag provided by the client.
+    /// @dev Supports EIP-1271 for smart contract signatures.
     /// @param structHash The EIP-712 struct hash of the proof request.
     /// @param addr The address of the client.
     /// @param signature The signature to validate.
-    /// @param isSmartContractSig Whether the signature is a smart contract signature.
-    function verifyClientSignature(ProofRequest calldata request, bytes32 structHash, address addr, bytes calldata signature, bool isSmartContractSig)
-        internal
-        view
-    {
-        if (addr.code.length == 0) {
+    /// @param isSmartContractSig Whether the signature should be validated as a smart contract signature.
+    function verifyClientSignature(
+        ProofRequest calldata,
+        bytes32 structHash,
+        address addr,
+        bytes calldata signature,
+        bool isSmartContractSig
+    ) internal view {
+        if (!isSmartContractSig) {
             // Standard EOA flow.
-            if (isSmartContractSig || ECDSA.recover(structHash, signature) != addr) {
+            if (ECDSA.recover(structHash, signature) != addr) {
                 revert IBoundlessMarket.InvalidSignature();
             }
         } else {
             // If the signature is not empty and its a smart contract client, we call isValidSignature with the provided signature.
             // This is the standard flow for a client using a smart contract wallet to submit requests.
-            if (!isSmartContractSig || IERC1271(addr).isValidSignature(structHash, signature) != IERC1271.isValidSignature.selector) {
+            if (IERC1271(addr).isValidSignature(structHash, signature) != IERC1271.isValidSignature.selector) {
                 revert IBoundlessMarket.InvalidSignature();
             }
         }

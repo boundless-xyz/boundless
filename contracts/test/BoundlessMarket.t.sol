@@ -43,9 +43,11 @@ import {Requirements} from "../src/types/Requirements.sol";
 import {Predicate, PredicateType} from "../src/types/Predicate.sol";
 import {Input, InputType} from "../src/types/Input.sol";
 import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
+import {SteelCommitment} from "../src/types/SteelCommitment.sol";
 
 import {ProofRequestLibrary} from "../src/types/ProofRequest.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
+import {Encoding} from "risc0/Steel/Steel.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
 import {MockCallback} from "./MockCallback.sol";
 import {Selector} from "../src/types/Selector.sol";
@@ -339,22 +341,49 @@ contract BoundlessMarketTest is Test {
         return (fills[0], assessorReceipt);
     }
 
+    function createFillAndSubmitRootWithCommitment(ProofRequest memory request, bytes memory journal, address prover)
+        internal
+        returns (Fulfillment memory, AssessorReceipt memory)
+    {
+        ProofRequest[] memory requests = new ProofRequest[](1);
+        requests[0] = request;
+        bytes[] memory journals = new bytes[](1);
+        journals[0] = journal;
+        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
+            createFillsAndSubmitRootWithCommitment(requests, journals, prover);
+        return (fills[0], assessorReceipt);
+    }
+
     function createFillsAndSubmitRoot(ProofRequest[] memory requests, bytes[] memory journals, address prover)
         internal
         returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt)
     {
         bytes32 root;
-        (fills, assessorReceipt, root) = createFills(requests, journals, prover, true);
+        (fills, assessorReceipt, root) = createFills(requests, journals, prover, true, false);
         // submit the root to the set verifier
         submitRoot(root);
         return (fills, assessorReceipt);
     }
 
-    function createFills(ProofRequest[] memory requests, bytes[] memory journals, address prover, bool requirePayment)
-        internal
-        view
-        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root)
-    {
+    function createFillsAndSubmitRootWithCommitment(
+        ProofRequest[] memory requests,
+        bytes[] memory journals,
+        address prover
+    ) internal returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) {
+        bytes32 root;
+        (fills, assessorReceipt, root) = createFills(requests, journals, prover, true, true);
+        // submit the root to the set verifier
+        submitRoot(root);
+        return (fills, assessorReceipt);
+    }
+
+    function createFills(
+        ProofRequest[] memory requests,
+        bytes[] memory journals,
+        address prover,
+        bool requirePayment,
+        bool withCommitment
+    ) internal view returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) {
         // initialize the fullfillments; one for each request;
         // the seal is filled in later, by calling fillInclusionProof
         fills = new Fulfillment[](requests.length);
@@ -386,9 +415,18 @@ contract BoundlessMarketTest is Test {
             }
         }
 
+        SteelCommitment memory commitment;
+        if (withCommitment) {
+            uint240 blockNumber = uint240(block.number - 1);
+            bytes32 blockHash = blockhash(blockNumber);
+            commitment = SteelCommitment(Encoding.encodeVersionedID(blockNumber, 0), blockHash, bytes32(0x0));
+        } else {
+            commitment = SteelCommitment(0, bytes32(0x0), bytes32(0x0));
+        }
+
         // compute the assessor claim
         ReceiptClaim memory assessorClaim =
-            TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, selectors, callbacks, prover);
+            TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, selectors, callbacks, prover, commitment);
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 
@@ -396,12 +434,14 @@ contract BoundlessMarketTest is Test {
 
         // compute all the inclusion proofs for the fullfillments
         TestUtils.fillInclusionProofs(setVerifier, fills, assessorClaim.digest(), tree);
+
         // compute the assessor fill
         assessorReceipt = AssessorReceipt({
             seal: TestUtils.mockAssessorSeal(setVerifier, batchRoot),
             selectors: selectors,
             callbacks: callbacks,
-            prover: prover
+            prover: prover,
+            commitment: commitment
         });
 
         return (fills, assessorReceipt, root);
@@ -1071,6 +1111,47 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfillSameBlock(0xffffffff, LockRequestMethod.LockRequest);
     }
 
+    function testFulfillLockedRequestWithCommitment() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(3);
+
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProverAddress, testProver.sign(request)
+        );
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRootWithCommitment(request, APP_JOURNAL, testProverAddress);
+
+        boundlessMarket.fulfill(fill, assessorReceipt);
+
+        expectRequestFulfilled(fill.id);
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillLockedRequestWithInvalidCommitment() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(3);
+
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProverAddress, testProver.sign(request)
+        );
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRootWithCommitment(request, APP_JOURNAL, testProverAddress);
+
+        // set the commitment digest to a random value
+        assessorReceipt.commitment.digest = bytes32(uint256(123));
+
+        vm.expectRevert(IBoundlessMarket.InvalidCommitment.selector);
+        boundlessMarket.fulfill(fill, assessorReceipt);
+
+        expectRequestNotFulfilled(fill.id);
+
+        // Provers stake is still on the line. They must fulfill the request to get it back.
+        testProver.expectStakeBalanceChange(-int256(uint256(request.offer.lockStake)));
+        expectMarketBalanceUnchanged();
+    }
+
     // While a request is locked, another prover cannot fulfill it if they require payment.
     function testFulfillLockedRequestByOtherProverRequirePayment() public {
         Client client = getClient(1);
@@ -1659,7 +1740,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testSubmitRootAndFulfillBatch() public {
         (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(2);
         (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) =
-            createFills(requests, journals, testProverAddress, true);
+            createFills(requests, journals, testProverAddress, true, false);
 
         bytes memory seal = verifier.mockProve(
             SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
@@ -1936,9 +2017,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Expect isValidSignature to be called on the smart contract wallet with the proof request as the signature.
         bytes32 requestHash =
             MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
-        vm.expectCall(
-            client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSig)
-        );
+        vm.expectCall(client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSig));
 
         // Call lockRequest with the smart contract signature
         vm.prank(testProverAddress);
@@ -2003,7 +2082,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
         boundlessMarket.lockRequestWithSignature(request, clientSig, proverAddress, proverSig);
     }
-    
+
     function testFulfillLockedRequestWithCallback() public {
         Client client = getClient(1);
 
