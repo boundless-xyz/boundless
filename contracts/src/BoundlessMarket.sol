@@ -342,6 +342,52 @@ contract BoundlessMarket is
         }
     }
 
+    /// @inheritdoc IBoundlessMarket
+    function priceAndFulfillAndWithdraw(
+        ProofRequest calldata request,
+        bytes calldata clientSignature,
+        Fulfillment calldata fill,
+        AssessorReceipt calldata assessorReceipt
+    ) external {
+        priceRequest(request, clientSignature);
+        fulfillAndWithdraw(fill, assessorReceipt);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function priceAndFulfillBatchAndWithdraw(
+        ProofRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
+        Fulfillment[] calldata fills,
+        AssessorReceipt calldata assessorReceipt
+    ) external {
+        for (uint256 i = 0; i < requests.length; i++) {
+            priceRequest(requests[i], clientSignatures[i]);
+        }
+        fulfillBatchAndWithdraw(fills, assessorReceipt);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function fulfillAndWithdraw(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public {
+        fulfill(fill, assessorReceipt);
+
+        // Withdraw any remaining balance from the prover account.
+        uint256 balance = accounts[assessorReceipt.prover].balance;
+        if (balance > 0) {
+            _withdraw(assessorReceipt.prover, balance);
+        }
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function fulfillBatchAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public {
+        fulfillBatch(fills, assessorReceipt);
+
+        // Withdraw any remaining balance from the prover account.
+        uint256 balance = accounts[assessorReceipt.prover].balance;
+        if (balance > 0) {
+            _withdraw(assessorReceipt.prover, balance);
+        }
+    }
+
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
     function _fulfillAndPay(RequestId id, bytes32 requestDigest, address assessorProver, bool requirePayment)
         internal
@@ -544,6 +590,18 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
+    function submitRootAndFulfillBatchAndWithdraw(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        AssessorReceipt calldata assessorReceipt
+    ) external {
+        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        fulfillBatchAndWithdraw(fills, assessorReceipt);
+    }
+
+    /// @inheritdoc IBoundlessMarket
     function slash(RequestId requestId) external {
         (address client, uint32 idx) = requestId.clientAndIndex();
         (bool locked,) = accounts[client].requestFlags(idx);
@@ -607,19 +665,23 @@ contract BoundlessMarket is
         emit Deposit(msg.sender, msg.value);
     }
 
-    /// @inheritdoc IBoundlessMarket
-    function withdraw(uint256 value) public {
-        if (accounts[msg.sender].balance < value.toUint96()) {
-            revert InsufficientBalance(msg.sender);
+    function _withdraw(address account, uint256 value) internal {
+        if (accounts[account].balance < value.toUint96()) {
+            revert InsufficientBalance(account);
         }
         unchecked {
-            accounts[msg.sender].balance -= value.toUint96();
+            accounts[account].balance -= value.toUint96();
         }
-        (bool sent,) = msg.sender.call{value: value}("");
+        (bool sent,) = account.call{value: value}("");
         if (!sent) {
             revert TransferFailed();
         }
-        emit Withdrawal(msg.sender, value);
+        emit Withdrawal(account, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function withdraw(uint256 value) public {
+        _withdraw(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket

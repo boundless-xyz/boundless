@@ -1064,8 +1064,74 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
+    // Base for fulfillmentAndWithdraw tests with different methods for lock, including none. All paths should yield the same result.
+    function _testFulfillAndWithdrawSameBlock(uint32 requestIdx, LockRequestMethod lockinMethod, string memory snapshot)
+        private
+        returns (Client, ProofRequest memory)
+    {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(requestIdx);
+        bytes memory clientSignature = client.sign(request);
+
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        if (lockinMethod == LockRequestMethod.LockRequest) {
+            vm.prank(address(testProver));
+            boundlessMarket.lockRequest(request, clientSignature);
+        } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
+            boundlessMarket.lockRequestWithSignature(request, clientSignature, testProver.sign(request));
+        }
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
+
+        uint256 initialBalance = boundlessMarket.balanceOf(address(testProver)) + address(testProver).balance;
+
+        if (lockinMethod == LockRequestMethod.None) {
+            // Annoying boilerplate for creating singleton lists.
+            Fulfillment[] memory fills = new Fulfillment[](1);
+            fills[0] = fill;
+            ProofRequest[] memory requests = new ProofRequest[](1);
+            requests[0] = request;
+            bytes[] memory clientSignatures = new bytes[](1);
+            clientSignatures[0] = client.sign(request);
+
+            vm.expectEmit(true, true, true, true);
+            emit IBoundlessMarket.RequestFulfilled(request.id);
+            vm.expectEmit(true, true, true, false);
+            emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
+            boundlessMarket.priceAndFulfillBatchAndWithdraw(requests, clientSignatures, fills, assessorReceipt);
+            if (!_stringEquals(snapshot, "")) {
+                vm.snapshotGasLastCall(snapshot);
+            }
+        } else {
+            vm.expectEmit(true, true, true, true);
+            emit IBoundlessMarket.RequestFulfilled(request.id);
+            vm.expectEmit(true, true, true, false);
+            emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
+            boundlessMarket.fulfillAndWithdraw(fill, assessorReceipt);
+            if (!_stringEquals(snapshot, "")) {
+                vm.snapshotGasLastCall(snapshot);
+            }
+        }
+
+        // Check that the proof was submitted
+        expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-1 ether);
+        assert(boundlessMarket.balanceOf(address(testProver)) == 0);
+        assert(address(testProver).balance == initialBalance + 1 ether);
+
+        return (client, request);
+    }
+
     function testFulfillLockedRequest() public {
         _testFulfillSameBlock(1, LockRequestMethod.LockRequest, "fulfill: a locked request");
+    }
+
+    function testFulfillAndWithdrawLockedRequest() public {
+        _testFulfillAndWithdrawSameBlock(1, LockRequestMethod.LockRequest, "fulfillAndWithdraw: a locked request");
     }
 
     function testFulfillLockedRequestWithSig() public {
@@ -1477,6 +1543,61 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         testProver.expectBalanceChange(int256(uint256(expectedRevenue)));
         expectMarketBalanceUnchanged();
+    }
+
+    // Fulfill a batch of locked requests and withdraw
+    function testFulfillBatchAndWithdrawLockedRequests() public {
+        // Provide a batch definition as an array of clients and how many requests each submits.
+        uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
+        uint256 batchSize = 0;
+        for (uint256 i = 0; i < batch.length; i++) {
+            batchSize += batch[i];
+        }
+
+        ProofRequest[] memory requests = new ProofRequest[](batchSize);
+        bytes[] memory journals = new bytes[](batchSize);
+        uint256 expectedRevenue = 0;
+        uint256 idx = 0;
+        for (uint256 i = 0; i < batch.length; i++) {
+            Client client = getClient(i);
+
+            for (uint256 j = 0; j < batch[i]; j++) {
+                ProofRequest memory request = client.request(uint32(j));
+
+                // TODO: This is a fragile part of this test. It should be improved.
+                uint256 desiredPrice = uint256(1.5 ether);
+                vm.roll(request.offer.blockAtPrice(desiredPrice));
+                expectedRevenue += desiredPrice;
+
+                boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
+
+                requests[idx] = request;
+                journals[idx] = APP_JOURNAL;
+                idx++;
+            }
+        }
+
+        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
+            createFillsAndSubmitRoot(requests, journals, address(testProver));
+
+        uint256 initialBalance = address(testProver).balance + boundlessMarket.balanceOf(address(testProver));
+
+        for (uint256 i = 0; i < fills.length; i++) {
+            vm.expectEmit(true, true, true, true);
+            emit IBoundlessMarket.RequestFulfilled(fills[i].id);
+            vm.expectEmit(true, true, true, false);
+            emit IBoundlessMarket.ProofDelivered(fills[i].id, hex"", hex"");
+        }
+        boundlessMarket.fulfillBatchAndWithdraw(fills, assessorReceipt);
+        vm.snapshotGasLastCall(string.concat("fulfillBatchAndWithdraw: a batch of ", vm.toString(batchSize)));
+
+        for (uint256 i = 0; i < fills.length; i++) {
+            // Check that the proof was submitted
+            expectRequestFulfilled(fills[i].id);
+        }
+
+        assert(boundlessMarket.balanceOf(address(testProver)) == 0);
+        assert(address(testProver).balance == initialBalance + uint256(expectedRevenue));
     }
 
     function testPriceAndFulfillBatchLockedRequest() external {
