@@ -10,7 +10,7 @@ using RequestLockLibrary for RequestLock global;
 /// Fields can be valid or invalid depending where in the lifecycle we are. Integrators should not rely on RequestLock
 /// for determining the status of a request. Instead, they shouldalways use BoundlessMarket's view functions.
 ///
-/// Packed into 3 slots.
+/// Packed to fit into 2 slots.
 struct RequestLock {
     ///
     /// Storage slot 1
@@ -29,7 +29,7 @@ struct RequestLock {
     ///
     /// @notice The price that the prover will be paid for fulfilling the request.
     uint96 price;
-    /// @notice Prover stake that may be taken if a proof is not delivered by the deadline.
+    // Prover stake that may be taken if a proof is not delivered by the deadline.
     uint96 stake;
     /// @notice Keccak256 hash of the request, shortened to 64-bits. During fulfillment, this value is used
     /// to check that the request completed is the request that was locked, and not some other
@@ -65,7 +65,7 @@ library RequestLockLibrary {
 
     function setProverPaidBeforeLockDeadline(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags = PROVER_PAID_DURING_LOCK_FLAG;
-        // Zero out second and third slots for gas refund.
+        // Zero out second slot for gas refund.
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
         requestLock.fingerprint = bytes8(0);
@@ -79,7 +79,7 @@ library RequestLockLibrary {
 
     function setSlashed(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags |= SLASHED_FLAG;
-        // Zero out second and third slots for gas refund.
+        // Zero out second slot for gas refund.
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
         requestLock.fingerprint = bytes8(0);
