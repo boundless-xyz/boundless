@@ -69,6 +69,7 @@ pub struct SlashService<T, P> {
     pub db: DbObj,
     pub interval: Duration,
     pub retries: u32,
+    pub skip_addresses: Vec<Address>,
 }
 
 impl SlashService<Http<HttpClient>, ProviderWallet> {
@@ -79,6 +80,7 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
         db_conn: &str,
         interval: Duration,
         retries: u32,
+        skip_addresses: Vec<Address>,
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
@@ -92,7 +94,7 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
 
         let db: DbObj = Arc::new(SqliteDb::new(db_conn).await.unwrap());
 
-        Ok(Self { boundless_market, db, interval, retries })
+        Ok(Self { boundless_market, db, interval, retries, skip_addresses })
     }
 }
 
@@ -216,7 +218,38 @@ where
             to_block
         );
 
-        for (log, _) in logs {
+        for (log, log_data) in logs {
+            // TODO(willpote): Remove, or make more resilient.
+            // Note this logic is not full proof. It will not handle lockRequestWithSignature
+            // nor if the lockRequest calls were for example, made via a proxy contract.
+            // This is a temporary solution to avoid slashing requests from the team's broker.
+            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx = self
+                .boundless_market
+                .instance()
+                .provider()
+                .get_transaction_by_hash(tx_hash)
+                .await?
+                .unwrap();
+
+            let sender = tx.from;
+
+            // Skip if sender is in the skip list
+            if self.skip_addresses.contains(&sender) {
+                tracing::info!(
+                    "Skipping locked event from sender: {:?} for request: 0x{:x}",
+                    sender,
+                    log.requestId
+                );
+                continue;
+            }
+
+            tracing::debug!(
+                "Processing locked event from sender: {:?} for request: 0x{:x}",
+                sender,
+                log.requestId
+            );
+
             self.add_order(log.requestId).await?;
         }
 

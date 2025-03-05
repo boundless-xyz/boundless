@@ -24,8 +24,9 @@ use std::{
 use alloy::{
     network::Ethereum,
     primitives::{
+        aliases::U96,
         utils::{format_ether, parse_ether},
-        Address, Bytes, PrimitiveSignature, B256, U256,
+        Address, Bytes, FixedBytes, PrimitiveSignature, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
@@ -48,7 +49,7 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, Input, InputType, Offer, Predicate,
+        boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
         PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
@@ -252,6 +253,12 @@ struct SubmitOfferRequirements {
     /// Journal prefix to use as the predicate in the requirements.
     #[clap(long)]
     journal_prefix: Option<String>,
+    /// Address of the callback to use in the requirements.
+    #[clap(long, requires = "callback_gas_limit")]
+    callback_addr: Option<Address>,
+    /// Gas limit of the callback to use in the requirements.
+    #[clap(long, requires = "callback_addr")]
+    callback_gas_limit: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
@@ -508,14 +515,12 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     .then_some(order.request)
                     .into_iter()
                     .collect();
-
             match boundless_market
                 .price_and_fulfill_batch(
                     requests_to_price,
                     vec![sig],
                     order_fulfilled.fills,
-                    order_fulfilled.assessorSeal,
-                    caller,
+                    order_fulfilled.assessorReceipt,
                     None,
                 )
                 .await
@@ -595,6 +600,11 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
+    let callback = match (&args.reqs.callback_addr, &args.reqs.callback_gas_limit) {
+        (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
+        _ => Callback::default(),
+    };
+
     // Compute the image_id, then upload the ELF.
     let elf_url = client.upload_image(&elf).await?;
     let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&elf)?));
@@ -615,7 +625,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate },
+        Requirements { imageId: image_id, predicate, callback, selector: FixedBytes::<4>([0; 4]) },
         elf_url,
         requirements_input,
         offer.clone(),
