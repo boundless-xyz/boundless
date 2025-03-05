@@ -628,17 +628,18 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function withdrawFromStakeTreasury(uint256 value) public onlyOwner {
-        if (accounts[address(this)].stakeBalance < value.toUint96()) {
+    function withdrawFromTreasury(uint256 value) public onlyOwner {
+        if (accounts[address(this)].balance < value.toUint96()) {
             revert InsufficientBalance(address(this));
         }
         unchecked {
-            accounts[address(this)].stakeBalance -= value.toUint96();
+            accounts[address(this)].balance -= value.toUint96();
         }
-        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
-        if (!success) revert TransferFailed();
-
-        emit StakeWithdrawal(address(this), value);
+        (bool sent,) = msg.sender.call{value: value}("");
+        if (!sent) {
+            revert TransferFailed();
+        }
+        emit Withdrawal(address(this), value);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -678,6 +679,20 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function balanceOfStake(address addr) public view returns (uint256) {
         return uint256(accounts[addr].stakeBalance);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function withdrawFromStakeTreasury(uint256 value) public onlyOwner {
+        if (accounts[address(this)].stakeBalance < value.toUint96()) {
+            revert InsufficientBalance(address(this));
+        }
+        unchecked {
+            accounts[address(this)].stakeBalance -= value.toUint96();
+        }
+        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        if (!success) revert TransferFailed();
+
+        emit StakeWithdrawal(address(this), value);
     }
 
     /// @inheritdoc IBoundlessMarket

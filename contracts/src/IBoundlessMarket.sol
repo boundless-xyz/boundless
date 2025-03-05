@@ -194,8 +194,13 @@ interface IBoundlessMarket {
     /// @return The balance of the account.
     function balanceOf(address addr) external view returns (uint256);
 
-    /// @notice Withdraw stake from the market stake treasury.
-    /// @dev Value is debited from the market account.
+    /// @notice Withdraw funds from the market's treasury.
+    /// @dev Value is debited from the market's account.
+    /// @param value The amount to withdraw.
+    function withdrawFromTreasury(uint256 value) external;
+
+    /// @notice Withdraw funds from the market' stake treasury.
+    /// @dev Value is debited from the market's account.
     /// @param value The amount to withdraw.
     function withdrawFromStakeTreasury(uint256 value) external;
 

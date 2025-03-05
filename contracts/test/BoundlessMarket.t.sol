@@ -539,6 +539,25 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    function testWithdrawFromTreasury() public {
+        // Deposit funds into the market
+        vm.deal(address(boundlessMarket), 1 ether);
+        vm.prank(address(boundlessMarket));
+        boundlessMarket.deposit{value: 1 ether}();
+
+        // Attempt to withdraw funds from the treasury from an unauthorized account.
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(testProver)));
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawFromTreasury(1 ether);
+
+        // Withdraw funds from the treasury
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Withdrawal(address(boundlessMarket), 1 ether);
+        vm.prank(OWNER_WALLET.addr);
+        boundlessMarket.withdrawFromTreasury(1 ether);
+        assert(boundlessMarket.balanceOf(address(boundlessMarket)) == 0);
+    }
+
     function testWithdrawFromStakeTreasury() public {
         testSlashLockedRequestFullyExpired();
 
