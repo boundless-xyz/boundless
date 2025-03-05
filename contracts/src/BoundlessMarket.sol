@@ -243,7 +243,8 @@ contract BoundlessMarket is
             )
         );
         // Verification that the provided seal matches the required selector.
-        if (assessorReceipt.selectors.length == 1 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
+        // NOTE: Assessor guest ensures that the number of selectors <= the number of request digests in the journal.
+        if (assessorReceipt.selectors.length > 0 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
             revert SelectorMismatch(assessorReceipt.selectors[0].value, bytes4(fill.seal[0:4]));
         }
         // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
@@ -255,31 +256,35 @@ contract BoundlessMarket is
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         uint256 fillsLength = fills.length;
         // We can't handle more than 65535 fills in a single batch.
-        // This is a limitation of the current Selectors implementation, and can be increased in the future.
+        // This is a limitation of the current Selector implementation,
+        // that uses a uint16 for the index, and can be increased in the future.
         if (fillsLength > type(uint16).max) {
             revert BatchSizeExceedsLimit(fillsLength, type(uint16).max);
         }
         bytes32[] memory claimDigests = new bytes32[](fillsLength);
         bytes32[] memory requestDigests = new bytes32[](fillsLength);
 
+        // Check the selector constraints.
+        // NOTE: The assessor guest adds non-zero selector values to the list.
         uint256 selectorsLength = assessorReceipt.selectors.length;
-        uint16 selectorIdx = 0;
+        for (uint256 i = 0; i < selectorsLength; i++) {
+            bytes4 expected = assessorReceipt.selectors[i].value;
+            bytes4 received = bytes4(fills[assessorReceipt.selectors[i].index].seal[0:4]);
+            if (expected != received) {
+                revert SelectorMismatch(expected, received);
+            }
+        }
 
+        // Verify the application receipts.
         for (uint256 i = 0; i < fillsLength; i++) {
             Fulfillment calldata fill = fills[i];
 
             requestDigests[i] = fill.requestDigest;
             claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
 
-            // If the current index is flagged for selector verification, process it.
-            if (selectorIdx < selectorsLength && assessorReceipt.selectors[selectorIdx].index == i) {
-                if (assessorReceipt.selectors[selectorIdx].value != bytes4(fill.seal[0:4])) {
-                    revert SelectorMismatch(assessorReceipt.selectors[selectorIdx].value, bytes4(fill.seal[0:4]));
-                }
-                selectorIdx++;
-            }
             VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigests[i]));
         }
+
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
@@ -338,12 +343,12 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    /// @dev It would be slightly more efficient to keep balances and request flags in memory until a single
-    /// batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
-    /// this savings is marginal, and will be outweighed by complicated memory management if not careful.
     function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public {
         verifyBatchDelivery(fills, assessorReceipt);
 
+        // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
+        // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
+        // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         uint256 callbacksLength = assessorReceipt.callbacks.length;
         if (callbacksLength > 0) {
             uint256 callbackIdx = 0;

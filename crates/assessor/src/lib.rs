@@ -116,12 +116,12 @@ mod tests {
         ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     };
 
-    fn proving_request(id: u32, signer: Address, _image_id: B256, prefix: Vec<u8>) -> ProofRequest {
+    fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
         ProofRequest::new(
             id,
             &signer,
             Requirements::new(
-                Digest::from(ECHO_ID),
+                Digest::from_bytes(image_id.0),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
             ),
             "test",

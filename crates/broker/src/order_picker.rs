@@ -97,7 +97,7 @@ where
             }
         }
 
-        // TODO(#cargoBM-536): Filter based on supported selectors
+        // TODO(#BM-536): Filter based on supported selectors
         // Drop orders that specify a selector
         if order.request.requirements.selector != FixedBytes::<4>([0; 4]) {
             tracing::warn!("Removing order {order_id:x} because it has a selector requirement");
@@ -416,7 +416,7 @@ where
     /// Estimate of gas for fulfilling any orders either pending lock or locked
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         let pending_fulfill_orders = self.db.get_orders_committed_to_fulfill_count().await?;
-        Ok((pending_fulfill_orders as u64)
+        Ok((pending_fulfill_orders)
             * self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
     }
 
