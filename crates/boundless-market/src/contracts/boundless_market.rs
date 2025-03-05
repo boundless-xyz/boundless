@@ -26,7 +26,6 @@ use alloy::{
     providers::Provider,
     rpc::types::{BlockTransactionsKind, Log, TransactionReceipt},
     signers::Signer,
-    transports::Transport,
 };
 use alloy_sol_types::SolEvent;
 use anyhow::{anyhow, Context, Result};
@@ -93,8 +92,8 @@ impl From<alloy::contract::Error> for MarketError {
 }
 
 /// Proof market service.
-pub struct BoundlessMarketService<T, P> {
-    instance: IBoundlessMarketInstance<T, P, Ethereum>,
+pub struct BoundlessMarketService<P> {
+    instance: IBoundlessMarketInstance<(), P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
     chain_id: AtomicU64,
     caller: Address,
@@ -102,9 +101,9 @@ pub struct BoundlessMarketService<T, P> {
     event_query_config: EventQueryConfig,
 }
 
-impl<T, P> Clone for BoundlessMarketService<T, P>
+impl<P> Clone for BoundlessMarketService<P>
 where
-    IBoundlessMarketInstance<T, P, Ethereum>: Clone,
+    IBoundlessMarketInstance<(), P, Ethereum>: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -151,10 +150,9 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
     }
 }
 
-impl<T, P> BoundlessMarketService<T, P>
+impl<P> BoundlessMarketService<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
 {
     /// Creates a new Boundless market service.
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
@@ -180,7 +178,7 @@ where
     }
 
     /// Returns the market contract instance.
-    pub fn instance(&self) -> &IBoundlessMarketInstance<T, P, Ethereum> {
+    pub fn instance(&self) -> &IBoundlessMarketInstance<(), P, Ethereum> {
         &self.instance
     }
 

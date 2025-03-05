@@ -29,7 +29,6 @@ use alloy::{
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
-    transports::Transport,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_cli::{DefaultProver, OrderFulfilled};
@@ -301,10 +300,7 @@ async fn main() -> Result<()> {
 pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     let caller = args.private_key.address();
     let wallet = EthereumWallet::from(args.private_key.clone());
-    let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(wallet)
-        .on_http(args.rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.rpc_url.clone());
     let mut boundless_market =
         BoundlessMarketService::new(args.boundless_market_address, provider.clone(), caller);
     if let Some(tx_timeout) = args.tx_timeout {
@@ -535,14 +531,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     Ok(request_id)
 }
 
-async fn submit_offer<T, P, S>(
-    client: Client<T, P, S>,
+async fn submit_offer<P, S>(
+    client: Client<P, S>,
     signer: &impl Signer,
     args: &SubmitOfferArgs,
 ) -> Result<Option<U256>>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     // TODO(victor): Execute the request before sending it.
@@ -656,18 +651,17 @@ where
     Ok(Some(request_id))
 }
 
-async fn submit_request<T, P, S>(
+async fn submit_request<P, S>(
     id: u32,
     request_path: impl AsRef<Path>,
-    client: Client<T, P, S>,
+    client: Client<P, S>,
     signer: &impl Signer,
     wait: bool,
     offchain: bool,
     preflight: bool,
 ) -> Result<Option<U256>>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     // TODO(victor): Execute the request before sending it.

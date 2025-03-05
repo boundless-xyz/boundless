@@ -9,7 +9,6 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
-    transports::BoxTransport,
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
@@ -255,7 +254,7 @@ pub struct Broker<P> {
 
 impl<P> Broker<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
     pub async fn new(args: Args, provider: P) -> Result<Self> {
         let config_watcher =
@@ -653,7 +652,6 @@ pub mod test_utils {
             },
             Identity, RootProvider,
         },
-        transports::BoxTransport,
     };
     use anyhow::Result;
     use boundless_market::contracts::test_utils::TestCtx;
@@ -674,9 +672,7 @@ pub mod test_utils {
             >,
             WalletFiller<EthereumWallet>,
         >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
+        RootProvider<Ethereum>,
     >;
 
     pub struct BrokerBuilder {

@@ -681,7 +681,7 @@ pub mod test_utils {
     use alloy::{
         network::{Ethereum, EthereumWallet},
         node_bindings::AnvilInstance,
-        primitives::{Address, FixedBytes, U256},
+        primitives::{Address, FixedBytes},
         providers::{
             ext::AnvilApi,
             fillers::{
@@ -758,9 +758,7 @@ pub mod test_utils {
             >,
             WalletFiller<EthereumWallet>,
         >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
+        RootProvider<Ethereum>,
     >;
 
     pub struct TestCtx {
@@ -771,19 +769,20 @@ pub mod test_utils {
         pub prover_signer: PrivateKeySigner,
         pub customer_signer: PrivateKeySigner,
         pub prover_provider: ProviderWallet,
-        pub prover_market: BoundlessMarketService<BoxTransport, ProviderWallet>,
+        pub prover_market: BoundlessMarketService<ProviderWallet>,
         pub customer_provider: ProviderWallet,
-        pub customer_market: BoundlessMarketService<BoxTransport, ProviderWallet>,
-        pub set_verifier: SetVerifierService<BoxTransport, ProviderWallet>,
-        pub hit_points_service: HitPointsService<BoxTransport, ProviderWallet>,
+        pub customer_market: BoundlessMarketService<ProviderWallet>,
+        pub set_verifier: SetVerifierService<ProviderWallet>,
+        pub hit_points_service: HitPointsService<ProviderWallet>,
     }
 
-    pub async fn deploy_mock_verifier<T, P>(deployer_provider: P) -> Result<Address>
-    where
+    pub async fn deploy_mock_verifier<
         T: Transport + Clone,
-        P: Provider<T, Ethereum> + 'static + Clone,
-    {
-        alloy::contract::RawCallBuilder::new_raw_deploy(
+        P: Provider<Ethereum> + 'static + Clone,
+    >(
+        deployer_provider: P,
+    ) -> Result<Address> {
+        alloy::contract::RawCallBuilder::<T, P>::new_raw_deploy(
             deployer_provider,
             [
                 hex::decode(MOCK_VERIFIER_BYTECODE).unwrap(),
@@ -804,9 +803,9 @@ pub mod test_utils {
     ) -> Result<Address>
     where
         T: Transport + Clone,
-        P: Provider<T, Ethereum> + 'static + Clone,
+        P: Provider<Ethereum> + 'static + Clone,
     {
-        alloy::contract::RawCallBuilder::new_raw_deploy(
+        alloy::contract::RawCallBuilder::<T, P>::new_raw_deploy(
             deployer_provider,
             [
                 hex::decode(SET_VERIFIER_BYTECODE).unwrap(),
@@ -831,10 +830,10 @@ pub mod test_utils {
     ) -> Result<Address>
     where
         T: Transport + Clone,
-        P: Provider<T, Ethereum> + 'static + Clone,
+        P: Provider<Ethereum> + 'static + Clone,
     {
         let deployer_address = deployer_signer.address();
-        alloy::contract::RawCallBuilder::new_raw_deploy(
+        alloy::contract::RawCallBuilder::<T, P>::new_raw_deploy(
             deployer_provider,
             [
                 hex::decode(HIT_POINTS_BYTECODE).unwrap(),
@@ -858,12 +857,12 @@ pub mod test_utils {
     ) -> Result<Address>
     where
         T: Transport + Clone,
-        P: Provider<T, Ethereum> + 'static + Clone,
+        P: Provider<Ethereum> + 'static + Clone,
     {
         let deployer_address = deployer_signer.address();
 
-        let boundless_market = alloy::contract::RawCallBuilder::new_raw_deploy(
-            &deployer_provider,
+        let boundless_market = alloy::contract::RawCallBuilder::<T, P>::new_raw_deploy(
+            deployer_provider.clone(),
             [
                 hex::decode(BOUNDLESS_MARKET_BYTECODE).unwrap(),
                 BoundlessMarket::constructorCall {
@@ -880,8 +879,8 @@ pub mod test_utils {
         .await
         .context("failed to deploy BoundlessMarket implementation")?;
 
-        let proxy = alloy::contract::RawCallBuilder::new_raw_deploy(
-            &deployer_provider,
+        let proxy = alloy::contract::RawCallBuilder::<T, P>::new_raw_deploy(
+            deployer_provider.clone(),
             [
                 hex::decode(ERC1967_PROXY_BYTECODE).unwrap(),
                 ERC1967Proxy::constructorCall {
@@ -927,7 +926,6 @@ pub mod test_utils {
             let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
             let deployer_provider = Arc::new(
                 ProviderBuilder::new()
-                    .with_recommended_fillers()
                     .wallet(EthereumWallet::from(deployer_signer.clone()))
                     .on_builtin(&anvil.endpoint())
                     .await
@@ -935,13 +933,20 @@ pub mod test_utils {
             );
 
             // Deploy contracts
-            let verifier = deploy_mock_verifier(Arc::clone(&deployer_provider)).await?;
-            let set_verifier =
-                deploy_set_verifier(Arc::clone(&deployer_provider), verifier, set_builder_id)
-                    .await?;
-            let hit_points =
-                deploy_hit_points(&deployer_signer, Arc::clone(&deployer_provider)).await?;
-            let boundless_market = deploy_boundless_market(
+            let verifier =
+                deploy_mock_verifier::<BoxTransport, _>(Arc::clone(&deployer_provider)).await?;
+            let set_verifier = deploy_set_verifier::<BoxTransport, _>(
+                Arc::clone(&deployer_provider),
+                verifier,
+                set_builder_id,
+            )
+            .await?;
+            let hit_points = deploy_hit_points::<BoxTransport, _>(
+                &deployer_signer,
+                Arc::clone(&deployer_provider),
+            )
+            .await?;
+            let boundless_market = deploy_boundless_market::<BoxTransport, _>(
                 &deployer_signer,
                 Arc::clone(&deployer_provider),
                 set_verifier,
@@ -952,7 +957,7 @@ pub mod test_utils {
             .await?;
 
             // Mine forward some blocks using the provider
-            deployer_provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
+            deployer_provider.anvil_mine(Some(10), Some(2)).await.unwrap();
             deployer_provider.anvil_set_interval_mining(2).await.unwrap();
 
             Ok((verifier, set_verifier, hit_points, boundless_market))
@@ -981,19 +986,16 @@ pub mod test_utils {
             let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
             let prover_provider = ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(prover_signer.clone()))
                 .on_builtin(rpc_url)
                 .await
                 .unwrap();
             let customer_provider = ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
                 .on_builtin(rpc_url)
                 .await
                 .unwrap();
             let verifier_provider = ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(verifier_signer.clone()))
                 .on_builtin(rpc_url)
                 .await

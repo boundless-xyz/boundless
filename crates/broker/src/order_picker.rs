@@ -12,7 +12,6 @@ use alloy::{
         Address, FixedBytes, U256,
     },
     providers::{Provider, WalletProvider},
-    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
@@ -53,12 +52,12 @@ pub struct OrderPicker<P> {
     provider: Arc<P>,
     chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
-    market: BoundlessMarketService<BoxTransport, Arc<P>>,
+    market: BoundlessMarketService<Arc<P>>,
 }
 
 impl<P> OrderPicker<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
     pub fn new(
         db: DbObj,
@@ -461,7 +460,7 @@ where
 
 impl<P> RetryTask for OrderPicker<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
     fn spawn(&self) -> RetryRes {
         let picker_copy = self.clone();
@@ -528,6 +527,7 @@ mod tests {
             Identity, ProviderBuilder, RootProvider,
         },
         signers::local::PrivateKeySigner,
+        transports::BoxTransport,
     };
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, deploy_hit_points},
@@ -548,16 +548,14 @@ mod tests {
             >,
             WalletFiller<EthereumWallet>,
         >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
+        RootProvider<Ethereum>,
     >;
 
     /// Reusable context for testing the order picker
     struct TestCtx<P> {
         pub anvil: AnvilInstance,
         pub picker: OrderPicker<P>,
-        pub boundless_market: BoundlessMarketService<BoxTransport, Arc<P>>,
+        pub boundless_market: BoundlessMarketService<Arc<P>>,
         pub image_server: MockServer,
         pub db: DbObj,
         pub provider: Arc<P>,
@@ -652,17 +650,17 @@ mod tests {
             let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
             let provider = Arc::new(
                 ProviderBuilder::new()
-                    .with_recommended_fillers()
                     .wallet(EthereumWallet::from(signer.clone()))
                     .on_builtin(&anvil.endpoint())
                     .await
                     .unwrap(),
             );
 
-            provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
+            provider.anvil_mine(Some(4), Some(2)).await.unwrap();
 
-            let hp_contract = deploy_hit_points(&signer, provider.clone()).await.unwrap();
-            let market_address = deploy_boundless_market(
+            let hp_contract =
+                deploy_hit_points::<BoxTransport, _>(&signer, provider.clone()).await.unwrap();
+            let market_address = deploy_boundless_market::<BoxTransport, _>(
                 &signer,
                 provider.clone(),
                 Address::ZERO,

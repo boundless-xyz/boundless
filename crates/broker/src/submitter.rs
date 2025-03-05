@@ -9,7 +9,6 @@ use alloy::{
     primitives::{utils::format_ether, Address, B256, U256},
     providers::{Provider, WalletProvider},
     sol_types::SolStruct,
-    transports::BoxTransport,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
@@ -35,8 +34,8 @@ use crate::{
 pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
-    market: BoundlessMarketService<BoxTransport, Arc<P>>,
-    set_verifier: SetVerifierService<BoxTransport, Arc<P>>,
+    market: BoundlessMarketService<Arc<P>>,
+    set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
     set_builder_img_id: Digest,
     prover_address: Address,
@@ -45,7 +44,7 @@ pub struct Submitter<P> {
 
 impl<P> Submitter<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -385,7 +384,7 @@ where
 
 impl<P> RetryTask for Submitter<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let obj_clone = self.clone();
@@ -422,6 +421,7 @@ mod tests {
             Identity, ProviderBuilder, RootProvider,
         },
         signers::local::PrivateKeySigner,
+        transports::BoxTransport,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
@@ -447,9 +447,7 @@ mod tests {
             >,
             WalletFiller<EthereumWallet>,
         >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
+        RootProvider<Ethereum>,
     >;
 
     async fn build_submitter_and_batch(
@@ -464,7 +462,6 @@ mod tests {
 
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -473,20 +470,23 @@ mod tests {
 
         let customer_provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
 
-        let verifier = deploy_mock_verifier(provider.clone()).await.unwrap();
-        let set_verifier =
-            deploy_set_verifier(provider.clone(), verifier, Digest::from(SET_BUILDER_ID))
-                .await
-                .unwrap();
-        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
-        let market_address = deploy_boundless_market(
+        let verifier = deploy_mock_verifier::<BoxTransport, _>(provider.clone()).await.unwrap();
+        let set_verifier = deploy_set_verifier::<BoxTransport, _>(
+            provider.clone(),
+            verifier,
+            Digest::from(SET_BUILDER_ID),
+        )
+        .await
+        .unwrap();
+        let hit_points =
+            deploy_hit_points::<BoxTransport, _>(&signer, provider.clone()).await.unwrap();
+        let market_address = deploy_boundless_market::<BoxTransport, _>(
             &signer,
             provider.clone(),
             set_verifier,
@@ -674,7 +674,7 @@ mod tests {
 
     async fn process_next_batch<P>(submitter: Submitter<P>, db: DbObj, batch_id: usize)
     where
-        P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+        P: Provider<Ethereum> + WalletProvider + 'static + Clone,
     {
         assert!(submitter.process_next_batch().await.unwrap());
         let batch = db.get_batch(batch_id).await.unwrap();
