@@ -6,6 +6,7 @@ pragma solidity ^0.8.20;
 
 import {console} from "forge-std/console.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Test} from "forge-std/Test.sol";
@@ -536,6 +537,22 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(testProver));
         boundlessMarket.withdraw(DEFAULT_BALANCE + 1);
         expectMarketBalanceUnchanged();
+    }
+
+    function testWithdrawFromStakeTreasury() public {
+        testSlashLockedRequestFullyExpired();
+
+        // Attempt to withdraw funds from the stake treasury from an unauthorized account.
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(testProver)));
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawFromStakeTreasury(0.25 ether);
+
+        // Withdraw funds from the stake treasury
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeWithdrawal(address(boundlessMarket), 0.25 ether);
+        vm.prank(OWNER_WALLET.addr);
+        boundlessMarket.withdrawFromStakeTreasury(0.25 ether);
+        assert(boundlessMarket.balanceOfStake(address(boundlessMarket)) == 0);
     }
 
     function testWithdrawals() public {

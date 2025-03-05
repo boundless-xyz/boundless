@@ -628,6 +628,20 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
+    function withdrawFromStakeTreasury(uint256 value) public onlyOwner {
+        if (accounts[address(this)].stakeBalance < value.toUint96()) {
+            revert InsufficientBalance(address(this));
+        }
+        unchecked {
+            accounts[address(this)].stakeBalance -= value.toUint96();
+        }
+        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        if (!success) revert TransferFailed();
+
+        emit StakeWithdrawal(address(this), value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
     function depositStake(uint256 value) external {
         // Transfer tokens from user to market
         _depositStake(msg.sender, value);
