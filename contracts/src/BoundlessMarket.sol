@@ -80,10 +80,6 @@ contract BoundlessMarket is
     /// gas of an SLOAD. Can only be changed via contract upgrade.
     uint96 public constant MARKET_FEE_BPS = 0;
 
-    /// @notice Balance owned by the market contract itself. This balance is collected from fees,
-    /// when the fee rate is set to a non-zero value.
-    uint256 internal marketBalance;
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
         VERIFIER = verifier;
@@ -522,7 +518,7 @@ contract BoundlessMarket is
 
     function _applyMarketFee(uint96 proverPayment) internal returns (uint96) {
         uint96 fee = proverPayment * MARKET_FEE_BPS / 10000;
-        marketBalance += fee;
+        accounts[address(this)].balance += fee;
         return proverPayment - fee;
     }
 
