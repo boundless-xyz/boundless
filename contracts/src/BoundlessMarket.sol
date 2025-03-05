@@ -327,12 +327,19 @@ contract BoundlessMarket is
     function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public {
         verifyDelivery(fill, assessorReceipt);
 
+        // Execute the callback with the associated fulfillment information.
+        // Callbacks are called exactly once, on the first fulfillment. Checking that the request is
+        // not fulfilled at this point ensures this. Note that by the end of the transaction, the
+        // fulfilled flag for the provided fulfillment will be set, or this transaction will
+        // revert (and revery any effects from the callback along with it).
         if (assessorReceipt.callbacks.length > 0) {
             AssessorCallback memory callback = assessorReceipt.callbacks[0];
-            _fulfillAndPay(fill, assessorReceipt.prover, callback.addr, callback.gasLimit);
-        } else {
-            _fulfillAndPay(fill, assessorReceipt.prover, address(0), 0);
+            if (!requestIsFulfilled(fill.id)) {
+                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+            }
         }
+
+        _fulfillAndPay(fill, assessorReceipt.prover);
 
         emit ProofDelivered(fill.id, fill.journal, fill.seal);
     }
@@ -341,34 +348,31 @@ contract BoundlessMarket is
     function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public {
         verifyBatchDelivery(fills, assessorReceipt);
 
+        // Execute the callback with the associated fulfillment information.
+        // Callbacks are called exactly once, on the first fulfillment. Checking that the request is
+        // not fulfilled at this point ensures this. Note that by the end of the transaction, the
+        // fulfilled flag for every provided fulfillment will be set, or this transaction will
+        // revert (and revery any effects from the callbacks along with it).
+        uint256 callbacksLength = assessorReceipt.callbacks.length;
+        for (uint256 i = 0; i < callbacksLength; i++) {
+            AssessorCallback memory callback = assessorReceipt.callbacks[i];
+            Fulfillment calldata fill = fills[callback.index];
+            if (!requestIsFulfilled(fill.id)) {
+                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+            }
+        }
+
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
-        uint256 callbacksLength = assessorReceipt.callbacks.length;
-        if (callbacksLength > 0) {
-            uint256 callbackIdx = 0;
-            for (uint256 i = 0; i < fills.length; i++) {
-                if (callbackIdx < callbacksLength && assessorReceipt.callbacks[callbackIdx].index == i) {
-                    AssessorCallback memory callback = assessorReceipt.callbacks[callbackIdx];
-                    _fulfillAndPay(fills[i], assessorReceipt.prover, callback.addr, callback.gasLimit);
-                    callbackIdx++;
-                } else {
-                    _fulfillAndPay(fills[i], assessorReceipt.prover, address(0), 0);
-                }
-                emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
-            }
-        } else {
-            for (uint256 i = 0; i < fills.length; i++) {
-                _fulfillAndPay(fills[i], assessorReceipt.prover, address(0), 0);
-                emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
-            }
+        for (uint256 i = 0; i < fills.length; i++) {
+            _fulfillAndPay(fills[i], assessorReceipt.prover);
+            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
         }
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address prover, address callback, uint96 callbackGasLimit)
-        internal
-    {
+    function _fulfillAndPay(Fulfillment calldata fill, address prover) internal {
         RequestId id = fill.id;
         (address client, uint32 idx) = id.clientAndIndex();
         Account storage clientAccount = accounts[client];
@@ -384,14 +388,6 @@ contract BoundlessMarket is
             }
         } else {
             paymentError = _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
-        }
-
-        // Callbacks are only executed the first time a request is marked as fulfilled.
-        if (callback != address(0) && !fulfilled) {
-            (, bool fulfilledAfter) = clientAccount.requestFlags(idx);
-            if (fulfilledAfter) {
-                _executeCallback(id, callback, callbackGasLimit, fill.imageId, fill.journal, fill.seal);
-            }
         }
 
         if (paymentError.length > 0) {
@@ -726,7 +722,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function requestIsFulfilled(RequestId id) external view returns (bool) {
+    function requestIsFulfilled(RequestId id) public view returns (bool) {
         (address client, uint32 idx) = id.clientAndIndex();
         (, bool fulfilled) = accounts[client].requestFlags(idx);
         return fulfilled;

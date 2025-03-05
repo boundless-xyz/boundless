@@ -1967,9 +1967,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id);
-        vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, APP_JOURNAL, fill.seal);
         boundlessMarket.fulfill(fill, assessorReceipt);
@@ -2003,9 +2003,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id);
-        vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.CallbackFailed(request.id, address(mockHighGasCallback), "");
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, APP_JOURNAL, fill.seal);
         boundlessMarket.fulfill(fill, assessorReceipt);
@@ -2040,9 +2040,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fill.requirePayment = false;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id);
-        vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
@@ -2083,9 +2083,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fill.requirePayment = false;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id);
-        vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
@@ -2150,9 +2150,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, address(otherProver));
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id);
-        vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, APP_JOURNAL, fill.seal);
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
@@ -2214,9 +2214,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(requestB, APP_JOURNAL, address(testProver));
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(requestB.id);
-        vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(requestB.requirements.imageId, APP_JOURNAL, fill.seal);
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(requestB.id);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(requestB.id, APP_JOURNAL, fill.seal);
         boundlessMarket.priceAndFulfill(requestB, clientSignatureB, fill, assessorReceipt);
