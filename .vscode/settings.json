@@ -7,20 +7,19 @@
     "RISC0_SKIP_BUILD_KERNELS": "1",
     "CARGO_TARGET_DIR": "target/analyzer"
   },
-  "rust-analyzer.check.command": "check",
+  "rust-analyzer.check.command": "clippy",
   "rust-analyzer.check.extraArgs": [
     "--target-dir=target/analyzer"
   ],
   "rust-analyzer.linkedProjects": [
-    // "./bento/Cargo.toml", 
+    "./bento/Cargo.toml", 
     "./Cargo.toml",
-    "./crates/assessor/Cargo.toml",
     "./crates/guest/assessor/Cargo.toml",
     "./crates/guest/assessor/assessor-guest/Cargo.toml",
-    // "./crates/guest/util/Cargo.toml",
-    // "./crates/guest/util/echo/Cargo.toml",
-    // "./crates/guest/util/identity/Cargo.toml",
-    // "./examples/counter/Cargo.toml",
+    "./crates/guest/util/Cargo.toml",
+    "./crates/guest/util/echo/Cargo.toml",
+    "./crates/guest/util/identity/Cargo.toml",
+    "./examples/counter/Cargo.toml",
   ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",
