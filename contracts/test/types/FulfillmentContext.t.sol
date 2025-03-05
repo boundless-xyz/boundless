@@ -9,23 +9,19 @@ import {FulfillmentContext, FulfillmentContextLibrary} from "../../src/types/Ful
 
 contract FulfillmentContextLibraryTest is Test {
     /// forge-config: default.fuzz.runs = 10000
-    function testFuzz_PackUnpack(bool valid, uint96 price, address callback, uint96 callbackGaslimit) public pure {
-        FulfillmentContext memory original =
-            FulfillmentContext({valid: valid, price: price, callback: callback, callbackGaslimit: callbackGaslimit});
+    function testFuzz_PackUnpack(bool valid, uint96 price) public pure {
+        FulfillmentContext memory original = FulfillmentContext({valid: valid, price: price});
 
-        (uint256 slot0, uint256 slot1) = FulfillmentContextLibrary.pack(original);
-        FulfillmentContext memory unpacked = FulfillmentContextLibrary.unpack(slot0, slot1);
+        uint256 packed = FulfillmentContextLibrary.pack(original);
+        FulfillmentContext memory unpacked = FulfillmentContextLibrary.unpack(packed);
 
         assertEq(unpacked.valid, original.valid, "Valid flag mismatch");
         assertEq(unpacked.price, original.price, "Price mismatch");
-        assertEq(unpacked.callback, original.callback, "Callback address mismatch");
-        assertEq(unpacked.callbackGaslimit, original.callbackGaslimit, "Callback gas limit mismatch");
     }
 
     /// forge-config: default.fuzz.runs = 10000
-    function testFuzz_StoreAndLoad(bool valid, uint96 price, address callback, uint96 callbackGaslimit) public {
-        FulfillmentContext memory original =
-            FulfillmentContext({valid: valid, price: price, callback: callback, callbackGaslimit: callbackGaslimit});
+    function testFuzz_StoreAndLoad(bool valid, uint96 price) public {
+        FulfillmentContext memory original = FulfillmentContext({valid: valid, price: price});
         bytes32 slot = keccak256("transient.fulfillment.slot");
 
         // Store the FulfillmentContext in the specified slot
@@ -37,7 +33,5 @@ contract FulfillmentContextLibraryTest is Test {
         // Verify that the loaded FulfillmentContext matches the original
         assertEq(loaded.valid, original.valid, "Valid flag mismatch");
         assertEq(loaded.price, original.price, "Price mismatch");
-        assertEq(loaded.callback, original.callback, "Callback address mismatch");
-        assertEq(loaded.callbackGaslimit, original.callbackGaslimit, "Callback gas limit mismatch");
     }
 }

@@ -211,12 +211,7 @@ contract BoundlessMarket is
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
 
         // Record the price in transient storage, such that the order can be filled in this same transaction.
-        FulfillmentContext({
-            valid: true,
-            price: price,
-            callback: request.requirements.callback.addr,
-            callbackGaslimit: request.requirements.callback.gasLimit
-        }).store(requestDigest);
+        FulfillmentContext({valid: true, price: price}).store(requestDigest);
     }
 
     /// @inheritdoc IBoundlessMarket
