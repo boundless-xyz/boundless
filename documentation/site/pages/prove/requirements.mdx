@@ -2,20 +2,25 @@
 
 ## Hardware
 
-A minimum configuration for reasonable proving performance:
+A recommended minimum configuration for competitive proving performance:
 
 * CPU - 16 threads, reasonable single core boost performance (>3Ghz)
 * Memory - 32 GB
 * Disk - 200 GB of solid state storage, NVME / SSD preferred
 * GPU - 10x NVIDIA RTX 3080 or T4, minimum VRAM on each 8GB
 
-For testing purposes **only**, the minimum specifications of the GPU VRAM is 4GB.
+**It is possible to run a prover with less hardware.
+It may not be competitive with the rest of the market.**
 
-Ultimately, the more GPU power you have, the better the proving performance. The better the proving performance, the more jobs you can successfully fulfill in the market. Boundless' proving stack supports multi GPU proving as a first class citizen; please see multi GPU [configuration](/prove/performance-optimization#multiple-agents-and-gpus) and [performance optimization](/prove/performance-optimization#multiple-agents-and-gpus) for more details.
+For testing purposes, the minimum specifications of the GPU VRAM is 4GB.
+
+Ultimately, the more GPU power you have, the better the proving performance.
+The better the proving performance, the more jobs you can successfully fulfill in the market.
+Boundless' proving stack supports multi GPU proving as a first class citizen; please see multi GPU [configuration](/prove/performance-optimization#multiple-agents-and-gpus) and [performance optimization](/prove/performance-optimization#multiple-agents-and-gpus) for more details.
 
 ## Operating System
 
-At this time, Ubuntu 20.04/22.04 are the only supported operating systems. The Boundless team are working on adding support for 24.04. Currently, 24.04 support is experimental and please be warned that it is not guaranteed to work. 
+At this time, Ubuntu 20.04/22.04 are the only supported operating systems. The Boundless team are working on adding support for 24.04. Currently, 24.04 support is experimental and please be warned that it is not guaranteed to work.
 
 Other operating systems *could* work, but driver support (such as Nvidia drivers), compiling dependencies, and general testing will be the responsibility of the prover operator.
 
@@ -34,7 +39,7 @@ At the core of the Boundless proving software is [Bento](/prove/proving-stack#wh
 
 :::tip
 * To apply for access to HP tokens and become a prover, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) with your details.
-* To get started with the Broker and deposit stake to the market contract, please see [Broker](/prove/broker#broker-configuration). 
+* To get started with the Broker and deposit stake to the market contract, please see [Broker](/prove/broker#broker-configuration).
 :::
 
 The Boundless Market works via an escrow system.
