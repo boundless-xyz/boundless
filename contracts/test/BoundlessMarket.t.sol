@@ -1904,6 +1904,61 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
+    // Prover locks a request, the request expires, then they fulfill a request with the same ID.
+    // Prover should be slashable, but still able to fulfill the other request and receive payment for it.
+    function testSlashLockedRequestMultipleRequestsSameIndex() public {
+        Client client = getClient(1);
+
+        // Create two distinct requests with the same ID.
+        Offer memory offerA = Offer({
+            minPrice: 1 ether,
+            maxPrice: 2 ether,
+            biddingStart: uint64(block.number),
+            rampUpPeriod: uint32(10),
+            lockTimeout: uint32(100),
+            timeout: uint32(100),
+            lockStake: 1 ether
+        });
+        Offer memory offerB = Offer({
+            minPrice: 3 ether,
+            maxPrice: 3 ether,
+            biddingStart: uint64(block.number) + uint64(offerA.timeout) + 1,
+            rampUpPeriod: uint32(10),
+            lockTimeout: uint32(100),
+            timeout: uint32(block.number) + offerA.timeout + 101,
+            lockStake: 1 ether
+        });
+        ProofRequest memory requestA = client.request(1, offerA);
+        ProofRequest memory requestB = client.request(1, offerB);
+        bytes memory clientSignatureA = client.sign(requestA);
+        bytes memory clientSignatureB = client.sign(requestB);
+
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        vm.prank(address(testProver));
+        boundlessMarket.lockRequest(requestA, clientSignatureA);
+
+        vm.roll(requestA.offer.deadline() + 1);
+
+        // Attempt to fill request B.
+        (Fulfillment memory fill, bytes memory assessorSeal) =
+            createFillAndSubmitRoot(requestB, APP_JOURNAL, address(testProver));
+        boundlessMarket.priceAndFulfill(requestB, clientSignatureB, fill, assessorSeal, address(testProver));
+
+        boundlessMarket.slash(requestA.id);
+
+        expectRequestFulfilledAndSlashed(fill.id);
+
+        client.expectBalanceChange(-3 ether);
+        testProver.expectBalanceChange(3 ether);
+        // They lose their original stake, but gain a portion of the slashed stake.
+        testProver.expectStakeBalanceChange(
+            -1 ether + int256(uint256(expectedSlashTransferAmount(requestA.offer.lockStake)))
+        );
+        expectMarketBalanceUnchanged();
+    }
+
     // Handles case where a third-party that was not locked fulfills the request, and the locked prover does not.
     // Once the locked prover is slashed, we expect the request to be both "fulfilled" and "slashed".
     // We expect a portion of slashed funds to go to the market treasury.
