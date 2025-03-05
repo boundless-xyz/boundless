@@ -86,6 +86,12 @@ interface IBoundlessMarket {
     /// @param error The ABI encoded error.
     event PaymentRequirementsFailed(bytes error);
 
+    /// @notice Event emitted when a callback to a contract fails during fulfillment
+    /// @param requestId The ID of the request that was being fulfilled
+    /// @param callback The address of the callback contract that failed
+    /// @param error The error message from the failed call
+    event CallbackFailed(RequestId indexed requestId, address callback, bytes error);
+
     /// @notice Error when a request is locked when it was not required to be.
     /// @param requestId The ID of the request.
     error RequestIsLocked(RequestId requestId);

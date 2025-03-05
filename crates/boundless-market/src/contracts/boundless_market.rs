@@ -1199,6 +1199,7 @@ mod tests {
             selectors: vec![],
             root: to_b256(app_claim_digest),
             prover,
+            callbacks: vec![],
         };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
@@ -1439,6 +1440,7 @@ mod tests {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
+            callbacks: vec![],
         };
         // fulfill the request
         ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
@@ -1504,6 +1506,7 @@ mod tests {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
+            callbacks: vec![],
         };
         // publish the committed root + fulfillments
         ctx.prover_market
@@ -1563,6 +1566,7 @@ mod tests {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
+            callbacks: vec![],
         };
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -1644,6 +1648,7 @@ mod tests {
                 seal: assessor_seal,
                 selectors: vec![],
                 prover: some_other_address,
+                callbacks: vec![],
             };
 
             // attempt to fulfill the request, and ensure we revert.
@@ -1683,6 +1688,7 @@ mod tests {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
+            callbacks: vec![],
         };
 
         // fulfill the request, this time getting paid.

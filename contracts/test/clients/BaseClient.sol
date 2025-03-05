@@ -14,9 +14,10 @@ import {AssessorJournal} from "../../src/types/AssessorJournal.sol";
 import {BoundlessMarketLib} from "../../src/libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "../../src/libraries/MerkleProofish.sol";
 import {RequestId} from "../../src/types/RequestId.sol";
+import {Callback} from "../../src/types/Callback.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {Account} from "../../src/types/Account.sol";
-import {TransientPrice} from "../../src/types/TransientPrice.sol";
+import {FulfillmentContext} from "../../src/types/FulfillmentContext.sol";
 import {RequestLock} from "../../src/types/RequestLock.sol";
 import {Fulfillment} from "../../src/types/Fulfillment.sol";
 import {AssessorJournal} from "../../src/types/AssessorJournal.sol";
@@ -76,7 +77,8 @@ abstract contract BaseClient {
         return Requirements({
             imageId: bytes32(APP_IMAGE_ID),
             predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))}),
-            selector: bytes4(0)
+            selector: bytes4(0),
+            callback: Callback({addr: address(0), gasLimit: 0})
         });
     }
 
