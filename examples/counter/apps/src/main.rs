@@ -13,7 +13,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::ClientBuilder,
-    contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -246,7 +246,6 @@ mod tests {
     async fn deploy_counter(anvil: &AnvilInstance, test_ctx: &TestCtx) -> Result<Address> {
         let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let deployer_provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(EthereumWallet::from(deployer_signer))
             .on_builtin(&anvil.endpoint())
             .await
