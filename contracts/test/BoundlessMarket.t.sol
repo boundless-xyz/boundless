@@ -1927,17 +1927,17 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // Test that the smart contract client receives the proof request when isValidSignature is called,
     // if the client signature provided is empty. This enables custom smart contract clients that want to authorize
     // payments based on how a proof request is structured.
-    function testLockRequestSmartContractClientValidatesProofRequest() public {
+    function testLockRequestSmartContractClientValidatesPassthroughEmptySignature() public {
         SmartContractClient client = getSmartContractClient(1);
         ProofRequest memory request = client.request(1);
-        client.setExpectedSignature(abi.encode(request));
         bytes memory clientSig = bytes("");
+        client.setExpectedSignature(clientSig);
 
         // Expect isValidSignature to be called on the smart contract wallet with the proof request as the signature.
         bytes32 requestHash =
             MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
         vm.expectCall(
-            client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, abi.encode(request))
+            client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSig)
         );
 
         // Call lockRequest with the smart contract signature

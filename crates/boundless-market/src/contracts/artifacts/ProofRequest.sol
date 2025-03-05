@@ -80,14 +80,6 @@ library ProofRequestLibrary {
             if (ECDSA.recover(structHash, signature) != addr) {
                 revert IBoundlessMarket.InvalidSignature();
             }
-        } else if (signature.length == 0) {
-            // If the signature is empty and the client is a smart contract, we provide the request as the signature.
-            // This flow is intended to enable anyone to submit requests on behalf of a client smart contract.
-            // The client smart contract is expected to validate the request was constructed correctly.
-            if (IERC1271(addr).isValidSignature(structHash, abi.encode(request)) != IERC1271.isValidSignature.selector)
-            {
-                revert IBoundlessMarket.InvalidSignature();
-            }
         } else {
             // If the signature is not empty and its a smart contract client, we call isValidSignature with the provided signature.
             // This is the standard flow for a client using a smart contract wallet to submit requests.
@@ -111,14 +103,6 @@ library ProofRequestLibrary {
         if (addr.code.length == 0) {
             // Standard EOA flow.
             if (isSmartContractSig || ECDSA.recover(structHash, signature) != addr) {
-                revert IBoundlessMarket.InvalidSignature();
-            }
-        } else if (signature.length == 0) {
-            // If the signature is empty and the client is a smart contract, we provide the request as the signature.
-            // This flow is intended to enable anyone to submit requests on behalf of a client smart contract.
-            // The client smart contract is expected to validate the request was constructed correctly.
-            if (!isSmartContractSig || IERC1271(addr).isValidSignature(structHash, abi.encode(request)) != IERC1271.isValidSignature.selector)
-            {
                 revert IBoundlessMarket.InvalidSignature();
             }
         } else {

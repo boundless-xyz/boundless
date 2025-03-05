@@ -20,7 +20,6 @@ use alloy_primitives::{Address, PrimitiveSignature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
 use boundless_market::contracts::{request_id_to_parts, EIP721DomainSaltless, ProofRequest};
-use risc0_steel::ethereum::GuestEvmEnv;
 use risc0_steel::{alloy::sol, Contract};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
