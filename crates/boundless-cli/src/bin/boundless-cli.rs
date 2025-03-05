@@ -25,7 +25,7 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
-        Address, Bytes, PrimitiveSignature, B256, U256,
+        Address, Bytes, FixedBytes, PrimitiveSignature, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
@@ -508,14 +508,12 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     .then_some(order.request)
                     .into_iter()
                     .collect();
-
             match boundless_market
                 .price_and_fulfill_batch(
                     requests_to_price,
                     vec![sig],
                     order_fulfilled.fills,
-                    order_fulfilled.assessorSeal,
-                    caller,
+                    order_fulfilled.assessorReceipt,
                     None,
                 )
                 .await
@@ -615,7 +613,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate },
+        Requirements { imageId: image_id, predicate, selector: FixedBytes::<4>([0; 4]) },
         elf_url,
         requirements_input,
         offer.clone(),

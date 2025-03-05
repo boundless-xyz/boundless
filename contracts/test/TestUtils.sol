@@ -6,16 +6,18 @@ pragma solidity ^0.8.20;
 
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
+import {Selector} from "../src/types/Selector.sol";
 import "../src/BoundlessMarket.sol";
 import "../src/types/SteelCommitment.sol";
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;
 
-    function mockAssessor(Fulfillment[] memory fills, bytes32 assessorImageId, address prover)
-        internal
-        pure
-        returns (ReceiptClaim memory)
-    {
+    function mockAssessor(
+        Fulfillment[] memory fills,
+        bytes32 assessorImageId,
+        Selector[] memory selectors,
+        address prover
+    ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
@@ -24,7 +26,9 @@ library TestUtils {
         }
         bytes32 root = MerkleProofish.processTree(claimDigests);
 
-        bytes memory journal = abi.encode(AssessorJournal({requestDigests: requestDigests, root: root, prover: prover, commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})}));
+        bytes memory journal = abi.encode(
+            AssessorJournal({requestDigests: requestDigests, root: root, selectors: selectors, prover: prover, commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})})
+        );
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 
@@ -186,5 +190,24 @@ library TestUtils {
         returns (bytes32)
     {
         return keccak256(abi.encode(PERMIT_TYPEHASH, owner, spender, value, nonce, deadline));
+    }
+
+    /// @notice Adds a non-zero selector at the given index
+    /// @dev Overwrites any existing selector at that index
+    /// @param self The Selectors struct to modify
+    /// @param index The index where to add the selector
+    /// @param selector The selector to add
+    function addSelector(Selector[] memory self, uint8 index, bytes4 selector)
+        internal
+        pure
+        returns (Selector[] memory)
+    {
+        // Create a new array with one additional element.
+        Selector[] memory newSelectors = new Selector[](self.length + 1);
+        for (uint256 i = 0; i < self.length; i++) {
+            newSelectors[i] = self[i];
+        }
+        newSelectors[self.length] = Selector(index, selector);
+        return newSelectors;
     }
 }

@@ -31,7 +31,9 @@ use risc0_zkvm::{
 use url::Url;
 
 use boundless_market::{
-    contracts::{EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, InputType},
+    contracts::{
+        AssessorReceipt, EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, InputType,
+    },
     input::GuestEnv,
     order_stream_client::Order,
 };
@@ -46,10 +48,8 @@ alloy::sol!(
         bytes seal;
         /// The fulfillments of the order.
         BoundlessFulfillment[] fills;
-        /// The seal of the assessor.
-        bytes assessorSeal;
-        /// The prover address.
-        address prover;
+        /// The fulfillment of the assessor.
+        AssessorReceipt assessorReceipt;
     }
 );
 
@@ -66,13 +66,14 @@ impl OrderFulfilled {
 
         let root_seal = encode_seal(&root_receipt)?;
         let assessor_seal = assessor_receipt.abi_encode_seal()?;
+        let assessor_fill =
+            AssessorReceipt { seal: assessor_seal.into(), selectors: vec![], prover };
 
         Ok(OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),
             seal: root_seal.into(),
             fills: vec![fill],
-            assessorSeal: assessor_seal.into(),
-            prover,
+            assessorReceipt: assessor_fill,
         })
     }
 }
@@ -307,10 +308,7 @@ mod tests {
         let request = ProofRequest::new(
             0,
             &signer.address(),
-            Requirements {
-                imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
-                predicate: Predicate::prefix_match(vec![1]),
-            },
+            Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1])),
             format!("file://{ECHO_PATH}"),
             Input::inline(vec![1, 2, 3, 4]),
             Offer::default(),

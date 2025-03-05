@@ -4,7 +4,7 @@
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, B256, U256},
+    primitives::{utils, U256},
     providers::Provider,
 };
 use httpmock::prelude::*;
@@ -85,13 +85,10 @@ async fn simple_e2e() {
     let request = ProofRequest::new(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        Requirements {
-            imageId: B256::from_slice(Digest::from(ECHO_ID).as_bytes()),
-            predicate: Predicate {
-                predicateType: PredicateType::PrefixMatch,
-                data: Default::default(),
-            },
-        },
+        Requirements::new(
+            Digest::from(ECHO_ID),
+            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+        ),
         &image_uri,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         Offer {

@@ -75,7 +75,8 @@ abstract contract BaseClient {
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
             imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))})
+            predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))}),
+            selector: bytes4(0)
         });
     }
 

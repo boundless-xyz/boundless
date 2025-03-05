@@ -35,6 +35,13 @@ struct MainArgs {
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
+    /// Comma-separated list of addresses to skip when processing locked events.
+    #[clap(long, value_delimiter = ',', value_parser = parse_address)]
+    skip_addresses: Vec<Address>,
+}
+
+fn parse_address(s: &str) -> Result<Address, String> {
+    s.trim().parse::<Address>().map_err(|e| format!("Failed to parse address {}: {}", s, e))
 }
 
 #[derive(Args, Clone, Debug)]
@@ -69,6 +76,7 @@ async fn main() -> Result<()> {
         &args.db,
         Duration::from_secs(args.interval),
         args.retries,
+        args.skip_addresses,
     )
     .await?;
 
