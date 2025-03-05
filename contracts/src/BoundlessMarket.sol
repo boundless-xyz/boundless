@@ -253,10 +253,17 @@ contract BoundlessMarket is
                     callbacks: assessorReceipt.callbacks,
                     root: claimDigest,
                     prover: assessorReceipt.prover,
-                    commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})
+                    commitment: assessorReceipt.commitment
                 })
             )
         );
+
+        // Validate the Steel commitment if it is provided. The presence of a Steel commitment indicates that
+        // a smart contract signature was validated by the assessor.
+        if (assessorReceipt.commitment.digest != bytes32(0) && !Steel.validateCommitment(assessorReceipt.commitment)) {
+            revert InvalidCommitment();
+        }
+
         // Verification that the provided seal matches the required selector.
         // NOTE: Assessor guest ensures that the number of selectors <= the number of request digests in the journal.
         if (assessorReceipt.selectors.length > 0 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
