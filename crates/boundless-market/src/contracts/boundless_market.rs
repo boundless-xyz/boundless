@@ -19,7 +19,7 @@ use std::{
 };
 
 use alloy::{
-    consensus::BlockHeader,
+    consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
@@ -28,7 +28,7 @@ use alloy::{
     signers::Signer,
     transports::Transport,
 };
-use alloy_sol_types::SolEvent;
+use alloy_sol_types::{SolCall, SolEvent};
 use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
@@ -295,7 +295,7 @@ where
 
         // Look for the logs for submitting the transaction.
         let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
-        Ok(U256::from(log.inner.data.request.id))
+        Ok(U256::from(log.inner.data.requestId))
     }
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
@@ -785,8 +785,19 @@ where
             // Query the logs for the event
             let logs = event_filter.query().await?;
 
-            if let Some((log, _)) = logs.first() {
-                return Ok((log.request.clone(), log.clientSignature.clone()));
+            if let Some((_, data)) = logs.first() {
+                // get the calldata inputs
+                let tx_data = self
+                    .instance
+                    .provider()
+                    .get_transaction_by_hash(data.transaction_hash.context("tx hash is none")?)
+                    .await
+                    .context("Failed to get transaction")?
+                    .context("Transaction not found")?;
+                let inputs = tx_data.input();
+                let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true)
+                    .context("Failed to decode input")?;
+                return Ok((calldata.request, calldata.clientSignature));
             }
 
             // Move the upper_block down for the next iteration
@@ -816,22 +827,17 @@ where
         tx_hash: Option<B256>,
     ) -> Result<(ProofRequest, Bytes), MarketError> {
         if let Some(tx_hash) = tx_hash {
-            let receipt = self
+            let tx_data = self
                 .instance
                 .provider()
-                .get_transaction_receipt(tx_hash)
+                .get_transaction_by_hash(tx_hash)
                 .await
-                .context("Failed to get transaction receipt")?
+                .context("Failed to get transaction")?
                 .context("Transaction not found")?;
-            let logs = receipt.inner.logs().iter().filter_map(|log| {
-                let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>();
-                log.ok()
-            });
-            for log in logs {
-                if U256::from(log.inner.data.request.id) == request_id {
-                    return Ok((log.inner.data.request, log.inner.data.clientSignature));
-                }
-            }
+            let inputs = tx_data.input();
+            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true)
+                .context("Failed to decode input")?;
+            return Ok((calldata.request, calldata.clientSignature));
         }
         self.query_request_submitted_event(request_id, None, None).await
     }
@@ -1117,11 +1123,13 @@ mod tests {
         input::InputBuilder,
     };
     use alloy::{
+        consensus::Transaction,
         node_bindings::Anvil,
         primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256},
         providers::{Provider, ProviderBuilder},
         sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
     };
+    use alloy_sol_types::SolCall;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use guest_util::ECHO_ID;
@@ -1372,9 +1380,8 @@ mod tests {
         // fetch logs and check if the event was emitted
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
-        let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        assert!(log.inner.data.request.id == request_id);
+        let (log, _) = logs.first().unwrap();
+        assert!(log.requestId == request_id);
     }
 
     #[tokio::test]
@@ -1405,9 +1412,20 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request: ProofRequest = log.inner.data.request;
-        let customer_sig = log.inner.data.clientSignature;
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
 
         // Deposit prover balances
         let deposit = default_allowance();
@@ -1472,9 +1490,20 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request = log.inner.data.request;
-        let customer_sig = log.inner.data.clientSignature;
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
 
         // Deposit prover balances
         let deposit = default_allowance();
@@ -1543,9 +1572,20 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request = log.inner.data.request;
-        let customer_sig = log.inner.data.clientSignature;
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, assessor_seal) =
@@ -1607,9 +1647,20 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request = log.inner.data.request;
-        let customer_sig = log.inner.data.clientSignature;
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
 
         // Deposit prover balances
         let deposit = default_allowance();

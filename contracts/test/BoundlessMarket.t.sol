@@ -657,7 +657,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Submit the request with no funds
         // Expect the event to be emitted
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestSubmitted(request.id, request, clientSignature);
+        emit IBoundlessMarket.RequestSubmitted(request.id);
         boundlessMarket.submitRequest(request, clientSignature);
         vm.snapshotGasLastCall("submitRequest: without ether");
 
@@ -666,7 +666,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.Deposit(address(client), uint256(request.offer.maxPrice));
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestSubmitted(request.id, request, clientSignature);
+        emit IBoundlessMarket.RequestSubmitted(request.id);
         vm.deal(address(client), request.offer.maxPrice);
         vm.prank(address(client));
         boundlessMarket.submitRequest{value: request.offer.maxPrice}(request, clientSignature);

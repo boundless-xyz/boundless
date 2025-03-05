@@ -113,7 +113,7 @@ contract BoundlessMarket is
         if (msg.value > 0) {
             deposit();
         }
-        emit RequestSubmitted(request.id, request, clientSignature);
+        emit RequestSubmitted(request.id);
     }
 
     /// @inheritdoc IBoundlessMarket
