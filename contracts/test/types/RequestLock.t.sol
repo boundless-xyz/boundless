@@ -20,7 +20,8 @@ contract RequestLockTest is Test {
             requestLockFlags: 0,
             price: 1 ether,
             stake: 1 ether,
-            fingerprint: bytes8(0x1234567890abcdef)
+            fingerprint: bytes8(0x1234567890abcdef),
+            requestDigest: bytes32(0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef)
         });
     }
 
@@ -35,6 +36,10 @@ contract RequestLockTest is Test {
 
     function assertSlot1Clear() private view {
         assertSlotClear(1);
+    }
+
+    function assertSlot2Clear() private view {
+        assertSlotClear(2);
     }
 
     function testDeadline() public view {
@@ -53,6 +58,7 @@ contract RequestLockTest is Test {
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
         assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
         assertSlot1Clear();
+        assertSlot2Clear();
     }
 
     function testSetProverPaidAfterLockDeadline() public {
@@ -71,6 +77,7 @@ contract RequestLockTest is Test {
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
         assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
         assertSlot1Clear();
+        assertSlot2Clear();
     }
 
     function testIsProverPaidBeforeLockDeadline() public {

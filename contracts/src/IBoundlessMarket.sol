@@ -123,14 +123,14 @@ interface IBoundlessMarket {
     /// @param deadline The deadline of the request.
     error RequestIsNotExpired(RequestId requestId, uint64 deadline);
 
-    /// @notice Error when request fingerprint (shortened digest) doesn't match the value that is locked.
+    /// @notice Error when request being fulfilled doesn't match the request that was locked.
     /// @dev This can happen if a client signs multiple requests with the same ID (i.e. multiple
     /// versions of the same request) and a prover locks one version but then tries to call fulfill
     /// using a different version.
     /// @param requestId The ID of the request.
     /// @param provided The provided fingerprint.
     /// @param locked The locked fingerprint.
-    error RequestLockFingerprintDoesNotMatch(RequestId requestId, bytes8 provided, bytes8 locked);
+    error InvalidRequestFulfillment(RequestId requestId, bytes32 provided, bytes32 locked);
 
     /// @notice Error when unable to complete request because of insufficient balance.
     /// @param account The account with insufficient balance.

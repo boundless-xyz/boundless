@@ -198,8 +198,11 @@ impl RequestId {
     /// a [U256] is not guaranteed to give the original value. If flags are added in future
     /// versions of the Boundless Market, this function will ignore them.
     pub fn from_lossy(value: U256) -> Self {
+        let mut addr_u256 = value >> U256::from(32);
+        addr_u256 = addr_u256 & ((U256::from(1) << U256::from(160)) - U256::from(1)); // mask out the flags
+        let addr = Address::from(addr_u256.to::<U160>());
         Self {
-            addr: Address::from((value >> U256::from(32)).to::<U160>()),
+            addr,
             index: (value & U32::MAX.to::<U256>()).to::<u32>(),
             smart_contract_signed: (value & (U256::from(1) << 192)) != U256::ZERO,
         }
@@ -1180,5 +1183,46 @@ mod tests {
 
         client_sig[0] = 1;
         req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_request_id() {
+        // Test case 1: Regular signature
+        let raw_id1 =
+            U256::from_str("3130239009558586413752262552917257075388277690201777635428").unwrap();
+        let request_id1 = RequestId::from_lossy(raw_id1);
+
+        let client1 = request_id1.addr;
+        let idx1 = request_id1.index;
+        let is_smart_contract1 = request_id1.smart_contract_signed;
+
+        assert_eq!(
+            client1,
+            Address::from_str("0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496").unwrap()
+        );
+        assert_eq!(idx1, 100);
+        assert!(!is_smart_contract1);
+
+        // Test case 2: Smart contract signature
+        let raw_id2 =
+            U256::from_str("9407340744945267177588051976124923491490633134665812148266").unwrap();
+        let request_id2 = RequestId::from_lossy(raw_id2);
+
+        let client2 = request_id2.addr;
+        let idx2 = request_id2.index;
+        let is_smart_contract2 = request_id2.smart_contract_signed;
+
+        assert_eq!(
+            client2,
+            Address::from_str("0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496").unwrap()
+        );
+        assert_eq!(idx2, 42);
+        assert!(is_smart_contract2);
+
+        // Test conversion back to U256
+        let request_id1_u256: U256 = request_id1.into();
+        let request_id2_u256: U256 = request_id2.into();
+        assert_eq!(request_id1_u256, raw_id1);
+        assert_eq!(request_id2_u256, raw_id2);
     }
 }

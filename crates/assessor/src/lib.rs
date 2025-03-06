@@ -19,7 +19,7 @@
 use alloy_primitives::{Address, PrimitiveSignature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
-use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest};
+use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest, RequestId};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +45,10 @@ impl Fulfillment {
     /// Verifies the signature of the request.
     pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32]> {
         let hash = self.request.eip712_signing_hash(domain);
+        let smart_contract_signed = RequestId::from_lossy(self.request.id).smart_contract_signed;
+        if smart_contract_signed {
+            return Ok(hash.into());
+        }
         let signature = PrimitiveSignature::try_from(self.signature.as_slice())?;
         // NOTE: This could be optimized by accepting the public key as input, checking it against
         // the address, and using it to verify the signature instead of recovering the
@@ -116,17 +120,28 @@ mod tests {
         ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     };
 
-    fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
-        ProofRequest::new(
-            id,
-            &signer,
-            Requirements::new(
+    fn proving_request(
+        id: u32,
+        signer: Address,
+        image_id: B256,
+        prefix: Vec<u8>,
+        smart_contract_signed: bool,
+    ) -> ProofRequest {
+        let mut request_id = RequestId::new(signer, id);
+
+        if smart_contract_signed {
+            request_id.smart_contract_signed = true;
+        }
+
+        ProofRequest {
+            id: request_id.into(),
+            requirements: Requirements::new(
                 Digest::from_bytes(image_id.0),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
             ),
-            "test",
-            Input { inputType: InputType::Url, data: Default::default() },
-            Offer {
+            imageUrl: "test".into(),
+            input: Input { inputType: InputType::Url, data: Default::default() },
+            offer: Offer {
                 minPrice: U256::from(1),
                 maxPrice: U256::from(10),
                 biddingStart: 0,
@@ -135,7 +150,7 @@ mod tests {
                 lockTimeout: 1000,
                 lockStake: U256::from(0),
             },
-        )
+        }
     }
 
     fn to_b256(digest: Digest) -> B256 {
@@ -146,7 +161,7 @@ mod tests {
     #[test_log::test]
     async fn test_claim() {
         let signer = PrivateKeySigner::random();
-        let proving_request = proving_request(1, signer.address(), B256::ZERO, vec![1]);
+        let proving_request = proving_request(1, signer.address(), B256::ZERO, vec![1], false);
         let signature = proving_request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
 
         let claim = Fulfillment {
@@ -169,6 +184,32 @@ mod tests {
         assert_eq!(domain, domain2);
     }
 
+    #[test]
+    #[test_log::test]
+    fn test_smart_contract_signature() {
+        let signer = Address::from([1u8; 20]); // Create a test address
+                                               // Create a request with smart_contract_signed set to true
+        let proving_request = proving_request(1, signer, B256::ZERO, vec![1], true);
+
+        let fulfillment = Fulfillment {
+            request: proving_request,
+            // Invalid signature. We expect this not to be checked, so verification should still succeed.
+            signature: vec![],
+            journal: vec![1, 2, 3],
+            require_payment: true,
+        };
+
+        // Verify signature should pass without checking the signature
+        let domain = eip712_domain(Address::ZERO, 1).alloy_struct();
+        let result = fulfillment.verify_signature(&domain);
+        assert!(result.is_ok(), "Smart contract signature verification should succeed");
+
+        // Verify we get back the correct hash
+        let hash = result.unwrap();
+        let expected_hash: [u8; 32] = fulfillment.request.eip712_signing_hash(&domain).into();
+        assert_eq!(hash, expected_hash, "Hash should match the request's signing hash");
+    }
+
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
     ) -> (ProofRequest, Vec<u8>) {
@@ -177,6 +218,7 @@ mod tests {
             signer.address(),
             to_b256(ECHO_ID.into()),
             "test".as_bytes().to_vec(),
+            false,
         );
         let signature =
             request.sign_request(signer, Address::ZERO, 1).await.unwrap().as_bytes().to_vec();

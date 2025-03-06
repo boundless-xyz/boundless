@@ -49,6 +49,11 @@ struct RequestLock {
     /// based on request digest instead of index. As a friction, this would introduce a second
     /// user-facing concept of what identifies a request.
     bytes8 fingerprint;
+    ///
+    /// Storage slot 3
+    ///
+    /// @notice The digest of the request.
+    bytes32 requestDigest;
 }
 
 library RequestLockLibrary {
@@ -69,12 +74,16 @@ library RequestLockLibrary {
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
         requestLock.fingerprint = bytes8(0);
+        // Zero out third slot for gas refund.
+        requestLock.requestDigest = bytes32(0);
     }
 
     function setProverPaidAfterLockDeadline(RequestLock storage requestLock, address prover) internal {
         requestLock.prover = prover;
         requestLock.requestLockFlags = PROVER_PAID_AFTER_LOCK_FLAG;
         // We don't zero out the second slot as stake information is required for slashing.
+        // Zero out third slot for gas refund.
+        requestLock.requestDigest = bytes32(0);
     }
 
     function setSlashed(RequestLock storage requestLock) internal {
@@ -83,6 +92,8 @@ library RequestLockLibrary {
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
         requestLock.fingerprint = bytes8(0);
+        // Zero out third slot for gas refund.
+        requestLock.requestDigest = bytes32(0);
     }
 
     function hasBeenLocked(RequestLock memory requestLock) internal pure returns (bool) {
