@@ -191,7 +191,7 @@ contract BoundlessMarket is
             lockDeadline: lockDeadline,
             deadlineDelta: uint256(deadline - lockDeadline).toUint24(),
             stake: request.offer.lockStake.toUint96(),
-            // fingerprint: bytes8(requestDigest),
+            fingerprint: bytes8(requestDigest),
             requestDigest: requestDigest
         });
 
