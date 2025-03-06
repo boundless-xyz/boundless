@@ -209,7 +209,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0'
+          risczero-version: '1.2.5'
           toolchain-version: 'r0.1.81.0'
 
       - name: check order-stream
