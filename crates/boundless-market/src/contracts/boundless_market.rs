@@ -19,7 +19,7 @@ use std::{
 };
 
 use alloy::{
-    consensus::BlockHeader,
+    consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
@@ -27,7 +27,7 @@ use alloy::{
     rpc::types::{BlockTransactionsKind, Log, TransactionReceipt},
     signers::Signer,
 };
-use alloy_sol_types::SolEvent;
+use alloy_sol_types::{SolCall, SolEvent};
 use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
@@ -231,31 +231,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(balance)
     }
 
-    /// Returns the frozen state of the given account.
-    pub async fn account_is_frozen(&self, account: Address) -> Result<bool, MarketError> {
-        tracing::debug!("Calling accountIdFrozen({account})");
-        let frozen = self.instance.accountIsFrozen(account).call().await?._0;
-
-        Ok(frozen)
-    }
-
-    /// Unfreeze the account.
-    /// This function can only be called by the account owner.
-    pub async fn unfreeze_account(&self) -> Result<(), MarketError> {
-        tracing::debug!("Calling unfreezeAccount()");
-        let call = self.instance.unfreezeAccount().from(self.caller);
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting unfreezeAccount tx {}", pending_tx.tx_hash());
-        let tx_hash = pending_tx
-            .with_timeout(Some(self.timeout))
-            .watch()
-            .await
-            .context("failed to confirm tx")?;
-        tracing::debug!("Submitted unfreezeAccount {}", tx_hash);
-
-        Ok(())
-    }
-
     /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on. Includes the specified value, which will be deposited to the account of msg.sender.
     pub async fn submit_request_with_value(
@@ -290,7 +265,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         // Look for the logs for submitting the transaction.
         let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
-        Ok(U256::from(log.inner.data.request.id))
+        Ok(U256::from(log.inner.data.requestId))
     }
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
@@ -500,6 +475,63 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(maybe_log)
     }
 
+    /// Fulfill a request by delivering the proof for the application and withdraw from the prover balance.
+    ///
+    /// Upon proof verification, the prover is paid as long as the requirements are met, including:
+    ///
+    /// * Seal for the assessor proof is valid, verifying that the order's requirements are met.
+    /// * The order has not expired.
+    /// * The order is not locked by a different prover.
+    /// * A prover has not been paid for the job already.
+    /// * If not locked, the client has sufficient funds.
+    ///
+    /// When fulfillment has `require_payment` set to true, the transaction will revert if the
+    /// payment is not sent. Otherwise, an event will be logged on the transaction and returned.
+    pub async fn fulfill_and_withdraw(
+        &self,
+        fulfillment: &Fulfillment,
+        assessor_fill: AssessorReceipt,
+    ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
+        tracing::debug!("Calling fulfillAndWithdraw({:x?},{:x?})", fulfillment, assessor_fill);
+        let call =
+            self.instance.fulfillAndWithdraw(fulfillment.clone(), assessor_fill).from(self.caller);
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+
+        let receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!(
+            "Submitted proof for request {:x}: {:x}",
+            fulfillment.id,
+            receipt.transaction_hash
+        );
+
+        // Look for PaymentRequirementsFailed logs.
+        let mut logs = receipt.inner.logs().iter().filter_map(|log| {
+            let log = log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>();
+            log.ok()
+        });
+        let maybe_log = logs.nth(0);
+        if logs.next().is_some() {
+            return Err(anyhow!(
+                "more than one PaymentRequirementsFailed event on single fullfillment tx"
+            )
+            .into());
+        }
+        if fulfillment.requirePayment && maybe_log.is_some() {
+            return Err(anyhow!(
+                "bug in market contract; payment failed and require_payment is true"
+            )
+            .into());
+        }
+
+        Ok(maybe_log)
+    }
+
     /// Fulfill a batch of requests by delivering the proof for each application.
     ///
     /// See [BoundlessMarketService::fulfill] for more details.
@@ -511,6 +543,44 @@ impl<P: Provider> BoundlessMarketService<P> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
         tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_fill:?})");
         let call = self.instance.fulfillBatch(fulfillments, assessor_fill).from(self.caller);
+        tracing::debug!("Calldata: {:x}", call.calldata());
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+
+        let receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        // Look for PaymentRequirementsFailed logs.
+        let logs = receipt
+            .inner
+            .logs()
+            .iter()
+            .filter_map(|log| {
+                let log = log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>();
+                log.ok()
+            })
+            .collect();
+
+        tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
+
+        Ok(logs)
+    }
+
+    /// Fulfill a batch of requests by delivering the proof for each application and withdraw from the prover balance.
+    ///
+    /// See [BoundlessMarketService::fulfill] for more details.
+    pub async fn fulfill_batch_and_withdraw(
+        &self,
+        fulfillments: Vec<Fulfillment>,
+        assessor_fill: AssessorReceipt,
+    ) -> Result<Vec<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
+        let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
+        tracing::debug!("Calling fulfillBatchAndWithdraw({fulfillments:?}, {assessor_fill:?})");
+        let call =
+            self.instance.fulfillBatchAndWithdraw(fulfillments, assessor_fill).from(self.caller);
         tracing::debug!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -566,6 +636,41 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
+    /// Combined function to submit a new merkle root to the set-verifier and call `fulfillBatchAndWithdraw`.
+    /// Useful to reduce the transaction count for fulfillments
+    pub async fn submit_merkle_and_fulfill_and_withdraw(
+        &self,
+        verifier_address: Address,
+        root: B256,
+        seal: Bytes,
+        fulfillments: Vec<Fulfillment>,
+        assessor_fill: AssessorReceipt,
+    ) -> Result<(), MarketError> {
+        tracing::debug!("Calling submitRootAndFulfillBatchAndWithdraw({root:?}, {seal:x}, {fulfillments:?}, {assessor_fill:?})");
+        let call = self
+            .instance
+            .submitRootAndFulfillBatchAndWithdraw(
+                verifier_address,
+                root,
+                seal,
+                fulfillments,
+                assessor_fill,
+            )
+            .from(self.caller);
+        tracing::debug!("Calldata: {}", call.calldata());
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        let tx_receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
+
+        Ok(())
+    }
+
     /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
@@ -594,6 +699,66 @@ impl<P: Provider> BoundlessMarketService<P> {
         let mut call = self
             .instance
             .priceAndFulfillBatch(requests, client_sigs, fulfillments, assessor_fill)
+            .from(self.caller);
+        tracing::debug!("Calldata: {}", call.calldata());
+
+        if let Some(gas) = priority_gas {
+            let priority_fee = self
+                .instance
+                .provider()
+                .estimate_eip1559_fees(None)
+                .await
+                .context("Failed to get priority gas fee")?;
+
+            call = call
+                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
+                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
+        }
+
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+
+        let tx_receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Fulfilled proof for batch {}", tx_receipt.transaction_hash);
+
+        Ok(())
+    }
+
+    /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatchAndWithdraw`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
+    pub async fn price_and_fulfill_batch_and_withdraw(
+        &self,
+        requests: Vec<ProofRequest>,
+        client_sigs: Vec<Bytes>,
+        fulfillments: Vec<Fulfillment>,
+        assessor_fill: AssessorReceipt,
+        priority_gas: Option<u64>,
+    ) -> Result<(), MarketError> {
+        for request in requests.iter() {
+            tracing::debug!("Calling requestIsLocked({:x})", request.id);
+            let is_locked_in: bool =
+                self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
+            if is_locked_in {
+                return Err(MarketError::Error(anyhow!(
+                    "request {:x} is already locked-in",
+                    request.id
+                )));
+            }
+        }
+
+        tracing::debug!(
+            "Calling priceAndFulfillBatchAndWithdraw({fulfillments:?}, {assessor_fill:?})"
+        );
+
+        let mut call = self
+            .instance
+            .priceAndFulfillBatchAndWithdraw(requests, client_sigs, fulfillments, assessor_fill)
             .from(self.caller);
         tracing::debug!("Calldata: {}", call.calldata());
 
@@ -780,8 +945,19 @@ impl<P: Provider> BoundlessMarketService<P> {
             // Query the logs for the event
             let logs = event_filter.query().await?;
 
-            if let Some((log, _)) = logs.first() {
-                return Ok((log.request.clone(), log.clientSignature.clone()));
+            if let Some((_, data)) = logs.first() {
+                // get the calldata inputs
+                let tx_data = self
+                    .instance
+                    .provider()
+                    .get_transaction_by_hash(data.transaction_hash.context("tx hash is none")?)
+                    .await
+                    .context("Failed to get transaction")?
+                    .context("Transaction not found")?;
+                let inputs = tx_data.input();
+                let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true)
+                    .context("Failed to decode input")?;
+                return Ok((calldata.request, calldata.clientSignature));
             }
 
             // Move the upper_block down for the next iteration
@@ -811,22 +987,17 @@ impl<P: Provider> BoundlessMarketService<P> {
         tx_hash: Option<B256>,
     ) -> Result<(ProofRequest, Bytes), MarketError> {
         if let Some(tx_hash) = tx_hash {
-            let receipt = self
+            let tx_data = self
                 .instance
                 .provider()
-                .get_transaction_receipt(tx_hash)
+                .get_transaction_by_hash(tx_hash)
                 .await
-                .context("Failed to get transaction receipt")?
+                .context("Failed to get transaction")?
                 .context("Transaction not found")?;
-            let logs = receipt.inner.logs().iter().filter_map(|log| {
-                let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>();
-                log.ok()
-            });
-            for log in logs {
-                if U256::from(log.inner.data.request.id) == request_id {
-                    return Ok((log.inner.data.request, log.inner.data.clientSignature));
-                }
-            }
+            let inputs = tx_data.input();
+            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true)
+                .context("Failed to decode input")?;
+            return Ok((calldata.request, calldata.clientSignature));
         }
         self.query_request_submitted_event(request_id, None, None).await
     }
@@ -1113,11 +1284,13 @@ mod tests {
         input::InputBuilder,
     };
     use alloy::{
+        consensus::Transaction,
         node_bindings::Anvil,
         primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256},
         providers::{Provider, ProviderBuilder},
         sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
     };
+    use alloy_sol_types::SolCall;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use guest_util::ECHO_ID;
@@ -1360,9 +1533,8 @@ mod tests {
         // fetch logs and check if the event was emitted
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
-        let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        assert!(log.inner.data.request.id == request_id);
+        let (log, _) = logs.first().unwrap();
+        assert!(log.requestId == request_id);
     }
 
     #[tokio::test]
@@ -1390,9 +1562,20 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request: ProofRequest = log.inner.data.request;
-        let customer_sig = log.inner.data.clientSignature;
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
 
         // Deposit prover balances
         let deposit = default_allowance();
@@ -1455,9 +1638,20 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request = log.inner.data.request;
-        let customer_sig = log.inner.data.clientSignature;
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
 
         // Deposit prover balances
         let deposit = default_allowance();
@@ -1524,9 +1718,20 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request = log.inner.data.request;
-        let customer_sig = log.inner.data.clientSignature;
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, assessor_seal) =
@@ -1586,9 +1791,20 @@ mod tests {
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
         let (_, log) = logs.first().unwrap();
-        let log = log.log_decode::<IBoundlessMarket::RequestSubmitted>().unwrap();
-        let request = log.inner.data.request;
-        let customer_sig = log.inner.data.clientSignature;
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
 
         // Deposit prover balances
         let deposit = default_allowance();
