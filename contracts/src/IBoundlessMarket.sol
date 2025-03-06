@@ -84,6 +84,12 @@ interface IBoundlessMarket {
     /// @param error The ABI encoded error.
     event PaymentRequirementsFailed(bytes error);
 
+    /// @notice Event emitted when a callback to a contract fails during fulfillment
+    /// @param requestId The ID of the request that was being fulfilled
+    /// @param callback The address of the callback contract that failed
+    /// @param error The error message from the failed call
+    event CallbackFailed(RequestId indexed requestId, address callback, bytes error);
+
     /// @notice Error when a request is locked when it was not required to be.
     /// @param requestId The ID of the request.
     error RequestIsLocked(RequestId requestId);
@@ -137,9 +143,6 @@ interface IBoundlessMarket {
     /// @notice Error when transfer of funds to an external address fails.
     error TransferFailed();
 
-    /// @notice Error when attempting to lock a request with a frozen account.
-    error AccountFrozen(address account);
-
     /// @notice Error when providing a seal with a different selector than required.
     error SelectorMismatch(bytes4 required, bytes4 provided);
 
@@ -191,6 +194,16 @@ interface IBoundlessMarket {
     /// @param addr The address of the account.
     /// @return The balance of the account.
     function balanceOf(address addr) external view returns (uint256);
+
+    /// @notice Withdraw funds from the market's treasury.
+    /// @dev Value is debited from the market's account.
+    /// @param value The amount to withdraw.
+    function withdrawFromTreasury(uint256 value) external;
+
+    /// @notice Withdraw funds from the market' stake treasury.
+    /// @dev Value is debited from the market's account.
+    /// @param value The amount to withdraw.
+    function withdrawFromStakeTreasury(uint256 value) external;
 
     /// @notice Deposit stake into the market to pay for lockin stake.
     /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
@@ -251,6 +264,21 @@ interface IBoundlessMarket {
     /// request's requirements are met.
     function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) external;
 
+    /// @notice Fulfill a request by delivering the proof for the application and withdraw from the prover balance.
+    /// If the order is locked, only the prover that locked the order may receive payment.
+    /// If another prover delivers a proof for an order that is locked, this method will revert
+    /// unless `paymentRequired` is set to `false` on the `Fulfillment` struct.
+    /// @param fill The fulfillment information, including the journal and seal.
+    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
+    /// request's requirements are met.
+    function fulfillAndWithdraw(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) external;
+
+    /// @notice Fulfills a batch of requests and withdraw from the prover balance. See IBoundlessMarket.fulfill for more information.
+    /// @param fills The array of fulfillment information.
+    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
+    /// request's requirements are met.
+    function fulfillBatchAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) external;
+
     /// @notice Verify the application and assessor receipts, ensuring that the provided fulfillment
     /// satisfies the request.
     /// @param fill The fulfillment information, including the journal and seal.
@@ -307,6 +335,36 @@ interface IBoundlessMarket {
         AssessorReceipt calldata assessorReceipt
     ) external;
 
+    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillAndWithdraw`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
+    /// @param request The proof requests.
+    /// @param clientSignature The client signatures.
+    /// @param fill The fulfillment information.
+    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
+    /// request's requirements are met.
+    function priceAndFulfillAndWithdraw(
+        ProofRequest calldata request,
+        bytes calldata clientSignature,
+        Fulfillment calldata fill,
+        AssessorReceipt calldata assessorReceipt
+    ) external;
+
+    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatchAndWithdraw`.
+    /// The caller should provide the signed request and signature for each unlocked request they
+    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
+    /// @param requests The array of proof requests.
+    /// @param clientSignatures The array of client signatures.
+    /// @param fills The array of fulfillment information.
+    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
+    /// request's requirements are met.
+    function priceAndFulfillBatchAndWithdraw(
+        ProofRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
+        Fulfillment[] calldata fills,
+        AssessorReceipt calldata assessorReceipt
+    ) external;
+
     /// @notice Submit a new root to a set-verifier.
     /// @dev Consider using `submitRootAndFulfillBatch` to submit the root and fulfill in one transaction.
     /// @param setVerifier The address of the set-verifier contract.
@@ -330,20 +388,28 @@ interface IBoundlessMarket {
         AssessorReceipt calldata assessorReceipt
     ) external;
 
+    /// @notice Combined function to submit a new root to a set-verifier and call fulfillBatchAndWithdraw.
+    /// @dev Useful to reduce the transaction count for fulfillments.
+    /// @param setVerifier The address of the set-verifier contract.
+    /// @param root The new merkle root.
+    /// @param seal The seal of the new merkle root.
+    /// @param fills The array of fulfillment information.
+    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
+    /// request's requirements are met.
+    function submitRootAndFulfillBatchAndWithdraw(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        Fulfillment[] calldata fills,
+        AssessorReceipt calldata assessorReceipt
+    ) external;
+
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
     /// @dev The provers stake has already been transferred to the contract when the request was locked.
     ///      This method just burn the stake.
     /// @param requestId The ID of the request.
     function slash(RequestId requestId) external;
-
-    /// Returns the frozen state of an account.
-    /// @dev An account gets frozen after a slash occurred. A frozen account cannot lock-in requests.
-    /// To unlock the account, its owner must call `unfreezeAccount`.
-    function accountIsFrozen(address addr) external view returns (bool);
-
-    /// Clear the frozen state of an account, transferring the frozen stake back to the prover's available balance.
-    function unfreezeAccount() external;
 
     /// @notice EIP 712 domain separator getter.
     /// @return The EIP 712 domain separator.
