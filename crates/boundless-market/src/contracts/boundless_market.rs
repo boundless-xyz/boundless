@@ -897,9 +897,22 @@ where
             // Query the logs for the event
             let logs = event_filter.query().await?;
 
-            // If we find a log, return the journal and seal
-            if let Some((log, _)) = logs.first() {
-                return Ok((log.journal.clone(), log.seal.clone()));
+            if let Some((_, data)) = logs.first() {
+                // get the calldata inputs
+                let tx_data = self
+                    .instance
+                    .provider()
+                    .get_transaction_by_hash(data.transaction_hash.context("tx hash is none")?)
+                    .await
+                    .context("Failed to get transaction")?
+                    .context("Transaction not found")?;
+                let inputs = tx_data.input();
+                let fills = decode_calldata(inputs).context("Failed to decode calldata")?;
+                for fill in fills {
+                    if fill.id == request_id {
+                        return Ok((fill.journal.clone(), fill.seal.clone()));
+                    }
+                }
             }
 
             // Move the upper_block down for the next iteration
@@ -1274,16 +1287,54 @@ where
     }
 }
 
+fn decode_calldata(data: &Bytes) -> Result<Vec<Fulfillment>> {
+    if let Ok(call) = IBoundlessMarket::submitRootAndFulfillBatchCall::abi_decode(data, true) {
+        return Ok(call.fills);
+    }
+    if let Ok(call) =
+        IBoundlessMarket::submitRootAndFulfillBatchAndWithdrawCall::abi_decode(data, true)
+    {
+        return Ok(call.fills);
+    }
+    if let Ok(call) = IBoundlessMarket::fulfillCall::abi_decode(data, true) {
+        return Ok(vec![call.fill]);
+    }
+    if let Ok(call) = IBoundlessMarket::fulfillBatchCall::abi_decode(data, true) {
+        return Ok(call.fills);
+    }
+    if let Ok(call) = IBoundlessMarket::fulfillAndWithdrawCall::abi_decode(data, true) {
+        return Ok(vec![call.fill]);
+    }
+    if let Ok(call) = IBoundlessMarket::fulfillBatchAndWithdrawCall::abi_decode(data, true) {
+        return Ok(call.fills);
+    }
+    if let Ok(call) = IBoundlessMarket::priceAndFulfillCall::abi_decode(data, true) {
+        return Ok(vec![call.fill]);
+    }
+    if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchCall::abi_decode(data, true) {
+        return Ok(call.fills);
+    }
+    if let Ok(call) = IBoundlessMarket::priceAndFulfillAndWithdrawCall::abi_decode(data, true) {
+        return Ok(vec![call.fill]);
+    }
+    if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchAndWithdrawCall::abi_decode(data, true)
+    {
+        return Ok(call.fills);
+    }
+
+    Err(anyhow!("Failed to decode calldata as any fulfillment call"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
-    use super::BoundlessMarketService;
+    use super::{decode_calldata, BoundlessMarketService};
     use crate::{
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, AssessorReceipt,
-            Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
-            ProofStatus, Requirements,
+            Fulfillment, IBoundlessMarket, Input, InputType, Offer, Predicate, PredicateType,
+            ProofRequest, ProofStatus, Requirements,
         },
         input::InputBuilder,
     };
@@ -1914,5 +1965,117 @@ mod tests {
         // events. All proofs will be valid though.
         //assert_eq!(journal, fulfillment.journal);
         //assert_eq!(seal, fulfillment.seal);
+    }
+
+    #[test]
+    fn test_decode_calldata() {
+        let request = ProofRequest::new(
+            0,
+            &Address::ZERO,
+            Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
+            "http:s//image.dev.null",
+            Input { inputType: InputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(1),
+                maxPrice: U256::from(4),
+                biddingStart: 0,
+                timeout: 100,
+                rampUpPeriod: 1,
+                lockTimeout: 100,
+                lockStake: U256::from(10),
+            },
+        );
+
+        let fill = Fulfillment {
+            id: U256::default(),
+            requestDigest: B256::default(),
+            imageId: B256::default(),
+            journal: Bytes::from(vec![1, 2, 3]),
+            seal: Bytes::from(vec![1, 2, 3]),
+            requirePayment: true,
+        };
+        let assessor_receipt = AssessorReceipt {
+            seal: Bytes::from(vec![1, 2, 3]),
+            selectors: vec![],
+            prover: Address::from(U160::from(1)),
+            callbacks: vec![],
+        };
+
+        let call = IBoundlessMarket::submitRootAndFulfillBatchCall {
+            setVerifier: Address::default(),
+            root: B256::default(),
+            seal: Bytes::default(),
+            fills: vec![fill.clone()],
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::submitRootAndFulfillBatchAndWithdrawCall {
+            setVerifier: Address::default(),
+            root: B256::default(),
+            seal: Bytes::default(),
+            fills: vec![fill.clone()],
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::fulfillCall {
+            fill: fill.clone(),
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::fulfillBatchCall {
+            fills: vec![fill.clone()],
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::fulfillAndWithdrawCall {
+            fill: fill.clone(),
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::fulfillBatchAndWithdrawCall {
+            fills: vec![fill.clone()],
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::priceAndFulfillCall {
+            request: request.clone(),
+            clientSignature: Bytes::default(),
+            fill: fill.clone(),
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::priceAndFulfillBatchCall {
+            requests: vec![request.clone()],
+            clientSignatures: vec![Bytes::default()],
+            fills: vec![fill.clone()],
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::priceAndFulfillAndWithdrawCall {
+            request: request.clone(),
+            clientSignature: Bytes::default(),
+            fill: fill.clone(),
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
+
+        let call = IBoundlessMarket::priceAndFulfillBatchAndWithdrawCall {
+            requests: vec![request.clone()],
+            clientSignatures: vec![Bytes::default()],
+            fills: vec![fill.clone()],
+            assessorReceipt: assessor_receipt.clone(),
+        };
+        decode_calldata(&call.abi_encode().into()).unwrap();
     }
 }
