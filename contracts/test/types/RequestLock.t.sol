@@ -24,13 +24,17 @@ contract RequestLockTest is Test {
         });
     }
 
-    function assertSlot2Clear() private view returns (uint256) {
-        uint256 slot2;
+    function assertSlotClear(uint256 slotNumber) private view {
+        uint256 slot;
         assembly {
-            let s2 := add(requestLock.slot, 1)
-            slot2 := sload(s2)
+            let num := add(requestLock.slot, slotNumber)
+            slot := sload(num)
         }
-        return slot2;
+        assertEq(slot, 0, "Slot is not zero");
+    }
+
+    function assertSlot1Clear() private view {
+        assertSlotClear(1);
     }
 
     function testDeadline() public view {
@@ -48,7 +52,7 @@ contract RequestLockTest is Test {
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
         assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
-        assertSlot2Clear();
+        assertSlot1Clear();
     }
 
     function testSetProverPaidAfterLockDeadline() public {
@@ -66,7 +70,7 @@ contract RequestLockTest is Test {
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
         assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
-        assertSlot2Clear();
+        assertSlot1Clear();
     }
 
     function testIsProverPaidBeforeLockDeadline() public {
@@ -77,6 +81,9 @@ contract RequestLockTest is Test {
     function testIsProverPaidAfterLockDeadline() public {
         requestLock.setProverPaidAfterLockDeadline(address(0x456));
         assertTrue(requestLock.isProverPaidAfterLockDeadline());
+        assertNotEq(requestLock.price, 0, "Price not zeroed out");
+        assertNotEq(requestLock.stake, 0, "Stake not zeroed out");
+        assertNotEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
     }
 
     function testIsProverPaid() public {

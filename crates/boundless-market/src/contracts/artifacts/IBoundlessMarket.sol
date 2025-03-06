@@ -86,6 +86,12 @@ interface IBoundlessMarket {
     /// @param error The ABI encoded error.
     event PaymentRequirementsFailed(bytes error);
 
+    /// @notice Event emitted when a callback to a contract fails during fulfillment
+    /// @param requestId The ID of the request that was being fulfilled
+    /// @param callback The address of the callback contract that failed
+    /// @param error The error message from the failed call
+    event CallbackFailed(RequestId indexed requestId, address callback, bytes error);
+
     /// @notice Error when a request is locked when it was not required to be.
     /// @param requestId The ID of the request.
     error RequestIsLocked(RequestId requestId);
@@ -139,9 +145,6 @@ interface IBoundlessMarket {
     /// @notice Error when transfer of funds to an external address fails.
     error TransferFailed();
 
-    /// @notice Error when attempting to lock a request with a frozen account.
-    error AccountFrozen(address account);
-
     /// @notice Error when providing a seal with a different selector than required.
     error SelectorMismatch(bytes4 required, bytes4 provided);
 
@@ -193,6 +196,16 @@ interface IBoundlessMarket {
     /// @param addr The address of the account.
     /// @return The balance of the account.
     function balanceOf(address addr) external view returns (uint256);
+
+    /// @notice Withdraw funds from the market's treasury.
+    /// @dev Value is debited from the market's account.
+    /// @param value The amount to withdraw.
+    function withdrawFromTreasury(uint256 value) external;
+
+    /// @notice Withdraw funds from the market' stake treasury.
+    /// @dev Value is debited from the market's account.
+    /// @param value The amount to withdraw.
+    function withdrawFromStakeTreasury(uint256 value) external;
 
     /// @notice Deposit stake into the market to pay for lockin stake.
     /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
@@ -399,14 +412,6 @@ interface IBoundlessMarket {
     ///      This method just burn the stake.
     /// @param requestId The ID of the request.
     function slash(RequestId requestId) external;
-
-    /// Returns the frozen state of an account.
-    /// @dev An account gets frozen after a slash occurred. A frozen account cannot lock-in requests.
-    /// To unlock the account, its owner must call `unfreezeAccount`.
-    function accountIsFrozen(address addr) external view returns (bool);
-
-    /// Clear the frozen state of an account, transferring the frozen stake back to the prover's available balance.
-    function unfreezeAccount() external;
 
     /// @notice EIP 712 domain separator getter.
     /// @return The EIP 712 domain separator.

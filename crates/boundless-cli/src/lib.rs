@@ -66,8 +66,12 @@ impl OrderFulfilled {
 
         let root_seal = encode_seal(&root_receipt)?;
         let assessor_seal = assessor_receipt.abi_encode_seal()?;
-        let assessor_fill =
-            AssessorReceipt { seal: assessor_seal.into(), selectors: vec![], prover };
+        let assessor_fill = AssessorReceipt {
+            seal: assessor_seal.into(),
+            selectors: vec![],
+            prover,
+            callbacks: vec![],
+        };
 
         Ok(OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),
