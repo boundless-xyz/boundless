@@ -518,16 +518,8 @@ mod tests {
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
         primitives::{aliases::U96, Address, Bytes, B256},
-        providers::{
-            ext::AnvilApi,
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, ProviderBuilder, RootProvider,
-        },
+        providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
-        transports::BoxTransport,
     };
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, deploy_hit_points},
@@ -540,17 +532,6 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    type TestProvider = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<Ethereum>,
-    >;
-
     /// Reusable context for testing the order picker
     struct TestCtx<P> {
         pub anvil: AnvilInstance,
@@ -561,11 +542,10 @@ mod tests {
         pub provider: Arc<P>,
     }
 
-    impl TestCtx<TestProvider> {
-        pub fn builder() -> TestCtxBuilder {
-            TestCtxBuilder::default()
-        }
-
+    impl<P> TestCtx<P>
+    where
+        P: Provider + WalletProvider,
+    {
         pub fn image_uri(&self) -> String {
             format!("http://{}/image", self.image_server.address())
         }
@@ -643,7 +623,7 @@ mod tests {
         pub fn with_config(self, config: ConfigLock) -> Self {
             Self { config: Some(config), ..self }
         }
-        pub async fn build(self) -> TestCtx<TestProvider> {
+        pub async fn build(self) -> TestCtx<impl Provider + WalletProvider + Clone + 'static> {
             let anvil = Anvil::new()
                 .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
                 .spawn();
@@ -658,9 +638,8 @@ mod tests {
 
             provider.anvil_mine(Some(4), Some(2)).await.unwrap();
 
-            let hp_contract =
-                deploy_hit_points::<BoxTransport, _>(&signer, provider.clone()).await.unwrap();
-            let market_address = deploy_boundless_market::<BoxTransport, _>(
+            let hp_contract = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+            let market_address = deploy_boundless_market(
                 &signer,
                 provider.clone(),
                 Address::ZERO,
@@ -722,7 +701,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
@@ -748,7 +727,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
@@ -780,7 +759,7 @@ mod tests {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
@@ -807,7 +786,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
@@ -853,8 +832,11 @@ mod tests {
             config.load_write().unwrap().market.max_stake = "10".into();
         }
 
-        let ctx =
-            TestCtx::builder().with_config(config).with_initial_hp(U256::from(100)).build().await;
+        let ctx = TestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(U256::from(100))
+            .build()
+            .await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (order_id, order) = ctx
@@ -881,7 +863,7 @@ mod tests {
             config.load_write().unwrap().market.lockin_gas_estimate = lockin_gas;
         }
 
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (order_id, order) = ctx
@@ -905,7 +887,7 @@ mod tests {
             config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
         }
 
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (_, order) = ctx
@@ -939,7 +921,7 @@ mod tests {
             config.load_write().unwrap().market.lockin_gas_estimate = lockin_gas;
         }
 
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (order_id, order) = ctx
@@ -974,7 +956,7 @@ mod tests {
             config.load_write().unwrap().market.max_stake = "10".into();
         }
 
-        let ctx = TestCtx::builder()
+        let ctx = TestCtxBuilder::default()
             .with_initial_signer_eth(signer_inital_balance_eth)
             .with_initial_hp(lockin_stake)
             .with_config(config)
@@ -1014,8 +996,11 @@ mod tests {
         }
         let lockin_stake = U256::from(10);
 
-        let ctx =
-            TestCtx::builder().with_config(config).with_initial_hp(lockin_stake).build().await;
+        let ctx = TestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(lockin_stake)
+            .build()
+            .await;
         let (_, order) = ctx
             .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake)
             .await;

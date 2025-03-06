@@ -414,15 +414,8 @@ mod tests {
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
         primitives::U256,
-        providers::{
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, ProviderBuilder, RootProvider,
-        },
+        providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
-        transports::BoxTransport,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::contracts::{
@@ -440,20 +433,10 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    type TestProvider = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<Ethereum>,
-    >;
-
     async fn build_submitter_and_batch(
         config: ConfigLock,
-    ) -> (AnvilInstance, Submitter<TestProvider>, DbObj, usize) {
+    ) -> (AnvilInstance, Submitter<impl Provider + WalletProvider + Clone + 'static>, DbObj, usize)
+    {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
@@ -477,17 +460,13 @@ mod tests {
                 .unwrap(),
         );
 
-        let verifier = deploy_mock_verifier::<BoxTransport, _>(provider.clone()).await.unwrap();
-        let set_verifier = deploy_set_verifier::<BoxTransport, _>(
-            provider.clone(),
-            verifier,
-            Digest::from(SET_BUILDER_ID),
-        )
-        .await
-        .unwrap();
-        let hit_points =
-            deploy_hit_points::<BoxTransport, _>(&signer, provider.clone()).await.unwrap();
-        let market_address = deploy_boundless_market::<BoxTransport, _>(
+        let verifier = deploy_mock_verifier(provider.clone()).await.unwrap();
+        let set_verifier =
+            deploy_set_verifier(provider.clone(), verifier, Digest::from(SET_BUILDER_ID))
+                .await
+                .unwrap();
+        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+        let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
             set_verifier,

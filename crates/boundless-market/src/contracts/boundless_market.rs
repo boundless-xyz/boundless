@@ -150,10 +150,7 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
     }
 }
 
-impl<P> BoundlessMarketService<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl<P: Provider> BoundlessMarketService<P> {
     /// Creates a new Boundless market service.
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
         let instance = IBoundlessMarket::new(address, provider);
@@ -1108,9 +1105,10 @@ mod tests {
     use super::BoundlessMarketService;
     use crate::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, AssessorReceipt,
-            Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
-            ProofStatus, Requirements,
+            hit_points::default_allowance,
+            test_utils::{DefaultTestCtx, TestCtx},
+            AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket, Offer, Predicate,
+            PredicateType, ProofRequest, ProofStatus, Requirements,
         },
         input::InputBuilder,
     };
@@ -1150,7 +1148,7 @@ mod tests {
         }
     }
 
-    async fn new_request(idx: u32, ctx: &TestCtx) -> ProofRequest {
+    async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         ProofRequest::new(
             idx,
             &ctx.customer_signer.address(),
@@ -1295,10 +1293,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         // Deposit prover balances
         ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
@@ -1323,10 +1318,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let deposit = U256::from(10);
 
@@ -1358,10 +1350,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let request = new_request(1, &ctx).await;
 
@@ -1382,10 +1371,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1450,10 +1436,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1524,10 +1507,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1587,10 +1567,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",

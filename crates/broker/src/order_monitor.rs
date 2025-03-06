@@ -48,7 +48,7 @@ pub struct OrderMonitor<P> {
 
 impl<P> OrderMonitor<P>
 where
-    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider + WalletProvider,
 {
     pub fn new(
         db: DbObj,
@@ -244,7 +244,6 @@ mod tests {
         primitives::{Address, U256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
-        transports::BoxTransport,
     };
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, deploy_hit_points},
@@ -268,10 +267,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let hit_points =
-            deploy_hit_points::<BoxTransport, _>(&signer, provider.clone()).await.unwrap();
+        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
 
-        let market_address = deploy_boundless_market::<BoxTransport, _>(
+        let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
             Address::ZERO,
@@ -378,10 +376,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let hit_points =
-            deploy_hit_points::<BoxTransport, _>(&signer, provider.clone()).await.unwrap();
+        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
 
-        let market_address = deploy_boundless_market::<BoxTransport, _>(
+        let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
             Address::ZERO,

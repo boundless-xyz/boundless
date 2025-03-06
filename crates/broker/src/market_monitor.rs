@@ -276,7 +276,6 @@ mod tests {
         primitives::{Address, U256},
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
-        transports::BoxTransport,
     };
     use boundless_market::contracts::{
         boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
@@ -297,7 +296,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let market_address = deploy_boundless_market::<BoxTransport, _>(
+        let market_address = deploy_boundless_market(
             &signer,
             provider.clone(),
             Address::ZERO,

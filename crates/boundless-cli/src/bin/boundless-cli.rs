@@ -805,10 +805,9 @@ mod tests {
     use super::*;
 
     use alloy::node_bindings::Anvil;
-    use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
+    use boundless_market::contracts::{hit_points::default_allowance, test_utils::DefaultTestCtx};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
-    use risc0_zkvm::sha::Digest;
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
@@ -818,10 +817,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -850,10 +846,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await

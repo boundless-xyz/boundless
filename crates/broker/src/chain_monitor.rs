@@ -10,7 +10,7 @@ use tokio::sync::watch;
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
 
-use alloy::{network::Ethereum, providers::Provider};
+use alloy::providers::Provider;
 use anyhow::{Context, Result};
 
 use crate::task::{RetryRes, RetryTask, SupervisorErr};
@@ -23,10 +23,7 @@ pub struct ChainMonitorService<P> {
     next_update: Arc<RwLock<Instant>>,
 }
 
-impl<P> ChainMonitorService<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl<P: Provider> ChainMonitorService<P> {
     pub async fn new(provider: Arc<P>) -> Result<Self> {
         let (block_number, _) = watch::channel(0);
 
@@ -54,7 +51,7 @@ where
 
 impl<P> RetryTask for ChainMonitorService<P>
 where
-    P: Provider<Ethereum> + 'static + Clone,
+    P: Provider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let self_clone = self.clone();
