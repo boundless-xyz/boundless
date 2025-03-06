@@ -199,6 +199,16 @@ fn generate_contracts_rust_file() {
     let src_path =
         Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("out");
 
+    // Check if we're running under cargo publish
+    let is_cargo_publish = std::env::var("CARGO_RELEASE_UPLOAD").is_ok();
+
+    // If running under cargo publish and the contracts directory doesn't exist,
+    // we should exit early rather than fail trying to find contract JSON files
+    if is_cargo_publish && !src_path.exists() {
+        println!("cargo:warning=Skipping contract bytecode generation during cargo publish");
+        return;
+    }
+
     // Start with file header content
     let mut rust_content = String::from("// Auto-generated file, do not edit manually\n\n");
 
@@ -227,19 +237,39 @@ fn generate_contracts_rust_file() {
                 r#"alloy::sol! {{
     #[sol(rpc, bytecode = "{}")]
     contract {} {{
-            {}
+        {}
     }}
-}}
-"#,
+}}"#,
                 bytecode,
                 contract,
                 get_interfaces(contract)
             ));
+
+            // Only add newline between contracts, not after the last one
+            if contract != *ARTIFACT_TARGET_CONTRACTS.last().unwrap() {
+                rust_content.push_str("\n\n");
+            }
         }
     }
-
+    rust_content.push('\n');
     let dest_path = Path::new(&manifest_dir).join("src/contracts/bytecode.rs");
-    fs::write(dest_path, rust_content).unwrap();
+
+    // Only write the file if it doesn't exist or the content has changed
+    let should_write = if dest_path.exists() {
+        match fs::read_to_string(&dest_path) {
+            Ok(existing_content) => existing_content != rust_content,
+            Err(_) => true, // If we can't read the file, write it
+        }
+    } else {
+        true // File doesn't exist, so write it
+    };
+
+    if should_write {
+        println!("cargo:warning=Writing updated bytecode.rs");
+        fs::write(dest_path, rust_content).unwrap();
+    } else {
+        println!("cargo:warning=No changes to bytecode.rs");
+    }
 }
 
 // Helper function to define interfaces for each contract
