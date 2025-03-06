@@ -440,7 +440,7 @@ where
         &self,
         fulfillment: &Fulfillment,
         assessor_fill: AssessorReceipt,
-    ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
+    ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_fill);
         let call = self.instance.fulfill(fulfillment.clone(), assessor_fill).from(self.caller);
         let pending_tx = call.send().await?;
@@ -458,26 +458,7 @@ where
             receipt.transaction_hash
         );
 
-        // Look for PaymentRequirementsFailed logs.
-        let mut logs = receipt.inner.logs().iter().filter_map(|log| {
-            let log = log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>();
-            log.ok()
-        });
-        let maybe_log = logs.nth(0);
-        if logs.next().is_some() {
-            return Err(anyhow!(
-                "more than one PaymentRequirementsFailed event on single fullfillment tx"
-            )
-            .into());
-        }
-        if fulfillment.requirePayment && maybe_log.is_some() {
-            return Err(anyhow!(
-                "bug in market contract; payment failed and require_payment is true"
-            )
-            .into());
-        }
-
-        Ok(maybe_log)
+        Ok(())
     }
 
     /// Fulfill a request by delivering the proof for the application and withdraw from the prover balance.
@@ -496,7 +477,7 @@ where
         &self,
         fulfillment: &Fulfillment,
         assessor_fill: AssessorReceipt,
-    ) -> Result<Option<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
+    ) -> Result<(), MarketError> {
         tracing::debug!("Calling fulfillAndWithdraw({:x?},{:x?})", fulfillment, assessor_fill);
         let call =
             self.instance.fulfillAndWithdraw(fulfillment.clone(), assessor_fill).from(self.caller);
@@ -515,26 +496,7 @@ where
             receipt.transaction_hash
         );
 
-        // Look for PaymentRequirementsFailed logs.
-        let mut logs = receipt.inner.logs().iter().filter_map(|log| {
-            let log = log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>();
-            log.ok()
-        });
-        let maybe_log = logs.nth(0);
-        if logs.next().is_some() {
-            return Err(anyhow!(
-                "more than one PaymentRequirementsFailed event on single fullfillment tx"
-            )
-            .into());
-        }
-        if fulfillment.requirePayment && maybe_log.is_some() {
-            return Err(anyhow!(
-                "bug in market contract; payment failed and require_payment is true"
-            )
-            .into());
-        }
-
-        Ok(maybe_log)
+        Ok(())
     }
 
     /// Fulfill a batch of requests by delivering the proof for each application.
@@ -544,7 +506,7 @@ where
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
-    ) -> Result<Vec<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
+    ) -> Result<(), MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
         tracing::debug!("Calling fulfillBatch({fulfillments:?}, {assessor_fill:?})");
         let call = self.instance.fulfillBatch(fulfillments, assessor_fill).from(self.caller);
@@ -558,20 +520,9 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        // Look for PaymentRequirementsFailed logs.
-        let logs = receipt
-            .inner
-            .logs()
-            .iter()
-            .filter_map(|log| {
-                let log = log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>();
-                log.ok()
-            })
-            .collect();
-
         tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
 
-        Ok(logs)
+        Ok(())
     }
 
     /// Fulfill a batch of requests by delivering the proof for each application and withdraw from the prover balance.
@@ -581,7 +532,7 @@ where
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
-    ) -> Result<Vec<Log<IBoundlessMarket::PaymentRequirementsFailed>>, MarketError> {
+    ) -> Result<(), MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
         tracing::debug!("Calling fulfillBatchAndWithdraw({fulfillments:?}, {assessor_fill:?})");
         let call =
@@ -596,20 +547,9 @@ where
             .await
             .context("failed to confirm tx")?;
 
-        // Look for PaymentRequirementsFailed logs.
-        let logs = receipt
-            .inner
-            .logs()
-            .iter()
-            .filter_map(|log| {
-                let log = log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>();
-                log.ok()
-            })
-            .collect();
-
         tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
 
-        Ok(logs)
+        Ok(())
     }
 
     /// Combined function to submit a new merkle root to the set-verifier and call `fulfillBatch`.
@@ -1403,7 +1343,6 @@ mod tests {
             imageId: to_b256(Digest::from(ECHO_ID)),
             journal: app_journal.bytes.into(),
             seal: set_inclusion_seal.into(),
-            requirePayment: true,
         };
 
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
@@ -1790,7 +1729,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_e2e_payment_failed() {
+    async fn test_e2e_no_payment() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
@@ -1860,30 +1799,19 @@ mod tests {
                 callbacks: vec![],
             };
 
-            // attempt to fulfill the request, and ensure we revert.
-            ctx.prover_market.fulfill(&fulfillment, assessor_fill.clone()).await.unwrap_err(); // TODO: Use the error
-            assert!(!ctx.customer_market.is_fulfilled(request_id).await.unwrap());
-
-            let mut fulfillment_no_payment = fulfillment;
-            fulfillment_no_payment.requirePayment = false;
-
-            // attempt to fulfill the request, and ensure we revert.
-            let log = ctx
-                .prover_market
-                .fulfill(&fulfillment_no_payment, assessor_fill.clone())
-                .await
-                .unwrap();
-
+            let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
+            // fulfill the request.
+            ctx.prover_market.fulfill(&fulfillment, assessor_fill.clone()).await.unwrap();
             assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
-            // TODO: Decode the log and assert on the particular error.
-            assert!(log.is_some());
+            let balance_after = ctx.prover_market.balance_of(some_other_address).await.unwrap();
+            assert!(balance_before == balance_after);
 
             // retrieve journal and seal from the fulfilled request
             let (journal, seal) =
                 ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
-            assert_eq!(journal, fulfillment_no_payment.journal);
-            assert_eq!(seal, fulfillment_no_payment.seal);
+            assert_eq!(journal, fulfillment.journal);
+            assert_eq!(seal, fulfillment.seal);
         }
 
         // mock the fulfillment, this time using the right prover address.
@@ -1901,9 +1829,8 @@ mod tests {
         };
 
         // fulfill the request, this time getting paid.
-        let log = ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
+        ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
-        assert!(log.is_none());
 
         // retrieve journal and seal from the fulfilled request
         let (_journal, _seal) =

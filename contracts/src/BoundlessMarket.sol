@@ -432,11 +432,7 @@ contract BoundlessMarket is
         }
 
         if (paymentError.length > 0) {
-            if (fill.requirePayment) {
-                revertWith(paymentError);
-            } else {
-                emit PaymentRequirementsFailed(paymentError);
-            }
+            revertWith(paymentError);
         }
     }
 
@@ -473,7 +469,7 @@ contract BoundlessMarket is
         // payment should be sent and to whom.
         // While the request is locked, only the locker is eligible for payment.
         if (lock.prover != assessorProver) {
-            return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
+            return "";
         }
         requestLocks[id].setProverPaidBeforeLockDeadline();
 
