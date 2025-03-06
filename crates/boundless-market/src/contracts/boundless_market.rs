@@ -236,31 +236,6 @@ where
         Ok(balance)
     }
 
-    /// Returns the frozen state of the given account.
-    pub async fn account_is_frozen(&self, account: Address) -> Result<bool, MarketError> {
-        tracing::debug!("Calling accountIdFrozen({account})");
-        let frozen = self.instance.accountIsFrozen(account).call().await?._0;
-
-        Ok(frozen)
-    }
-
-    /// Unfreeze the account.
-    /// This function can only be called by the account owner.
-    pub async fn unfreeze_account(&self) -> Result<(), MarketError> {
-        tracing::debug!("Calling unfreezeAccount()");
-        let call = self.instance.unfreezeAccount().from(self.caller);
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting unfreezeAccount tx {}", pending_tx.tx_hash());
-        let tx_hash = pending_tx
-            .with_timeout(Some(self.timeout))
-            .watch()
-            .await
-            .context("failed to confirm tx")?;
-        tracing::debug!("Submitted unfreezeAccount {}", tx_hash);
-
-        Ok(())
-    }
-
     /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on. Includes the specified value, which will be deposited to the account of msg.sender.
     pub async fn submit_request_with_value(
@@ -1192,6 +1167,7 @@ mod tests {
             selectors: vec![],
             root: to_b256(app_claim_digest),
             prover,
+            callbacks: vec![],
         };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
@@ -1432,6 +1408,7 @@ mod tests {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
+            callbacks: vec![],
         };
         // fulfill the request
         ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
@@ -1497,6 +1474,7 @@ mod tests {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
+            callbacks: vec![],
         };
         // publish the committed root + fulfillments
         ctx.prover_market
@@ -1556,6 +1534,7 @@ mod tests {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
+            callbacks: vec![],
         };
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -1637,6 +1616,7 @@ mod tests {
                 seal: assessor_seal,
                 selectors: vec![],
                 prover: some_other_address,
+                callbacks: vec![],
             };
 
             // attempt to fulfill the request, and ensure we revert.
@@ -1676,6 +1656,7 @@ mod tests {
             seal: assessor_seal,
             selectors: vec![],
             prover: ctx.prover_signer.address(),
+            callbacks: vec![],
         };
 
         // fulfill the request, this time getting paid.

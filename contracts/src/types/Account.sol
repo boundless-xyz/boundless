@@ -4,7 +4,7 @@
 pragma solidity ^0.8.20;
 
 uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
-uint256 constant REQUEST_FLAGS_INITIAL_BITS = 56;
+uint256 constant REQUEST_FLAGS_INITIAL_BITS = 64;
 
 using AccountLibrary for Account global;
 
@@ -16,14 +16,11 @@ struct Account {
     uint96 balance;
     /// @dev Balance of staked tokens.
     uint96 stakeBalance;
-    /// @dev flags is a bitfield for account-wide flags. Currently only the least significant
-    /// bit is used to indicate that the account is frozen.
-    uint8 flags;
-    /// @notice 28 pairs of 2 bits representing the status of a request. One bit is for lock-in and
+    /// @notice 32 pairs of 2 bits representing the status of a request. One bit is for lock-in and
     /// the other is for fulfillment.
     /// @dev Request state flags are packed into a uint64 to make balance and flags for the first
-    /// 28 requests fit in one slot.
-    uint56 requestFlagsInitial;
+    /// 32 requests fit in one slot.
+    uint64 requestFlagsInitial;
     /// @dev Flags for the remaining requests are in a storage array.
     /// Each uint256 holds the packed flags for 128 requests, indexed in a linear fashion.
     /// Note that this struct cannot be instantiated in memory.
@@ -60,7 +57,7 @@ library AccountLibrary {
     function setRequestFlags(Account storage self, uint32 idx, uint8 flags) internal {
         assert(flags < (1 << REQUEST_FLAGS_BITWIDTH));
         if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
-            uint56 mask = uint56(flags) << uint56(idx * REQUEST_FLAGS_BITWIDTH);
+            uint64 mask = uint64(flags) << uint64(idx * REQUEST_FLAGS_BITWIDTH);
             self.requestFlagsInitial |= mask;
         } else {
             uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);
@@ -70,6 +67,8 @@ library AccountLibrary {
     }
 
     /// @notice Sets the locked flag for the request with the given index.
+    /// @dev The flag indicates that a request has been locked now or in the past.
+    /// If a requests lock expires this flag will still be set.
     /// @param self The account to set the request flag for.
     /// @param idx The index of the request.
     function setRequestLocked(Account storage self, uint32 idx) internal {
@@ -81,24 +80,5 @@ library AccountLibrary {
     /// @param idx The index of the request.
     function setRequestFulfilled(Account storage self, uint32 idx) internal {
         setRequestFlags(self, idx, 2);
-    }
-
-    /// @notice Sets the frozen flag for the account
-    /// @param account The account to set as frozen
-    function setFrozen(Account storage account) internal {
-        account.flags |= 1;
-    }
-
-    /// @notice Unsets the frozen flag for the account
-    /// @param account The account to unfreeze
-    function unsetFrozen(Account storage account) internal {
-        account.flags &= ~uint8(1);
-    }
-
-    /// @notice Checks if an account is frozen
-    /// @param account The account to check
-    /// @return True if the account is frozen, false otherwise
-    function isFrozen(Account storage account) internal view returns (bool) {
-        return account.flags & 1 != 0;
     }
 }

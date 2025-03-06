@@ -247,6 +247,7 @@ where
             seal: assessor_seal.into(),
             selectors: vec![],
             prover: self.prover_address,
+            callbacks: vec![],
         };
         if single_txn_fulfill {
             if let Err(err) = self

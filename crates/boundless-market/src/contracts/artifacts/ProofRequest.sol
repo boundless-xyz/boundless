@@ -5,6 +5,7 @@ pragma solidity ^0.8.20;
 
 import {RequestId} from "./RequestId.sol";
 import {Account} from "./Account.sol";
+import {Callback, CallbackLibrary} from "./Callback.sol";
 import {Offer, OfferLibrary} from "./Offer.sol";
 import {Predicate, PredicateLibrary} from "./Predicate.sol";
 import {Input, InputType, InputLibrary} from "./Input.sol";
@@ -20,7 +21,7 @@ struct ProofRequest {
     /// @notice Unique ID for this request, constructed from the client address and a 32-bit index.
     RequestId id;
     /// @notice Requirements of the delivered proof.
-    /// @dev Specifies the program that must be run, and constrains the value of the journal, specifying the statement that is requesting to be proven.
+    /// @dev Specifies the program that must be run, constrains the value of the journal, and specifies a callback required to be called when the proof is delivered.
     Requirements requirements;
     /// @notice A public URI where the program (i.e. image) can be downloaded.
     /// @dev This URI will be accessed by provers that are evaluating whether to bid on the request.
@@ -35,9 +36,11 @@ library ProofRequestLibrary {
     /// @dev Id is uint256 as for user defined types, the eip712 type hash uses the underlying type.
     string constant PROOF_REQUEST_TYPE =
         "ProofRequest(uint256 id,Requirements requirements,string imageUrl,Input input,Offer offer)";
+
     bytes32 constant PROOF_REQUEST_TYPEHASH = keccak256(
         abi.encodePacked(
             PROOF_REQUEST_TYPE,
+            CallbackLibrary.CALLBACK_TYPE,
             InputLibrary.INPUT_TYPE,
             OfferLibrary.OFFER_TYPE,
             PredicateLibrary.PREDICATE_TYPE,
