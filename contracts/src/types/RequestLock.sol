@@ -59,9 +59,7 @@ library RequestLockLibrary {
     function setProverPaidBeforeLockDeadline(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags = PROVER_PAID_DURING_LOCK_FLAG;
         // Zero out slots 1-2 for gas refund.
-        requestLock.price = uint96(0);
-        requestLock.stake = uint96(0);
-        requestLock.requestDigest = bytes32(0);
+        clearSlot1And2(requestLock);
     }
 
     function setProverPaidAfterLockDeadline(RequestLock storage requestLock, address prover) internal {
@@ -69,15 +67,15 @@ library RequestLockLibrary {
         requestLock.requestLockFlags = PROVER_PAID_AFTER_LOCK_FLAG;
         // We don't zero out slot 1 as stake information is required for slashing.
         // Zero out slot 2 for gas refund.
-        requestLock.requestDigest = bytes32(0);
+        // Clearing via requestLock.requestDigest = bytes32(0) 
+        // would require touching slot 1 as well.
+        clearSlot2(requestLock);
     }
 
     function setSlashed(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags |= SLASHED_FLAG;
         // Zero out slots 1-2 for gas refund.        
-        requestLock.price = uint96(0);
-        requestLock.stake = uint96(0);
-        requestLock.requestDigest = bytes32(0);
+        clearSlot1And2(requestLock);
     }
 
     function hasBeenLocked(RequestLock memory requestLock) internal pure returns (bool) {
@@ -114,5 +112,21 @@ library RequestLockLibrary {
     /// @return True if the request is slashed, false otherwise.
     function isSlashed(RequestLock memory requestLock) internal pure returns (bool) {
         return requestLock.requestLockFlags & SLASHED_FLAG != 0;
+    }
+
+    function clearSlot2(RequestLock storage requestLock) private {
+        assembly {
+            let num := add(requestLock.slot, 2)
+            sstore(num, 0)
+        }
+    }
+
+    function clearSlot1And2(RequestLock storage requestLock) private {
+        assembly {
+            let num := add(requestLock.slot, 1)
+            sstore(num, 0)
+            num := add(num, 1)
+            sstore(num, 0)
+        }
     }
 }
