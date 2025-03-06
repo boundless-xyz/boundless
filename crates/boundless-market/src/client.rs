@@ -500,7 +500,7 @@ where
             Err(_) => Ok(self
                 .offchain_client
                 .as_ref()
-                .context("Order stream client not available. Please provide an order stream URL")?
+                .context("Request not found on-chain and order stream client not available. Please provide an order stream URL")?
                 .fetch_order(request_id, request_digest)
                 .await?),
         }
