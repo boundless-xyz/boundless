@@ -697,10 +697,15 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
+pub mod bytecode;
+
+#[cfg(feature = "test-utils")]
+#[allow(missing_docs)]
 /// Module for testing utilities.
 pub mod test_utils {
     use crate::contracts::{
         boundless_market::BoundlessMarketService,
+        bytecode::*,
         hit_points::{default_allowance, HitPointsService},
     };
     use alloy::{
@@ -714,7 +719,6 @@ pub mod test_utils {
     use anyhow::{Context, Result};
     use risc0_ethereum_contracts::set_verifier::SetVerifierService;
     use risc0_zkvm::sha::Digest;
-    include!(concat!(env!("OUT_DIR"), "/contracts_bytecode.rs"));
 
     pub struct TestCtx<P> {
         pub verifier_addr: Address,

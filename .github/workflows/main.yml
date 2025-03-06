@@ -211,9 +211,6 @@ jobs:
         with:
           risczero-version: '~1.2.0'
           toolchain-version: 'r0.1.81.0'
-      
-      - name: forge build
-        run: forge build
 
       - name: check order-stream
         run: cargo check --locked -p order-stream --bin order_stream

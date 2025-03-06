@@ -230,7 +230,6 @@ fn generate_contracts_rust_file() {
             {}
     }}
 }}
-
 "#,
                 bytecode,
                 contract,
@@ -239,9 +238,7 @@ fn generate_contracts_rust_file() {
         }
     }
 
-    println!("cargo::rerun-if-env-changed=OUT_DIR");
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("contracts_bytecode.rs");
+    let dest_path = Path::new(&manifest_dir).join("src/contracts/bytecode.rs");
     fs::write(dest_path, rust_content).unwrap();
 }
 
