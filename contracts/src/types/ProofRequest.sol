@@ -94,13 +94,10 @@ library ProofRequestLibrary {
     /// @param addr The address of the client.
     /// @param signature The signature to validate.
     /// @param isSmartContractSig Whether the signature should be validated as a smart contract signature.
-    function verifyClientSignature(
-        ProofRequest calldata,
-        bytes32 structHash,
-        address addr,
-        bytes calldata signature,
-        bool isSmartContractSig
-    ) internal view {
+    function verifyClientSignature(ProofRequest calldata, bytes32 structHash, address addr, bytes calldata signature, bool isSmartContractSig)
+        internal
+        view
+    {
         if (!isSmartContractSig) {
             // Standard EOA flow.
             if (ECDSA.recover(structHash, signature) != addr) {

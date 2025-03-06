@@ -15,7 +15,6 @@ import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {RequestIdLibrary} from "../../src/types/RequestId.sol";
 import {Input, InputType} from "../../src/types/Input.sol";
 import {Offer} from "../../src/types/Offer.sol";
-
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
 /// @dev Client is a wrapper around an EOA with logic for signing proof requests and submitting them to the market.
