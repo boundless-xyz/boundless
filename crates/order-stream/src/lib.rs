@@ -40,8 +40,8 @@ mod order_db;
 mod ws;
 
 use api::{
-    __path_get_nonce, __path_health, __path_list_orders, __path_submit_order, get_nonce, health,
-    list_orders, submit_order,
+    __path_find_orders_by_request_id, __path_get_nonce, __path_health, __path_list_orders,
+    __path_submit_order, find_orders_by_request_id, get_nonce, health, list_orders, submit_order,
 };
 use order_db::OrderDb;
 use ws::{__path_websocket_handler, start_broadcast_task, websocket_handler, ConnectionsMap};
@@ -263,7 +263,14 @@ const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
 
 #[derive(OpenApi, Debug, Deserialize)]
 #[openapi(
-    paths(submit_order, list_orders, get_nonce, health, websocket_handler),
+    paths(
+        submit_order,
+        list_orders,
+        find_orders_by_request_id,
+        get_nonce,
+        health,
+        websocket_handler
+    ),
     components(schemas(AuthMsg)),
     info(
         title = "Boundless Order Stream service",
@@ -282,6 +289,7 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route(ORDER_SUBMISSION_PATH, post(submit_order).layer(body_size_limit))
         .route(ORDER_LIST_PATH, get(list_orders))
+        .route(&format!("{ORDER_LIST_PATH}/:request_id"), get(find_orders_by_request_id))
         .route(&format!("{AUTH_GET_NONCE}:addr"), get(get_nonce))
         .route(ORDER_WS_PATH, get(websocket_handler))
         .route(HEALTH_CHECK, get(health))
@@ -356,10 +364,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
 mod tests {
     use super::*;
     use crate::order_db::{DbOrder, OrderDbErr};
-    use alloy::{
-        node_bindings::Anvil,
-        primitives::{B256, U256},
-    };
+    use alloy::{node_bindings::Anvil, primitives::U256};
     use boundless_market::{
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
@@ -384,7 +389,7 @@ mod tests {
         ProofRequest::new(
             idx,
             addr,
-            Requirements { imageId: B256::from([1u8; 32]), predicate: Predicate::prefix_match([]) },
+            Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
             Offer {
@@ -445,14 +450,17 @@ mod tests {
             app_state.chain_id,
         );
 
+        let request = new_request(1, &ctx.prover_signer.address());
         // 2. Requestor submits a request
-        let order = client
-            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
-            .await
-            .unwrap();
+        let order = client.submit_request(&request, &ctx.prover_signer).await.unwrap();
 
         // 3. Broker receives the request
         let db_order = task.await.unwrap().unwrap();
+
+        // 4. Fetch the order from the order stream
+        let order_fetched =
+            client.fetch_order(request.id, Some(order.request_digest)).await.unwrap();
+        assert_eq!(order_fetched, order);
 
         assert_eq!(order, db_order.order);
     }

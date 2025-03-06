@@ -24,8 +24,9 @@ use std::{
 use alloy::{
     network::Ethereum,
     primitives::{
+        aliases::U96,
         utils::{format_ether, parse_ether},
-        Address, Bytes, PrimitiveSignature, B256, U256,
+        Address, Bytes, FixedBytes, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
@@ -48,11 +49,10 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, Input, InputType, Offer, Predicate,
+        boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
         PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
-    order_stream_client::Order,
     storage::{StorageProvider, StorageProviderConfig},
 };
 
@@ -170,27 +170,45 @@ enum Command {
         #[arg(long, conflicts_with = "request_path")]
         request_id: Option<U256>,
 
+        /// The request digest
+        ///
+        /// If provided along with request-id, uses the request digest to find the request.
+        #[arg(long)]
+        request_digest: Option<B256>,
+
         /// The tx hash of the request submission.
         ///
         /// If provided along with request-id, uses the transaction hash to find the request.
         #[arg(long, conflicts_with = "request_path", requires = "request_id")]
         tx_hash: Option<B256>,
+
+        /// The order stream service URL.
+        ///
+        /// If provided, the request will be fetched offchain via the provided order stream service URL.
+        #[arg(long, conflicts_with_all = ["request_path", "tx_hash"])]
+        order_stream_url: Option<Url>,
     },
     /// Fulfill a proof request using the RISC Zero zkVM default prover
     Fulfill {
         /// The proof request identifier
         #[arg(long)]
         request_id: U256,
+        /// The request digest
+        #[arg(long)]
+        request_digest: Option<B256>,
         /// The tx hash of the request submission
         #[arg(long)]
         tx_hash: Option<B256>,
+        /// The order stream service URL.
+        ///
+        /// If provided, the request will be fetched offchain via the provided order stream service URL.
+        #[arg(long, conflicts_with_all = ["tx_hash"])]
+        order_stream_url: Option<Url>,
         /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
         /// request is locked to another prover).
         #[arg(long, default_value = "false")]
         require_payment: bool,
     },
-    /// Unfreeze a prover's account after being slashed
-    Unfreeze,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -252,6 +270,12 @@ struct SubmitOfferRequirements {
     /// Journal prefix to use as the predicate in the requirements.
     #[clap(long)]
     journal_prefix: Option<String>,
+    /// Address of the callback to use in the requirements.
+    #[clap(long, requires = "callback_gas_limit")]
+    callback_addr: Option<Address>,
+    /// Gas limit of the callback to use in the requirements.
+    #[clap(long, requires = "callback_addr")]
+    callback_gas_limit: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
@@ -449,13 +473,29 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             let status = boundless_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
         }
-        Command::Execute { request_id, request_path, tx_hash } => {
+        Command::Execute {
+            request_id,
+            request_digest,
+            request_path,
+            tx_hash,
+            order_stream_url,
+        } => {
             let request: ProofRequest = if let Some(file_path) = request_path {
                 let file = File::open(file_path).context("failed to open request file")?;
                 let reader = BufReader::new(file);
                 serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
             } else if let Some(request_id) = request_id {
-                boundless_market.get_submitted_request(request_id, tx_hash).await?.0
+                let client = ClientBuilder::default()
+                    .with_private_key(args.private_key.clone())
+                    .with_rpc_url(args.rpc_url.clone())
+                    .with_boundless_market_address(args.boundless_market_address)
+                    .with_set_verifier_address(args.set_verifier_address)
+                    .with_order_stream_url(order_stream_url.clone())
+                    .with_timeout(args.tx_timeout)
+                    .build()
+                    .await?;
+                let order = client.fetch_order(request_id, tx_hash, request_digest).await?;
+                order.request
             } else {
                 bail!("execute requires either a request file path or request ID")
             };
@@ -467,7 +507,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Execution succeeded.");
             tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
         }
-        Command::Fulfill { request_id, tx_hash, require_payment } => {
+        Command::Fulfill {
+            request_id,
+            request_digest,
+            tx_hash,
+            order_stream_url,
+            require_payment,
+        } => {
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
@@ -484,15 +530,24 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
 
             let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
 
-            let (request, sig) =
-                boundless_market.get_submitted_request(request_id, tx_hash).await?;
-            tracing::debug!("Fulfilling request {:?}", request);
-            request.verify_signature(
+            let client = ClientBuilder::default()
+                .with_private_key(args.private_key.clone())
+                .with_rpc_url(args.rpc_url.clone())
+                .with_boundless_market_address(args.boundless_market_address)
+                .with_set_verifier_address(args.set_verifier_address)
+                .with_order_stream_url(order_stream_url.clone())
+                .with_timeout(args.tx_timeout)
+                .build()
+                .await?;
+
+            let order = client.fetch_order(request_id, tx_hash, request_digest).await?;
+            tracing::debug!("Fulfilling request {:?}", order.request);
+            let sig: Bytes = order.signature.as_bytes().into();
+            order.request.verify_signature(
                 &sig,
                 args.boundless_market_address,
                 boundless_market.get_chain_id().await?,
             )?;
-            let order = Order { request, signature: PrimitiveSignature::try_from(sig.as_ref())? };
 
             let (fill, root_receipt, _, assessor_receipt) =
                 prover.fulfill(order.clone(), require_payment).await?;
@@ -508,14 +563,12 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     .then_some(order.request)
                     .into_iter()
                     .collect();
-
             match boundless_market
                 .price_and_fulfill_batch(
                     requests_to_price,
                     vec![sig],
                     order_fulfilled.fills,
-                    order_fulfilled.assessorSeal,
-                    caller,
+                    order_fulfilled.assessorReceipt,
                     None,
                 )
                 .await
@@ -527,10 +580,6 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     tracing::error!("Failed to fulfill request 0x{:x}: {}", request_id, e);
                 }
             }
-        }
-        Command::Unfreeze => {
-            boundless_market.unfreeze_account().await?;
-            tracing::info!("Account unfrozen");
         }
     };
 
@@ -595,6 +644,11 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
+    let callback = match (&args.reqs.callback_addr, &args.reqs.callback_gas_limit) {
+        (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
+        _ => Callback::default(),
+    };
+
     // Compute the image_id, then upload the ELF.
     let elf_url = client.upload_image(&elf).await?;
     let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&elf)?));
@@ -615,7 +669,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate },
+        Requirements { imageId: image_id, predicate, callback, selector: FixedBytes::<4>([0; 4]) },
         elf_url,
         requirements_input,
         offer.clone(),
