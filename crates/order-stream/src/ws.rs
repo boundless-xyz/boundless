@@ -68,7 +68,7 @@ pub(crate) async fn websocket_handler(
     let auth_msg: AuthMsg = match parse_auth_msg(auth_header) {
         Ok(auth_msg) => auth_msg,
         Err(err) => {
-            tracing::error!("Invalid auth-msg format: {err:?}");
+            tracing::warn!("Invalid auth-msg format: {err:?}");
             return Ok((StatusCode::BAD_REQUEST, "Invalid auth message format").into_response());
         }
     };
