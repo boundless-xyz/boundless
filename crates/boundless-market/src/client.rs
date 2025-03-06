@@ -32,6 +32,7 @@ use alloy::{
     transports::{http::Http, Transport},
 };
 use alloy_primitives::{PrimitiveSignature, B256};
+use alloy_sol_types::SolStruct;
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client as HttpClient;
 use risc0_aggregation::SetInclusionReceipt;
@@ -478,28 +479,30 @@ where
         &self,
         request_id: U256,
         tx_hash: Option<B256>,
+        request_digest: Option<B256>,
     ) -> Result<Order, ClientError> {
         match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
-            Ok((request, signature_bytes)) => Ok(Order {
-                request,
-                signature: PrimitiveSignature::try_from(signature_bytes.as_ref())
-                    .map_err(|_| ClientError::Error(anyhow!("Failed to parse signature")))?,
-            }),
-            Err(_) => {
-                let orders = self
-                    .offchain_client
-                    .as_ref()
-                    .context(
-                        "Order stream client not available. Please provide an order stream URL",
-                    )?
-                    .fetch_order(request_id)
-                    .await?;
-                if orders.is_empty() {
-                    return Err(ClientError::Error(anyhow!("Order not found")));
+            Ok((request, signature_bytes)) => {
+                let domain = self.boundless_market.eip712_domain().await?;
+                let digest = request.eip712_signing_hash(&domain.alloy_struct());
+                if let Some(expected_digest) = request_digest {
+                    if digest != expected_digest {
+                        return Err(ClientError::RequestError(RequestError::DigestMismatch));
+                    }
                 }
-                // TODO: Handle multiple orders
-                Ok(orders[0].clone())
+                Ok(Order {
+                    request,
+                    request_digest: digest,
+                    signature: PrimitiveSignature::try_from(signature_bytes.as_ref())
+                        .map_err(|_| ClientError::Error(anyhow!("Failed to parse signature")))?,
+                })
             }
+            Err(_) => Ok(self
+                .offchain_client
+                .as_ref()
+                .context("Order stream client not available. Please provide an order stream URL")?
+                .fetch_order(request_id, request_digest)
+                .await?),
         }
     }
 }

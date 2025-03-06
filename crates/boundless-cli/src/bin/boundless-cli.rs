@@ -170,6 +170,12 @@ enum Command {
         #[arg(long, conflicts_with = "request_path")]
         request_id: Option<U256>,
 
+        /// The request digest
+        ///
+        /// If provided along with request-id, uses the request digest to find the request.
+        #[arg(long)]
+        request_digest: Option<B256>,
+
         /// The tx hash of the request submission.
         ///
         /// If provided along with request-id, uses the transaction hash to find the request.
@@ -187,6 +193,9 @@ enum Command {
         /// The proof request identifier
         #[arg(long)]
         request_id: U256,
+        /// The request digest
+        #[arg(long)]
+        request_digest: Option<B256>,
         /// The tx hash of the request submission
         #[arg(long)]
         tx_hash: Option<B256>,
@@ -464,7 +473,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             let status = boundless_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
         }
-        Command::Execute { request_id, request_path, tx_hash, order_stream_url } => {
+        Command::Execute {
+            request_id,
+            request_digest,
+            request_path,
+            tx_hash,
+            order_stream_url,
+        } => {
             let request: ProofRequest = if let Some(file_path) = request_path {
                 let file = File::open(file_path).context("failed to open request file")?;
                 let reader = BufReader::new(file);
@@ -479,7 +494,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     .with_timeout(args.tx_timeout)
                     .build()
                     .await?;
-                let order = client.fetch_order(request_id, tx_hash).await?;
+                let order = client.fetch_order(request_id, tx_hash, request_digest).await?;
                 order.request
             } else {
                 bail!("execute requires either a request file path or request ID")
@@ -492,7 +507,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Execution succeeded.");
             tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
         }
-        Command::Fulfill { request_id, tx_hash, order_stream_url, require_payment } => {
+        Command::Fulfill {
+            request_id,
+            request_digest,
+            tx_hash,
+            order_stream_url,
+            require_payment,
+        } => {
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
@@ -519,7 +540,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .build()
                 .await?;
 
-            let order = client.fetch_order(request_id, tx_hash).await?;
+            let order = client.fetch_order(request_id, tx_hash, request_digest).await?;
             tracing::debug!("Fulfilling request {:?}", order.request);
             let sig: Bytes = order.signature.as_bytes().into();
             order.request.verify_signature(

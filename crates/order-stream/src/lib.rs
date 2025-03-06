@@ -389,7 +389,7 @@ mod tests {
         ProofRequest::new(
             idx,
             addr,
-            Requirements::new(Digest::ZERO, Predicate::prefix_match([])),
+            Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
             Offer {
@@ -458,9 +458,9 @@ mod tests {
         let db_order = task.await.unwrap().unwrap();
 
         // 4. Fetch the order from the order stream
-        let orders = client.fetch_order(request.id).await.unwrap();
-        assert_eq!(orders.len(), 1);
-        assert_eq!(orders[0], order);
+        let order_fetched =
+            client.fetch_order(request.id, Some(order.request_digest)).await.unwrap();
+        assert_eq!(order_fetched, order);
 
         assert_eq!(order, db_order.order);
     }

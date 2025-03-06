@@ -164,9 +164,10 @@ impl OrderDb {
     pub async fn add_order(&self, order: Order) -> Result<i64, OrderDbErr> {
         let mut txn = self.pool.begin().await?;
         let row_res: Option<(i64, DateTime<Utc>)> = sqlx::query_as(
-            "INSERT INTO orders (request_id, order_data, created_at) VALUES ($1, $2, NOW()) RETURNING id, created_at",
+            "INSERT INTO orders (request_id, request_digest, order_data, created_at) VALUES ($1, $2, $3, NOW()) RETURNING id, created_at",
         )
         .bind(order.request.id.to_string())
+        .bind(order.request_digest.to_string())
         .bind(sqlx::types::Json(order.clone()))
         .fetch_optional(&mut *txn)
         .await?;
@@ -258,9 +259,10 @@ impl OrderDb {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{primitives::U256, signers::local::LocalSigner};
+    use alloy::{primitives::U256, signers::local::LocalSigner, sol_types::SolStruct};
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
+        Requirements,
     };
     use futures_util::StreamExt;
     use risc0_zkvm::sha::Digest;
@@ -269,10 +271,10 @@ mod tests {
 
     use super::*;
 
-    async fn create_order() -> Order {
+    async fn create_order(id: U256) -> Order {
         let signer = LocalSigner::random();
         let req = ProofRequest {
-            id: U256::ZERO,
+            id,
             requirements: Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -290,8 +292,10 @@ mod tests {
             },
         };
         let signature = req.sign_request(&signer, Address::ZERO, 31337).await.unwrap();
+        let domain = eip712_domain(Address::ZERO, 31337);
+        let request_digest = req.eip712_signing_hash(&domain.alloy_struct());
 
-        Order::new(req, signature)
+        Order::new(req, request_digest, signature)
     }
 
     #[sqlx::test]
@@ -338,7 +342,7 @@ mod tests {
     async fn add_order(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
 
-        let order = create_order().await;
+        let order = create_order(U256::from(1)).await;
         let order_id = db.add_order(order).await.unwrap();
         assert_eq!(order_id, 1);
     }
@@ -347,7 +351,7 @@ mod tests {
     async fn del_order(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
 
-        let order = create_order().await;
+        let order = create_order(U256::from(1)).await;
         let order_id = db.add_order(order).await.unwrap();
         db.delete_order(order_id).await.unwrap();
     }
@@ -356,7 +360,7 @@ mod tests {
     async fn list_orders_simple(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
 
-        let order = create_order().await;
+        let order = create_order(U256::from(1)).await;
         let order_id = db.add_order(order.clone()).await.unwrap();
 
         let orders = db.list_orders(1, 1).await.unwrap();
@@ -367,9 +371,10 @@ mod tests {
     #[sqlx::test]
     async fn list_orders_page_forward(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
-        let order = create_order().await;
-        let _order_id = db.add_order(order.clone()).await.unwrap();
-        let order_id = db.add_order(order.clone()).await.unwrap();
+        let order = create_order(U256::from(1)).await;
+        let order2 = create_order(U256::from(2)).await;
+        let _order_id = db.add_order(order).await.unwrap();
+        let order_id = db.add_order(order2).await.unwrap();
 
         let orders = db.list_orders(2, 1).await.unwrap();
         assert_eq!(orders.len(), 1);
@@ -379,9 +384,10 @@ mod tests {
     #[sqlx::test]
     async fn list_after_del(pool: PgPool) {
         let db = OrderDb::from_pool(pool).await.unwrap();
-        let order = create_order().await;
-        let order_id_1 = db.add_order(order.clone()).await.unwrap();
-        let order_id_2 = db.add_order(order.clone()).await.unwrap();
+        let order = create_order(U256::from(1)).await;
+        let order2 = create_order(U256::from(2)).await;
+        let order_id_1 = db.add_order(order).await.unwrap();
+        let order_id_2 = db.add_order(order2).await.unwrap();
 
         db.delete_order(order_id_1).await.unwrap();
         let orders = db.list_orders(order_id_2, 1).await.unwrap();
@@ -405,7 +411,7 @@ mod tests {
 
         rx.await.unwrap(); // Wait for stream setup
 
-        let order = create_order().await;
+        let order = create_order(U256::from(1)).await;
         let order_id = db.add_order(order).await.unwrap();
         let db_order = task.await.unwrap().unwrap();
         assert_eq!(db_order.id, order_id);
