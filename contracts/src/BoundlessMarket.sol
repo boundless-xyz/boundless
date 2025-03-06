@@ -703,7 +703,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function requestIsFulfilled(RequestId id) external view returns (bool) {
+    function requestIsFulfilled(RequestId id) public view returns (bool) {
         (address client, uint32 idx) = id.clientAndIndex();
         (, bool fulfilled) = accounts[client].requestFlags(idx);
         return fulfilled;
