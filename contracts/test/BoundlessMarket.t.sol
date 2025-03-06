@@ -593,12 +593,14 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(testProver));
         boundlessMarket.withdrawFromTreasury(1 ether);
 
+        uint256 initialBalance = OWNER_WALLET.addr.balance;
         // Withdraw funds from the treasury
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.Withdrawal(address(boundlessMarket), 1 ether);
         vm.prank(OWNER_WALLET.addr);
         boundlessMarket.withdrawFromTreasury(1 ether);
         assert(boundlessMarket.balanceOf(address(boundlessMarket)) == 0);
+        assert(OWNER_WALLET.addr.balance == 1 ether + initialBalance);
     }
 
     function testWithdrawFromStakeTreasury() public {
@@ -615,6 +617,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(OWNER_WALLET.addr);
         boundlessMarket.withdrawFromStakeTreasury(0.25 ether);
         assert(boundlessMarket.balanceOfStake(address(boundlessMarket)) == 0);
+        assert(stakeToken.balanceOf(OWNER_WALLET.addr) == 0.25 ether);
     }
 
     function testWithdrawals() public {
