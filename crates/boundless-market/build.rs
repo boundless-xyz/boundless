@@ -252,24 +252,8 @@ fn generate_contracts_rust_file() {
         }
     }
     rust_content.push('\n');
-    let dest_path = Path::new(&manifest_dir).join("src/contracts/bytecode.rs");
-
-    // Only write the file if it doesn't exist or the content has changed
-    let should_write = if dest_path.exists() {
-        match fs::read_to_string(&dest_path) {
-            Ok(existing_content) => existing_content != rust_content,
-            Err(_) => true, // If we can't read the file, write it
-        }
-    } else {
-        true // File doesn't exist, so write it
-    };
-
-    if should_write {
-        println!("cargo:warning=Writing updated bytecode.rs");
-        fs::write(dest_path, rust_content).unwrap();
-    } else {
-        println!("cargo:warning=No changes to bytecode.rs");
-    }
+    let dest_path = Path::new(&manifest_dir).join("src/contracts/artifacts/bytecode.inc");
+    fs::write(dest_path, rust_content).unwrap();
 }
 
 // Helper function to define interfaces for each contract
