@@ -9,7 +9,7 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
-        Address, U256,
+        Address, FixedBytes, U256,
     },
     providers::{Provider, WalletProvider},
     transports::BoxTransport,
@@ -95,6 +95,14 @@ where
                 self.db.skip_order(order_id).await.context("Order not in allowed addr list")?;
                 return Ok(());
             }
+        }
+
+        // TODO(#BM-536): Filter based on supported selectors
+        // Drop orders that specify a selector
+        if order.request.requirements.selector != FixedBytes::<4>([0; 4]) {
+            tracing::warn!("Removing order {order_id:x} because it has a selector requirement");
+            self.db.skip_order(order_id).await.context("Order has a selector requirement")?;
+            return Ok(());
         }
 
         // is the order expired already?
@@ -408,7 +416,7 @@ where
     /// Estimate of gas for fulfilling any orders either pending lock or locked
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         let pending_fulfill_orders = self.db.get_orders_committed_to_fulfill_count().await?;
-        Ok((pending_fulfill_orders as u64)
+        Ok((pending_fulfill_orders)
             * self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
     }
 
@@ -584,13 +592,13 @@ mod tests {
                     request: ProofRequest::new(
                         order_index,
                         &self.provider.default_signer_address(),
-                        Requirements {
-                            imageId: <[u8; 32]>::from(image_id).into(),
-                            predicate: Predicate {
+                        Requirements::new(
+                            image_id,
+                            Predicate {
                                 predicateType: PredicateType::PrefixMatch,
                                 data: Default::default(),
                             },
-                        },
+                        ),
                         self.image_uri(),
                         Input::builder()
                             .write_slice(&[0x41, 0x41, 0x41, 0x41])

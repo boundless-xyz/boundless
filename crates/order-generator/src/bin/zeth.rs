@@ -17,7 +17,7 @@ use alloy::{
 use anyhow::{anyhow, bail, Result};
 use boundless_market::{
     client::{Client, ClientBuilder},
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
     storage::{StorageProvider, StorageProviderConfig},
 };
 use clap::Parser;
