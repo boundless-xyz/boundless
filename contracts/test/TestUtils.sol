@@ -8,6 +8,8 @@ import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Selector} from "../src/types/Selector.sol";
 import "../src/BoundlessMarket.sol";
+import {AssessorCallback} from "../src/types/AssessorCallback.sol";
+import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;
@@ -16,6 +18,7 @@ library TestUtils {
         Fulfillment[] memory fills,
         bytes32 assessorImageId,
         Selector[] memory selectors,
+        AssessorCallback[] memory callbacks,
         address prover
     ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory claimDigests = new bytes32[](fills.length);
@@ -27,7 +30,13 @@ library TestUtils {
         bytes32 root = MerkleProofish.processTree(claimDigests);
 
         bytes memory journal = abi.encode(
-            AssessorJournal({requestDigests: requestDigests, root: root, selectors: selectors, prover: prover})
+            AssessorJournal({
+                requestDigests: requestDigests,
+                root: root,
+                selectors: selectors,
+                callbacks: callbacks,
+                prover: prover
+            })
         );
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
@@ -209,5 +218,23 @@ library TestUtils {
         }
         newSelectors[self.length] = Selector(index, selector);
         return newSelectors;
+    }
+
+    /// @notice Adds a non-zero callback at the given index
+    /// @dev Overwrites any existing callback at that index
+    /// @param self The Callbacks struct to modify
+    /// @param callback The callback to add
+    function addCallback(AssessorCallback[] memory self, AssessorCallback memory callback)
+        internal
+        pure
+        returns (AssessorCallback[] memory)
+    {
+        // Create a new array with one additional element.
+        AssessorCallback[] memory newCallbacks = new AssessorCallback[](self.length + 1);
+        for (uint256 i = 0; i < self.length; i++) {
+            newCallbacks[i] = self[i];
+        }
+        newCallbacks[self.length] = callback;
+        return newCallbacks;
     }
 }

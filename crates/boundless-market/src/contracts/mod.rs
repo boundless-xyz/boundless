@@ -24,7 +24,10 @@ use alloy::{
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
 };
-use alloy_primitives::{aliases::U160, Address, Bytes, FixedBytes, B256, U256};
+use alloy_primitives::{
+    aliases::{U160, U96},
+    Address, Bytes, FixedBytes, B256, U256,
+};
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
@@ -225,6 +228,10 @@ pub enum RequestError {
     /// The offer is missing.
     #[error("missing offer")]
     MissingOffer,
+
+    /// Request digest mismatch.
+    #[error("request digest mismatch")]
+    DigestMismatch,
 }
 
 #[cfg(not(target_os = "zkvm"))]
@@ -405,6 +412,7 @@ impl Requirements {
         Self {
             imageId: <[u8; 32]>::from(image_id.into()).into(),
             predicate,
+            callback: Callback::default(),
             selector: FixedBytes::<4>([0; 4]),
         }
     }
@@ -417,6 +425,11 @@ impl Requirements {
     /// Sets the predicate.
     pub fn with_predicate(self, predicate: Predicate) -> Self {
         Self { predicate, ..self }
+    }
+
+    /// Sets the callback.
+    pub fn with_callback(self, callback: Callback) -> Self {
+        Self { callback, ..self }
     }
 
     /// Sets the selector.
@@ -439,6 +452,18 @@ impl Predicate {
     /// fulfillment will contain a journal with the same prefix.
     pub fn prefix_match(prefix: impl Into<Bytes>) -> Self {
         Self { predicateType: PredicateType::PrefixMatch, data: prefix.into() }
+    }
+}
+
+impl Callback {
+    /// Sets the address of the callback.
+    pub fn with_addr(self, addr: impl Into<Address>) -> Self {
+        Self { addr: addr.into(), ..self }
+    }
+
+    /// Sets the gas limit of the callback.
+    pub fn with_gas_limit(self, gas_limit: u64) -> Self {
+        Self { gasLimit: U96::from(gas_limit), ..self }
     }
 }
 
