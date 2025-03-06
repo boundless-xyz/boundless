@@ -119,7 +119,7 @@ contract BoundlessMarket is
     function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
         bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
-        (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
+        (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, requestHash, client, idx, msg.sender, lockDeadline, deadline);
     }
@@ -133,7 +133,7 @@ contract BoundlessMarket is
         (address client, uint32 idx) = request.id.clientAndIndex();
         bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
         address prover = _extractProverAddress(requestHash, proverSignature);
-        (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
+        (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
     }
@@ -206,7 +206,7 @@ contract BoundlessMarket is
             requestHash = _hashTypedDataV4(request.eip712Digest());
         }
 
-        request.validateForPriceRequest();
+        request.validate();
 
         // Compute the current price offered by the reverse Dutch auction.
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).safeCastTo96();
