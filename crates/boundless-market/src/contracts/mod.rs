@@ -714,11 +714,6 @@ pub mod test_utils {
     use anyhow::{Context, Result};
     use risc0_ethereum_contracts::set_verifier::SetVerifierService;
     use risc0_zkvm::sha::Digest;
-
-    // Bytecode for the contracts is copied from the contract build output by the build script. It
-    // is checked into git so that we can avoid issues with publishing to crates.io. We do not use
-    // the full JSON build out because it is less stable.
-
     include!(concat!(env!("OUT_DIR"), "/contracts_bytecode.rs"));
 
     pub struct TestCtx<P> {
