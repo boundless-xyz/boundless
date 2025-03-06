@@ -12,6 +12,8 @@ import {Selector} from "./Selector.sol";
 /// from client(s) and that the requirements are met by claim digest(s) in the Merkle tree committed
 /// to by the given root.
 struct AssessorJournal {
+    /// @notice The commitment of the journal.
+    SteelCommitment commitment;
     /// @notice Digest of each request validated by the assessor.
     /// @dev When a client signs two requests with the same ID, only one can ever be fulfilled.
     /// Using the digest here ensures that the request validated by the assessor matches the one that was locked / priced.
@@ -26,8 +28,4 @@ struct AssessorJournal {
     bytes32 root;
     /// @notice The address of the prover that produced the assessor receipt.
     address prover;
-    /// @notice Steel block commitment against which any ERC-1271 smart contract signatures are verified.
-    /// @dev If no requests in the batch are authorized by smart contract signatures, the prover is
-    /// not required to provide an EVM env. In this case, this field will be set to all zeroes.
-    SteelCommitment steel_commitment;
 }

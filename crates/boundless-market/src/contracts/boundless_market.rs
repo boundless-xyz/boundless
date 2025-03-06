@@ -36,9 +36,9 @@ use thiserror::Error;
 use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
-    eip712_domain, AssessorReceipt, EIP721DomainSaltless, Fulfillment,
+    eip712_domain, AssessorReceipt, RequestId, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    Offer, ProofRequest, ProofStatus, RequestError, RequestId, TxnErr, TXN_CONFIRM_TIMEOUT,
+    Offer, ProofRequest, ProofStatus, RequestError, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -1119,7 +1119,7 @@ mod tests {
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, AssessorReceipt,
             Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
-            ProofStatus, Requirements, SteelCommitment,
+            ProofStatus, Requirements,
         },
         input::InputBuilder,
     };
@@ -1162,7 +1162,7 @@ mod tests {
     async fn new_request(idx: u32, ctx: &TestCtx) -> ProofRequest {
         ProofRequest::new(
             idx,
-            ctx.customer_signer.address(),
+            &ctx.customer_signer.address(),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -1200,7 +1200,6 @@ mod tests {
             root: to_b256(app_claim_digest),
             prover,
             callbacks: vec![],
-            steel_commitment: SteelCommitment::EMPTY,
         };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
@@ -1442,7 +1441,6 @@ mod tests {
             selectors: vec![],
             prover: ctx.prover_signer.address(),
             callbacks: vec![],
-            steel_commitment: SteelCommitment::EMPTY,
         };
         // fulfill the request
         ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
@@ -1509,7 +1507,6 @@ mod tests {
             selectors: vec![],
             prover: ctx.prover_signer.address(),
             callbacks: vec![],
-            steel_commitment: SteelCommitment::EMPTY,
         };
         // publish the committed root + fulfillments
         ctx.prover_market
@@ -1570,7 +1567,6 @@ mod tests {
             selectors: vec![],
             prover: ctx.prover_signer.address(),
             callbacks: vec![],
-            steel_commitment: SteelCommitment::EMPTY,
         };
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -1653,7 +1649,6 @@ mod tests {
                 selectors: vec![],
                 prover: some_other_address,
                 callbacks: vec![],
-                steel_commitment: SteelCommitment::EMPTY,
             };
 
             // attempt to fulfill the request, and ensure we revert.
@@ -1694,7 +1689,6 @@ mod tests {
             selectors: vec![],
             prover: ctx.prover_signer.address(),
             callbacks: vec![],
-            steel_commitment: SteelCommitment::EMPTY,
         };
 
         // fulfill the request, this time getting paid.
