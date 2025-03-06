@@ -1,7 +1,8 @@
 // Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
-pragma solidity ^0.8.20;
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.24;
 
 using PredicateLibrary for Predicate global;
 
