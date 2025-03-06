@@ -37,10 +37,7 @@ pub struct HitPointsService<P> {
     tx_timeout: Duration,
 }
 
-impl<P> HitPointsService<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl<P: Provider> HitPointsService<P> {
     /// Creates a new HitPointsService.
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
         let instance = IHitPoints::new(address, provider);

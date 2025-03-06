@@ -370,8 +370,8 @@ mod tests {
     use alloy::{node_bindings::Anvil, primitives::U256};
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
-            Requirements,
+            hit_points::default_allowance, test_utils::DefaultTestCtx, Offer, Predicate,
+            ProofRequest, Requirements,
         },
         input::InputBuilder,
         order_stream_client::Client,
@@ -412,10 +412,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
@@ -470,10 +467,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
