@@ -329,6 +329,7 @@ mod tests {
         let (request, signature) = setup_proving_request_and_signature(&signer).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
+        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
@@ -337,7 +338,7 @@ mod tests {
         )
         .expect("failed to create prover");
 
-        let order = Order { request, signature };
+        let order = Order { request, request_digest, signature };
         let (_, root_receipt, order_receipt, assessor_receipt) =
             prover.fulfill(order.clone(), false).await.unwrap();
 

@@ -88,7 +88,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 1024
 ```
 
 ```sh [Terminal]
-echo 895a996b-b0fa-4fc8-ae7a-ba92eeb6b0b1 | bash scripts/job_status.sh
+bash scripts/job_status.sh 895a996b-b0fa-4fc8-ae7a-ba92eeb6b0b1
 ```
 
 ```txt [Terminal]
@@ -174,7 +174,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 We then examine the `gpu-agent` logs and see a series of out of memory errors:
 
 ```sh [Terminal]
-docker logs bento-gpu_agent0
+docker logs bento-gpu_prove_agent0-1
 ```
 
 ```log [Terminal]
@@ -240,7 +240,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 4096
 #### Review the Effective Hz
 
 ```sh [Terminal]
-echo <JOB_ID> | bash scripts/job_status.sh
+bash scripts/job_status.sh <JOB_ID>
 ```
 
 ```txt [Example Results]

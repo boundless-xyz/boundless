@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ use std::{
 use alloy::{
     hex::FromHex,
     primitives::{Address, Bytes, PrimitiveSignature, U256},
-    sol_types::SolValue,
+    sol_types::{SolStruct, SolValue},
 };
 use anyhow::{ensure, Context, Result};
 use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled};
@@ -72,13 +72,15 @@ async fn main() -> Result<()> {
     let set_builder_elf = fetch_url(&args.set_builder_url).await?;
     let assessor_elf = fetch_url(&args.assessor_url).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
-    let prover = DefaultProver::new(set_builder_elf, assessor_elf, args.prover_address, domain)?;
+    let prover =
+        DefaultProver::new(set_builder_elf, assessor_elf, args.prover_address, domain.clone())?;
+    let request =
+        <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?, true)
+            .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
+    let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
     let order = Order {
-        request: <ProofRequest>::abi_decode(
-            &hex::decode(args.request.trim_start_matches("0x"))?,
-            true,
-        )
-        .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?,
+        request,
+        request_digest,
         signature: PrimitiveSignature::try_from(
             Bytes::from_hex(args.signature.trim_start_matches("0x"))?.as_ref(),
         )?,

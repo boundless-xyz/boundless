@@ -228,6 +228,10 @@ pub enum RequestError {
     /// The offer is missing.
     #[error("missing offer")]
     MissingOffer,
+
+    /// Request digest mismatch.
+    #[error("request digest mismatch")]
+    DigestMismatch,
 }
 
 #[cfg(not(target_os = "zkvm"))]
