@@ -33,6 +33,7 @@ use url::Url;
 use boundless_market::{
     contracts::{
         AssessorReceipt, EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, InputType,
+        SteelCommitment,
     },
     input::GuestEnv,
     order_stream_client::Order,
@@ -71,6 +72,7 @@ impl OrderFulfilled {
             selectors: vec![],
             prover,
             callbacks: vec![],
+            steel_commitment: SteelCommitment::EMPTY,
         };
 
         Ok(OrderFulfilled {

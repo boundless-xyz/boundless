@@ -248,6 +248,7 @@ where
             selectors: vec![],
             prover: self.prover_address,
             callbacks: vec![],
+            steel_commitment: SteelCommitment::EMPTY,
         };
         if single_txn_fulfill {
             if let Err(err) = self

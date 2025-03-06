@@ -10,8 +10,6 @@ import {SteelCommitment} from "./SteelCommitment.sol";
 /// @title AssessorReceipt Struct and Library
 /// @notice Represents the output of the assessor and proof of correctness, allowing request fulfillment.
 struct AssessorReceipt {
-    /// @notice The commitment of the journal.
-    SteelCommitment commitment;
     /// @notice Cryptographic proof for the validity of the execution results.
     /// @dev This will be sent to the `IRiscZeroVerifier` associated with this contract.
     bytes seal;
@@ -21,4 +19,8 @@ struct AssessorReceipt {
     Selector[] selectors;
     /// @notice Address of the prover
     address prover;
+    /// @notice Steel block commitment against which any ERC-1271 smart contract signatures are verified.
+    /// @dev If no requests in the batch are authorized by smart contract signatures, the prover is
+    /// not required to provide an EVM env. In this case, this field will be set to all zeroes.
+    SteelCommitment steel_commitment;
 }

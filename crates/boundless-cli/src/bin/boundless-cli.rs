@@ -493,6 +493,10 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
 
             let (request, sig) =
                 boundless_market.get_submitted_request(request_id, tx_hash).await?;
+
+            // DO NOT MERGE: Check for use of smart contract signatures or selectors here, neither
+            // or which are currently supported.
+
             tracing::debug!("Fulfilling request {:?}", request);
             request.verify_signature(
                 &sig,
