@@ -211,6 +211,9 @@ jobs:
         with:
           risczero-version: '1.2.5'
           toolchain-version: 'r0.1.81.0'
+      
+      - name: build
+        run: cargo build --locked
 
       - name: check order-stream
         run: cargo check --locked -p order-stream --bin order_stream
