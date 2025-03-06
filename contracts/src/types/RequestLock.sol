@@ -48,7 +48,7 @@ struct RequestLock {
     /// There is another option here, which would be to have the request lock mapping index
     /// based on request digest instead of index. As a friction, this would introduce a second
     /// user-facing concept of what identifies a request.
-    bytes8 fingerprint;
+    // bytes8 fingerprint;
     ///
     /// Storage slot 3
     ///
@@ -73,7 +73,7 @@ library RequestLockLibrary {
         // Zero out second slot for gas refund.
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
-        requestLock.fingerprint = bytes8(0);
+        // requestLock.fingerprint = bytes8(0);
         // Zero out third slot for gas refund.
         requestLock.requestDigest = bytes32(0);
     }
@@ -91,7 +91,7 @@ library RequestLockLibrary {
         // Zero out second slot for gas refund.
         requestLock.price = uint96(0);
         requestLock.stake = uint96(0);
-        requestLock.fingerprint = bytes8(0);
+        // requestLock.fingerprint = bytes8(0);
         // Zero out third slot for gas refund.
         requestLock.requestDigest = bytes32(0);
     }
