@@ -19,24 +19,9 @@
 use alloy_primitives::{Address, PrimitiveSignature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
-use boundless_market::contracts::{request_id_to_parts, EIP721DomainSaltless, ProofRequest};
-use risc0_steel::{alloy::sol, Contract};
+use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
-
-sol! {
-    interface IERC1271 {
-        function isValidSignature(
-            bytes32 hash,
-            bytes memory signature)
-            public
-            view
-            returns (bytes4 magicValue);
-    }
-}
-
-/// The magic value returned by ERC1271 contracts to indicate a valid signature.
-const ERC1271_MAGICVALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
 
 /// Fulfillment contains a signed request, including offer and requirements,
 /// that the prover has completed, and the journal committed
@@ -58,29 +43,16 @@ pub struct Fulfillment {
 impl Fulfillment {
     // TODO: Change this to use a thiserror error type.
     /// Verifies the signature of the request.
-    pub fn verify_signature(&self, domain: &Eip712Domain, env: &GuestEvmEnv) -> Result<[u8; 32]> {
+    pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32]> {
         let hash = self.request.eip712_signing_hash(domain);
-
-        let request_id = self.request.id;
-        let (addr, _index, is_contract_sig) = request_id_to_parts(request_id);
-        if is_contract_sig {
-            let call = IERC1271::isValidSignatureCall { hash, signature: self.signature.into() };
-
-            let returns = Contract::new(addr, &env).call_builder(&call).call();
-            if returns.magicValue != ERC1271_MAGICVALUE {
-                bail!("Invalid smart contract signature addr {addr}");
-            }
-        } else {
-            let signature = PrimitiveSignature::try_from(self.signature.as_slice())?;
-            let signature = PrimitiveSignature::try_from(self.signature.as_slice())?;
-            // NOTE: This could be optimized by accepting the public key as input, checking it against
-            // the address, and using it to verify the signature instead of recovering the
-            // public key. It would save ~1M cycles.
-            let recovered = signature.recover_address_from_prehash(&hash)?;
-            let client_addr = self.request.client_address()?;
-            if recovered != self.request.client_address()? {
-                bail!("Invalid signature: mismatched addr {recovered} - {client_addr}");
-            }
+        let signature = PrimitiveSignature::try_from(self.signature.as_slice())?;
+        // NOTE: This could be optimized by accepting the public key as input, checking it against
+        // the address, and using it to verify the signature instead of recovering the
+        // public key. It would save ~1M cycles.
+        let recovered = signature.recover_address_from_prehash(&hash)?;
+        let client_addr = self.request.client_address()?;
+        if recovered != self.request.client_address()? {
+            bail!("Invalid signature: mismatched addr {recovered} - {client_addr}");
         }
         Ok(hash.into())
     }
@@ -127,34 +99,22 @@ impl AssessorInput {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
-
     use super::*;
+    use alloy::{
+        primitives::{Address, B256, U256},
+        signers::local::PrivateKeySigner,
+    };
     use boundless_market::contracts::{
-        eip712_domain, request_id_to_parts, Input, InputType, Offer, Predicate, PredicateType,
-        ProofRequest, Requirements,
+        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
+        Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use revm::primitives::SpecId;
-    use risc0_steel::{
-        alloy::{
-            primitives::{Address, B256, U256},
-            providers::ProviderBuilder,
-            signers::local::PrivateKeySigner,
-        },
-        host::BlockNumberOrTag,
-        Contract,
-    };
-    use risc0_steel::{config::ChainSpec, ethereum::EthEvmEnv};
     use risc0_zkvm::{
         default_executor,
         sha::{Digest, Digestible},
         ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
     };
-
-    const ANVIL_CHAIN_SPEC: LazyLock<ChainSpec> =
-        LazyLock::new(|| ChainSpec::new_single(31337, SpecId::CANCUN)); // 20 = Cancun
 
     fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
         ProofRequest::new(
@@ -238,51 +198,18 @@ mod tests {
         )
     }
 
-    async fn assessor(claims: Vec<Fulfillment>, receipts: Vec<Receipt>) {
+    fn assessor(claims: Vec<Fulfillment>, receipts: Vec<Receipt>) {
         let assessor_input = AssessorInput {
             domain: eip712_domain(Address::ZERO, 1),
-            fills: claims.clone(),
+            fills: claims,
             prover_address: Address::ZERO,
         };
-
-        // Create an EVM environment from that provider defaulting to the latest block.
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .on_anvil_with_wallet_and_config(|anvil| anvil.args(["--hardfork", "cancun"]));
-        let mut env = EthEvmEnv::builder()
-            .provider(provider.clone())
-            .block_number_or_tag(BlockNumberOrTag::Latest)
-            .build()
-            .await
-            .unwrap()
-            .with_chain_spec(&ANVIL_CHAIN_SPEC);
-
-        for claim in claims {
-            let request_id = claim.request.id;
-            let (addr, _index, is_contract_sig) = request_id_to_parts(request_id);
-            if is_contract_sig {
-                // Prepare the function call
-                let hash = claim.request.eip712_signing_hash(&assessor_input.domain.alloy_struct());
-
-                let call =
-                    IERC1271::isValidSignatureCall { hash, signature: claim.signature.into() };
-
-                // Preflight the call to prepare the input that is required to execute the function in
-                // the guest without RPC access. It also returns the result of the call.
-                let mut contract = Contract::preflight(addr, &mut env);
-                contract.call_builder(&call).call().await.expect("invalid signature");
-            }
-        }
-
-        let evm_input = env.into_input().await.unwrap();
         let mut env_builder = ExecutorEnv::builder();
         env_builder.write_slice(&assessor_input.to_vec());
-        env_builder.write(&evm_input);
         for receipt in receipts {
             env_builder.add_assumption(receipt);
         }
         let env = env_builder.build().unwrap();
-
         let session = default_executor().execute(env, ASSESSOR_GUEST_ELF).unwrap();
         assert_eq!(session.exit_code, ExitCode::Halted(0));
     }

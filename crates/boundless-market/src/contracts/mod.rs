@@ -25,7 +25,7 @@ use alloy::{
     transports::TransportError,
 };
 use alloy_primitives::{
-    aliases::{U160, U96, U32},
+    aliases::{U160, U32, U96},
     Address, Bytes, FixedBytes, B256, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
@@ -184,9 +184,7 @@ pub struct RequestId {
 impl RequestId {
     /// Create a [RequestId] with the given [Address] and index. Sets flags to default values.
     pub fn new(addr: Address, index: u32) -> Self {
-        Self {
-            addr, index, smart_contract_signed: false,
-        }
+        Self { addr, index, smart_contract_signed: false }
     }
 
     /// Create a packed [RequestId] with the given [Address] and index. Sets flags to default values.
@@ -212,7 +210,8 @@ impl From<RequestId> for U256 {
     fn from(value: RequestId) -> Self {
         #[allow(clippy::unnecessary_fallible_conversions)] // U160::from does not compile
         let addr = U160::try_from(value.addr).unwrap();
-        let smart_contract_signed_flag = if value.smart_contract_signed { U256::from(1) } else { U256::ZERO };
+        let smart_contract_signed_flag =
+            if value.smart_contract_signed { U256::from(1) } else { U256::ZERO };
         smart_contract_signed_flag << 192 | (U256::from(addr) << 32) | U256::from(value.index)
     }
 }
@@ -1125,7 +1124,7 @@ mod tests {
         contract_addr: Address,
         chain_id: u64,
     ) -> (ProofRequest, [u8; 65]) {
-        let request_id = RequestId::u256(&signer_addr, order_id);
+        let request_id = RequestId::u256(signer_addr, order_id);
 
         let req = ProofRequest {
             id: request_id,
@@ -1181,26 +1180,5 @@ mod tests {
 
         client_sig[0] = 1;
         req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_request_id_to_parts() {
-        // Test case 1: Regular signature
-        let request_id1 =
-            U256::from_str("3130239009558586413752262552917257075388277690201777635428").unwrap();
-        let (addr1, idx1, is_smart_contract1) = request_id_to_parts(request_id1);
-
-        assert_eq!(addr1, Address::from_str("0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496").unwrap());
-        assert_eq!(idx1, 100);
-        assert!(!is_smart_contract1);
-
-        // Test case 2: Smart contract signature
-        let request_id2 =
-            U256::from_str("9407340744945267177588051976124923491490633134665812148266").unwrap();
-        let (addr2, idx2, is_smart_contract2) = request_id_to_parts(request_id2);
-
-        assert_eq!(addr2, Address::from_str("0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496").unwrap());
-        assert_eq!(idx2, 42);
-        assert!(is_smart_contract2);
     }
 }

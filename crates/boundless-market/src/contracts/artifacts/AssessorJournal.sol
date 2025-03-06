@@ -3,7 +3,6 @@
 // All rights reserved.
 pragma solidity ^0.8.20;
 
-import {SteelCommitment} from "./SteelCommitment.sol";
 import {AssessorCallback} from "./AssessorCallback.sol";
 import {Selector} from "./Selector.sol";
 
@@ -12,8 +11,6 @@ import {Selector} from "./Selector.sol";
 /// from client(s) and that the requirements are met by claim digest(s) in the Merkle tree committed
 /// to by the given root.
 struct AssessorJournal {
-    /// @notice The commitment of the journal.
-    SteelCommitment commitment;
     /// @notice Digest of each request validated by the assessor.
     /// @dev When a client signs two requests with the same ID, only one can ever be fulfilled.
     /// Using the digest here ensures that the request validated by the assessor matches the one that was locked / priced.

@@ -19,7 +19,6 @@ import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/I
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket} from "./IBoundlessMarket.sol";
-import {SteelCommitment} from "./types/SteelCommitment.sol";
 import {IBoundlessMarketCallback} from "./IBoundlessMarketCallback.sol";
 import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
@@ -120,9 +119,9 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
-        (address client, uint32 idx, bool isSmartContractSig) = request.id.clientIndexAndSignatureType();
+        (address client, uint32 idx, bool smartContractSigned) = request.id.clientIndexAndSignatureType();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        request.verifyClientSignature(requestHash, client, clientSignature, isSmartContractSig);
+        request.verifyClientSignature(requestHash, client, clientSignature, smartContractSigned);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
         _lockRequest(request, requestHash, client, idx, msg.sender, lockDeadline, deadline);
@@ -135,9 +134,9 @@ contract BoundlessMarket is
         address prover,
         bytes calldata proverSignature
     ) external {
-        (address client, uint32 idx, bool isSmartContractSig) = request.id.clientIndexAndSignatureType();
+        (address client, uint32 idx, bool smartContractSigned) = request.id.clientIndexAndSignatureType();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        request.verifyClientSignature(requestHash, client, clientSignature, isSmartContractSig);
+        request.verifyClientSignature(requestHash, client, clientSignature, smartContractSigned);
         request.verifyProverSignature(requestHash, prover, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
@@ -220,9 +219,9 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client, , bool isSmartContractSig) = request.id.clientIndexAndSignatureType();
+        (address client, , bool smartContractSigned) = request.id.clientIndexAndSignatureType();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        request.verifyClientSignature(requestHash, client, clientSignature, isSmartContractSig);
+        request.verifyClientSignature(requestHash, client, clientSignature, smartContractSigned);
 
         request.validateForPriceRequest();
 
@@ -252,8 +251,7 @@ contract BoundlessMarket is
                     selectors: assessorReceipt.selectors,
                     callbacks: assessorReceipt.callbacks,
                     root: claimDigest,
-                    prover: assessorReceipt.prover,
-                    commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})
+                    prover: assessorReceipt.prover
                 })
             )
         );
@@ -311,8 +309,7 @@ contract BoundlessMarket is
                     root: batchRoot,
                     callbacks: assessorReceipt.callbacks,
                     selectors: assessorReceipt.selectors,
-                    prover: assessorReceipt.prover,
-                    commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})
+                    prover: assessorReceipt.prover
                 })
             )
         );

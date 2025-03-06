@@ -8,7 +8,6 @@ import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Selector} from "../src/types/Selector.sol";
 import "../src/BoundlessMarket.sol";
-import "../src/types/SteelCommitment.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 
@@ -36,8 +35,7 @@ library TestUtils {
                 root: root,
                 selectors: selectors,
                 callbacks: callbacks,
-                prover: prover, 
-                commitment: SteelCommitment({id: 0, digest: bytes32(0), configID: bytes32(0)})
+                prover: prover
             })
         );
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
