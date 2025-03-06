@@ -81,10 +81,6 @@ contract BoundlessMarket is
     /// gas of an SLOAD. Can only be changed via contract upgrade.
     uint96 public constant MARKET_FEE_BPS = 0;
 
-    /// @notice Balance owned by the market contract itself. This balance is collected from fees,
-    /// when the fee rate is set to a non-zero value.
-    uint256 internal marketBalance;
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
         VERIFIER = verifier;
@@ -540,7 +536,7 @@ contract BoundlessMarket is
 
     function _applyMarketFee(uint96 proverPayment) internal returns (uint96) {
         uint96 fee = proverPayment * MARKET_FEE_BPS / 10000;
-        marketBalance += fee;
+        accounts[address(this)].balance += fee;
         return proverPayment - fee;
     }
 
@@ -664,6 +660,21 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
+    function withdrawFromTreasury(uint256 value) public onlyOwner {
+        if (accounts[address(this)].balance < value.toUint96()) {
+            revert InsufficientBalance(address(this));
+        }
+        unchecked {
+            accounts[address(this)].balance -= value.toUint96();
+        }
+        (bool sent,) = msg.sender.call{value: value}("");
+        if (!sent) {
+            revert TransferFailed();
+        }
+        emit Withdrawal(address(this), value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
     function depositStake(uint256 value) external {
         // Transfer tokens from user to market
         _depositStake(msg.sender, value);
@@ -700,6 +711,20 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function balanceOfStake(address addr) public view returns (uint256) {
         return uint256(accounts[addr].stakeBalance);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function withdrawFromStakeTreasury(uint256 value) public onlyOwner {
+        if (accounts[address(this)].stakeBalance < value.toUint96()) {
+            revert InsufficientBalance(address(this));
+        }
+        unchecked {
+            accounts[address(this)].stakeBalance -= value.toUint96();
+        }
+        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        if (!success) revert TransferFailed();
+
+        emit StakeWithdrawal(address(this), value);
     }
 
     /// @inheritdoc IBoundlessMarket

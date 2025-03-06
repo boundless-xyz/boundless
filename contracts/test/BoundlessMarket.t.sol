@@ -6,6 +6,7 @@ pragma solidity ^0.8.20;
 
 import {console} from "forge-std/console.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Test} from "forge-std/Test.sol";
@@ -579,6 +580,44 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(address(testProver));
         boundlessMarket.withdraw(DEFAULT_BALANCE + 1);
         expectMarketBalanceUnchanged();
+    }
+
+    function testWithdrawFromTreasury() public {
+        // Deposit funds into the market
+        vm.deal(address(boundlessMarket), 1 ether);
+        vm.prank(address(boundlessMarket));
+        boundlessMarket.deposit{value: 1 ether}();
+
+        // Attempt to withdraw funds from the treasury from an unauthorized account.
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(testProver)));
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawFromTreasury(1 ether);
+
+        uint256 initialBalance = OWNER_WALLET.addr.balance;
+        // Withdraw funds from the treasury
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Withdrawal(address(boundlessMarket), 1 ether);
+        vm.prank(OWNER_WALLET.addr);
+        boundlessMarket.withdrawFromTreasury(1 ether);
+        assert(boundlessMarket.balanceOf(address(boundlessMarket)) == 0);
+        assert(OWNER_WALLET.addr.balance == 1 ether + initialBalance);
+    }
+
+    function testWithdrawFromStakeTreasury() public {
+        testSlashLockedRequestFullyExpired();
+
+        // Attempt to withdraw funds from the stake treasury from an unauthorized account.
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(testProver)));
+        vm.prank(address(testProver));
+        boundlessMarket.withdrawFromStakeTreasury(0.25 ether);
+
+        // Withdraw funds from the stake treasury
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.StakeWithdrawal(address(boundlessMarket), 0.25 ether);
+        vm.prank(OWNER_WALLET.addr);
+        boundlessMarket.withdrawFromStakeTreasury(0.25 ether);
+        assert(boundlessMarket.balanceOfStake(address(boundlessMarket)) == 0);
+        assert(stakeToken.balanceOf(OWNER_WALLET.addr) == 0.25 ether);
     }
 
     function testWithdrawals() public {
