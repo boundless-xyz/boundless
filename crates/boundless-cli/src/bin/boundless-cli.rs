@@ -26,7 +26,7 @@ use alloy::{
     primitives::{
         aliases::U96,
         utils::{format_ether, parse_ether},
-        Address, Bytes, FixedBytes, PrimitiveSignature, B256, U256,
+        Address, Bytes, FixedBytes, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
@@ -53,7 +53,6 @@ use boundless_market::{
         PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
-    order_stream_client::Order,
     storage::{StorageProvider, StorageProviderConfig},
 };
 
@@ -171,27 +170,45 @@ enum Command {
         #[arg(long, conflicts_with = "request_path")]
         request_id: Option<U256>,
 
+        /// The request digest
+        ///
+        /// If provided along with request-id, uses the request digest to find the request.
+        #[arg(long)]
+        request_digest: Option<B256>,
+
         /// The tx hash of the request submission.
         ///
         /// If provided along with request-id, uses the transaction hash to find the request.
         #[arg(long, conflicts_with = "request_path", requires = "request_id")]
         tx_hash: Option<B256>,
+
+        /// The order stream service URL.
+        ///
+        /// If provided, the request will be fetched offchain via the provided order stream service URL.
+        #[arg(long, conflicts_with_all = ["request_path", "tx_hash"])]
+        order_stream_url: Option<Url>,
     },
     /// Fulfill a proof request using the RISC Zero zkVM default prover
     Fulfill {
         /// The proof request identifier
         #[arg(long)]
         request_id: U256,
+        /// The request digest
+        #[arg(long)]
+        request_digest: Option<B256>,
         /// The tx hash of the request submission
         #[arg(long)]
         tx_hash: Option<B256>,
+        /// The order stream service URL.
+        ///
+        /// If provided, the request will be fetched offchain via the provided order stream service URL.
+        #[arg(long, conflicts_with_all = ["tx_hash"])]
+        order_stream_url: Option<Url>,
         /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
         /// request is locked to another prover).
         #[arg(long, default_value = "false")]
         require_payment: bool,
     },
-    /// Unfreeze a prover's account after being slashed
-    Unfreeze,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -456,13 +473,29 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             let status = boundless_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
         }
-        Command::Execute { request_id, request_path, tx_hash } => {
+        Command::Execute {
+            request_id,
+            request_digest,
+            request_path,
+            tx_hash,
+            order_stream_url,
+        } => {
             let request: ProofRequest = if let Some(file_path) = request_path {
                 let file = File::open(file_path).context("failed to open request file")?;
                 let reader = BufReader::new(file);
                 serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
             } else if let Some(request_id) = request_id {
-                boundless_market.get_submitted_request(request_id, tx_hash).await?.0
+                let client = ClientBuilder::default()
+                    .with_private_key(args.private_key.clone())
+                    .with_rpc_url(args.rpc_url.clone())
+                    .with_boundless_market_address(args.boundless_market_address)
+                    .with_set_verifier_address(args.set_verifier_address)
+                    .with_order_stream_url(order_stream_url.clone())
+                    .with_timeout(args.tx_timeout)
+                    .build()
+                    .await?;
+                let order = client.fetch_order(request_id, tx_hash, request_digest).await?;
+                order.request
             } else {
                 bail!("execute requires either a request file path or request ID")
             };
@@ -474,7 +507,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Execution succeeded.");
             tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
         }
-        Command::Fulfill { request_id, tx_hash, require_payment } => {
+        Command::Fulfill {
+            request_id,
+            request_digest,
+            tx_hash,
+            order_stream_url,
+            require_payment,
+        } => {
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
@@ -491,15 +530,24 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
 
             let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
 
-            let (request, sig) =
-                boundless_market.get_submitted_request(request_id, tx_hash).await?;
-            tracing::debug!("Fulfilling request {:?}", request);
-            request.verify_signature(
+            let client = ClientBuilder::default()
+                .with_private_key(args.private_key.clone())
+                .with_rpc_url(args.rpc_url.clone())
+                .with_boundless_market_address(args.boundless_market_address)
+                .with_set_verifier_address(args.set_verifier_address)
+                .with_order_stream_url(order_stream_url.clone())
+                .with_timeout(args.tx_timeout)
+                .build()
+                .await?;
+
+            let order = client.fetch_order(request_id, tx_hash, request_digest).await?;
+            tracing::debug!("Fulfilling request {:?}", order.request);
+            let sig: Bytes = order.signature.as_bytes().into();
+            order.request.verify_signature(
                 &sig,
                 args.boundless_market_address,
                 boundless_market.get_chain_id().await?,
             )?;
-            let order = Order { request, signature: PrimitiveSignature::try_from(sig.as_ref())? };
 
             let (fill, root_receipt, _, assessor_receipt) =
                 prover.fulfill(order.clone(), require_payment).await?;
@@ -532,10 +580,6 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     tracing::error!("Failed to fulfill request 0x{:x}: {}", request_id, e);
                 }
             }
-        }
-        Command::Unfreeze => {
-            boundless_market.unfreeze_account().await?;
-            tracing::info!("Account unfrozen");
         }
     };
 
