@@ -24,6 +24,7 @@ use std::{
 use alloy::{
     network::Ethereum,
     primitives::{
+        aliases::U96,
         utils::{format_ether, parse_ether},
         Address, Bytes, FixedBytes, B256, U256,
     },
@@ -48,7 +49,7 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, Input, InputType, Offer, Predicate,
+        boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
         PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
@@ -199,8 +200,6 @@ enum Command {
         #[arg(long, default_value = "false")]
         require_payment: bool,
     },
-    /// Unfreeze a prover's account after being slashed
-    Unfreeze,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -262,6 +261,12 @@ struct SubmitOfferRequirements {
     /// Journal prefix to use as the predicate in the requirements.
     #[clap(long)]
     journal_prefix: Option<String>,
+    /// Address of the callback to use in the requirements.
+    #[clap(long, requires = "callback_gas_limit")]
+    callback_addr: Option<Address>,
+    /// Gas limit of the callback to use in the requirements.
+    #[clap(long, requires = "callback_addr")]
+    callback_gas_limit: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
@@ -555,10 +560,6 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 }
             }
         }
-        Command::Unfreeze => {
-            boundless_market.unfreeze_account().await?;
-            tracing::info!("Account unfrozen");
-        }
     };
 
     Ok(request_id)
@@ -622,6 +623,11 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
+    let callback = match (&args.reqs.callback_addr, &args.reqs.callback_gas_limit) {
+        (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
+        _ => Callback::default(),
+    };
+
     // Compute the image_id, then upload the ELF.
     let elf_url = client.upload_image(&elf).await?;
     let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&elf)?));
@@ -642,7 +648,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate, selector: FixedBytes::<4>([0; 4]) },
+        Requirements { imageId: image_id, predicate, callback, selector: FixedBytes::<4>([0; 4]) },
         elf_url,
         requirements_input,
         offer.clone(),
