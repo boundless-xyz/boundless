@@ -154,9 +154,6 @@ interface IBoundlessMarket {
     /// @notice Error when the batch size exceeds the limit.
     error BatchSizeExceedsLimit(uint256 batchSize, uint256 limit);
 
-    /// @notice Error when the assessor's commitment is invalid.
-    error InvalidCommitment();
-
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
     /// @param requestId The ID of the request.
