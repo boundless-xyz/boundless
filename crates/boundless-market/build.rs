@@ -193,32 +193,87 @@ fn copy_interfaces_and_types() {
     }
 }
 
-fn copy_artifacts() {
+fn generate_contracts_rust_file() {
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let src_path =
         Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("out");
 
-    // If the contracts directory doesn't exist, for instance when running `cargo publish`,
-    // we skip the contract bytecode generation.
-    if !src_path.exists() {
+    // Check if we're running under cargo publish
+    let is_cargo_publish = std::env::var("CARGO_RELEASE_UPLOAD").is_ok();
+
+    // If running under cargo publish and the contracts directory doesn't exist,
+    // we should exit early rather than fail trying to find contract JSON files
+    if is_cargo_publish && !src_path.exists() {
         println!("cargo:warning=Skipping contract bytecode generation during cargo publish");
         return;
     }
 
+    // Start with file header content
+    let mut rust_content = String::from("// Auto-generated file, do not edit manually\n\n");
+
     for contract in ARTIFACT_TARGET_CONTRACTS {
         let source_path = src_path.join(format!("{contract}.sol/{contract}.json"));
+        if !source_path.exists() {
+            println!("cargo:warning=Skipping contract bytecode generation");
+            return;
+        }
         // Tell cargo to rerun if this contract changes
         println!("cargo:rerun-if-changed={}", source_path.display());
 
         if source_path.exists() {
-            // copy the file to the destination without directory prefixes
-            let dest_file_path = Path::new(&manifest_dir)
-                .join("src/contracts/artifacts")
-                .join(format!("{contract}.json"));
-            println!("Copying {:?} to {:?}", source_path, dest_file_path);
-            std::fs::copy(&source_path, dest_file_path).unwrap();
+            // Read and parse the JSON file
+            let json_content = fs::read_to_string(&source_path).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&json_content).unwrap();
+
+            // Extract the bytecode, removing "0x" prefix if present
+            let bytecode = json["bytecode"]["object"]
+                .as_str()
+                .ok_or(format!(
+                    "failed to extract bytecode from {}",
+                    source_path.as_os_str().to_string_lossy()
+                ))
+                .unwrap()
+                .trim_start_matches("0x");
+
+            // Append the contract definition with embedded bytecode
+            rust_content.push_str(&format!(
+                r#"alloy::sol! {{
+    #[sol(rpc, bytecode = "{}")]
+    contract {} {{
+        {}
+    }}
+}}"#,
+                bytecode,
+                contract,
+                get_interfaces(contract)
+            ));
+
+            // Only add newline between contracts, not after the last one
+            if contract != *ARTIFACT_TARGET_CONTRACTS.last().unwrap() {
+                rust_content.push_str("\n\n");
+            }
         }
+    }
+    rust_content.push('\n');
+    let dest_path = Path::new(&manifest_dir).join("src/contracts/bytecode.rs");
+    fs::write(dest_path, rust_content).unwrap();
+}
+
+// Helper function to define interfaces for each contract
+fn get_interfaces(contract: &str) -> &str {
+    match contract {
+        "RiscZeroMockVerifier" => "constructor(bytes4 selector) {}",
+        "RiscZeroSetVerifier" => {
+            "constructor(address verifier, bytes32 imageId, string memory imageUrl) {}"
+        }
+        "BoundlessMarket" => {
+            r#"constructor(address verifier, bytes32 assessorId, address stakeTokenContract) {}
+            function initialize(address initialOwner, string calldata imageUrl) {}"#
+        }
+        "ERC1967Proxy" => "constructor(address implementation, bytes memory data) payable {}",
+        "HitPoints" => "constructor(address initialOwner) payable {}",
+        _ => "",
     }
 }
 
@@ -232,6 +287,6 @@ fn main() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
 
     if target_os != "zkvm" {
-        copy_artifacts();
+        generate_contracts_rust_file();
     }
 }
