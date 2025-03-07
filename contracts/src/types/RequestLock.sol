@@ -25,12 +25,15 @@ struct RequestLock {
     /// @notice Flags that indicate the state of the request lock.
     uint8 requestLockFlags;
     ///
-    /// Storage slots 1 - 2
+    /// Storage slots 1 
     ///
     /// @notice The price that the prover will be paid for fulfilling the request.
     uint96 price;
     // Prover stake that may be taken if a proof is not delivered by the deadline.
     uint96 stake;
+    ///
+    /// Storage slot 2
+    ///
     /// @notice Keccak256 hash of the request. During fulfillment, this value is used
     /// to check that the request completed is the request that was locked, and not some other
     /// request with the same ID.
@@ -67,14 +70,13 @@ library RequestLockLibrary {
         requestLock.requestLockFlags = PROVER_PAID_AFTER_LOCK_FLAG;
         // We don't zero out slot 1 as stake information is required for slashing.
         // Zero out slot 2 for gas refund.
-        // Clearing via requestLock.requestDigest = bytes32(0)
-        // would require touching slot 1 as well.
         clearSlot2(requestLock);
     }
 
     function setSlashed(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags |= SLASHED_FLAG;
-        // Zero out slots 1-2 for gas refund.
+        // Zero out slots 1-2 for gas refund. Slot 2 may have already been zeroed out
+        // in the case where the request ended up being fulfilled after the lock deadline.
         clearSlot1And2(requestLock);
     }
 

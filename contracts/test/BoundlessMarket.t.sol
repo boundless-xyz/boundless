@@ -1427,6 +1427,53 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (request, locker);
     }
 
+    // A request is locked with a valid smart contract signature (signature is checked onchain at lock time)
+    // and then a prover tries to fulfill it specifying an invalid smart contract signature. The signature could
+    // be invalid for a number of reasons, including the smart contract wallet rotating their signers so the old signature
+    // is no longer valid. 
+    // Since there is possibility of funds being pulled in the multiple request same id case, we ensure we check 
+    // the SC signature again.
+    function testFulfillWasLockedRequestByInvalidSmartContractSignature() public {
+        SmartContractClient client = getSmartContractClient(1);
+        // Request ID indicates smart contract signature, but the signature is invalid.
+        ProofRequest memory request = client.request(
+            1,
+            Offer({
+                minPrice: 1 ether,
+                maxPrice: 2 ether,
+                biddingStart: uint64(block.number),
+                rampUpPeriod: uint32(50),
+                lockTimeout: uint32(50),
+                timeout: uint32(100),
+                lockStake: 1 ether
+            })
+        );
+        bytes memory validClientSignature = client.sign(request);
+        bytes memory invalidClientSignature = bytes("invalid");
+
+        boundlessMarket.lockRequestWithSignature(request, validClientSignature, testProver.sign(request));
+        vm.roll(request.offer.lockDeadline() + 1);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+
+        // Fulfill should revert as the request is not priced, and pricing is where signatures are checked.
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
+        boundlessMarket.fulfill(fill, assessorReceipt);
+
+        // Fulfill should revert during the signature check during pricing, since the signature is invalid.
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidSignature.selector));
+        boundlessMarket.priceAndFulfill(request, invalidClientSignature, fill, assessorReceipt);
+
+        // Fulfill should succeed if the signature is valid.
+        boundlessMarket.priceAndFulfill(request, validClientSignature, fill, assessorReceipt);
+        expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-2 ether);
+        testProver.expectBalanceChange(2 ether);
+        expectMarketBalanceUnchanged();
+    }
+
     function testFulfillNeverLocked() public {
         _testFulfillSameBlock(1, LockRequestMethod.None, "priceAndFulfillBatch: a single request that was not locked");
     }

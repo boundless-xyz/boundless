@@ -520,9 +520,12 @@ contract BoundlessMarket is
         // then payment cannot be processed. This check also serves as
         // 1/ an expiration check since fulfillment contexts cannot be created for expired requests.
         // 2/ a smart contract signature check, since signatures are validated when a request is priced.
+        //
+        // Request priced, where request id indicates ecdsa (so client signature check is skipped).
+        // Fulfill called, EOA signature is checked in assessor for the given digest. 
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
+            revert RequestIsNotPriced(id);
         }
         uint96 price = context.price;
 
