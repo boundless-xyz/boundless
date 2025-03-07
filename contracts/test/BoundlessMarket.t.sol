@@ -938,7 +938,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         // Attempt to lock the request after it has expired
         // should revert with "RequestIsExpired({requestId: request.id, deadline: deadline})"
@@ -1447,7 +1447,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.lockRequest(request, clientSignature);
 
         // Advance the chain ahead to simulate the lock timeout.
-        vm.roll(request.offer.lockDeadline() + 1);
+        vm.warp(request.offer.lockDeadline() + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(locker));
@@ -1512,7 +1512,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         vm.expectRevert(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
@@ -1557,7 +1557,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
                 // TODO: This is a fragile part of this test. It should be improved.
                 uint256 desiredPrice = uint256(1.5 ether);
-                vm.roll(request.offer.blockAtPrice(desiredPrice));
+                vm.warp(request.offer.timeAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
                 boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
@@ -1610,7 +1610,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
                 // TODO: This is a fragile part of this test. It should be improved.
                 uint256 desiredPrice = uint256(1.5 ether);
-                vm.roll(request.offer.blockAtPrice(desiredPrice));
+                vm.warp(request.offer.timeAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
                 boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
@@ -1876,7 +1876,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.fulfill(fill, assessorReceipt);
         expectRequestFulfilled(fill.id);
 
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         // Slash the original prover that locked and didnt deliver
         vm.expectEmit(true, true, true, true);
@@ -1987,7 +1987,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testSlashWasLockedRequestFulfilledByOtherProver() public {
         snapshotMarketStakeTreasuryBalance();
         (ProofRequest memory request, Client otherProver) = testFulfillWasLockedRequestByOtherProver();
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
         otherProver.snapshotStakeBalance();
 
         // We expect the prover that ultimately fulfilled the request to receive stake.
@@ -2019,7 +2019,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testSlashWasLockedRequestFulfilledByLocker() public {
         snapshotMarketStakeTreasuryBalance();
         (ProofRequest memory request, Client prover) = testFulfillWasLockedRequestByOriginalLocker();
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         // We expect the prover that ultimately fulfilled the request to receive stake.
         // Burning = sending tokens to address 0, expect a transfer event to be emitted to address 0

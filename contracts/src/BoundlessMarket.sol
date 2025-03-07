@@ -160,7 +160,7 @@ contract BoundlessMarket is
         }
 
         // Compute the current price offered by the reverse Dutch auction.
-        uint96 price = request.offer.priceAtBlock(uint64(block.timestamp)).toUint96();
+        uint96 price = request.offer.priceAt(uint64(block.timestamp)).toUint96();
 
         // Deduct payment from the client account and stake from the prover account.
         Account storage clientAccount = accounts[client];
