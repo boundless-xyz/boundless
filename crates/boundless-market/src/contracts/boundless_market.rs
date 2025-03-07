@@ -433,9 +433,6 @@ where
     /// * The order is not locked by a different prover.
     /// * A prover has not been paid for the job already.
     /// * If not locked, the client has sufficient funds.
-    ///
-    /// When fulfillment has `require_payment` set to true, the transaction will revert if the
-    /// payment is not sent. Otherwise, an event will be logged on the transaction and returned.
     pub async fn fulfill(
         &self,
         fulfillment: &Fulfillment,
@@ -470,9 +467,6 @@ where
     /// * The order is not locked by a different prover.
     /// * A prover has not been paid for the job already.
     /// * If not locked, the client has sufficient funds.
-    ///
-    /// When fulfillment has `require_payment` set to true, the transaction will revert if the
-    /// payment is not sent. Otherwise, an event will be logged on the transaction and returned.
     pub async fn fulfill_and_withdraw(
         &self,
         fulfillment: &Fulfillment,
@@ -1925,7 +1919,6 @@ mod tests {
             imageId: B256::default(),
             journal: Bytes::from(vec![1, 2, 3]),
             seal: Bytes::from(vec![1, 2, 3]),
-            requirePayment: true,
         };
         let assessor_receipt = AssessorReceipt {
             seal: Bytes::from(vec![1, 2, 3]),
