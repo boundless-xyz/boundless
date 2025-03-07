@@ -1206,7 +1206,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         address otherProverAddress = address(otherProver);
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
-        
+
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
