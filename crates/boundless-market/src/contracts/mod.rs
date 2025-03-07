@@ -735,7 +735,6 @@ pub mod test_utils {
     );
 
     alloy::sol!(
-        #[allow(clippy::too_many_arguments)]
         #[allow(missing_docs)]
         #[sol(rpc)]
         HitPoints,
