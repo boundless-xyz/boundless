@@ -626,10 +626,10 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
-                rampUpPeriod: 1,
                 lockTimeout: 100,
+                rampUpPeriod: 1,
                 lockStake: U256::from(10),
             },
         );
@@ -669,7 +669,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -779,7 +779,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -797,14 +797,14 @@ mod tests {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
-            request: order_request,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
-            expire_timestamp: Some(now_timestamp() + 100),
+            expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
+            request: order_request,
         };
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
@@ -837,7 +837,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -855,14 +855,14 @@ mod tests {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
-            request: order_request,
             image_id: Some(image_id_str),
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
-            expire_timestamp: Some(now_timestamp() + 100),
+            expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
+            request: order_request,
         };
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
@@ -943,7 +943,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -1052,10 +1052,10 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 50,
-                rampUpPeriod: 1,
                 lockTimeout: 100,
+                rampUpPeriod: 1,
                 lockStake: U256::from(10),
             },
         );
@@ -1169,7 +1169,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 50,
                 lockTimeout: 100,
                 rampUpPeriod: 1,

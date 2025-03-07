@@ -1089,8 +1089,8 @@ where
         let max_price = U256::from(offer.maxPrice);
         let min_price = U256::from(offer.minPrice);
 
-        if timestamp < offer.biddingStart {
-            return Err(MarketError::Error(anyhow!("Block number before bidding start")));
+        if timestamp <= offer.biddingStart {
+            return Ok(offer.minPrice);
         }
 
         if timestamp < offer.biddingStart + offer.rampUpPeriod as u64 {
@@ -1379,11 +1379,11 @@ mod tests {
         parse_ether(value).unwrap()
     }
 
-    fn test_offer() -> Offer {
+    fn test_offer(bidding_start: u64) -> Offer {
         Offer {
             minPrice: ether("1"),
             maxPrice: ether("2"),
-            biddingStart: 100,
+            biddingStart: bidding_start,
             rampUpPeriod: 100,
             timeout: 500,
             lockTimeout: 500,
@@ -1490,7 +1490,7 @@ mod tests {
             ProviderBuilder::default().on_http(Url::from_str("http://rpc.null").unwrap()),
             Address::default(),
         );
-        let offer = &test_offer();
+        let offer = &test_offer(100);
 
         // Cannot calculate price before bidding start
         assert!(market.price_at(offer, 99).is_err());
@@ -1514,7 +1514,7 @@ mod tests {
             ProviderBuilder::default().on_http(Url::from_str("http://rpc.null").unwrap()),
             Address::default(),
         );
-        let offer = &test_offer();
+        let offer = &test_offer(100);
 
         assert_eq!(market.time_at_price(offer, ether("1")).unwrap(), 0);
 
@@ -1996,7 +1996,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(1),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 rampUpPeriod: 1,
                 lockTimeout: 100,

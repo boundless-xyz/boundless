@@ -37,9 +37,9 @@ async fn create_order(
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
             biddingStart: now_timestamp() - 3,
-            timeout: 5,
+            timeout: 10,
             rampUpPeriod: 1,
-            lockTimeout: 5,
+            lockTimeout: 10,
             lockStake: U256::from(0),
         },
     );

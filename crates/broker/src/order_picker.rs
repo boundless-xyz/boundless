@@ -102,7 +102,7 @@ where
         // is the order expired already?
         // TODO: Handle lockTimeout separately from timeout.
 
-        let expiration = order.request.offer.biddingStart + order.request.offer.timeout as u64;
+        let expiration = order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
 
         let now = now_timestamp();
         if expiration <= now {
@@ -173,7 +173,7 @@ where
         if skip_preflight {
             // If we skip preflight we lockin the order asap
             self.db
-                .set_order_lock(order_id, order.request.offer.biddingStart, expiration)
+                .set_order_lock(order_id, 0, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
             return Ok(());
@@ -322,9 +322,9 @@ where
                 "Selecting order {order_id:x} at price {} - ASAP",
                 format_ether(U256::from(order.request.offer.minPrice))
             );
-            // set the target timestamp to now so we schedule the lock ASAP.
+            // set the target timestamp to 0 so we schedule the lock ASAP.
             self.db
-                .set_order_lock(order_id, now_timestamp(), expiration)
+                .set_order_lock(order_id, 0, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
@@ -385,7 +385,7 @@ where
     /// Return the total amount of stake that is marked locally in the DB to be locked
     /// but has not yet been locked in the market contract thus has not been deducted from the account balance
     async fn pending_locked_stake(&self) -> Result<U256> {
-        let pending_locks = self.db.get_pending_lock_orders(0).await?;
+        let pending_locks = self.db.get_pending_lock_orders(now_timestamp()).await?;
         let stake = pending_locks
             .iter()
             .map(|(_, order)| order.request.offer.lockStake)
@@ -402,7 +402,7 @@ where
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
     async fn estimate_gas_to_lock_pending(&self) -> Result<u64> {
         let mut gas = 0;
-        for (_, order) in self.db.get_pending_lock_orders(0).await?.iter() {
+        for (_, order) in self.db.get_pending_lock_orders(now_timestamp()).await?.iter() {
             gas += self.estimate_gas_to_lock(order).await?;
         }
         Ok(gas)
@@ -604,9 +604,9 @@ mod tests {
                         Offer {
                             minPrice: min_price,
                             maxPrice: max_price,
-                            biddingStart: 0,
-                            timeout: 100,
-                            lockTimeout: 100,
+                            biddingStart: now_timestamp(),
+                            timeout: 1200,
+                            lockTimeout: 900,
                             rampUpPeriod: 1,
                             lockStake: lock_stake,
                         },
@@ -730,7 +730,7 @@ mod tests {
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_timestamp, Some(order.request.offer.biddingStart));
+        assert_eq!(db_order.target_timestamp, Some(0));
     }
 
     #[tokio::test]

@@ -1493,7 +1493,7 @@ mod tests {
         let base_fees = U256::from(10);
         let batch = Batch {
             start_time: Utc::now(),
-            deadline: Some(1741330361),
+            deadline: Some(100),
             fees: base_fees,
             ..Default::default()
         };
@@ -1504,7 +1504,7 @@ mod tests {
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::PendingCompression);
         assert_eq!(db_batch.orders, vec![U256::from(11), U256::from(12)]);
-        assert_eq!(db_batch.deadline, Some(1741330361));
+        assert_eq!(db_batch.deadline, Some(20));
         assert_eq!(db_batch.fees, U256::from(25));
         assert!(db_batch.aggregation_state.is_some());
         let agg_state = db_batch.aggregation_state.unwrap();

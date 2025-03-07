@@ -1003,7 +1003,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 1 ether,
-            biddingStart: uint64(0),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(2),
             lockTimeout: uint32(1),
             timeout: uint32(1),

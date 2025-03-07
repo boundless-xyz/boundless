@@ -541,7 +541,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(2),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,

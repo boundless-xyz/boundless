@@ -188,6 +188,7 @@ mod tests {
         db::SqliteDb,
         provers::{encode_input, MockProver},
         OrderStatus,
+        now_timestamp,
     };
     use alloy::primitives::{Bytes, U256};
     use boundless_market::contracts::{
@@ -238,7 +239,7 @@ mod tests {
                 offer: Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
-                    biddingStart: 4,
+                    biddingStart: now_timestamp(),
                     rampUpPeriod: 1,
                     lockTimeout: 100,
                     timeout: 100,
@@ -305,7 +306,7 @@ mod tests {
                 offer: Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
-                    biddingStart: 4,
+                    biddingStart: now_timestamp(),
                     rampUpPeriod: 1,
                     timeout: 100,
                     lockTimeout: 100,

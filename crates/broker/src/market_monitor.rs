@@ -305,7 +305,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::SqliteDb;
+    use crate::{now_timestamp, db::SqliteDb};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -362,7 +362,7 @@ mod tests {
             offer: Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(max_price),
-                biddingStart: 0,
+                biddingStart: now_timestamp() - 5,
                 timeout: 1000,
                 lockTimeout: 1000,
                 rampUpPeriod: 1,
