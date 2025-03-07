@@ -11,10 +11,9 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "solmate/tokens/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
@@ -42,7 +41,7 @@ contract BoundlessMarket is
 {
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCastLib for uint256;
-    using SafeERC20 for IERC20;
+    using SafeTransferLib for ERC20;
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
@@ -746,12 +745,12 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         // Transfer tokens from user to market
-        try IERC20Permit(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
+        try ERC20(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
         _depositStake(msg.sender, value);
     }
 
     function _depositStake(address from, uint256 value) internal {
-        IERC20(STAKE_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
+        ERC20(STAKE_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
         accounts[from].stakeBalance += value.safeCastTo96();
         emit StakeDeposit(from, value);
     }
@@ -765,7 +764,7 @@ contract BoundlessMarket is
             accounts[msg.sender].stakeBalance -= value.safeCastTo96();
         }
         // Transfer tokens from market to user
-        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        bool success = ERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
         if (!success) revert TransferFailed();
 
         emit StakeWithdrawal(msg.sender, value);
@@ -784,7 +783,7 @@ contract BoundlessMarket is
         unchecked {
             accounts[address(this)].stakeBalance -= value.safeCastTo96();
         }
-        bool success = IERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        bool success = ERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
         if (!success) revert TransferFailed();
 
         emit StakeWithdrawal(address(this), value);
