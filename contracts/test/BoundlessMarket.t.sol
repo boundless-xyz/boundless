@@ -1541,8 +1541,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFulfillWasLockedRequestRepeatIndexStakeRolloverFirstRequestNotExpired() public {
         Client client = getClient(1);
 
-        // Create two distinct requests with the same ID. It should be the case that only one can be
-        // filled, and if one is locked, the other cannot be filled.
         Offer memory offerA = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
