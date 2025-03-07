@@ -65,9 +65,41 @@ library ProofRequestLibrary {
         );
     }
 
+<<<<<<< HEAD
     /// @notice Validates the proof request with the intention for it to be priced.
     /// Does not check if the request is already locked or fulfilled, but does check
     /// if it has expired.
+=======
+    /// @notice Verifies the client's signature over the proof request.
+    /// @param structHash The EIP-712 struct hash of the proof request.
+    /// @param addr The address of the client.
+    /// @param signature The signature to validate.
+    /// @return The struct hash if the signature is valid.
+    function verifyClientSignature(ProofRequest calldata, bytes32 structHash, address addr, bytes calldata signature)
+        internal
+        pure
+        returns (bytes32)
+    {
+        if (ECDSA.recover(structHash, signature) != addr) {
+            revert IBoundlessMarket.InvalidSignature();
+        }
+        return structHash;
+    }
+
+    /// @notice Extracts the prover's signature for the given proof request.
+    /// @param structHash The EIP-712 struct hash of the proof request.
+    /// @param proverSignature The prover's signature to extract.
+    /// @return The address of the prover.
+    function extractProverSignature(ProofRequest calldata, bytes32 structHash, bytes calldata proverSignature)
+        internal
+        pure
+        returns (address)
+    {
+        return ECDSA.recover(structHash, proverSignature);
+    }
+
+    /// @notice Validates the proof request, ensuring is is well formed and unexpired.
+>>>>>>> bc7294d (update artifacts)
     /// @param request The proof request to validate.
     /// @return lockDeadline The deadline for when a lock expires for the request.
     /// @return deadline The deadline for the request as a whole.
