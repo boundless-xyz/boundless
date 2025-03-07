@@ -1657,7 +1657,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Attempt to fill request B, which costs just 1 ether at the time of fulfillment.
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(requestB, APP_JOURNAL, address(fulfiller));
-        vm.prank(address(fulfiller));
         boundlessMarket.priceAndFulfill(requestB, clientSignatureB, fill, assessorReceipt);
 
         // Client should be refunded 1 ether, meaning their net balance change is -1
