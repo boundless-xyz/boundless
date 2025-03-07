@@ -1527,7 +1527,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Check that the request ID is marked as fulfilled.
         expectRequestFulfilled(fill.id);
 
-        vm.prank(address(locker));
         boundlessMarket.slash(fill.id);
 
         client.expectBalanceChange(-1 ether);
