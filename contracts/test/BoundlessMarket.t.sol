@@ -306,7 +306,6 @@ contract BoundlessMarketTest is Test {
 
     function expectRequestSlashed(RequestId requestId) internal view {
         require(boundlessMarket.requestIsSlashed(requestId), "Request should be slashed");
-        require(!boundlessMarket.requestIsFulfilled(requestId), "Request should not be fulfilled");
     }
 
     function expectRequestNotSlashed(RequestId requestId) internal view {
@@ -1307,10 +1306,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
-        boundlessMarket.fulfill(fill, assessorReceipt);
+        bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
+        assert(
+            keccak256(paymentError)
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id))
+        );
 
-        expectRequestNotFulfilled(fill.id);
         // Client is out 1 eth until slash is called.
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(0 ether);
@@ -1461,8 +1462,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
 
         // Attempt to fulfill a request without locking or pricing it.
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
-        boundlessMarket.fulfill(fill, assessorReceipt);
+        bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
+        assert(
+            keccak256(paymentError)
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id))
+        );
 
         expectMarketBalanceUnchanged();
     }
@@ -1489,8 +1493,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
         expectRequestNotFulfilled(fill.id);
 
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
-        boundlessMarket.fulfill(fill, assessorReceipt);
+        bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
+        assert(
+            keccak256(paymentError)
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id))
+        );
 
         expectRequestNotFulfilled(fill.id);
         client.expectBalanceChange(0 ether);
@@ -1647,9 +1654,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, address(testProver));
         // Attempt to fulfill a request already fulfilled
-        // should revert with "RequestIsFulfilled({requestId: request.id})"
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id));
-        boundlessMarket.fulfill(fill, assessorReceipt);
+        // should return "RequestIsFulfilled({requestId: request.id})"
+        bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
+        assert(
+            keccak256(paymentError)
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id))
+        );
 
         expectMarketBalanceUnchanged();
     }
@@ -1740,8 +1750,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             bytes[] memory clientSignatures = new bytes[](1);
             clientSignatures[0] = clientSignatureA;
 
-            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, requestA.id));
-            boundlessMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorReceipt);
+            bytes[] memory paymentError =
+                boundlessMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorReceipt);
+            assert(
+                keccak256(paymentError[0])
+                    == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, requestA.id))
+            );
         } else {
             vm.expectRevert(
                 abi.encodeWithSelector(
