@@ -1555,8 +1555,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             maxPrice: 2 ether,
             biddingStart: uint64(block.number),
             rampUpPeriod: uint32(0),
-            lockTimeout: uint32(block.number) + offerA.timeout + 101,
-            timeout: uint32(block.number) + offerA.timeout + 101,
+            lockTimeout: offerA.timeout + 101,
+            timeout: offerA.timeout + 101,
             lockStake: 1 ether
         });
 
