@@ -1519,7 +1519,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(requestB, APP_JOURNAL, address(fulfiller));
 
-        vm.prank(address(fulfiller));
         boundlessMarket.priceAndFulfill(requestB, clientSignatureB, fill, assessorReceipt);
 
         // Check that the request ID is marked as fulfilled.
