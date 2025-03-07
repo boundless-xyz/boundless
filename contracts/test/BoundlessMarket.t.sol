@@ -1587,7 +1587,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectRequestFulfilled(fill.id);
 
         // Slash should revert as the original locked request has not yet fully expired.
-        vm.prank(address(locker));
         vm.expectRevert(
             abi.encodeWithSelector(
                 IBoundlessMarket.RequestIsNotExpired.selector, fill.id, uint64(block.number) + uint64(offerA.timeout)
