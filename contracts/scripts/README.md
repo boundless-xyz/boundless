@@ -14,7 +14,7 @@ Requires [Foundry](https://book.getfoundry.sh/getting-started/installation).
 
 Commands in this guide use `yq` to parse the TOML config files.
 
-You can install `yq` by following the [direction on GitHub][yq-install], or using `go install`.
+You can install `yq` by following the [directions on GitHub][yq-install], or using `go install`.
 
 ```bash
 go install github.com/mikefarah/yq/v4@latest
@@ -26,7 +26,7 @@ Configurations and deployment state information is stored in `deployment.toml`.
 It contains information about each chain (e.g. name, ID, Etherscan URL), and addresses for the RISC Zero verifier and Boundless market contracts on each chain.
 
 Accompanying the `deployment.toml` file is a `deployment_secrets.toml` file with the following schema.
-It is used to store somewhat sensative API keys for RPC services and Etherscan.
+It is used to store somewhat sensitive API keys for RPC services and Etherscan.
 Note that it does not contain private keys or API keys for Fireblocks.
 It should never be committed to `git`, and the API keys should be rotated if this occurs.
 
@@ -221,7 +221,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    ```
 
    > [!IMPORTANT]
-   > Make sure the Assessor info to make sure they match what you expect.
+   > Make sure the Assessor info matches what you expect.
 
 [yq-install]: https://github.com/mikefarah/yq?tab=readme-ov-file#install
 [alloy-chains]: https://github.com/alloy-rs/chains/blob/main/src/named.rs
