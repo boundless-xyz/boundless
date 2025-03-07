@@ -521,7 +521,7 @@ contract BoundlessMarket is
         // fulfillment contexts cannot be created for expired requests.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
+            return abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(id));
         }
         uint96 price = context.price;
 
@@ -566,7 +566,7 @@ contract BoundlessMarket is
         // fulfillment contexts cannot be created for expired requests.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            return abi.encodeWithSelector(RequestIsNotPriced.selector, RequestId.unwrap(id));
+            return abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(id));
         }
         uint96 price = context.price;
 

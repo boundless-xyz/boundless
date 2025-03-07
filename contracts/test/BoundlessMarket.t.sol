@@ -1313,7 +1313,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
         assert(
             keccak256(paymentError)
-                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id))
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id))
         );
 
         // Client is out 1 eth until slash is called.
@@ -1526,7 +1526,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
         assert(
             keccak256(paymentError)
-                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id))
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id))
         );
 
         expectMarketBalanceUnchanged();
@@ -1557,7 +1557,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
         assert(
             keccak256(paymentError)
-                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id))
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id))
         );
 
         expectRequestNotFulfilled(fill.id);
@@ -1815,7 +1815,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 boundlessMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorReceipt);
             assert(
                 keccak256(paymentError[0])
-                    == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, requestA.id))
+                    == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, requestA.id))
             );
         } else {
             vm.expectRevert(
