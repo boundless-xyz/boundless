@@ -40,9 +40,7 @@ interface IBoundlessMarket {
     /// is usually logged as part of order fulfillment, however it can also be logged by a prover
     /// sending the proof without payment.
     /// @param requestId The ID of the request.
-    /// @param journal The journal of the proof.
-    /// @param seal The seal of the proof.
-    event ProofDelivered(RequestId indexed requestId, bytes journal, bytes seal);
+    event ProofDelivered(RequestId indexed requestId);
 
     /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.
