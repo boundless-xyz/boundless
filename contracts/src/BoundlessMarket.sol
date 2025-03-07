@@ -442,6 +442,10 @@ contract BoundlessMarket is
         } else {
             paymentError = _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
         }
+
+        if (paymentError.length > 0) {
+            emit PaymentRequirementsFailed(paymentError);
+        }
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.

@@ -1439,6 +1439,56 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (request, locker);
     }
 
+    // Scenario when a prover locks a request, fails to deliver it within the lock expiry,
+    // but does deliver it before the request expires. Here they should lose their stake,
+    // but receive payment for the request.
+    function testFulfillWasLockedRequestDoubleFulfill() public {
+        // Create a request with a lock timeout of 50 blocks, and overall timeout of 100.
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(
+            1,
+            Offer({
+                minPrice: 1 ether,
+                maxPrice: 2 ether,
+                biddingStart: uint64(block.number),
+                rampUpPeriod: uint32(50),
+                lockTimeout: uint32(50),
+                timeout: uint32(100),
+                lockStake: 1 ether
+            })
+        );
+        bytes memory clientSignature = client.sign(request);
+
+        Client locker = getProver(1);
+
+        client.snapshotBalance();
+        locker.snapshotBalance();
+
+        vm.prank(address(locker));
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        // Advance the chain ahead to simulate the lock timeout.
+        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, address(locker));
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id);
+
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
+
+        // Check that the proof was submitted
+        expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-2 ether);
+        locker.expectBalanceChange(2 ether);
+        locker.expectStakeBalanceChange(-1 ether);
+        expectMarketBalanceUnchanged();
+    }
+
     function testFulfillNeverLocked() public {
         _testFulfillSameBlock(1, LockRequestMethod.None, "priceAndFulfillBatch: a single request that was not locked");
     }
