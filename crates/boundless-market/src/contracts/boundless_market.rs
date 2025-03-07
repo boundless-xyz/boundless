@@ -1332,8 +1332,8 @@ mod tests {
         contracts::{
             hit_points::default_allowance,
             test_utils::{DefaultTestCtx, TestCtx},
-            AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket, Offer, Predicate,
-            PredicateType, ProofRequest, ProofStatus, Requirements,
+            AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType,
+            Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements,
         },
         input::InputBuilder,
     };
