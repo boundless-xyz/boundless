@@ -336,7 +336,7 @@ contract BoundlessMarket is
 
         _fulfillAndPay(fill, assessorReceipt.prover);
 
-        emit ProofDelivered(fill.id, fill.journal, fill.seal);
+        emit ProofDelivered(fill.id);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -362,7 +362,7 @@ contract BoundlessMarket is
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
             _fulfillAndPay(fills[i], assessorReceipt.prover);
-            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+            emit ProofDelivered(fills[i].id);
         }
     }
 
