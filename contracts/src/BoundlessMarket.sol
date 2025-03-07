@@ -117,11 +117,10 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        bytes32 requestDigest =
-            request.verifyClientSignature(_hashTypedDataV4(request.eip712Digest()), client, clientSignature);
+        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
-        _lockRequest(request, requestDigest, client, idx, msg.sender, lockDeadline, deadline);
+        _lockRequest(request, requestHash, client, idx, msg.sender, lockDeadline, deadline);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -131,12 +130,11 @@ contract BoundlessMarket is
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
-        address prover = request.extractProverSignature(requestHash, proverSignature);
+        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
+        address prover = _extractProverAddress(requestHash, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
-        _lockRequest(request, requestDigest, client, idx, prover, lockDeadline, deadline);
+        _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
     }
 
     /// @notice Locks the request to the prover. Deducts funds from the client for payment
@@ -182,9 +180,9 @@ contract BoundlessMarket is
             price: price,
             requestLockFlags: 0,
             lockDeadline: lockDeadline,
-            deadlineDelta: uint256(deadline - lockDeadline).safeCastTo24(),
-            stake: request.offer.lockStake.safeCastTo96(),
-            fingerprint: bytes8(requestDigest)
+            deadlineDelta: uint256(deadline - lockDeadline).toUint24(),
+            stake: request.offer.lockStake.toUint96(),
+            requestDigest: requestDigest
         });
 
         clientAccount.setRequestLocked(idx);
@@ -195,9 +193,17 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client,) = request.id.clientAndIndex();
-        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        bytes32 requestDigest = request.verifyClientSignature(requestHash, client, clientSignature);
+        (address client, bool smartContractSigned) = request.id.clientAndIsSmartContractSigned();
+
+        bytes32 requestHash;
+        // We only need to validate the signature if it is a smart contract signature. This is because
+        // EOA signatures are validated in the assessor during fulfillment, so the assessor guarantees
+        // that the digest that is priced is one that was signed by the client.
+        if (smartContractSigned) {
+            requestHash = _verifyClientSignature(request, client, clientSignature);
+        } else {
+            requestHash = _hashTypedDataV4(request.eip712Digest());
+        }
 
         request.validateForPriceRequest();
 
@@ -205,7 +211,7 @@ contract BoundlessMarket is
         uint96 price = request.offer.priceAtBlock(uint64(block.number)).safeCastTo96();
 
         // Record the price in transient storage, such that the order can be filled in this same transaction.
-        FulfillmentContext({valid: true, price: price}).store(requestDigest);
+        FulfillmentContext({valid: true, price: price}).store(requestHash);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -217,7 +223,12 @@ contract BoundlessMarket is
         VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
-        // NOTE: Signature checks and recursive verification happen inside the assessor.
+        // Recursive verification happens inside the assessor.
+        // NOTE: When signature checks are performed depends on whether the signature is a smart contract signature
+        // or a regular EOA signature. It also depends on whether the request is locked or not.
+        // Smart contract signatures are validated on-chain only, specifically when a request is locked, or when a request is priced.
+        // EOA signatures are validated in the assessor during fulfillment. This design removes the need for EOA signatures to be
+        // validated on-chain in any scenario at fulfillment time.
         bytes32[] memory requestDigests = new bytes32[](1);
         requestDigests[0] = fill.requestDigest;
         bytes32 assessorJournalDigest = sha256(
@@ -333,7 +344,6 @@ contract BoundlessMarket is
         }
 
         _fulfillAndPay(fill, assessorReceipt.prover);
-
         emit ProofDelivered(fill.id);
     }
 
@@ -454,12 +464,8 @@ contract BoundlessMarket is
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
 
-        if (lock.fingerprint != bytes8(requestDigest)) {
-            revert RequestLockFingerprintDoesNotMatch({
-                requestId: id,
-                provided: bytes8(requestDigest),
-                locked: lock.fingerprint
-            });
+        if (lock.requestDigest != requestDigest) {
+            revert InvalidRequestFulfillment({requestId: id, provided: requestDigest, locked: lock.requestDigest});
         }
 
         if (!fulfilled) {
@@ -507,11 +513,12 @@ contract BoundlessMarket is
         }
 
         // If no fulfillment context was stored for this request digest (via priceRequest),
-        // then payment cannot be processed. This check also serves as an expiration check since
-        // fulfillment contexts cannot be created for expired requests.
+        // then payment cannot be processed. This check also serves as
+        // 1/ an expiration check since fulfillment contexts cannot be created for expired requests.
+        // 2/ a smart contract signature check, since signatures are validated when a request is priced.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            return abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(id));
+            revert RequestIsExpiredOrNotPriced(id);
         }
         uint96 price = context.price;
 
@@ -822,6 +829,32 @@ contract BoundlessMarket is
             revert RequestIsNotLocked({requestId: id});
         }
         return requestLocks[id].deadline();
+    }
+
+    function _verifyClientSignature(ProofRequest calldata request, address addr, bytes calldata clientSignature)
+        internal
+        view
+        returns (bytes32)
+    {
+        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
+        if (request.id.isSmartContractSigned()) {
+            if (IERC1271(addr).isValidSignature(requestHash, clientSignature) != IERC1271.isValidSignature.selector) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        } else {
+            if (ECDSA.recover(requestHash, clientSignature) != addr) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        }
+        return requestHash;
+    }
+
+    function _extractProverAddress(bytes32 requestHash, bytes calldata proverSignature)
+        internal
+        pure
+        returns (address)
+    {
+        return ECDSA.recover(requestHash, proverSignature);
     }
 
     /// @inheritdoc IBoundlessMarket

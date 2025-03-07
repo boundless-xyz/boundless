@@ -20,7 +20,7 @@ contract RequestLockTest is Test {
             requestLockFlags: 0,
             price: 1 ether,
             stake: 1 ether,
-            fingerprint: bytes8(0x1234567890abcdef)
+            requestDigest: bytes32(0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef)
         });
     }
 
@@ -37,6 +37,10 @@ contract RequestLockTest is Test {
         assertSlotClear(1);
     }
 
+    function assertSlot2Clear() private view {
+        assertSlotClear(2);
+    }
+
     function testDeadline() public view {
         uint64 expectedDeadline = requestLock.lockDeadline + requestLock.deadlineDelta;
         assertEq(requestLock.deadline(), expectedDeadline, "Deadline calculation is incorrect");
@@ -51,8 +55,8 @@ contract RequestLockTest is Test {
         );
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
-        assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
         assertSlot1Clear();
+        assertSlot2Clear();
     }
 
     function testSetProverPaidAfterLockDeadline() public {
@@ -69,8 +73,8 @@ contract RequestLockTest is Test {
         assertEq(requestLock.requestLockFlags, RequestLockLibrary.SLASHED_FLAG, "Slashed flag not set correctly");
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
-        assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
         assertSlot1Clear();
+        assertSlot2Clear();
     }
 
     function testIsProverPaidBeforeLockDeadline() public {
@@ -83,7 +87,6 @@ contract RequestLockTest is Test {
         assertTrue(requestLock.isProverPaidAfterLockDeadline());
         assertNotEq(requestLock.price, 0, "Price not zeroed out");
         assertNotEq(requestLock.stake, 0, "Stake not zeroed out");
-        assertNotEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
     }
 
     function testIsProverPaid() public {
