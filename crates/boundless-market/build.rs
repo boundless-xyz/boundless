@@ -199,12 +199,8 @@ fn generate_contracts_rust_file() {
     let src_path =
         Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("out");
 
-    // Check if we're running under cargo publish
-    let is_cargo_publish = std::env::var("CARGO_RELEASE_UPLOAD").is_ok();
-
-    // If running under cargo publish and the contracts directory doesn't exist,
-    // we should exit early rather than fail trying to find contract JSON files
-    if is_cargo_publish && !src_path.exists() {
+    // If running under cargo publish, the contracts directory doesn't exist, so we exit early.
+    if !src_path.exists() {
         println!("cargo:warning=Skipping contract bytecode generation during cargo publish");
         return;
     }
@@ -214,10 +210,7 @@ fn generate_contracts_rust_file() {
 
     for contract in ARTIFACT_TARGET_CONTRACTS {
         let source_path = src_path.join(format!("{contract}.sol/{contract}.json"));
-        if !source_path.exists() {
-            println!("cargo:warning=Skipping contract bytecode generation");
-            return;
-        }
+
         // Tell cargo to rerun if this contract changes
         println!("cargo:rerun-if-changed={}", source_path.display());
 
