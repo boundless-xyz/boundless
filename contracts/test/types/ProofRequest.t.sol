@@ -44,13 +44,12 @@ contract ProofRequestTestContract {
         proofRequest.verifyClientSignature(structHash, addr, signature, isSmartContractSig);
     }
 
-    function verifyProverSignature(
+    function extractProverSignature(
         ProofRequest calldata proofRequest,
         bytes32 structHash,
-        address addr,
         bytes calldata signature
-    ) external view {
-        proofRequest.verifyProverSignature(structHash, addr, signature);
+    ) external view returns (address) {
+        return proofRequest.extractProverSignature(structHash, signature);
     }
 
     function setRequestFulfilled(address wallet1, uint32 idx1) external {
@@ -245,54 +244,14 @@ contract ProofRequestTest is Test {
         proofRequestContract.verifyClientSignature(proofRequest, structHash, address(mockWallet), signature, true);
     }
 
-    function testVerifyProverSignature() public {
+    function testExtractProverSignature() public {
         ProofRequest memory proofRequest = defaultProofRequest;
         bytes32 structHash = proofRequest.eip712Digest();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(proverWallet, structHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        proofRequestContract.verifyProverSignature(proofRequest, structHash, proverWallet.addr, signature);
+        address extractedAddress = proofRequestContract.extractProverSignature(proofRequest, structHash, signature);
+        assertEq(extractedAddress, proverWallet.addr, "Extracted address should match the prover's address");
     }
 
-    function testInvalidProverSignature() public {
-        ProofRequest memory proofRequest = defaultProofRequest;
-        bytes32 structHash = proofRequest.eip712Digest();
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(clientWallet, structHash); // Signed by client instead of prover
-        bytes memory signature = abi.encodePacked(r, s, v);
-
-        vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
-        proofRequestContract.verifyProverSignature(proofRequest, structHash, proverWallet.addr, signature);
-    }
-
-    function testSmartContractProverSignature() public {
-        // Deploy a mock ERC1271 wallet that always returns isValidSignature.selector
-        MockERC1271Wallet mockWallet = new MockERC1271Wallet();
-
-        ProofRequest memory proofRequest = defaultProofRequest;
-        bytes32 structHash = proofRequest.eip712Digest();
-
-        // Test with empty signature (should use request as signature)
-        proofRequestContract.verifyProverSignature(proofRequest, structHash, address(mockWallet), "");
-
-        // Test with non-empty signature
-        bytes memory signature = "mock_signature";
-        proofRequestContract.verifyProverSignature(proofRequest, structHash, address(mockWallet), signature);
-    }
-
-    function testInvalidSmartContractProverSignature() public {
-        // Deploy a mock ERC1271 wallet that always returns invalid signature
-        MockInvalidERC1271Wallet mockWallet = new MockInvalidERC1271Wallet();
-
-        ProofRequest memory proofRequest = defaultProofRequest;
-        bytes32 structHash = proofRequest.eip712Digest();
-
-        // Test with empty signature
-        vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
-        proofRequestContract.verifyProverSignature(proofRequest, structHash, address(mockWallet), "");
-
-        // Test with non-empty signature
-        bytes memory signature = "mock_signature";
-        vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
-        proofRequestContract.verifyProverSignature(proofRequest, structHash, address(mockWallet), signature);
-    }
 }

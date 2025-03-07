@@ -246,7 +246,6 @@ interface IBoundlessMarket {
     function lockRequestWithSignature(
         ProofRequest calldata request,
         bytes calldata clientSignature,
-        address prover,
         bytes calldata proverSignature
     ) external;
 

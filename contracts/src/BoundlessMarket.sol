@@ -129,13 +129,12 @@ contract BoundlessMarket is
     function lockRequestWithSignature(
         ProofRequest calldata request,
         bytes calldata clientSignature,
-        address prover,
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx, bool smartContractSigned) = request.id.clientIndexAndSignatureType();
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         request.verifyClientSignature(requestHash, client, clientSignature, smartContractSigned);
-        request.verifyProverSignature(requestHash, prover, proverSignature);
+        address prover = request.extractProverSignature(requestHash, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
         _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);

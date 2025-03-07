@@ -380,12 +380,7 @@ where
 
         let call = self
             .instance
-            .lockRequestWithSignature(
-                request.clone(),
-                client_sig.clone(),
-                prover_address,
-                prover_sig.clone(),
-            )
+            .lockRequestWithSignature(request.clone(), client_sig.clone(), prover_sig.clone())
             .from(self.caller);
         let pending_tx = call.send().await.context("Failed to lock")?;
 

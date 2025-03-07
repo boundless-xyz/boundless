@@ -9,9 +9,10 @@ extern crate alloc;
 
 use alloc::{vec, vec::Vec};
 use alloy_primitives::{Address, FixedBytes, B256};
+use alloy_sol_types::SolStruct;
 use alloy_sol_types::SolValue;
 use boundless_assessor::AssessorInput;
-use boundless_market::contracts::{AssessorCallback, AssessorJournal, Selector};
+use boundless_market::contracts::{AssessorCallback, AssessorJournal, RequestId, Selector};
 use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
@@ -53,8 +54,17 @@ fn main() {
     // - record the selector if it is present
     // We additionally collect the request and claim digests.
     for (index, fill) in input.fills.iter().enumerate() {
-        let request_digest =
-            fill.verify_signature(&eip_domain_separator).expect("signature does not verify");
+        // ECDSA signatures are always checked here.
+        // Smart contract signatures (via EIP-1271) are checked on-chain either when a request is locked,
+        // or when an unlocked request is priced and fulfilled.
+        let smart_contract_signed = RequestId::from_lossy(fill.request.id).smart_contract_signed;
+        let request_digest: [u8; 32];
+        if smart_contract_signed {
+            request_digest = fill.request.eip712_signing_hash(&eip_domain_separator).into();
+        } else {
+            request_digest =
+                fill.verify_signature(&eip_domain_separator).expect("signature does not verify");
+        }
         fill.evaluate_requirements().expect("requirements not met");
         env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
         claim_digests.push(fill.receipt_claim().digest());
