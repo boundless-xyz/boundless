@@ -11,7 +11,7 @@ use alloy::{
     signers::Signer,
 };
 use boundless_market::contracts::{
-    test_utils::TestCtx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+    test_utils::DefaultTestCtx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
 };
 use futures_util::StreamExt;
 use guest_assessor::ASSESSOR_GUEST_ID;
@@ -55,9 +55,7 @@ async fn create_order(
 async fn test_basic_usage() {
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-        .await
-        .unwrap();
+    let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-slasher");
     let args = [

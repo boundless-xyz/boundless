@@ -24,24 +24,20 @@ use crate::contracts::{
 };
 
 use super::{IHitPoints::IHitPointsInstance, TXN_CONFIRM_TIMEOUT};
-use alloy::{network::Ethereum, primitives::Address, providers::Provider, transports::Transport};
+use alloy::{network::Ethereum, primitives::Address, providers::Provider};
 use alloy_primitives::U256;
 use anyhow::{Context, Result};
 
 const DEFAULT_ALLOWANCE: u128 = 100000000000000000000;
 /// HitPointsService provides a high-level interface to the HitPoints contract.
 #[derive(Clone)]
-pub struct HitPointsService<T, P> {
-    instance: IHitPointsInstance<T, P, Ethereum>,
+pub struct HitPointsService<P> {
+    instance: IHitPointsInstance<(), P, Ethereum>,
     caller: Address,
     tx_timeout: Duration,
 }
 
-impl<T, P> HitPointsService<T, P>
-where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
-{
+impl<P: Provider> HitPointsService<P> {
     /// Creates a new HitPointsService.
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
         let instance = IHitPoints::new(address, provider);
@@ -50,7 +46,7 @@ where
     }
 
     /// Returns the underlying IHitPointsInstance.
-    pub fn instance(&self) -> &IHitPointsInstance<T, P, Ethereum> {
+    pub fn instance(&self) -> &IHitPointsInstance<(), P, Ethereum> {
         &self.instance
     }
 

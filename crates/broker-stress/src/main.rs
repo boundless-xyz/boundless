@@ -2,6 +2,7 @@
 //
 // All rights reserved.
 
+use alloy::providers::WalletProvider;
 use alloy::{
     node_bindings::Anvil,
     primitives::{utils, U256},
@@ -11,8 +12,9 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements,
+        hit_points::default_allowance,
+        test_utils::{DefaultTestCtx, TestCtx},
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
     input::InputBuilder,
 };
@@ -61,9 +63,9 @@ struct StressTestArgs {
     rpc_reset_toxicity: f32,
 }
 
-async fn request_spawner(
+async fn request_spawner<P: Provider>(
     shutdown: Arc<AtomicBool>,
-    ctx: Arc<TestCtx>,
+    ctx: Arc<TestCtx<P>>,
     elf_url: &str,
     args: StressTestArgs,
     spawner_id: u32,
@@ -107,8 +109,8 @@ async fn request_spawner(
     Ok(())
 }
 
-async fn spawn_broker(
-    ctx: &TestCtx,
+async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider>(
+    ctx: &TestCtx<P>,
     rpc_url: Url,
     db_url: &str,
 ) -> Result<(tokio::task::JoinHandle<()>, NamedTempFile)> {
@@ -154,14 +156,9 @@ async fn main() -> Result<()> {
 
     // Setup test context
     let ctx = Arc::new(
-        TestCtx::new_with_rpc_url(
-            &anvil,
-            &rpc_url,
-            SET_BUILDER_ID.into(),
-            ASSESSOR_GUEST_ID.into(),
-        )
-        .await
-        .context("Failed to create test context")?,
+        DefaultTestCtx::create_with_rpc_url(&anvil, &rpc_url, SET_BUILDER_ID, ASSESSOR_GUEST_ID)
+            .await
+            .context("Failed to create test context")?,
     );
     let (broker_task, _config_file) =
         spawn_broker(&ctx, Url::parse(&rpc_url).unwrap(), &args.database_url).await?;

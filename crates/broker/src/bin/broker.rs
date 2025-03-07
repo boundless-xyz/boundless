@@ -29,13 +29,10 @@ async fn main() -> Result<()> {
         args.rpc_retry_cu,
         CustomRetryPolicy,
     );
-    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone()).boxed();
+    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
 
-    let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(wallet)
-        .with_chain(NamedChain::Sepolia)
-        .on_client(client);
+    let provider =
+        ProviderBuilder::new().wallet(wallet).with_chain(NamedChain::Sepolia).on_client(client);
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
