@@ -1206,7 +1206,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         address otherProverAddress = address(otherProver);
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
-
+        
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
+        );
         boundlessMarket.fulfill(fill, assessorReceipt);
         vm.snapshotGasLastCall("fulfill: another prover fulfills without payment");
 
@@ -1479,6 +1483,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit IBoundlessMarket.ProofDelivered(request.id);
 
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id)
+        );
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
+        vm.snapshotGasLastCall("priceAndFulfill: fulfill already fulfilled was locked request");
 
         // Check that the proof was submitted
         expectRequestFulfilled(fill.id);
@@ -2157,7 +2168,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-    function testFulfillLockedRequestWithCallbackByOtherProverNotRequirePayment() public {
+    function testFulfillLockedRequestWithCallbackByOtherProver() public {
         Client client = getClient(1);
 
         // Create request with low gas callback
@@ -2179,6 +2190,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
+        );
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id);
 
@@ -2217,6 +2232,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
+        );
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id);
         boundlessMarket.fulfill(fill, assessorReceipt);

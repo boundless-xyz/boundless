@@ -17,6 +17,7 @@
   "fulfillBatchAndWithdraw: a batch of 8": "286355",
   "lockinRequest: base case": "114682",
   "lockinRequest: with prover signature": "120373",
+  "priceAndFulfill: fulfill already fulfilled was locked request": "92955",
   "priceAndFulfillBatch: a single request": "100244",
   "priceAndFulfillBatch: a single request (with selector)": "102147",
   "priceAndFulfillBatch: a single request that was not locked": "100232",
