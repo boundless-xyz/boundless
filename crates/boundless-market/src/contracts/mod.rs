@@ -199,7 +199,7 @@ impl RequestId {
     /// versions of the Boundless Market, this function will ignore them.
     pub fn from_lossy(value: U256) -> Self {
         let mut addr_u256 = value >> U256::from(32);
-        addr_u256 = addr_u256 & ((U256::from(1) << U256::from(160)) - U256::from(1)); // mask out the flags
+        addr_u256 &= (U256::from(1) << U256::from(160)) - U256::from(1); // mask out the flags
         let addr = Address::from(addr_u256.to::<U160>());
         Self {
             addr,
