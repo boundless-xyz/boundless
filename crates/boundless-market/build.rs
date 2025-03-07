@@ -214,6 +214,10 @@ fn generate_contracts_rust_file() {
 
     for contract in ARTIFACT_TARGET_CONTRACTS {
         let source_path = src_path.join(format!("{contract}.sol/{contract}.json"));
+        if !source_path.exists() {
+            println!("cargo:warning=Skipping contract bytecode generation");
+            return;
+        }
         // Tell cargo to rerun if this contract changes
         println!("cargo:rerun-if-changed={}", source_path.display());
 
@@ -252,7 +256,7 @@ fn generate_contracts_rust_file() {
         }
     }
     rust_content.push('\n');
-    let dest_path = Path::new(&manifest_dir).join("src/contracts/artifacts/bytecode.inc");
+    let dest_path = Path::new(&manifest_dir).join("src/contracts/bytecode.rs");
     fs::write(dest_path, rust_content).unwrap();
 }
 
