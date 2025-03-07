@@ -57,7 +57,7 @@ fn main() {
         // ECDSA signatures are always checked here.
         // Smart contract signatures (via EIP-1271) are checked on-chain either when a request is locked,
         // or when an unlocked request is priced and fulfilled.
-        let smart_contract_signed = RequestId::from_lossy(fill.request.id).smart_contract_signed;
+        let smart_contract_signed = RequestId::try_from(fill.request.id).unwrap().smart_contract_signed;
         let request_digest: [u8; 32];
         if smart_contract_signed {
             request_digest = fill.request.eip712_signing_hash(&eip_domain_separator).into();

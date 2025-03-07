@@ -209,6 +209,19 @@ impl RequestId {
     }
 }
 
+impl TryFrom<U256> for RequestId {
+    type Error = RequestError;
+
+    fn try_from(value: U256) -> Result<Self, Self::Error> {
+        // Check if any bits above the smart contract signed flag are set.
+        // An error here could indicate that this logic has not been updated to support new flags
+        if value >> 193 != U256::ZERO {
+            return Err(RequestError::MalformedRequestId);
+        }
+        Ok(RequestId::from_lossy(value))
+    }
+}
+
 impl From<RequestId> for U256 {
     fn from(value: RequestId) -> Self {
         #[allow(clippy::unnecessary_fallible_conversions)] // U160::from does not compile

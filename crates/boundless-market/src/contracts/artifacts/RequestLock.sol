@@ -25,7 +25,7 @@ struct RequestLock {
     /// @notice Flags that indicate the state of the request lock.
     uint8 requestLockFlags;
     ///
-    /// Storage slots 1 
+    /// Storage slots 1
     ///
     /// @notice The price that the prover will be paid for fulfilling the request.
     uint96 price;
