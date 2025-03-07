@@ -160,7 +160,7 @@ contract BoundlessMarket is
         }
 
         // Compute the current price offered by the reverse Dutch auction.
-        uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
+        uint96 price = request.offer.priceAtBlock(uint64(block.timestamp)).toUint96();
 
         // Deduct payment from the client account and stake from the prover account.
         Account storage clientAccount = accounts[client];
@@ -203,7 +203,7 @@ contract BoundlessMarket is
         request.validateForPriceRequest();
 
         // Compute the current price offered by the reverse Dutch auction.
-        uint96 price = request.offer.priceAtBlock(uint64(block.number)).toUint96();
+        uint96 price = request.offer.priceAt(uint64(block.timestamp)).toUint96();
 
         // Record the price in transient storage, such that the order can be filled in this same transaction.
         FulfillmentContext({valid: true, price: price}).store(requestDigest);
@@ -422,7 +422,7 @@ contract BoundlessMarket is
         bytes memory paymentError;
         if (locked) {
             RequestLock memory lock = requestLocks[id];
-            if (lock.lockDeadline >= block.number) {
+            if (lock.lockDeadline >= block.timestamp) {
                 paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
             } else {
                 paymentError = _fulfillAndPayWasLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
@@ -657,7 +657,7 @@ contract BoundlessMarket is
 
         // You can only slash a request after the request fully expires, so that if the request
         // does get fulfilled, we know which prover should receive a portion of the stake.
-        if (block.number <= lock.deadline()) {
+        if (block.timestamp <= lock.deadline()) {
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline()});
         }
 

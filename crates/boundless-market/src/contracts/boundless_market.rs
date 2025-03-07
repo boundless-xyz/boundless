@@ -293,7 +293,7 @@ where
     /// Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
-    /// auction parameters and the block at which this transaction is processed.
+    /// auction parameters and the block number at which this transaction is processed.
     ///
     /// This method should be called from the address of the prover.
     pub async fn lock_request(
@@ -820,27 +820,27 @@ where
 
     /// Returns the [ProofStatus] of a request.
     ///
-    /// The `expires_at` parameter is the block number at which the request expires.
+    /// The `expires_at` parameter is the time at which the request expires.
     pub async fn get_status(
         &self,
         request_id: U256,
         expires_at: Option<u64>,
     ) -> Result<ProofStatus, MarketError> {
-        let block_number = self.get_latest_block().await?;
+        let timestamp = self.get_latest_block_timestamp().await?;
 
         if self.is_fulfilled(request_id).await.context("Failed to check fulfillment status")? {
             return Ok(ProofStatus::Fulfilled);
         }
 
         if let Some(expires_at) = expires_at {
-            if block_number > expires_at {
+            if timestamp > expires_at {
                 return Ok(ProofStatus::Expired);
             }
         }
 
         if self.is_locked(request_id).await.context("Failed to check locked status")? {
             let deadline = self.instance.requestDeadline(request_id).call().await?._0;
-            if block_number > deadline && deadline > 0 {
+            if timestamp > deadline && deadline > 0 {
                 return Ok(ProofStatus::Expired);
             };
             return Ok(ProofStatus::Locked);
@@ -849,7 +849,7 @@ where
         Ok(ProofStatus::Unknown)
     }
 
-    async fn get_latest_block(&self) -> Result<u64, MarketError> {
+    async fn get_latest_block_number(&self) -> Result<u64, MarketError> {
         Ok(self
             .instance
             .provider()
@@ -858,12 +858,23 @@ where
             .context("Failed to get latest block number")?)
     }
 
+    async fn get_latest_block_timestamp(&self) -> Result<u64, MarketError> {
+        let block = self
+            .instance
+            .provider()
+            .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+            .await
+            .context("failed to get block")?
+            .context("failed to get block")?;
+        Ok(block.header.timestamp())
+    }
+
     /// Query the ProofDelivered event based on request ID and block options.
     /// For each iteration, we query a range of blocks.
     /// If the event is not found, we move the range down and repeat until we find the event.
     /// If the event is not found after the configured max iterations, we return an error.
-    /// The default range is set to 100 blocks for each iteration, and the default maximum number of
-    /// iterations is 100. This means that the search will cover a maximum of 10,000 blocks.
+    /// The default range is set to 1000 blocks for each iteration, and the default maximum number of
+    /// iterations is 100. This means that the search will cover a maximum of 100,000 blocks.
     /// Optionally, you can specify a lower and upper bound to limit the search range.
     async fn query_fulfilled_event(
         &self,
@@ -871,7 +882,7 @@ where
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
     ) -> Result<(Bytes, Bytes), MarketError> {
-        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block().await?);
+        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
             self.event_query_config.block_range * self.event_query_config.max_iterations,
         ));
@@ -928,8 +939,8 @@ where
     /// For each iteration, we query a range of blocks.
     /// If the event is not found, we move the range down and repeat until we find the event.
     /// If the event is not found after the configured max iterations, we return an error.
-    /// The default range is set to 100 blocks for each iteration, and the default maximum number of
-    /// iterations is 100. This means that the search will cover a maximum of 10,000 blocks.
+    /// The default range is set to 1000 blocks for each iteration, and the default maximum number of
+    /// iterations is 100. This means that the search will cover a maximum of 100,000 blocks.
     /// Optionally, you can specify a lower and upper bound to limit the search range.
     async fn query_request_submitted_event(
         &self,
@@ -937,7 +948,7 @@ where
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
     ) -> Result<(ProofRequest, Bytes), MarketError> {
-        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block().await?);
+        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
             self.event_query_config.block_range * self.event_query_config.max_iterations,
         ));
@@ -1052,8 +1063,8 @@ where
         }
     }
 
-    /// Calculates the block number at which the price will be at the given price.
-    pub fn block_at_price(&self, offer: &Offer, price: U256) -> Result<u64, MarketError> {
+    /// Calculates the time, in seconds since the UNIX epoch, at which the price will be at the given price.
+    pub fn time_at_price(&self, offer: &Offer, price: U256) -> Result<u64, MarketError> {
         let max_price = U256::from(offer.maxPrice);
         let min_price = U256::from(offer.minPrice);
 
@@ -1073,19 +1084,19 @@ where
         Ok(offer.biddingStart + delta)
     }
 
-    /// Calculates the price at the given block number.
-    pub fn price_at_block(&self, offer: &Offer, block_numb: u64) -> Result<U256, MarketError> {
+    /// Calculates the price at the given time, in seconds since the UNIX epoch.
+    pub fn price_at(&self, offer: &Offer, timestamp: u64) -> Result<U256, MarketError> {
         let max_price = U256::from(offer.maxPrice);
         let min_price = U256::from(offer.minPrice);
 
-        if block_numb < offer.biddingStart {
+        if timestamp < offer.biddingStart {
             return Err(MarketError::Error(anyhow!("Block number before bidding start")));
         }
 
-        if block_numb < offer.biddingStart + offer.rampUpPeriod as u64 {
+        if timestamp < offer.biddingStart + offer.rampUpPeriod as u64 {
             let rise = max_price - min_price;
             let run = U256::from(offer.rampUpPeriod);
-            let delta = U256::from(block_numb) - U256::from(offer.biddingStart);
+            let delta = U256::from(timestamp) - U256::from(offer.biddingStart);
 
             Ok(min_price + (delta * rise) / run)
         } else {
@@ -1340,6 +1351,7 @@ mod tests {
             ProofRequest, ProofStatus, Requirements,
         },
         input::InputBuilder,
+        now_timestamp,
     };
     use alloy::{
         consensus::Transaction,
@@ -1392,7 +1404,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 rampUpPeriod: 1,
                 lockStake: U256::from(10),
@@ -1472,7 +1484,7 @@ mod tests {
     }
 
     #[test]
-    fn test_price_at_block() {
+    fn test_price_at() {
         let market = BoundlessMarketService::new(
             Address::default(),
             ProviderBuilder::default().on_http(Url::from_str("http://rpc.null").unwrap()),
@@ -1481,22 +1493,22 @@ mod tests {
         let offer = &test_offer();
 
         // Cannot calculate price before bidding start
-        assert!(market.price_at_block(offer, 99).is_err());
+        assert!(market.price_at(offer, 99).is_err());
 
-        assert_eq!(market.price_at_block(offer, 100).unwrap(), ether("1"));
+        assert_eq!(market.price_at(offer, 100).unwrap(), ether("1"));
 
-        assert_eq!(market.price_at_block(offer, 101).unwrap(), ether("1.01"));
-        assert_eq!(market.price_at_block(offer, 125).unwrap(), ether("1.25"));
-        assert_eq!(market.price_at_block(offer, 150).unwrap(), ether("1.5"));
-        assert_eq!(market.price_at_block(offer, 175).unwrap(), ether("1.75"));
-        assert_eq!(market.price_at_block(offer, 199).unwrap(), ether("1.99"));
+        assert_eq!(market.price_at(offer, 101).unwrap(), ether("1.01"));
+        assert_eq!(market.price_at(offer, 125).unwrap(), ether("1.25"));
+        assert_eq!(market.price_at(offer, 150).unwrap(), ether("1.5"));
+        assert_eq!(market.price_at(offer, 175).unwrap(), ether("1.75"));
+        assert_eq!(market.price_at(offer, 199).unwrap(), ether("1.99"));
 
-        assert_eq!(market.price_at_block(offer, 200).unwrap(), ether("2"));
-        assert_eq!(market.price_at_block(offer, 500).unwrap(), ether("2"));
+        assert_eq!(market.price_at(offer, 200).unwrap(), ether("2"));
+        assert_eq!(market.price_at(offer, 500).unwrap(), ether("2"));
     }
 
     #[test]
-    fn test_block_at_price() {
+    fn test_time_at_price() {
         let market = BoundlessMarketService::new(
             Address::default(),
             ProviderBuilder::default().on_http(Url::from_str("http://rpc.null").unwrap()),
@@ -1504,19 +1516,19 @@ mod tests {
         );
         let offer = &test_offer();
 
-        assert_eq!(market.block_at_price(offer, ether("1")).unwrap(), 0);
+        assert_eq!(market.time_at_price(offer, ether("1")).unwrap(), 0);
 
-        assert_eq!(market.block_at_price(offer, ether("1.01")).unwrap(), 101);
-        assert_eq!(market.block_at_price(offer, ether("1.001")).unwrap(), 101);
+        assert_eq!(market.time_at_price(offer, ether("1.01")).unwrap(), 101);
+        assert_eq!(market.time_at_price(offer, ether("1.001")).unwrap(), 101);
 
-        assert_eq!(market.block_at_price(offer, ether("1.25")).unwrap(), 125);
-        assert_eq!(market.block_at_price(offer, ether("1.5")).unwrap(), 150);
-        assert_eq!(market.block_at_price(offer, ether("1.75")).unwrap(), 175);
-        assert_eq!(market.block_at_price(offer, ether("1.99")).unwrap(), 199);
-        assert_eq!(market.block_at_price(offer, ether("2")).unwrap(), 200);
+        assert_eq!(market.time_at_price(offer, ether("1.25")).unwrap(), 125);
+        assert_eq!(market.time_at_price(offer, ether("1.5")).unwrap(), 150);
+        assert_eq!(market.time_at_price(offer, ether("1.75")).unwrap(), 175);
+        assert_eq!(market.time_at_price(offer, ether("1.99")).unwrap(), 199);
+        assert_eq!(market.time_at_price(offer, ether("2")).unwrap(), 200);
 
         // Price cannot exceed maxPrice
-        assert!(market.block_at_price(offer, ether("3")).is_err());
+        assert!(market.time_at_price(offer, ether("3")).is_err());
     }
 
     #[tokio::test]

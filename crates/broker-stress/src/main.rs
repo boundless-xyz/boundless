@@ -90,7 +90,10 @@ async fn request_spawner(
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: ctx.customer_provider.get_block_number().await?,
+                biddingStart: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,

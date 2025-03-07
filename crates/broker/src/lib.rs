@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
 use alloy::{
     network::Ethereum,
@@ -127,7 +127,7 @@ enum OrderStatus {
     New,
     /// Order is in the process of being priced
     Pricing,
-    /// Order is ready to lock at target_block
+    /// Order is ready to lock at target_timestamp
     Locking,
     /// Order has been locked in and ready to begin proving
     Locked,
@@ -156,8 +156,8 @@ struct Order {
     /// Last update time
     #[serde(with = "ts_seconds")]
     updated_at: DateTime<Utc>,
-    /// Locking status target block
-    target_block: Option<u64>,
+    /// Locking status target UNIX timestamp
+    target_timestamp: Option<u64>,
     /// Prover image Id
     ///
     /// Populated after preflight
@@ -170,10 +170,10 @@ struct Order {
     ///
     /// Populated after proof completion
     proof_id: Option<String>,
-    /// Block the order expires at
+    /// UNIX timestamp the order expires at
     ///
     /// Populated during order picking
-    expire_block: Option<u64>,
+    expire_timestamp: Option<u64>,
     /// Client Signature
     client_sig: Bytes,
     /// Price the lockin was set at
@@ -188,11 +188,11 @@ impl Order {
             request,
             status: OrderStatus::New,
             updated_at: Utc::now(),
-            target_block: None,
+            target_timestamp: None,
             image_id: None,
             input_id: None,
             proof_id: None,
-            expire_block: None,
+            expire_timestamp: None,
             client_sig,
             lock_price: None,
             error_msg: None,
@@ -239,7 +239,7 @@ struct Batch {
     pub start_time: DateTime<Utc>,
     /// The deadline for the batch, which is the earliest deadline for any order in the batch.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_deadline: Option<u64>,
+    pub deadline: Option<u64>,
     /// The total fees for the batch, which is the sum of fees from all orders.
     pub fees: U256,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -639,6 +639,12 @@ async fn upload_input_uri(
         //???
         _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
     })
+}
+
+/// A very small utility function to get the current unix timestamp.
+/// TODO: Should we be worried about this not being close enough to the block timestamp?
+pub(crate) fn now_timestamp() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
 }
 
 #[cfg(feature = "test-utils")]

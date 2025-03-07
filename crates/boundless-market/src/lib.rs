@@ -37,3 +37,12 @@ pub mod order_stream_client;
 #[cfg(not(target_os = "zkvm"))]
 /// Storage module for interacting with the storage provider.
 pub mod storage;
+
+/// A very small utility function to get the current unix timestamp.
+/// TODO: Should we be worried about this not being close enough to the block timestamp?
+pub(crate) fn now_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}

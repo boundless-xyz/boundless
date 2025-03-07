@@ -15,7 +15,7 @@ contract RequestLockTest is Test {
     function setUp() public {
         requestLock = RequestLock({
             prover: address(0x123),
-            lockDeadline: uint64(block.number + 100),
+            lockDeadline: uint64(block.timestamp + 100),
             deadlineDelta: uint24(50),
             requestLockFlags: 0,
             price: 1 ether,

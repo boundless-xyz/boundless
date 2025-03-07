@@ -333,7 +333,7 @@ impl ProofRequest {
         Ok(Address::from(lower_160_bits))
     }
 
-    /// Returns the block number at which the request expires.
+    /// Returns the time, in seconds since the UNIX epoch, at which the request expires.
     pub fn expires_at(&self) -> u64 {
         self.offer.biddingStart + self.offer.timeout as u64
     }
@@ -520,7 +520,7 @@ impl Offer {
         Self { lockStake: lock_stake, ..self }
     }
 
-    /// Sets the offer bidding start as block number.
+    /// Sets the offer bidding start time, in seconds since the UNIX epoch.
     pub fn with_bidding_start(self, bidding_start: u64) -> Self {
         Self { biddingStart: bidding_start, ..self }
     }

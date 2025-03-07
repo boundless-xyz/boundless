@@ -45,6 +45,7 @@ use crate::{
         boundless_market::{BoundlessMarketService, MarketError},
         ProofRequest, RequestError,
     },
+    now_timestamp,
     order_stream_client::{Client as OrderStreamClient, Order},
     storage::{
         storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider,
@@ -214,8 +215,8 @@ pub struct Client<T, P, S> {
     pub offchain_client: Option<OrderStreamClient>,
     /// Local signer for signing requests.
     pub local_signer: Option<LocalSigner<SigningKey>>,
-    /// Bidding start offset wrt the current block (in blocks).
-    pub bidding_start_offset: u64,
+    /// Bidding start offset with regard to the current time, in seconds.
+    pub bidding_start_delay: u64,
 }
 
 impl<T, P, S> Client<T, P, S>
@@ -237,7 +238,7 @@ where
             storage_provider: None,
             offchain_client: None,
             local_signer: None,
-            bidding_start_offset: BIDDING_START_OFFSET,
+            bidding_start_delay: BIDDING_START_OFFSET,
         }
     }
 
@@ -287,7 +288,7 @@ where
 
     /// Set the bidding start offset
     pub fn with_bidding_start_offset(self, bidding_start_offset: u64) -> Self {
-        Self { bidding_start_offset, ..self }
+        Self { bidding_start_delay: bidding_start_offset, ..self }
     }
 
     /// Upload an image to the storage provider
@@ -316,7 +317,7 @@ where
     ///
     /// Requires a local signer to be set to sign the request.
     /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current block number will be used.
+    /// If the bidding start is not set, the current time will be used, plus a delay.
     pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
@@ -329,7 +330,7 @@ where
     ///
     /// Accepts a signer to sign the request.
     /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current block number will be used.
+    /// If the bidding start is not set, the current time will be used, plus a delay.
     pub async fn submit_request_with_signer(
         &self,
         request: &ProofRequest,
@@ -348,12 +349,7 @@ where
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
         if request.offer.biddingStart == 0 {
-            request.offer.biddingStart = self
-                .provider()
-                .get_block_number()
-                .await
-                .context("Failed to get current block number")?
-                + self.bidding_start_offset
+            request.offer.biddingStart = now_timestamp() + self.bidding_start_delay
         };
 
         request.validate()?;
@@ -394,7 +390,7 @@ where
                 .get_block_number()
                 .await
                 .context("Failed to get current block number")?
-                + self.bidding_start_offset
+                + self.bidding_start_delay
         };
         // Ensure address' balance is sufficient to cover the request
         let balance = self.boundless_market.balance_of(request.client_address()?).await?;
@@ -565,7 +561,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             storage_provider,
             offchain_client,
             local_signer: Some(private_key),
-            bidding_start_offset: BIDDING_START_OFFSET,
+            bidding_start_delay: BIDDING_START_OFFSET,
         })
     }
 
@@ -599,7 +595,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             storage_provider,
             offchain_client,
             local_signer: None,
-            bidding_start_offset: BIDDING_START_OFFSET,
+            bidding_start_delay: BIDDING_START_OFFSET,
         })
     }
 }

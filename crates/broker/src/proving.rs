@@ -223,7 +223,7 @@ mod tests {
         let order = Order {
             status: OrderStatus::Locking,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request: ProofRequest {
                 id: U256::ZERO,
                 requirements: Requirements::new(
@@ -248,7 +248,7 @@ mod tests {
             image_id: Some(image_id),
             input_id: Some(input_id),
             proof_id: None,
-            expire_block: None,
+            expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,
@@ -290,7 +290,7 @@ mod tests {
         let order = Order {
             status: OrderStatus::Proving,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request: ProofRequest {
                 id: order_id,
                 requirements: Requirements::new(
@@ -315,7 +315,7 @@ mod tests {
             image_id: Some(image_id),
             input_id: Some(input_id),
             proof_id: Some(proof_id.clone()),
-            expire_block: None,
+            expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,

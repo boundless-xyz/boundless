@@ -18,7 +18,7 @@ use std::{
     io::BufReader,
     num::ParseIntError,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use alloy::{
@@ -153,7 +153,7 @@ enum Command {
     Status {
         /// The proof request identifier
         request_id: U256,
-        /// The block number at which the request expires
+        /// The time at which the request expires, in seconds since the UNIX epoch.
         expires_at: Option<u64>,
     },
     /// Execute a proof request using the RISC Zero zkVM executor.
@@ -603,18 +603,11 @@ where
     let mut offer: Offer =
         serde_yaml::from_reader(reader).context("failed to parse offer from YAML")?;
 
-    // If set to 0, override the offer bidding_start field with the current block number.
+    // If set to 0, override the offer bidding_start field with the current timestamp + 30 seconds.
     if offer.biddingStart == 0 {
-        let latest_block = client
-            .boundless_market
-            .instance()
-            .provider()
-            .get_block_number()
-            .await
-            .context("Failed to get block number")?;
         // NOTE: Adding a bit of a delay to bidding start lets provers see and evaluate the request
-        // before the price starts to ramp up. 3 is an arbirary value.
-        offer = Offer { biddingStart: latest_block + 3, ..offer };
+        // before the price starts to ramp up. 30s is an arbitrary value.
+        offer = Offer { biddingStart: now_timestamp() + 30, ..offer };
     }
 
     // Resolve the ELF and input from command line arguments.
@@ -694,7 +687,7 @@ where
         client.submit_request_with_signer(&request, signer).await?
     };
     tracing::info!(
-        "Submitted request ID 0x{request_id:x}, bidding start at block number {}",
+        "Submitted request ID 0x{request_id:x}, bidding start at timestamp {}",
         offer.biddingStart
     );
 
@@ -733,18 +726,11 @@ where
     let mut request_yaml: ProofRequest =
         serde_yaml::from_reader(reader).context("failed to parse request from YAML")?;
 
-    // If set to 0, override the offer bidding_start field with the current block number.
+    // If set to 0, override the offer bidding_start field with the current timestamp + 30s.
     if request_yaml.offer.biddingStart == 0 {
-        let latest_block = client
-            .boundless_market
-            .instance()
-            .provider()
-            .get_block_number()
-            .await
-            .context("Failed to get block number")?;
         // NOTE: Adding a bit of a delay to bidding start lets provers see and evaluate the request
-        // before the price starts to ramp up. 3 is an arbirary value.
-        request_yaml.offer = Offer { biddingStart: latest_block + 3, ..request_yaml.offer };
+        // before the price starts to ramp up. 30s is an arbitrary value.
+        request_yaml.offer = Offer { biddingStart: now_timestamp() + 30, ..request_yaml.offer };
     }
 
     let mut request = ProofRequest::new(
@@ -788,7 +774,7 @@ where
         client.submit_request_with_signer(&request, signer).await?
     };
     tracing::info!(
-        "Request ID 0x{request_id:x}, bidding start at block number {}",
+        "Request ID 0x{request_id:x}, bidding start at timestamp {}",
         request.offer.biddingStart
     );
 
@@ -848,6 +834,10 @@ async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
     let path = std::path::Path::new(url.path());
     let data = tokio::fs::read(path).await?;
     Ok(data)
+}
+
+fn now_timestamp() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
 }
 
 #[cfg(test)]

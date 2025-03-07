@@ -2,12 +2,11 @@
 //
 // All rights reserved.
 
-use std::{process::Command, time::Duration};
+use std::{process::Command, time::Duration, time::SystemTime};
 
 use alloy::{
     node_bindings::Anvil,
     primitives::{Address, Bytes, U256},
-    providers::Provider,
     signers::Signer,
 };
 use boundless_market::contracts::{
@@ -24,7 +23,6 @@ async fn create_order(
     order_id: u32,
     contract_addr: Address,
     chain_id: u64,
-    current_block: u64,
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         order_id,
@@ -38,10 +36,10 @@ async fn create_order(
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
-            biddingStart: 0,
-            timeout: current_block as u32 + 2,
+            biddingStart: now_timestamp() - 3,
+            timeout: 5,
             rampUpPeriod: 1,
-            lockTimeout: current_block as u32 + 2,
+            lockTimeout: 5,
             lockStake: U256::from(0),
         },
     );
@@ -90,7 +88,6 @@ async fn test_basic_usage() {
         1,
         ctx.boundless_market_addr,
         anvil.chain_id(),
-        ctx.customer_provider.get_block_number().await.unwrap(),
     )
     .await;
 
@@ -111,4 +108,9 @@ async fn test_basic_usage() {
             panic!("Test timed out waiting for slash event");
         }
     }
+}
+
+/// A very small utility function to get the current unix timestamp.
+pub(crate) fn now_timestamp() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
 }

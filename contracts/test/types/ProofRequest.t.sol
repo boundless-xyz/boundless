@@ -93,7 +93,7 @@ contract ProofRequestTest is Test {
             offer: Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(10),
                 timeout: uint32(100),
                 lockTimeout: uint32(100),

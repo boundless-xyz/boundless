@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::chain_monitor::ChainMonitorService;
+use crate::{chain_monitor::ChainMonitorService, now_timestamp};
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -85,8 +85,6 @@ where
             (config.market.min_deadline, config.market.allow_client_addresses.clone())
         };
 
-        let current_block = self.chain_monitor.current_block_number().await?;
-
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
             let client_addr = order.request.client_address()?;
@@ -106,17 +104,19 @@ where
         }
 
         // is the order expired already?
+        // TODO: Handle lockTimeout separately from timeout.
 
-        let expire_block = order.request.offer.biddingStart + order.request.offer.timeout as u64;
+        let expiration = order.request.offer.biddingStart + order.request.offer.timeout as u64;
 
-        if expire_block <= current_block {
+        let now = now_timestamp();
+        if expiration <= now {
             tracing::warn!("Removing order {order_id:x} because it has expired");
             self.db.skip_order(order_id).await.context("Failed to delete expired order")?;
             return Ok(());
         };
 
         // Does the order expire within the min deadline
-        let seconds_left = (expire_block - current_block) * self.block_time;
+        let seconds_left = expiration - now;
         if seconds_left <= min_deadline {
             tracing::warn!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             self.db.skip_order(order_id).await.context("Failed to delete short deadline order")?;
@@ -177,7 +177,7 @@ where
         if skip_preflight {
             // If we skip preflight we lockin the order asap
             self.db
-                .set_order_lock(order_id, order.request.offer.biddingStart, expire_block)
+                .set_order_lock(order_id, order.request.offer.biddingStart, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
             return Ok(());
@@ -326,32 +326,31 @@ where
                 "Selecting order {order_id:x} at price {} - ASAP",
                 format_ether(U256::from(order.request.offer.minPrice))
             );
-            // set the target block to a past block (aka the order block or current)
-            // so we schedule the lock ASAP.
+            // set the target timestamp to now so we schedule the lock ASAP.
             self.db
-                .set_order_lock(order_id, order.request.offer.biddingStart, expire_block)
+                .set_order_lock(order_id, now_timestamp(), expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
-        // Here we have to pick a target block that the price would be at our target price
+        // Here we have to pick a target timestamp that the price would be at our target price
         // TODO: Clean up and do more testing on this since its just a rough shot first draft
         else {
             let target_min_price =
                 config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill;
             tracing::debug!("Target price: {target_min_price}");
 
-            let target_block: u64 = self
+            let target_timestamp: u64 = self
                 .market
-                .block_at_price(&order.request.offer, target_min_price)
-                .context("Failed to get target price block")?;
+                .time_at_price(&order.request.offer, target_min_price)
+                .context("Failed to get target price timestamp")?;
             tracing::info!(
-                "Selecting order {order_id:x} at price {} - at block {}",
+                "Selecting order {order_id:x} at price {} - at time {}",
                 format_ether(target_min_price),
-                target_block,
+                target_timestamp,
             );
 
             self.db
-                .set_order_lock(order_id, target_block, expire_block)
+                .set_order_lock(order_id, target_timestamp, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
@@ -614,11 +613,11 @@ mod tests {
                             lockStake: lock_stake,
                         },
                     ),
-                    target_block: None,
+                    target_timestamp: None,
                     image_id: None,
                     input_id: None,
                     proof_id: None,
-                    expire_block: None,
+                    expire_timestamp: None,
                     client_sig: Bytes::new(),
                     lock_price: None,
                     error_msg: None,
@@ -740,7 +739,7 @@ mod tests {
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));
+        assert_eq!(db_order.target_timestamp, Some(order.request.offer.biddingStart));
     }
 
     #[tokio::test]
@@ -837,11 +836,11 @@ mod tests {
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));
+        assert_eq!(db_order.target_timestamp, Some(order.request.offer.biddingStart));
     }
 
     // TODO: Test
-    // need to test the non-ASAP path for pricing, aka picking a block ahead in time to make sure
+    // need to test the non-ASAP path for pricing, aka picking a timestamp ahead in time to make sure
     // that price calculator is working correctly.
 
     #[tokio::test]
