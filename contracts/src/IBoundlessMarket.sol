@@ -92,10 +92,11 @@ interface IBoundlessMarket {
     /// @param requestId The ID of the request.
     error RequestIsLocked(RequestId requestId);
 
-    /// @notice Error when a request is not priced when it was required to be. Either locking the request, or calling the
-    /// `IBoundlessMarket.priceRequest` function in the same transaction will satisfy this requirement.
+    /// @notice Error when a request is expired or not priced when it was required to be. 
+    /// Either locking the request, or calling the `IBoundlessMarket.priceRequest` function 
+    /// in the same transaction will satisfy this requirement.
     /// @param requestId The ID of the request.
-    error RequestIsNotPriced(RequestId requestId);
+    error RequestIsExpiredOrNotPriced(RequestId requestId);
 
     /// @notice Error when a request is not locked when it was required to be.
     /// @param requestId The ID of the request.
