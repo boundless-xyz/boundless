@@ -14,6 +14,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
@@ -180,8 +181,8 @@ contract BoundlessMarket is
             price: price,
             requestLockFlags: 0,
             lockDeadline: lockDeadline,
-            deadlineDelta: uint256(deadline - lockDeadline).toUint24(),
-            stake: request.offer.lockStake.toUint96(),
+            deadlineDelta: uint256(deadline - lockDeadline).safeCastTo24(),
+            stake: request.offer.lockStake.safeCastTo96(),
             requestDigest: requestDigest
         });
 
