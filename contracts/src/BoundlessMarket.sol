@@ -245,15 +245,14 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public view {
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
-        uint256 fillsLength = fills.length;
         // We can't handle more than 65535 fills in a single batch.
         // This is a limitation of the current Selector implementation,
         // that uses a uint16 for the index, and can be increased in the future.
-        if (fillsLength > type(uint16).max) {
-            revert BatchSizeExceedsLimit(fillsLength, type(uint16).max);
+        if (fills.length > type(uint16).max) {
+            revert BatchSizeExceedsLimit(fills.length, type(uint16).max);
         }
-        bytes32[] memory claimDigests = new bytes32[](fillsLength);
-        bytes32[] memory requestDigests = new bytes32[](fillsLength);
+        bytes32[] memory claimDigests = new bytes32[](fills.length);
+        bytes32[] memory requestDigests = new bytes32[](fills.length);
 
         // Check the selector constraints.
         // NOTE: The assessor guest adds non-zero selector values to the list.
@@ -267,7 +266,7 @@ contract BoundlessMarket is
         }
 
         // Verify the application receipts.
-        for (uint256 i = 0; i < fillsLength; i++) {
+        for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
 
             requestDigests[i] = fill.requestDigest;
@@ -337,7 +336,7 @@ contract BoundlessMarket is
 
         _fulfillAndPay(fill, assessorReceipt.prover);
 
-        emit ProofDelivered(fill.id, fill.journal, fill.seal);
+        emit ProofDelivered(fill.id);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -363,7 +362,7 @@ contract BoundlessMarket is
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
             _fulfillAndPay(fills[i], assessorReceipt.prover);
-            emit ProofDelivered(fills[i].id, fills[i].journal, fills[i].seal);
+            emit ProofDelivered(fills[i].id);
         }
     }
 
