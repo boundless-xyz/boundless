@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::{chain_monitor::ChainMonitorService, now_timestamp};
+use crate::now_timestamp;
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -51,8 +51,6 @@ pub struct OrderPicker<P> {
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
-    chain_monitor: Arc<ChainMonitorService<P>>,
-    block_time: u64,
     market: BoundlessMarketService<BoxTransport, Arc<P>>,
 }
 
@@ -64,17 +62,15 @@ where
         db: DbObj,
         config: ConfigLock,
         prover: ProverObj,
-        block_time: u64,
         market_addr: Address,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
-        Self { db, config, prover, chain_monitor, block_time, provider, market }
+        Self { db, config, prover, provider, market }
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<(), PriceOrderErr> {
@@ -513,7 +509,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, provers::MockProver, OrderStatus};
+    use crate::{
+        chain_monitor::ChainMonitorService, db::SqliteDb, provers::MockProver, OrderStatus,
+    };
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
@@ -702,15 +700,8 @@ mod tests {
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn());
 
-            let picker = OrderPicker::new(
-                db.clone(),
-                config,
-                prover,
-                2,
-                market_address,
-                provider.clone(),
-                chain_monitor,
-            );
+            let picker =
+                OrderPicker::new(db.clone(), config, prover, market_address, provider.clone());
 
             TestCtx { anvil, picker, boundless_market, image_server, db, provider }
         }

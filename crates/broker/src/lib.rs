@@ -438,10 +438,8 @@ where
             self.db.clone(),
             self.config_watcher.config.clone(),
             prover.clone(),
-            block_times,
             self.args.boundless_market_addr,
             self.provider.clone(),
-            chain_monitor.clone(),
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
@@ -485,8 +483,7 @@ where
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
                 self.db.clone(),
-                self.provider.clone(),
-                chain_monitor.clone(),
+                chain_id,
                 set_builder_img_data.0,
                 set_builder_img_data.1,
                 assessor_img_data.0,
@@ -495,7 +492,6 @@ where
                 prover_addr,
                 self.config_watcher.config.clone(),
                 prover.clone(),
-                block_times,
             )
             .await
             .context("Failed to initialize aggregator service")?,

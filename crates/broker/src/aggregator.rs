@@ -2,14 +2,7 @@
 //
 // All rights reserved.
 
-use std::sync::Arc;
-
-use alloy::{
-    network::Ethereum,
-    primitives::{utils, Address, U256},
-    providers::Provider,
-    transports::BoxTransport,
-};
+use alloy::primitives::{utils, Address, U256};
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::contracts::eip712_domain;
@@ -21,7 +14,6 @@ use risc0_zkvm::{
 };
 
 use crate::{
-    chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -31,7 +23,7 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct AggregatorService<P> {
+pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
@@ -42,14 +34,11 @@ pub struct AggregatorService<P> {
     chain_id: u64,
 }
 
-impl<P> AggregatorService<P>
-where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
-{
+impl AggregatorService {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DbObj,
-        provider: Arc<P>,
+        chain_id: u64,
         set_builder_guest_id: Digest,
         set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
@@ -68,8 +57,6 @@ where
             .upload_image(&assessor_guest_id.to_string(), assessor_guest)
             .await
             .context("Failed to upload assessor guest")?;
-
-        let chain_id = provider.get_chain_id().await?;
 
         Ok(Self {
             db,
@@ -519,10 +506,7 @@ where
     }
 }
 
-impl<P> RetryTask for AggregatorService<P>
-where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
-{
+impl RetryTask for AggregatorService {
     fn spawn(&self) -> RetryRes {
         let mut self_clone = self.clone();
 
@@ -547,8 +531,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{ops::Add, sync::Arc};
+
     use super::*;
     use crate::{
+        chain_monitor::ChainMonitorService,
         db::SqliteDb,
         now_timestamp,
         provers::{encode_input, MockProver, Prover},
@@ -558,7 +545,7 @@ mod tests {
         network::EthereumWallet,
         node_bindings::Anvil,
         primitives::U256,
-        providers::{ext::AnvilApi, ProviderBuilder},
+        providers::{ext::AnvilApi, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -567,7 +554,6 @@ mod tests {
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use std::ops::Add;
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -610,8 +596,7 @@ mod tests {
         let _handle = tokio::spawn(chain_monitor.spawn());
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor.clone(),
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -620,7 +605,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -765,8 +749,7 @@ mod tests {
         let _handle = tokio::spawn(chain_monitor.spawn());
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor.clone(),
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -775,7 +758,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -930,12 +912,9 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor,
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -944,7 +923,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -1045,8 +1023,7 @@ mod tests {
 
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor,
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -1055,7 +1032,6 @@ mod tests {
             signer.address(),
             config.clone(),
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -1164,8 +1140,7 @@ mod tests {
 
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor,
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -1174,7 +1149,6 @@ mod tests {
             signer.address(),
             config.clone(),
             prover,
-            2,
         )
         .await
         .unwrap();

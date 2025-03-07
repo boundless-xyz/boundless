@@ -5,7 +5,6 @@
 use alloy::{
     node_bindings::Anvil,
     primitives::{utils, U256},
-    providers::Provider,
 };
 use httpmock::prelude::*;
 use risc0_zkvm::sha::Digest;

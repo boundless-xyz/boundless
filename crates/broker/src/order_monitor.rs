@@ -13,7 +13,7 @@ use alloy::{
     network::Ethereum,
     primitives::{Address, U256},
     providers::{Provider, WalletProvider},
-    rpc::types::{BlockNumberOrTag, BlockTransactionsKind},
+    rpc::types::BlockTransactionsKind,
     transports::BoxTransport,
 };
 use anyhow::{Context, Result};
