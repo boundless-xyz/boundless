@@ -826,7 +826,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // It should be random and never correspond to a real account.
         // TODO: This address will need to change anytime we change the ProofRequest struct or
         // the way it is hashed for signatures. Find a good way to avoid this.
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, address(0x6519523979d391bF62ba1dCcEFf81BF484eB067b)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBoundlessMarket.InsufficientBalance.selector, address(0x6519523979d391bF62ba1dCcEFf81BF484eB067b)
+            )
+        );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
 
         client.expectBalanceChange(0 ether);
@@ -1010,9 +1014,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(request, clientSignature);
         } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
-            boundlessMarket.lockRequestWithSignature(
-                request, clientSignature, testProver.sign(request)
-            );
+            boundlessMarket.lockRequestWithSignature(request, clientSignature, testProver.sign(request));
         }
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -1072,9 +1074,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(request, clientSignature);
         } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
-            boundlessMarket.lockRequestWithSignature(
-                request, clientSignature, testProver.sign(request)
-            );
+            boundlessMarket.lockRequestWithSignature(request, clientSignature, testProver.sign(request));
         }
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -1149,9 +1149,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
 
-        boundlessMarket.lockRequestWithSignature(
-            request, client.sign(request), testProver.sign(request)
-        );
+        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
 
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
@@ -1179,9 +1177,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
 
-        boundlessMarket.lockRequestWithSignature(
-            request, client.sign(request), testProver.sign(request)
-        );
+        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
 
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
@@ -1253,9 +1249,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         ProofRequest memory request = client.request(3);
 
-        boundlessMarket.lockRequestWithSignature(
-            request, client.sign(request), testProver.sign(request)
-        );
+        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
         // address(3) is just a standin for some other address.
         address mockOtherProverAddr = address(uint160(3));
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -1430,8 +1424,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // A request is locked with a valid smart contract signature (signature is checked onchain at lock time)
     // and then a prover tries to fulfill it specifying an invalid smart contract signature. The signature could
     // be invalid for a number of reasons, including the smart contract wallet rotating their signers so the old signature
-    // is no longer valid. 
-    // Since there is possibility of funds being pulled in the multiple request same id case, we ensure we check 
+    // is no longer valid.
+    // Since there is possibility of funds being pulled in the multiple request same id case, we ensure we check
     // the SC signature again.
     function testFulfillWasLockedRequestByInvalidSmartContractSignature() public {
         SmartContractClient client = getSmartContractClient(1);
@@ -1564,9 +1558,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 vm.roll(request.offer.blockAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
-                boundlessMarket.lockRequestWithSignature(
-                    request, client.sign(request), testProver.sign(request)
-                );
+                boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
 
                 requests[idx] = request;
                 journals[idx] = APP_JOURNAL;
@@ -1670,9 +1662,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 vm.roll(request.offer.blockAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
-                boundlessMarket.lockRequestWithSignature(
-                    request, client.sign(request), testProver.sign(request)
-                );
+                boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
 
                 requests[idx] = request;
                 journals[idx] = APP_JOURNAL;
@@ -1813,9 +1803,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(requestA, clientSignatureA);
         } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
-            boundlessMarket.lockRequestWithSignature(
-                requestA, clientSignatureA, testProver.sign(requestA)
-            );
+            boundlessMarket.lockRequestWithSignature(requestA, clientSignatureA, testProver.sign(requestA));
         }
 
         // Attempt to fill request B.
@@ -1922,9 +1910,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory request = client.request(1);
 
         // Lock to "testProver" but "prover2" fulfills the request
-        boundlessMarket.lockRequestWithSignature(
-            request, client.sign(request), testProver.sign(request)
-        );
+        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
 
         Client testProver2 = getClient(2);
         (address testProver2Address,,,) = testProver2.wallet();

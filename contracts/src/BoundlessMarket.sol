@@ -197,7 +197,7 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
         (address client, bool smartContractSigned) = request.id.clientAndIsSmartContractSigned();
-        
+
         bytes32 requestHash;
         // We only need to validate the signature if it is a smart contract signature. This is because
         // EOA signatures are validated in the assessor during fulfillment, so the assessor guarantees
@@ -834,7 +834,11 @@ contract BoundlessMarket is
         return requestLocks[id].deadline();
     }
 
-    function _verifyClientSignature(ProofRequest calldata request, address addr, bytes calldata clientSignature) internal view returns (bytes32) {
+    function _verifyClientSignature(ProofRequest calldata request, address addr, bytes calldata clientSignature)
+        internal
+        view
+        returns (bytes32)
+    {
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         if (request.id.isSmartContractSigned()) {
             if (IERC1271(addr).isValidSignature(requestHash, clientSignature) != IERC1271.isValidSignature.selector) {
@@ -848,7 +852,11 @@ contract BoundlessMarket is
         return requestHash;
     }
 
-    function _extractProverAddress(bytes32 requestHash, bytes calldata proverSignature) internal pure returns (address) {
+    function _extractProverAddress(bytes32 requestHash, bytes calldata proverSignature)
+        internal
+        pure
+        returns (address)
+    {
         return ECDSA.recover(requestHash, proverSignature);
     }
 

@@ -170,5 +170,4 @@ contract ProofRequestTest is Test {
         vm.expectRevert(IBoundlessMarket.InvalidRequest.selector);
         proofRequestContract.validateForPriceRequest(proofRequest);
     }
-
 }
