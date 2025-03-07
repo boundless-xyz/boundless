@@ -73,15 +73,6 @@ interface IBoundlessMarket {
     /// @param version The new version of the contract.
     event Upgraded(uint64 indexed version);
 
-    /// @notice Event emitted during fulfillment if a request was fulfilled, but payment was not
-    /// transferred because at least one condition was not met. See the documentation on
-    /// `IBoundlessMarket.fulfillBatch` for more information.
-    /// @dev The payload of the event is an ABI encoded error, from the errors on this contract.
-    /// If there is an unexpired lock on the request, the order, the prover holding the lock may
-    /// still be able to receive payment by sending another transaction.
-    /// @param error The ABI encoded error.
-    event PaymentRequirementsFailed(bytes error);
-
     /// @notice Event emitted when a callback to a contract fails during fulfillment
     /// @param requestId The ID of the request that was being fulfilled
     /// @param callback The address of the callback contract that failed
