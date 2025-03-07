@@ -16,6 +16,8 @@ use alloy::{
     primitives::{Address, PrimitiveSignature, U256},
     signers::{Error as SignerErr, Signer},
 };
+use alloy_primitives::B256;
+use alloy_sol_types::SolStruct;
 use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::{DateTime, Utc};
@@ -33,7 +35,7 @@ use tokio_tungstenite::{
 };
 use utoipa::ToSchema;
 
-use crate::contracts::{ProofRequest, RequestError};
+use crate::contracts::{eip712_domain, ProofRequest, RequestError};
 
 /// Order stream submission API path.
 pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
@@ -86,6 +88,9 @@ pub struct Order {
     /// Order request
     #[schema(value_type = Object)]
     pub request: ProofRequest,
+    /// Request digest
+    #[schema(value_type = Object)]
+    pub request_digest: B256,
     /// Order signature
     #[schema(value_type = Object)]
     pub signature: PrimitiveSignature,
@@ -122,13 +127,18 @@ pub struct SubmitOrderRes {
 
 impl Order {
     /// Create a new Order
-    pub fn new(request: ProofRequest, signature: PrimitiveSignature) -> Self {
-        Self { request, signature }
+    pub fn new(request: ProofRequest, request_digest: B256, signature: PrimitiveSignature) -> Self {
+        Self { request, request_digest, signature }
     }
 
     /// Validate the Order
     pub fn validate(&self, market_address: Address, chain_id: u64) -> Result<(), OrderError> {
         self.request.validate()?;
+        let domain = eip712_domain(market_address, chain_id);
+        let hash = self.request.eip712_signing_hash(&domain.alloy_struct());
+        if hash != self.request_digest {
+            return Err(OrderError::RequestError(RequestError::DigestMismatch));
+        }
         self.request.verify_signature(
             &self.signature.as_bytes().into(),
             market_address,
@@ -213,7 +223,9 @@ impl Client {
         let url = self.base_url.join(ORDER_SUBMISSION_PATH)?;
         let signature =
             request.sign_request(signer, self.boundless_market_address, self.chain_id).await?;
-        let order = Order { request: request.clone(), signature };
+        let domain = eip712_domain(self.boundless_market_address, self.chain_id);
+        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
+        let order = Order { request: request.clone(), request_digest, signature };
         order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;
         let response = self
@@ -237,6 +249,46 @@ impl Client {
         }
 
         Ok(order)
+    }
+
+    /// Fetch an order from the order stream server.
+    ///
+    /// If multiple orders are found, the `request_digest` must be provided to select the correct order.
+    pub async fn fetch_order(&self, id: U256, request_digest: Option<B256>) -> Result<Order> {
+        let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            let error_message = match response.json::<serde_json::Value>().await {
+                Ok(json_body) => {
+                    json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
+                }
+                Err(_) => "Failed to read server error message".to_string(),
+            };
+
+            return Err(anyhow::Error::msg(error_message));
+        }
+
+        let order_data: Vec<OrderData> = response.json().await?;
+        let orders: Vec<Order> = order_data.into_iter().map(|data| data.order).collect();
+        if orders.is_empty() {
+            return Err(anyhow::Error::msg("No order found"));
+        } else if orders.len() == 1 {
+            return Ok(orders[0].clone());
+        }
+        match request_digest {
+            Some(digest) => {
+                for order in orders {
+                    if order.request_digest == digest {
+                        return Ok(order);
+                    }
+                }
+                Err(anyhow::Error::msg("No order found"))
+            }
+            None => {
+                Err(anyhow::Error::msg("Multiple orders found, please provide a request digest"))
+            }
+        }
     }
 
     /// Get the nonce from the order stream service for websocket auth

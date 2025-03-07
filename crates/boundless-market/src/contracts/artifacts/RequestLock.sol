@@ -8,12 +8,12 @@ using RequestLockLibrary for RequestLock global;
 /// @notice Stores information about requests that have been locked.
 /// @dev RequestLock is an internal structure that is modified at various points in the proof lifecycle.
 /// Fields can be valid or invalid depending where in the lifecycle we are. Integrators should not rely on RequestLock
-/// for determining the status of a request. Instead, they shouldalways use BoundlessMarket's view functions.
+/// for determining the status of a request. Instead, they should always use BoundlessMarket's public functions.
 ///
-/// Packed to fit into 2 slots.
+/// Packed to fit into 3 slots.
 struct RequestLock {
     ///
-    /// Storage slot 1
+    /// Storage slot 0
     ///
     /// @notice The address of the prover that locked the request _or_ the address of the prover that fulfilled the request.
     address prover;
@@ -25,34 +25,22 @@ struct RequestLock {
     /// @notice Flags that indicate the state of the request lock.
     uint8 requestLockFlags;
     ///
-    /// Storage slot 2
+    /// Storage slots 1 - 2
     ///
     /// @notice The price that the prover will be paid for fulfilling the request.
     uint96 price;
     // Prover stake that may be taken if a proof is not delivered by the deadline.
     uint96 stake;
-    /// @notice Keccak256 hash of the request, shortened to 64-bits. During fulfillment, this value is used
+    /// @notice Keccak256 hash of the request. During fulfillment, this value is used
     /// to check that the request completed is the request that was locked, and not some other
     /// request with the same ID.
-    /// @dev Note that this value is not collision resistant in that it is fairly easy to find two
-    /// requests with the same fingerprint. However, requests much be signed to be valid, and so
-    /// the existence of two valid requests with the same fingerprint requires either intention
-    /// construction by the private key holder, which would be pointless, or accidental collision.
-    /// With 64-bits, a client that constructed 65k signed requests with the same request ID would
-    /// have a roughly 2^-32 chance of accidental collision, which is negligible in this scenario.
-    ///
-    /// This fingerprint binds the full request including e.g. the offer and input. Technically,
+    /// @dev This digest binds the full request including e.g. the offer and input. Technically,
     /// all that is required is to bind the requirements. If there is some advantage to only binding
     /// the requirements here (e.g. less hashing costs) then that might be worth doing.
     ///
     /// There is another option here, which would be to have the request lock mapping index
     /// based on request digest instead of index. As a friction, this would introduce a second
     /// user-facing concept of what identifies a request.
-    bytes8 fingerprint;
-    ///
-    /// Storage slot 3
-    ///
-    /// @notice The digest of the request.
     bytes32 requestDigest;
 }
 
@@ -70,30 +58,24 @@ library RequestLockLibrary {
 
     function setProverPaidBeforeLockDeadline(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags = PROVER_PAID_DURING_LOCK_FLAG;
-        // Zero out second slot for gas refund.
-        requestLock.price = uint96(0);
-        requestLock.stake = uint96(0);
-        requestLock.fingerprint = bytes8(0);
-        // Zero out third slot for gas refund.
-        requestLock.requestDigest = bytes32(0);
+        // Zero out slots 1-2 for gas refund.
+        clearSlot1And2(requestLock);
     }
 
     function setProverPaidAfterLockDeadline(RequestLock storage requestLock, address prover) internal {
         requestLock.prover = prover;
         requestLock.requestLockFlags = PROVER_PAID_AFTER_LOCK_FLAG;
-        // We don't zero out the second slot as stake information is required for slashing.
-        // Zero out third slot for gas refund.
-        requestLock.requestDigest = bytes32(0);
+        // We don't zero out slot 1 as stake information is required for slashing.
+        // Zero out slot 2 for gas refund.
+        // Clearing via requestLock.requestDigest = bytes32(0)
+        // would require touching slot 1 as well.
+        clearSlot2(requestLock);
     }
 
     function setSlashed(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags |= SLASHED_FLAG;
-        // Zero out second slot for gas refund.
-        requestLock.price = uint96(0);
-        requestLock.stake = uint96(0);
-        requestLock.fingerprint = bytes8(0);
-        // Zero out third slot for gas refund.
-        requestLock.requestDigest = bytes32(0);
+        // Zero out slots 1-2 for gas refund.
+        clearSlot1And2(requestLock);
     }
 
     function hasBeenLocked(RequestLock memory requestLock) internal pure returns (bool) {
@@ -130,5 +112,21 @@ library RequestLockLibrary {
     /// @return True if the request is slashed, false otherwise.
     function isSlashed(RequestLock memory requestLock) internal pure returns (bool) {
         return requestLock.requestLockFlags & SLASHED_FLAG != 0;
+    }
+
+    function clearSlot2(RequestLock storage requestLock) private {
+        assembly {
+            let num := add(requestLock.slot, 2)
+            sstore(num, 0)
+        }
+    }
+
+    function clearSlot1And2(RequestLock storage requestLock) private {
+        assembly {
+            let num := add(requestLock.slot, 1)
+            sstore(num, 0)
+            num := add(num, 1)
+            sstore(num, 0)
+        }
     }
 }

@@ -5,11 +5,12 @@
 use std::sync::Arc;
 
 use alloy::{
+    consensus::Transaction,
     network::Ethereum,
     primitives::{Address, U256},
     providers::Provider,
-    rpc::types::Filter,
-    sol_types::SolEvent,
+    rpc::types::{Filter, Log},
+    sol_types::{SolCall, SolEvent},
     transports::BoxTransport,
 };
 use anyhow::{Context, Result};
@@ -117,7 +118,14 @@ where
         let mut order_count = 0;
         for log in decoded_logs {
             let event = &log.inner.data;
-            let request_id = U256::from(event.request.id);
+            let request_id = U256::from(event.requestId);
+            let tx_hash = log.transaction_hash.context("Missing transaction hash")?;
+            let tx_data = provider
+                .get_transaction_by_hash(tx_hash)
+                .await?
+                .context("Missing transaction data")?;
+            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
+                .context("Failed to decode calldata")?;
             let order_exists = match db.order_exists(request_id).await {
                 Ok(val) => val,
                 Err(err) => {
@@ -130,7 +138,7 @@ where
             }
 
             let req_status =
-                match market.get_status(request_id, Some(event.request.expires_at())).await {
+                match market.get_status(request_id, Some(calldata.request.expires_at())).await {
                     Ok(val) => val,
                     Err(err) => {
                         tracing::warn!("Failed to get request status: {err:?}");
@@ -141,17 +149,17 @@ where
             if !matches!(req_status, ProofStatus::Unknown) {
                 tracing::debug!(
                     "Skipping order {} reason: order status no longer bidding: {:?}",
-                    event.request.id,
+                    calldata.request.id,
                     req_status
                 );
                 continue;
             }
 
-            tracing::info!("Found open order: {}", event.request.id);
+            tracing::info!("Found open order: {}", calldata.request.id);
             if let Err(err) = db
                 .add_order(
                     request_id,
-                    Order::new(event.request.clone(), event.clientSignature.clone()),
+                    Order::new(calldata.request.clone(), calldata.clientSignature.clone()),
                 )
                 .await
             {
@@ -169,7 +177,7 @@ where
     async fn monitor_orders(market_addr: Address, provider: Arc<P>, db: DbObj) -> Result<()> {
         let chain_id = provider.get_chain_id().await?;
 
-        let market = BoundlessMarketService::new(market_addr, provider, Address::ZERO);
+        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
         // TODO: RPC providers can drop filters over time or flush them
         // we should try and move this to a subscription filter if we have issue with the RPC
         // dropping filters
@@ -180,42 +188,18 @@ where
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
-                    Ok((event, _log)) => {
-                        tracing::info!("Detected new request {:x}", event.request.id);
-
-                        if let Err(err) = event.request.verify_signature(
-                            &event.clientSignature,
+                    Ok((event, log)) => {
+                        if let Err(err) = Self::process_log(
+                            event,
+                            log,
+                            provider.clone(),
                             market_addr,
                             chain_id,
-                        ) {
-                            tracing::warn!(
-                                "Failed to validate order signature: 0x{:x} - {err:?}",
-                                event.request.id
-                            );
-                            return;
-                        }
-
-                        if let Err(err) = db
-                            .add_order(
-                                U256::from(event.request.id),
-                                Order::new(event.request, event.clientSignature),
-                            )
-                            .await
+                            &db,
+                        )
+                        .await
                         {
-                            match err {
-                                DbError::SqlErr(sqlx::Error::Database(db_err)) => {
-                                    if db_err.is_unique_violation() {
-                                        tracing::warn!("Duplicate order detected: {db_err:?}");
-                                    } else {
-                                        tracing::error!(
-                                            "Failed to add new order into DB: {db_err:?}"
-                                        );
-                                    }
-                                }
-                                _ => {
-                                    tracing::error!("Failed to add new order into DB: {err:?}");
-                                }
-                            }
+                            tracing::error!("Failed to process event log: {err:?}");
                         }
                     }
                     Err(err) => {
@@ -226,6 +210,56 @@ where
             .await;
 
         anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
+    }
+
+    async fn process_log(
+        event: IBoundlessMarket::RequestSubmitted,
+        log: Log,
+        provider: Arc<P>,
+        market_addr: Address,
+        chain_id: u64,
+        db: &DbObj,
+    ) -> Result<()> {
+        tracing::info!("Detected new request {:x}", event.requestId);
+
+        let tx_hash = log.transaction_hash.context("Missing transaction hash")?;
+        let tx_data =
+            provider.get_transaction_by_hash(tx_hash).await?.context("Missing transaction data")?;
+
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
+            .context("Failed to decode calldata")?;
+
+        if let Err(err) =
+            calldata.request.verify_signature(&calldata.clientSignature, market_addr, chain_id)
+        {
+            tracing::warn!(
+                "Failed to validate order signature: 0x{:x} - {err:?}",
+                calldata.request.id
+            );
+            return Ok(()); // Return early without propagating the error if signature verification fails.
+        }
+
+        if let Err(err) = db
+            .add_order(
+                U256::from(calldata.request.id),
+                Order::new(calldata.request, calldata.clientSignature),
+            )
+            .await
+        {
+            match err {
+                DbError::SqlErr(sqlx::Error::Database(db_err)) => {
+                    if db_err.is_unique_violation() {
+                        tracing::warn!("Duplicate order detected: {db_err:?}");
+                    } else {
+                        tracing::error!("Failed to add new order into DB: {db_err:?}");
+                    }
+                }
+                _ => {
+                    tracing::error!("Failed to add new order into DB: {err:?}");
+                }
+            }
+        }
+        Ok(())
     }
 }
 
