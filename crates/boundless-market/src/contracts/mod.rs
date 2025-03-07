@@ -701,15 +701,10 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
-pub mod bytecode;
-
-#[cfg(feature = "test-utils")]
-#[allow(missing_docs)]
 /// Module for testing utilities.
 pub mod test_utils {
     use crate::contracts::{
         boundless_market::BoundlessMarketService,
-        bytecode::*,
         hit_points::{default_allowance, HitPointsService},
     };
     use alloy::{
@@ -723,6 +718,42 @@ pub mod test_utils {
     use anyhow::{Context, Result};
     use risc0_ethereum_contracts::set_verifier::SetVerifierService;
     use risc0_zkvm::sha::Digest;
+
+    // Codegen from artifact.
+    alloy::sol!(
+        #[allow(missing_docs)]
+        #[sol(rpc)]
+        BoundlessMarket,
+        "src/contracts/artifacts/BoundlessMarket.json"
+    );
+
+    alloy::sol!(
+        #[allow(missing_docs)]
+        #[sol(rpc)]
+        ERC1967Proxy,
+        "src/contracts/artifacts/ERC1967Proxy.json"
+    );
+
+    alloy::sol!(
+        #[allow(missing_docs)]
+        #[sol(rpc)]
+        HitPoints,
+        "src/contracts/artifacts/HitPoints.json"
+    );
+
+    alloy::sol!(
+        #[allow(missing_docs)]
+        #[sol(rpc)]
+        RiscZeroMockVerifier,
+        "src/contracts/artifacts/RiscZeroMockVerifier.json"
+    );
+
+    alloy::sol!(
+        #[allow(missing_docs)]
+        #[sol(rpc)]
+        RiscZeroSetVerifier,
+        "src/contracts/artifacts/RiscZeroSetVerifier.json"
+    );
 
     pub struct TestCtx<P> {
         pub verifier_addr: Address,
@@ -796,7 +827,7 @@ pub mod test_utils {
             *market_instance.address(),
             BoundlessMarket::initializeCall {
                 initialOwner: deployer_address,
-                imageUrl: "".to_string(),
+                _imageUrl: "".to_string(),
             }
             .abi_encode()
             .into(),
