@@ -1322,7 +1322,10 @@ fn decode_calldata(data: &Bytes) -> Result<Vec<Fulfillment>> {
         return Ok(call.fills);
     }
 
-    Err(anyhow!("Failed to decode calldata as any fulfillment call"))
+    Err(anyhow!(
+        "Failed to decode calldata with selector {} as any fulfillment call",
+        hex::encode(&data[0..4])
+    ))
 }
 
 #[cfg(test)]
