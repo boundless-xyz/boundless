@@ -335,9 +335,10 @@ where
                 config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill;
             tracing::debug!("Target price: {target_min_price}");
 
-            let target_timestamp: u64 = self
-                .market
-                .time_at_price(&order.request.offer, target_min_price)
+            let target_timestamp: u64 = order
+                .request
+                .offer
+                .time_at_price(target_min_price)
                 .context("Failed to get target price timestamp")?;
             tracing::info!(
                 "Selecting order {order_id:x} at price {} - at time {}",

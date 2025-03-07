@@ -116,9 +116,10 @@ where
             .header
             .timestamp;
 
-        let lock_price = self
-            .market
-            .price_at(&order.request.offer, lock_timestamp)
+        let lock_price = order
+            .request
+            .offer
+            .price_at(lock_timestamp)
             .context("Failed to calculate lock price")?;
 
         self.db.set_proving_status(order_id, lock_price).await.with_context(|| {
