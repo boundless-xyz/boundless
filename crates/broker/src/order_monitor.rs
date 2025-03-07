@@ -173,16 +173,18 @@ where
         // back scan if we have an existing block we last updated from
         // TODO: spawn a side thread to avoid missing new blocks while this is running:
         let order_count = if let Some(last_monitor_block) = opt_last_block {
-            // DO NOT MERGE: Use the timestamp here.
             let current_block = self.chain_monitor.current_block_number().await?;
+            let current_block_timestamp = self.chain_monitor.current_block_timestamp().await?;
 
+            // TODO: It looks like this might now be true.
             tracing::debug!(
-                "Search {last_monitor_block} - {current_block} blocks for lock pending orders..."
+                "Searching block range {last_monitor_block} - {current_block} @ {current_block_timestamp} for lock pending orders..."
             );
 
+            // Get the orders that we wish to lock as early as the next block.
             let orders = self
                 .db
-                .get_pending_lock_orders(current_block)
+                .get_pending_lock_orders(current_block_timestamp + self.block_time)
                 .await
                 .context("Failed to find pending lock orders")?;
 
@@ -203,8 +205,8 @@ where
         let mut last_block = 0;
         let mut first_block = 0;
         loop {
-            // DO NOT MERGE: Use the timestamp here.
             let current_block = self.chain_monitor.current_block_number().await?;
+            let current_block_timestamp = self.chain_monitor.current_block_timestamp().await?;
 
             if current_block != last_block {
                 last_block = current_block;
@@ -214,7 +216,7 @@ where
 
                 let orders = self
                     .db
-                    .get_pending_lock_orders(current_block)
+                    .get_pending_lock_orders(current_block_timestamp + self.block_time)
                     .await
                     .context("Failed to find pending lock orders")?;
 
