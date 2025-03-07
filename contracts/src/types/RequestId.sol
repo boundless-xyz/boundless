@@ -54,4 +54,14 @@ library RequestIdLibrary {
         }
         return (address(uint160(unwrapped >> 32)), uint32(unwrapped), (unwrapped & SMART_CONTRACT_SIGNATURE_FLAG) != 0);
     }
+
+    function clientAndIsSmartContractSigned(RequestId id) internal pure returns (address, bool) {
+        uint256 unwrapped = RequestId.unwrap(id);
+        return (address(uint160(unwrapped >> 32)), (unwrapped & SMART_CONTRACT_SIGNATURE_FLAG) != 0);
+    }
+
+    function isSmartContractSigned(RequestId id) internal pure returns (bool) {
+        uint256 unwrapped = RequestId.unwrap(id);
+        return (unwrapped & SMART_CONTRACT_SIGNATURE_FLAG) != 0;
+    }
 }

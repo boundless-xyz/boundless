@@ -65,45 +65,6 @@ library ProofRequestLibrary {
         );
     }
 
-    /// @notice Extracts the prover's signature for the given proof request.
-    /// @param structHash The EIP-712 struct hash of the proof request.
-    /// @param proverSignature The prover's signature to extract.
-    /// @return The address of the prover.
-    function extractProverSignature(ProofRequest calldata, bytes32 structHash, bytes calldata proverSignature)
-        internal
-        pure
-        returns (address)
-    {
-        return ECDSA.recover(structHash, proverSignature);
-    }
-
-    /// @notice Verifies a signature over a proof request. Additionally validates the flag provided by the client.
-    /// @dev Supports EIP-1271 for smart contract signatures.
-    /// @param structHash The EIP-712 struct hash of the proof request.
-    /// @param addr The address of the client.
-    /// @param signature The signature to validate.
-    /// @param isSmartContractSig Whether the signature should be validated as a smart contract signature.
-    function verifyClientSignature(
-        ProofRequest calldata,
-        bytes32 structHash,
-        address addr,
-        bytes calldata signature,
-        bool isSmartContractSig
-    ) internal view {
-        if (!isSmartContractSig) {
-            // Standard EOA flow.
-            if (ECDSA.recover(structHash, signature) != addr) {
-                revert IBoundlessMarket.InvalidSignature();
-            }
-        } else {
-            // If the signature is not empty and its a smart contract client, we call isValidSignature with the provided signature.
-            // This is the standard flow for a client using a smart contract wallet to submit requests.
-            if (IERC1271(addr).isValidSignature(structHash, signature) != IERC1271.isValidSignature.selector) {
-                revert IBoundlessMarket.InvalidSignature();
-            }
-        }
-    }
-
     /// @notice Validates the proof request with the intention for it to be priced.
     ///         Does not check if the request is already locked or fulfilled, but
     ///         does check if it has expired.

@@ -15,6 +15,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+
 import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
@@ -117,9 +119,8 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
-        (address client, uint32 idx, bool smartContractSigned) = request.id.clientIndexAndSignatureType();
-        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        request.verifyClientSignature(requestHash, client, clientSignature, smartContractSigned);
+        (address client, uint32 idx) = request.id.clientAndIndex();
+        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
         _lockRequest(request, requestHash, client, idx, msg.sender, lockDeadline, deadline);
@@ -131,10 +132,9 @@ contract BoundlessMarket is
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external {
-        (address client, uint32 idx, bool smartContractSigned) = request.id.clientIndexAndSignatureType();
-        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        request.verifyClientSignature(requestHash, client, clientSignature, smartContractSigned);
-        address prover = request.extractProverSignature(requestHash, proverSignature);
+        (address client, uint32 idx) = request.id.clientAndIndex();
+        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
+        address prover = _extractProverAddress(requestHash, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validateForLockRequest(accounts, client, idx);
 
         _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
@@ -196,14 +196,16 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client,, bool smartContractSigned) = request.id.clientIndexAndSignatureType();
-        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-
+        (address client, bool smartContractSigned) = request.id.clientAndIsSmartContractSigned();
+        
+        bytes32 requestHash;
         // We only need to validate the signature if it is a smart contract signature. This is because
         // EOA signatures are validated in the assessor during fulfillment, so the assessor guarantees
         // that the digest that is priced is one that was signed by the client.
         if (smartContractSigned) {
-            request.verifyClientSignature(requestHash, client, clientSignature, smartContractSigned);
+            requestHash = _verifyClientSignature(request, client, clientSignature);
+        } else {
+            requestHash = _hashTypedDataV4(request.eip712Digest());
         }
 
         request.validateForPriceRequest();
@@ -831,6 +833,24 @@ contract BoundlessMarket is
             revert RequestIsNotLocked({requestId: id});
         }
         return requestLocks[id].deadline();
+    }
+
+    function _verifyClientSignature(ProofRequest calldata request, address addr, bytes calldata clientSignature) internal view returns (bytes32) {
+        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
+        if (request.id.isSmartContractSigned()) {
+            if (IERC1271(addr).isValidSignature(requestHash, clientSignature) != IERC1271.isValidSignature.selector) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        } else {
+            if (ECDSA.recover(requestHash, clientSignature) != addr) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        }
+        return requestHash;
+    }
+
+    function _extractProverAddress(bytes32 requestHash, bytes calldata proverSignature) internal pure returns (address) {
+        return ECDSA.recover(requestHash, proverSignature);
     }
 
     /// @inheritdoc IBoundlessMarket
