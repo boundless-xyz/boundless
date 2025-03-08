@@ -51,7 +51,7 @@ enum DbOperation {
 #[derive(Debug, Arbitrary, Clone)]
 enum ExistingOrderOperation {
     GetOrder,
-    SetOrderLock { lock_block: u32, expire_timestamp: u32 },
+    SetOrderLock { lock_timestamp: u32, expire_timestamp: u32 },
     SetProvingStatus { lock_price: u64 },
     SetOrderComplete,
     SkipOrder,
@@ -189,8 +189,8 @@ proptest! {
                                     ExistingOrderOperation::GetOrder => {
                                         db.get_order(U256::from(id)).await.unwrap();
                                     },
-                                    ExistingOrderOperation::SetOrderLock { lock_block, expire_timestamp } => {
-                                        db.set_order_lock(U256::from(id), lock_block as u64, expire_timestamp as u64).await.unwrap();
+                                    ExistingOrderOperation::SetOrderLock { lock_timestamp, expire_timestamp } => {
+                                        db.set_order_lock(U256::from(id), lock_timestamp as u64, expire_timestamp as u64).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetProvingStatus { lock_price } => {
                                         db.set_proving_status(U256::from(id), U256::from(lock_price)).await.unwrap();
@@ -297,8 +297,8 @@ proptest! {
                             DbOperation::GetActivePricingOrders => {
                                 db.get_active_pricing_orders().await.unwrap();
                             },
-                            DbOperation::GetPendingLockOrders(end_block) => {
-                                db.get_pending_lock_orders(end_block as u64).await.unwrap();
+                            DbOperation::GetPendingLockOrders(end_timestamp) => {
+                                db.get_pending_lock_orders(end_timestamp as u64).await.unwrap();
                             },
                             DbOperation::GetProvingOrder => {
                                 db.get_proving_order().await.unwrap();

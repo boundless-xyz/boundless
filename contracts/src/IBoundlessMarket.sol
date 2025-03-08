@@ -228,7 +228,7 @@ interface IBoundlessMarket {
     /// @notice Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
-    /// auction parameters and the block at which this transaction is processed.
+    /// auction parameters and the time at which this transaction is processed.
     /// @dev This method should be called from the address of the prover.
     /// @param request The proof request details.
     /// @param clientSignature The signature of the client.
@@ -237,7 +237,7 @@ interface IBoundlessMarket {
     /// @notice Lock the request to the prover, giving them exclusive rights to be paid to
     /// fulfill this request, and also making them subject to slashing penalties if they fail to
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
-    /// auction parameters and the block at which this transaction is processed.
+    /// auction parameters and the time at which this transaction is processed.
     /// @dev This method uses the provided signature to authenticate the prover.
     /// @param request The proof request details.
     /// @param clientSignature The signature of the client.

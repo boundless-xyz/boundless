@@ -79,10 +79,11 @@ struct Args {
     /// Maximum price per mcycle in ether.
     #[clap(long = "max", value_parser = parse_ether, default_value = "0.000011")]
     max_price_per_mcycle: U256,
-    /// Number of blocks, from the current block, before the bid expires.
-    #[clap(long, default_value = "1000")]
+    /// Number of seconds, from the bidding start, before the bid expires.
+    #[clap(long, default_value = "12000")]
     timeout: u32,
-    /// Ramp-up period in blocks.
+    /// Ramp-up period in seconds.
+    ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
     #[clap(long, default_value = "0")]
     ramp_up: u32,

@@ -589,17 +589,17 @@ impl Offer {
         Self { biddingStart: bidding_start, ..self }
     }
 
-    /// Sets the offer timeout as number of blocks from the bidding start before expiring.
+    /// Sets the offer timeout as seconds from the bidding start before expiring.
     pub fn with_timeout(self, timeout: u32) -> Self {
         Self { timeout, ..self }
     }
 
-    /// Sets the offer lock-in timeout as number of blocks from the bidding start before expiring.
+    /// Sets the offer lock-in timeout as seconds from the bidding start before expiring.
     pub fn with_lock_timeout(self, lock_timeout: u32) -> Self {
         Self { lockTimeout: lock_timeout, ..self }
     }
 
-    /// Sets the offer ramp-up period as number of blocks from the bidding start before the price
+    /// Sets the offer ramp-up period as seconds from the bidding start before the price
     /// starts to increase until the maximum price.
     pub fn with_ramp_up_period(self, ramp_up_period: u32) -> Self {
         Self { rampUpPeriod: ramp_up_period, ..self }
