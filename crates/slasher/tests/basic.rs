@@ -2,11 +2,13 @@
 //
 // All rights reserved.
 
-use std::{process::Command, time::Duration, time::SystemTime};
+use std::{process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
     primitives::{Address, Bytes, U256},
+    providers::Provider,
+    rpc::types::{BlockNumberOrTag, BlockTransactionsKind},
     signers::Signer,
 };
 use boundless_market::contracts::{
@@ -23,6 +25,7 @@ async fn create_order(
     order_id: u32,
     contract_addr: Address,
     chain_id: u64,
+    now: u64,
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         order_id,
@@ -36,7 +39,7 @@ async fn create_order(
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
-            biddingStart: now_timestamp() - 3,
+            biddingStart: now - 3,
             timeout: 12,
             rampUpPeriod: 1,
             lockTimeout: 12,
@@ -82,17 +85,28 @@ async fn test_basic_usage() {
     let mut stream = slash_event.into_stream();
     println!("Subscribed to ProverSlashed event");
 
-    ctx.customer_market.deposit(U256::from(1)).await.unwrap();
+    // Use the chain's timestamps to avoid inconsistencies with system time.
+    let now = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+
     let (request, client_sig) = create_order(
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
         ctx.boundless_market_addr,
         anvil.chain_id(),
+        now,
     )
     .await;
 
     // Do the operations that should trigger the slash
+    ctx.customer_market.deposit(U256::from(1)).await.unwrap();
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
 
     // Wait for the slash event with timeout
@@ -108,9 +122,4 @@ async fn test_basic_usage() {
             panic!("Test timed out waiting for slash event");
         }
     }
-}
-
-/// A very small utility function to get the current unix timestamp.
-pub(crate) fn now_timestamp() -> u64 {
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
 }

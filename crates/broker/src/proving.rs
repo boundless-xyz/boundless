@@ -186,9 +186,9 @@ mod tests {
     use super::*;
     use crate::{
         db::SqliteDb,
+        now_timestamp,
         provers::{encode_input, MockProver},
         OrderStatus,
-        now_timestamp,
     };
     use alloy::primitives::{Bytes, U256};
     use boundless_market::contracts::{
