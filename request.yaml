@@ -30,7 +30,7 @@ offer:
     minPrice: 100000000000000
     maxPrice: 2000000000000000
     biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
-    rampUpPeriod:300
+    rampUpPeriod: 300
     timeout: 3600 # 1 hor
     lockTimeout: 2700 # 45 minutes
     lockStake: 5000000000000000000 # 5 HP tokens (set between 1 and 100)
