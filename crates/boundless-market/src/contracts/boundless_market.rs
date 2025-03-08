@@ -36,9 +36,9 @@ use thiserror::Error;
 use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
-    eip712_domain, request_id, AssessorReceipt, EIP721DomainSaltless, Fulfillment,
+    eip712_domain, AssessorReceipt, EIP721DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    Offer, ProofRequest, ProofStatus, RequestError, TxnErr, TXN_CONFIRM_TIMEOUT,
+    Offer, ProofRequest, ProofStatus, RequestError, RequestId, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -359,6 +359,7 @@ where
         &self,
         request: &ProofRequest,
         client_sig: &Bytes,
+        prover_address: Address,
         prover_sig: &Bytes,
         _priority_gas: Option<u128>,
     ) -> Result<u64, MarketError> {
@@ -370,9 +371,10 @@ where
         }
 
         tracing::debug!(
-            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?})",
+            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?}, {:x?})",
             request,
             client_sig,
+            prover_address,
             prover_sig
         );
 
@@ -1038,7 +1040,7 @@ where
             .await
             .context(format!("Failed to get EOA nonce for {:?}", self.caller))?;
         let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
-        let request_id = request_id(&self.caller, id);
+        let request_id = RequestId::u256(self.caller, id);
         match self.get_status(request_id, None).await? {
             ProofStatus::Unknown => Ok(id),
             _ => Err(MarketError::Error(anyhow!("index already in use"))),
@@ -1050,7 +1052,7 @@ where
     /// It does not guarantee that the ID is not in use by the time the caller uses it.
     pub async fn request_id_from_nonce(&self) -> Result<U256, MarketError> {
         let index = self.index_from_nonce().await?;
-        Ok(request_id(&self.caller, index))
+        Ok(RequestId::u256(self.caller, index))
     }
 
     /// Randomly generates a request index.
@@ -1061,7 +1063,7 @@ where
         let attempts = 10usize;
         for _ in 0..attempts {
             let id: u32 = rand::random();
-            let request_id = request_id(&self.caller, id);
+            let request_id = RequestId::u256(self.caller, id);
             match self.get_status(request_id, None).await? {
                 ProofStatus::Unknown => return Ok(id),
                 _ => continue,
@@ -1077,7 +1079,7 @@ where
     /// It does not guarantee that the ID is not in use by the time the caller uses it.
     pub async fn request_id_from_rand(&self) -> Result<U256, MarketError> {
         let index = self.index_from_rand().await?;
-        Ok(request_id(&self.caller, index))
+        Ok(RequestId::u256(self.caller, index))
     }
 
     /// Returns the image ID and URL of the assessor guest.
