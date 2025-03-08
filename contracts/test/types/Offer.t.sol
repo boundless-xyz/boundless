@@ -40,7 +40,7 @@ contract OfferTest is Test {
         offer.timeAtPrice(3 ether);
     }
 
-    function testPriceAtBlock() public pure {
+    function testPriceAt() public pure {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
