@@ -13,7 +13,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::ClientBuilder,
-    contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     storage::StorageProviderConfig,
 };
 use clap::Parser;
