@@ -486,9 +486,13 @@ impl BrokerDb for SqliteDb {
 
     async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM orders WHERE data->>'status' >= $1 AND data->>'status' <= $2",
+            "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6)",
         )
         .bind(OrderStatus::Locking)
+        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::Proving)
+        .bind(OrderStatus::PendingAgg)
+        .bind(OrderStatus::Aggregating)
         .bind(OrderStatus::PendingSubmission)
         .fetch_one(&self.pool)
         .await?;

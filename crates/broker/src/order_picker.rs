@@ -385,7 +385,8 @@ where
     /// Return the total amount of stake that is marked locally in the DB to be locked
     /// but has not yet been locked in the market contract thus has not been deducted from the account balance
     async fn pending_locked_stake(&self) -> Result<U256> {
-        let pending_locks = self.db.get_pending_lock_orders(now_timestamp()).await?;
+        // NOTE: i64::max is the largest timestamp value possible in the DB.
+        let pending_locks = self.db.get_pending_lock_orders(i64::MAX as u64).await?;
         let stake = pending_locks
             .iter()
             .map(|(_, order)| order.request.offer.lockStake)
@@ -402,7 +403,8 @@ where
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
     async fn estimate_gas_to_lock_pending(&self) -> Result<u64> {
         let mut gas = 0;
-        for (_, order) in self.db.get_pending_lock_orders(now_timestamp()).await?.iter() {
+        // NOTE: i64::max is the largest timestamp value possible in the DB.
+        for (_, order) in self.db.get_pending_lock_orders(i64::MAX as u64).await?.iter() {
             gas += self.estimate_gas_to_lock(order).await?;
         }
         Ok(gas)
@@ -827,7 +829,7 @@ mod tests {
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_timestamp, Some(order.request.offer.biddingStart));
+        assert_eq!(db_order.target_timestamp, Some(0));
     }
 
     // TODO: Test
@@ -858,7 +860,7 @@ mod tests {
         // order is pending lock so stake is counted
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lockin_stake);
 
-        ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
+        ctx.db.set_proving_status(order_id, U256::ZERO).await.unwrap();
         // order no longer pending lock so stake no longer counted
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
     }
@@ -945,8 +947,8 @@ mod tests {
             ctx.picker.gas_reserved().await.unwrap(),
             U256::from(gas_price) * U256::from(fulfill_gas + lockin_gas)
         );
-        // lock the order
-        ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
+        // mark the order as locked.
+        ctx.db.set_proving_status(order_id, U256::ZERO).await.unwrap();
         // only fulfillment gas now reserved
         assert_eq!(
             ctx.picker.gas_reserved().await.unwrap(),
