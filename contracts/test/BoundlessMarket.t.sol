@@ -1260,10 +1260,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
-        
-        vm.expectRevert(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id)
-        );
+
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id));
         boundlessMarket.fulfill(fill, assessorReceipt);
 
         // Client is out 1 eth until slash is called.
@@ -1451,7 +1449,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         locker.expectBalanceChange(2 ether);
         locker.expectStakeBalanceChange(-1 ether);
     }
-    
+
     // A request is locked with a valid smart contract signature (signature is checked onchain at lock time)
     // and then a prover tries to fulfill it specifying an invalid smart contract signature. The signature could
     // be invalid for a number of reasons, including the smart contract wallet rotating their signers so the old signature
