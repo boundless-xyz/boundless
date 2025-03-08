@@ -1346,6 +1346,47 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (request, otherProver);
     }
 
+    function testFulfillWasLockedClientWithdrawsBalance() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(
+            1,
+            Offer({
+                minPrice: 1 ether,
+                maxPrice: 2 ether,
+                biddingStart: uint64(block.number),
+                rampUpPeriod: uint32(50),
+                lockTimeout: uint32(50),
+                timeout: uint32(100),
+                lockStake: 1 ether
+            })
+        );
+        bytes memory clientSignature = client.sign(request);
+
+        address clientAddress = client.addr();
+        vm.prank(clientAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        uint256 balance = boundlessMarket.balanceOf(clientAddress);
+        vm.prank(clientAddress);
+        boundlessMarket.withdraw(balance);
+
+        // Advance the chain ahead to simulate the lock timeout.
+        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+
+        // NOTE: While the lock does have enough funds escrowed to cover the original price, the auction further
+        // raised the price in the time that passed between the lock transaction and this fulfill transaction. As a
+        // result, the escrowed funds are no longer sufficient.
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, clientAddress)
+        );
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
+        expectRequestFulfilled(fill.id);
+    }
+
     // Scenario when a prover locks a request, fails to deliver it within the lock expiry,
     // but does deliver it before the request expires. Here they should lose their stake,
     // but receive payment for the request.
@@ -1835,6 +1876,30 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
 
         return (client, request);
+    }
+
+    function testFulfillNeverLockedClientWithdrawsBalance() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSignature = client.sign(request);
+
+        address clientAddress = client.addr();
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+
+        uint256 balance = boundlessMarket.balanceOf(clientAddress);
+        vm.prank(clientAddress);
+        boundlessMarket.withdraw(balance);
+
+        // expect emit of payment requirement failed
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, clientAddress)
+        );
+        vm.prank(clientAddress);
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
+        expectRequestFulfilled(fill.id);
     }
 
     function testFulfillNeverLockedRequestMultipleRequestsSameIndex() public {
