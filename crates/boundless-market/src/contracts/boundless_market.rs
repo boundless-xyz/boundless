@@ -999,47 +999,6 @@ where
         }
     }
 
-    /// Calculates the time, in seconds since the UNIX epoch, at which the price will be at the given price.
-    pub fn time_at_price(&self, offer: &Offer, price: U256) -> Result<u64, MarketError> {
-        let max_price = U256::from(offer.maxPrice);
-        let min_price = U256::from(offer.minPrice);
-
-        if price > U256::from(max_price) {
-            return Err(MarketError::Error(anyhow::anyhow!("Price cannot exceed max price")));
-        }
-
-        if price <= min_price {
-            return Ok(0);
-        }
-
-        let rise = max_price - min_price;
-        let run = U256::from(offer.rampUpPeriod);
-        let delta = ((price - min_price) * run).div_ceil(rise);
-        let delta: u64 = delta.try_into().context("Failed to convert block delta to u64")?;
-
-        Ok(offer.biddingStart + delta)
-    }
-
-    /// Calculates the price at the given time, in seconds since the UNIX epoch.
-    pub fn price_at(&self, offer: &Offer, timestamp: u64) -> Result<U256, MarketError> {
-        let max_price = U256::from(offer.maxPrice);
-        let min_price = U256::from(offer.minPrice);
-
-        if timestamp <= offer.biddingStart {
-            return Ok(offer.minPrice);
-        }
-
-        if timestamp < offer.biddingStart + offer.rampUpPeriod as u64 {
-            let rise = max_price - min_price;
-            let run = U256::from(offer.rampUpPeriod);
-            let delta = U256::from(timestamp) - U256::from(offer.biddingStart);
-
-            Ok(min_price + (delta * rise) / run)
-        } else {
-            Ok(max_price)
-        }
-    }
-
     /// Generates a request index based on the EOA nonce.
     ///
     /// It does not guarantee that the index is not in use by the time the caller uses it.
@@ -1231,6 +1190,69 @@ where
         tracing::debug!("Calling balanceOfStake({})", account);
         let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?._0;
         Ok(balance)
+    }
+}
+
+impl Offer {
+    /// Calculates the time, in seconds since the UNIX epoch, at which the price will be at the given price.
+    pub fn time_at_price(&self, price: U256) -> Result<u64, MarketError> {
+        let max_price = U256::from(self.maxPrice);
+        let min_price = U256::from(self.minPrice);
+
+        if price > U256::from(max_price) {
+            return Err(MarketError::Error(anyhow::anyhow!("Price cannot exceed max price")));
+        }
+
+        if price <= min_price {
+            return Ok(0);
+        }
+
+        let rise = max_price - min_price;
+        let run = U256::from(self.rampUpPeriod);
+        let delta = ((price - min_price) * run).div_ceil(rise);
+        let delta: u64 = delta.try_into().context("Failed to convert block delta to u64")?;
+
+        Ok(self.biddingStart + delta)
+    }
+
+    /// Calculates the price at the given time, in seconds since the UNIX epoch.
+    pub fn price_at(&self, timestamp: u64) -> Result<U256, MarketError> {
+        let max_price = U256::from(self.maxPrice);
+        let min_price = U256::from(self.minPrice);
+
+        if timestamp < self.biddingStart {
+            return Ok(self.minPrice);
+        }
+
+        if timestamp > self.lock_deadline() {
+            return Ok(U256::ZERO);
+        }
+
+        if timestamp < self.biddingStart + self.rampUpPeriod as u64 {
+            let rise = max_price - min_price;
+            let run = U256::from(self.rampUpPeriod);
+            let delta = U256::from(timestamp) - U256::from(self.biddingStart);
+
+            Ok(min_price + (delta * rise) / run)
+        } else {
+            Ok(max_price)
+        }
+    }
+
+    /// UNIX timestamp after which the request is considered completely expired.
+    pub fn deadline(&self) -> u64 {
+        self.biddingStart + (self.timeout as u64)
+    }
+
+    /// UNIX timestamp after which any lock on the request expires, and the client fee is zero.
+    ///
+    /// Once locked, if a valid proof is not submitted before this deadline, the prover can be
+    /// "slashed", which refunds the price to the requester and takes the prover stake.
+    /// Additionally, the fee paid by the client is zero for proofs delivered after this time. Note
+    /// that after this time, and before `timeout` a proof can still be delivered to fulfill the
+    /// request.
+    pub fn lock_deadline(&self) -> u64 {
+        self.biddingStart + (self.lockTimeout as u64)
     }
 }
 

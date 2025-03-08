@@ -20,13 +20,22 @@ struct Offer {
     /// @notice Time at which bidding starts, in seconds since the UNIX epoch.
     uint64 biddingStart;
     /// @notice Length of the "ramp-up period," measured in seconds since bidding start.
-    /// @dev Once bidding starts, the price begins to "ramp-up." During this time, the price rises each block until it reaches maxPrice.
+    /// @dev Once bidding starts, the price begins to "ramp-up." During this time, the price rises
+    /// each block until it reaches `maxPrice.
     uint32 rampUpPeriod;
     /// @notice Timeout for the lock, expressed as seconds from bidding start.
-    /// @dev This is the deadline for the lock to expire.
+    /// @dev Once locked, if a valid proof is not submitted before this deadline, the prover can
+    /// be "slashed", which refunds the price to the requester and takes the prover stake.
+    ///
+    /// Additionally, the fee paid by the client is zero for proofs delivered after this time.
+    /// Note that after this time, and before `timeout` a proof can still be delivered to fulfill
+    /// the request. This applies both to locked and unlocked requests; if a proof is delivered
+    /// after this timeout, no fee will be paid from the client.
     uint32 lockTimeout;
-    /// @notice Timeout for delivering the proof, expressed as seconds from bidding start.
-    /// @dev Once locked-in, if a valid proof is not submitted before this deadline, the prover can be "slashed," which refunds the price to the requester.
+    /// @notice Timeout for the request, expressed as seconds from bidding start.
+    /// @dev After this time the request is considered completely expired and can no longer be
+    /// fulfilled. After this time, the `slash` action can be completed to finalize the transaction
+    /// if it was not fulfilled.
     uint32 timeout;
     /// @notice Bidders must stake this amount as part of their bid.
     uint256 lockStake;
@@ -69,6 +78,7 @@ library OfferLibrary {
     }
 
     /// @notice Calculates the earliest time at which the offer will be worth at least the given price.
+    /// @dev Returned time will always be in the range 0 to offer.biddingStart + offer.rampUpPeriod.
     /// @param offer The offer to calculate for.
     /// @param price The price to calculate the time for.
     /// @return The earliest time at which the offer will be worth at least the given price.
@@ -93,12 +103,20 @@ library OfferLibrary {
     }
 
     /// @notice Calculates the price at the given time.
+    /// @dev Price increases linearly during the ramp-up period, then remains at the max price until
+    /// the lock deadline. After the lock deadline, the price goes to zero. As a result, provers are
+    /// paid no fee from the client for requests that are fulfilled after lock deadline. Note though
+    /// that there may be a reward of stake available, if a prover failed to deliver on the request.
     /// @param offer The offer to calculate for.
     /// @param timestamp The time to calculate the price for, as a UNIX timestamp.
     /// @return The price at the given time.
     function priceAt(Offer memory offer, uint64 timestamp) internal pure returns (uint256) {
         if (timestamp <= offer.biddingStart) {
             return offer.minPrice;
+        }
+
+        if (timestamp > offer.lockDeadline()) {
+            return 0;
         }
 
         if (timestamp <= offer.biddingStart + offer.rampUpPeriod) {
