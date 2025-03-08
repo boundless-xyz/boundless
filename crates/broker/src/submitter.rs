@@ -202,7 +202,6 @@ where
                     imageId: order_img_id,
                     journal: order_journal.into(),
                     seal: seal.into(),
-                    requirePayment: true,
                 });
                 anyhow::Ok(())
             };
