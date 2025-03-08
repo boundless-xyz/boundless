@@ -172,13 +172,12 @@ where
 
         // back scan if we have an existing block we last updated from
         // TODO: spawn a side thread to avoid missing new blocks while this is running:
-        let order_count = if let Some(last_monitor_block) = opt_last_block {
+        let order_count = if opt_last_block.is_some() {
             let current_block = self.chain_monitor.current_block_number().await?;
             let current_block_timestamp = self.chain_monitor.current_block_timestamp().await?;
 
-            // TODO: It looks like this might now be true.
             tracing::debug!(
-                "Searching block range {last_monitor_block} - {current_block} @ {current_block_timestamp} for lock pending orders..."
+                "Checking status of, and locking, orders marked as pending lock at block {current_block} @ {current_block_timestamp}"
             );
 
             // Get the orders that we wish to lock as early as the next block.
