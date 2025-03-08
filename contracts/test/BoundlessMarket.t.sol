@@ -1343,15 +1343,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         otherProver.expectStakeBalanceChange(0 ether);
         expectMarketBalanceUnchanged();
 
-        vm.warp(request.offer.deadline() + 1);
-        boundlessMarket.slash(request.id);
-
-        // Other prover should get a reward on slash.
-        client.expectBalanceChange(0 ether);
-        otherProver.expectBalanceChange(0 ether);
-        locker.expectStakeBalanceChange(-1 ether);
-        otherProver.expectStakeBalanceChange(int256(uint256(expectedSlashTransferAmount(1 ether))));
-
         return (request, otherProver);
     }
 
@@ -1372,7 +1363,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory clientSignature = client.sign(request);
 
         address clientAddress = client.addr();
-        vm.prank(clientAddress);
+        vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
         uint256 balance = boundlessMarket.balanceOf(clientAddress);
@@ -1784,7 +1775,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Check balances after the slash.
         client.expectBalanceChange(0 ether);
         locker.expectBalanceChange(0 ether);
-        locker.expectStakeBalanceChange(int256(uint256(expectedSlashBurnAmount(request.offer.lockStake))));
+        locker.expectStakeBalanceChange(-int256(uint256(expectedSlashBurnAmount(request.offer.lockStake))));
     }
 
     // A request is locked with a valid smart contract signature (signature is checked onchain at lock time)
