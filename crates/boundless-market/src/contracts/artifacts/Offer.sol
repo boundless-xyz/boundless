@@ -17,15 +17,15 @@ struct Offer {
     uint256 minPrice;
     /// @notice Price at the end of the bidding period, this is the maximum price the client will pay.
     uint256 maxPrice;
-    /// @notice Block number at which bidding starts.
+    /// @notice Time at which bidding starts, in seconds since the UNIX epoch.
     uint64 biddingStart;
-    /// @notice Length of the "ramp-up period," measured in blocks since bidding start.
+    /// @notice Length of the "ramp-up period," measured in seconds since bidding start.
     /// @dev Once bidding starts, the price begins to "ramp-up." During this time, the price rises each block until it reaches maxPrice.
     uint32 rampUpPeriod;
-    /// @notice Timeout for the lock, expressed as a number of blocks from bidding start.
+    /// @notice Timeout for the lock, expressed as seconds from bidding start.
     /// @dev This is the deadline for the lock to expire.
     uint32 lockTimeout;
-    /// @notice Timeout for delivering the proof, expressed as a number of blocks from bidding start.
+    /// @notice Timeout for delivering the proof, expressed as seconds from bidding start.
     /// @dev Once locked-in, if a valid proof is not submitted before this deadline, the prover can be "slashed," which refunds the price to the requester.
     uint32 timeout;
     /// @notice Bidders must stake this amount as part of their bid.
@@ -63,16 +63,16 @@ library OfferLibrary {
         if (deadline1 - lockDeadline1 > type(uint24).max) {
             revert IBoundlessMarket.InvalidRequest();
         }
-        if (deadline1 < block.number) {
+        if (deadline1 < block.timestamp) {
             revert IBoundlessMarket.RequestIsExpired(requestId, deadline1);
         }
     }
 
-    /// @notice Calculates the earliest block at which the offer will be worth at least the given price.
+    /// @notice Calculates the earliest time at which the offer will be worth at least the given price.
     /// @param offer The offer to calculate for.
-    /// @param price The price to calculate the block for.
-    /// @return The earliest block at which the offer will be worth at least the given price.
-    function blockAtPrice(Offer memory offer, uint256 price) internal pure returns (uint64) {
+    /// @param price The price to calculate the time for.
+    /// @return The earliest time at which the offer will be worth at least the given price.
+    function timeAtPrice(Offer memory offer, uint256 price) internal pure returns (uint64) {
         if (price > offer.maxPrice) {
             revert IBoundlessMarket.InvalidRequest();
         }
@@ -92,22 +92,22 @@ library OfferLibrary {
         return offer.biddingStart + delta.toUint64();
     }
 
-    /// @notice Calculates the price at the given block.
+    /// @notice Calculates the price at the given time.
     /// @param offer The offer to calculate for.
-    /// @param _block The block to calculate the price for.
-    /// @return The price at the given block.
-    function priceAtBlock(Offer memory offer, uint64 _block) internal pure returns (uint256) {
-        if (_block <= offer.biddingStart) {
+    /// @param timestamp The time to calculate the price for, as a UNIX timestamp.
+    /// @return The price at the given time.
+    function priceAt(Offer memory offer, uint64 timestamp) internal pure returns (uint256) {
+        if (timestamp <= offer.biddingStart) {
             return offer.minPrice;
         }
 
-        if (_block <= offer.biddingStart + offer.rampUpPeriod) {
+        if (timestamp <= offer.biddingStart + offer.rampUpPeriod) {
             // Note: if we are in this branch, then 0 < offer.rampUpPeriod
             // This means it is safe to divide by offer.rampUpPeriod
 
             uint256 rise = uint256(offer.maxPrice - offer.minPrice);
             uint256 run = uint256(offer.rampUpPeriod);
-            uint256 delta = _block - uint256(offer.biddingStart);
+            uint256 delta = timestamp - uint256(offer.biddingStart);
 
             // Note: delta <= run
             // This means (delta * rise) / run <= rise
@@ -122,14 +122,14 @@ library OfferLibrary {
 
     /// @notice Calculates the deadline for the offer.
     /// @param offer The offer to calculate the deadline for.
-    /// @return The deadline for the offer.
+    /// @return The deadline for the offer, as a UNIX timestamp.
     function deadline(Offer memory offer) internal pure returns (uint64) {
         return offer.biddingStart + offer.timeout;
     }
 
     /// @notice Calculates the lock deadline for the offer.
     /// @param offer The offer to calculate the lock deadline for.
-    /// @return The lock deadline for the offer.
+    /// @return The lock deadline for the offer, as a UNIX timestamp.
     function lockDeadline(Offer memory offer) internal pure returns (uint64) {
         return offer.biddingStart + offer.lockTimeout;
     }

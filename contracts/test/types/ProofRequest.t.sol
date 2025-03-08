@@ -82,7 +82,7 @@ contract ProofRequestTest is Test {
             offer: Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(10),
                 timeout: uint32(100),
                 lockTimeout: uint32(100),
@@ -133,19 +133,19 @@ contract ProofRequestTest is Test {
         request.offer.lockTimeout = 5;
         request.offer.timeout = 10;
 
-        vm.roll(request.offer.biddingStart);
+        vm.warp(request.offer.biddingStart);
         requestContract.validate(request);
 
-        vm.roll(request.offer.lockDeadline());
+        vm.warp(request.offer.lockDeadline());
         requestContract.validate(request);
 
-        vm.roll(request.offer.lockDeadline() + 1);
+        vm.warp(request.offer.lockDeadline() + 1);
         requestContract.validate(request);
 
-        vm.roll(request.offer.deadline());
+        vm.warp(request.offer.deadline());
         requestContract.validate(request);
 
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
         vm.expectRevert(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );

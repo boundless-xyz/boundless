@@ -407,6 +407,7 @@ mod tests {
     use super::*;
     use crate::{
         db::SqliteDb,
+        now_timestamp,
         provers::{encode_input, MockProver},
         AggregationState, Batch, BatchStatus, Order, OrderStatus,
     };
@@ -539,7 +540,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(2),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -620,12 +621,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingSubmission,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request: order_request,
             image_id: Some(echo_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(echo_proof.id.clone()),
-            expire_block: Some(100),
+            expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),
             error_msg: None,
@@ -640,9 +641,7 @@ mod tests {
             orders: vec![order_id],
             fees: U256::ZERO,
             start_time: Utc::now(),
-            block_deadline: Some(
-                order.request.offer.biddingStart + order.request.offer.timeout as u64,
-            ),
+            deadline: Some(order.request.offer.biddingStart + order.request.offer.timeout as u64),
             error_msg: None,
             aggregation_state: Some(AggregationState {
                 guest_state: batch_guest_state,

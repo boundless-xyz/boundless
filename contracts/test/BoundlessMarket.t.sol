@@ -891,7 +891,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory clientSignature = client.sign(request);
         bytes memory proverSignature = testProver.sign(request);
 
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         // Attempt to lock the request after it has expired
         // should revert with "RequestIsExpired({requestId: request.id, deadline: deadline})"
@@ -920,7 +920,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offer = Offer({
             minPrice: 2 ether,
             maxPrice: 1 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(0),
             lockTimeout: uint32(1),
             timeout: uint32(1),
@@ -956,7 +956,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 1 ether,
-            biddingStart: uint64(0),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(2),
             lockTimeout: uint32(1),
             timeout: uint32(1),
@@ -1255,7 +1255,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.expectBalanceChange(-1 ether);
 
         // Advance the chain ahead to simulate the request timeout.
-        vm.roll(uint64(block.number) + request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
@@ -1297,7 +1297,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(50),
                 lockTimeout: uint32(50),
                 timeout: uint32(100),
@@ -1320,7 +1320,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.expectBalanceChange(-1 ether);
 
         // Advance the chain ahead to simulate the lock timeout.
-        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+        vm.warp(request.offer.lockDeadline() + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProver.addr());
@@ -1353,7 +1353,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(50),
                 lockTimeout: uint32(50),
                 timeout: uint32(100),
@@ -1371,7 +1371,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.withdraw(balance);
 
         // Advance the chain ahead to simulate the lock timeout.
-        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+        vm.warp(uint64(block.timestamp) + request.offer.lockTimeout + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
@@ -1398,7 +1398,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(50),
                 lockTimeout: uint32(50),
                 timeout: uint32(100),
@@ -1417,7 +1417,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.lockRequest(request, clientSignature);
 
         // Advance the chain ahead to simulate the lock timeout.
-        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+        vm.warp(request.offer.lockDeadline() + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, locker.addr());
@@ -1448,7 +1448,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerA = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: uint32(100),
@@ -1457,7 +1457,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerB = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.number) + uint64(offerA.timeout) + 1,
+            biddingStart: uint64(block.timestamp) + uint64(offerA.timeout) + 1,
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: 100,
@@ -1480,7 +1480,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(lockerAddress);
         boundlessMarket.lockRequest(requestA, clientSignatureA);
 
-        vm.roll(uint64(block.number) + uint64(offerA.timeout) + 1);
+        vm.warp(uint64(block.timestamp) + uint64(offerA.timeout) + 1);
         // Attempt to fill request B.
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(requestB, APP_JOURNAL, fulfiller.addr());
@@ -1509,7 +1509,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerA = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(50),
             timeout: uint32(100),
@@ -1518,7 +1518,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerB = Offer({
             minPrice: 2 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(0),
             lockTimeout: offerA.timeout + 101,
             timeout: offerA.timeout + 101,
@@ -1541,7 +1541,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(lockerAddress);
         boundlessMarket.lockRequest(requestA, clientSignatureA);
 
-        vm.roll(uint64(block.number) + uint64(offerA.lockTimeout) + 1);
+        vm.warp(uint64(block.timestamp) + uint64(offerA.lockTimeout) + 1);
         // Attempt to fill request B.
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(requestB, APP_JOURNAL, fulfiller.addr());
@@ -1554,13 +1554,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Slash should revert as the original locked request has not yet fully expired.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.RequestIsNotExpired.selector, fill.id, uint64(block.number) + uint64(offerA.timeout)
+                IBoundlessMarket.RequestIsNotExpired.selector, fill.id, uint64(block.timestamp) + uint64(offerA.timeout)
             )
         );
         boundlessMarket.slash(fill.id);
 
         // Advance to where the original locked request has fully expired.
-        vm.roll(uint64(block.number) + uint64(offerA.timeout) + 1);
+        vm.warp(uint64(block.timestamp) + uint64(offerA.timeout) + 1);
 
         vm.prank(lockerAddress);
         boundlessMarket.slash(fill.id);
@@ -1584,7 +1584,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerA = Offer({
             minPrice: 2 ether,
             maxPrice: 3 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(50),
             timeout: uint32(100),
@@ -1593,10 +1593,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerB = Offer({
             minPrice: 1 ether,
             maxPrice: 1 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(0),
             lockTimeout: uint32(100),
-            timeout: uint32(block.number) + offerA.timeout + 101,
+            timeout: uint32(block.timestamp) + offerA.timeout + 101,
             lockStake: 1 ether
         });
 
@@ -1618,7 +1618,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         client.expectBalanceChange(-2 ether);
 
-        vm.roll(uint64(block.number) + uint64(offerA.lockTimeout) + 1);
+        vm.warp(uint64(block.timestamp) + uint64(offerA.lockTimeout) + 1);
 
         // Attempt to fill request B, which costs just 1 ether at the time of fulfillment.
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -1649,7 +1649,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerA = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: uint32(100),
@@ -1658,7 +1658,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerB = Offer({
             minPrice: 3 ether,
             maxPrice: 3 ether,
-            biddingStart: uint64(block.number) + uint64(offerA.timeout) + 1,
+            biddingStart: uint64(block.timestamp) + uint64(offerA.timeout) + 1,
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: 100,
@@ -1681,7 +1681,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(lockerAddress);
         boundlessMarket.lockRequest(requestA, clientSignatureA);
 
-        vm.roll(uint64(block.number) + uint64(offerA.timeout) + 1);
+        vm.warp(uint64(block.timestamp) + uint64(offerA.timeout) + 1);
 
         // Slash the request first.
         vm.prank(lockerAddress);
@@ -1716,7 +1716,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(50),
                 lockTimeout: uint32(50),
                 timeout: uint32(100),
@@ -1735,7 +1735,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.lockRequest(request, clientSignature);
 
         // Advance the chain ahead to simulate the lock timeout.
-        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+        vm.warp(uint64(block.timestamp) + request.offer.lockTimeout + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, lockerAddress);
@@ -1776,7 +1776,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(50),
                 lockTimeout: uint32(50),
                 timeout: uint32(100),
@@ -1787,7 +1787,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory invalidClientSignature = bytes("invalid");
 
         boundlessMarket.lockRequestWithSignature(request, validClientSignature, testProver.sign(request));
-        vm.roll(request.offer.lockDeadline() + 1);
+        vm.warp(request.offer.lockDeadline() + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
@@ -1855,7 +1855,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
 
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         vm.expectRevert(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
@@ -1926,7 +1926,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
                 // TODO: This is a fragile part of this test. It should be improved.
                 uint256 desiredPrice = uint256(1.5 ether);
-                vm.roll(request.offer.blockAtPrice(desiredPrice));
+                vm.warp(request.offer.timeAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
                 boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
@@ -2030,7 +2030,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
                 // TODO: This is a fragile part of this test. It should be improved.
                 uint256 desiredPrice = uint256(1.5 ether);
-                vm.roll(request.offer.blockAtPrice(desiredPrice));
+                vm.warp(request.offer.timeAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
                 boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
@@ -2289,7 +2289,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerA = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: uint32(100),
@@ -2298,7 +2298,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerB = Offer({
             minPrice: 3 ether,
             maxPrice: 3 ether,
-            biddingStart: uint64(block.number) + uint64(offerA.timeout) + 1,
+            biddingStart: uint64(block.timestamp) + uint64(offerA.timeout) + 1,
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: 100,
@@ -2315,7 +2315,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(requestA, clientSignatureA);
 
-        vm.roll(requestA.offer.deadline() + 1);
+        vm.warp(requestA.offer.deadline() + 1);
 
         // Attempt to fill request B.
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -2353,7 +2353,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.fulfill(fill, assessorReceipt);
         expectRequestFulfilled(fill.id);
 
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         // Slash the original prover that locked and didnt deliver
         vm.expectEmit(true, true, true, true);
@@ -2405,7 +2405,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(50),
                 lockTimeout: uint32(50),
                 timeout: uint32(100),
@@ -2425,7 +2425,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.expectBalanceChange(-1 ether);
 
         // Advance the chain ahead to simulate the lock timeout.
-        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+        vm.warp(request.offer.lockDeadline() + 1);
 
         // Attempt to slash a request not expired
         // should revert with "RequestIsNotExpired({requestId: request.id,  deadline: deadline})"
@@ -2465,7 +2465,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testSlashWasLockedRequestFulfilledByOtherProver() public {
         snapshotMarketStakeTreasuryBalance();
         (ProofRequest memory request, Client otherProver) = testFulfillWasLockedRequestByOtherProver();
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
         otherProver.snapshotStakeBalance();
 
         // We expect the prover that ultimately fulfilled the request to receive stake.
@@ -2497,7 +2497,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testSlashWasLockedRequestFulfilledByLocker() public {
         snapshotMarketStakeTreasuryBalance();
         (ProofRequest memory request, Client prover) = testFulfillWasLockedRequestByOriginalLocker();
-        vm.roll(request.offer.deadline() + 1);
+        vm.warp(request.offer.deadline() + 1);
 
         // We expect the prover that ultimately fulfilled the request to receive stake.
         // Burning = sending tokens to address 0, expect a transfer event to be emitted to address 0
@@ -2772,7 +2772,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             Offer({
                 minPrice: 1 ether,
                 maxPrice: 2 ether,
-                biddingStart: uint64(block.number),
+                biddingStart: uint64(block.timestamp),
                 rampUpPeriod: uint32(50),
                 lockTimeout: uint32(50),
                 timeout: uint32(100),
@@ -2796,7 +2796,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.expectBalanceChange(-1 ether);
 
         // Advance chain ahead to simulate lock timeout
-        vm.roll(uint64(block.number) + request.offer.lockTimeout + 1);
+        vm.warp(request.offer.lockDeadline() + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProver.addr());
@@ -2828,7 +2828,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Offer memory offerA = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: uint32(100),
@@ -2860,7 +2860,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.lockRequest(requestA, clientSignatureA);
 
         // Advance chain ahead to simulate request A lock timeout
-        vm.roll(uint64(block.number) + requestA.offer.lockTimeout + 1);
+        vm.warp(requestA.offer.lockDeadline() + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(requestB, APP_JOURNAL, testProverAddress);

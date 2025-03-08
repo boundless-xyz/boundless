@@ -17,9 +17,9 @@ struct RequestLock {
     ///
     /// @notice The address of the prover that locked the request _or_ the address of the prover that fulfilled the request.
     address prover;
-    /// @notice The final block number at which the locked request can be fulfilled for payment by the locker.
+    /// @notice The final timestamp at which the locked request can be fulfilled for payment by the locker.
     uint64 lockDeadline;
-    /// @notice The number of blocks from the lockDeadline to where the request expires.
+    /// @notice The number of seconds from the lockDeadline to where the request expires.
     /// @dev Represented as a delta so that it can be packed into 2 slots.
     uint24 deadlineDelta;
     /// @notice Flags that indicate the state of the request lock.

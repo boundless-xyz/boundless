@@ -2,10 +2,17 @@
 //
 // All rights reserved.
 
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::SystemTime,
+};
+
 use alloy::{
     node_bindings::Anvil,
     primitives::{utils, U256},
-    providers::Provider,
 };
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
@@ -23,10 +30,6 @@ use guest_set_builder::SET_BUILDER_ID;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use risc0_zkp::core::digest::Digest;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
 use tempfile::NamedTempFile;
 use tokio::{
     task::JoinSet,
@@ -90,7 +93,10 @@ async fn request_spawner(
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: ctx.customer_provider.get_block_number().await?,
+                biddingStart: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
