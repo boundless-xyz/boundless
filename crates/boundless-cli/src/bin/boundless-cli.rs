@@ -836,6 +836,7 @@ async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
     Ok(data)
 }
 
+// TODO(#379): Avoid drift relative to the chain's timestamps.
 fn now_timestamp() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
 }
