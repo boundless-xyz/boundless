@@ -22,16 +22,8 @@ import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 contract ProofRequestTestContract {
     mapping(address => Account) accounts;
 
-    function validateForLockRequest(ProofRequest calldata proofRequest, address wallet1, uint32 idx1)
-        external
-        view
-        returns (uint64, uint64)
-    {
-        return proofRequest.validateForLockRequest(accounts, wallet1, idx1);
-    }
-
-    function validateForPriceRequest(ProofRequest calldata proofRequest) external view returns (uint64, uint64) {
-        return proofRequest.validateForPriceRequest();
+    function validate(ProofRequest calldata request) external view returns (uint64, uint64) {
+        return request.validate();
     }
 
     function setRequestFulfilled(address wallet1, uint32 idx1) external {
@@ -68,7 +60,7 @@ contract ProofRequestTest is Test {
 
     ProofRequest defaultProofRequest;
 
-    ProofRequestTestContract proofRequestContract = new ProofRequestTestContract();
+    ProofRequestTestContract requestContract = new ProofRequestTestContract();
 
     function setUp() public {
         clientWallet = vm.createWallet("CLIENT");
@@ -99,75 +91,64 @@ contract ProofRequestTest is Test {
         });
     }
 
-    function testValidateForLockRequest() public view {
-        ProofRequest memory proofRequest = defaultProofRequest;
-        Offer memory offer = proofRequest.offer;
+    function testValidateBasic() public view {
+        ProofRequest memory request = defaultProofRequest;
+        Offer memory offer = request.offer;
 
-        (uint64 lockDeadline, uint64 deadline) = proofRequestContract.validateForLockRequest(proofRequest, wallet, idx);
+        (uint64 lockDeadline, uint64 deadline) = requestContract.validate(request);
         assertEq(deadline, offer.deadline(), "Deadline should match the offer deadline");
         assertEq(lockDeadline, offer.lockDeadline(), "Lock deadline should match the offer lock deadline");
     }
 
-    function testValidateForLockRequestInvalidOffer() public {
-        ProofRequest memory proofRequest = defaultProofRequest;
-        proofRequest.offer.minPrice = 2 ether;
-        proofRequest.offer.maxPrice = 1 ether;
+    function testValidateInvalidPriceParameters() public {
+        ProofRequest memory request = defaultProofRequest;
+        request.offer.minPrice = 2 ether;
+        request.offer.maxPrice = 1 ether;
 
         vm.expectRevert(IBoundlessMarket.InvalidRequest.selector);
-        proofRequestContract.validateForLockRequest(proofRequest, wallet, idx);
+        requestContract.validate(request);
     }
 
-    function testValidateForLockRequestFulfilled() public {
-        ProofRequest memory proofRequest = defaultProofRequest;
-        proofRequestContract.setRequestFulfilled(wallet, 1);
-
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, proofRequest.id));
-        proofRequestContract.validateForLockRequest(proofRequest, wallet, idx);
-    }
-
-    function testValidateForLockRequestLocked() public {
-        proofRequestContract.setRequestLocked(wallet, 1);
-        ProofRequest memory proofRequest = defaultProofRequest;
-
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, proofRequest.id));
-        proofRequestContract.validateForLockRequest(proofRequest, wallet, idx);
-    }
-
-    function testValidateForPriceRequest() public view {
-        ProofRequest memory proofRequest = defaultProofRequest;
-        Offer memory offer = proofRequest.offer;
-
-        (uint64 lockDeadline, uint64 deadline) = proofRequestContract.validateForPriceRequest(proofRequest);
-        assertEq(deadline, offer.deadline(), "Deadline should match the offer deadline");
-        assertEq(lockDeadline, offer.lockDeadline(), "Lock deadline should match the offer lock deadline");
-    }
-
-    function testValidateForPriceRequestFulfilled() public {
-        ProofRequest memory proofRequest = defaultProofRequest;
-        proofRequestContract.setRequestFulfilled(wallet, 1);
-        Offer memory offer = proofRequest.offer;
-
-        (uint64 lockDeadline, uint64 deadline) = proofRequestContract.validateForPriceRequest(proofRequest);
-        assertEq(deadline, offer.deadline(), "Deadline should match the offer deadline");
-        assertEq(lockDeadline, offer.lockDeadline(), "Lock deadline should match the offer lock deadline");
-    }
-
-    function testValidateForPriceRequestLocked() public {
-        proofRequestContract.setRequestLocked(wallet, 1);
-        ProofRequest memory proofRequest = defaultProofRequest;
-        Offer memory offer = proofRequest.offer;
-
-        (uint64 lockDeadline, uint64 deadline) = proofRequestContract.validateForPriceRequest(proofRequest);
-        assertEq(deadline, offer.deadline(), "Deadline should match the offer deadline");
-        assertEq(lockDeadline, offer.lockDeadline(), "Lock deadline should match the offer lock deadline");
-    }
-
-    function testValidateForPriceRequestInvalidOffer() public {
-        ProofRequest memory proofRequest = defaultProofRequest;
-        proofRequest.offer.minPrice = 2 ether;
-        proofRequest.offer.maxPrice = 1 ether;
+    function testValidateInvalidTimeoutParameters() public {
+        ProofRequest memory request = defaultProofRequest;
+        request.offer.lockTimeout = 10;
+        request.offer.timeout = 5;
 
         vm.expectRevert(IBoundlessMarket.InvalidRequest.selector);
-        proofRequestContract.validateForPriceRequest(proofRequest);
+        requestContract.validate(request);
+    }
+
+    function testValidateInvalidLockTimeoutLength() public {
+        ProofRequest memory request = defaultProofRequest;
+        // Difference exceeds what can be stored in the RequestLock type.
+        request.offer.lockTimeout = 5;
+        request.offer.timeout = type(uint32).max;
+
+        vm.expectRevert(IBoundlessMarket.InvalidRequest.selector);
+        requestContract.validate(request);
+    }
+
+    function testValidateExpired() public {
+        ProofRequest memory request = defaultProofRequest;
+        request.offer.lockTimeout = 5;
+        request.offer.timeout = 10;
+
+        vm.roll(request.offer.biddingStart);
+        requestContract.validate(request);
+
+        vm.roll(request.offer.lockDeadline());
+        requestContract.validate(request);
+
+        vm.roll(request.offer.lockDeadline() + 1);
+        requestContract.validate(request);
+
+        vm.roll(request.offer.deadline());
+        requestContract.validate(request);
+
+        vm.roll(request.offer.deadline() + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
+        );
+        requestContract.validate(request);
     }
 }
