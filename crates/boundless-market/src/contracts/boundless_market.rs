@@ -1492,8 +1492,8 @@ mod tests {
         );
         let offer = &test_offer(100);
 
-        // Cannot calculate price before bidding start
-        assert!(market.price_at(offer, 99).is_err());
+        // Before bidding start, price is min price.
+        assert_eq!(market.price_at(offer, 90).unwrap(), ether("1"));
 
         assert_eq!(market.price_at(offer, 100).unwrap(), ether("1"));
 

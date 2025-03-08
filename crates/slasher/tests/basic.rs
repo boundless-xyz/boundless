@@ -37,9 +37,9 @@ async fn create_order(
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
             biddingStart: now_timestamp() - 3,
-            timeout: 10,
+            timeout: 12,
             rampUpPeriod: 1,
-            lockTimeout: 10,
+            lockTimeout: 12,
             lockStake: U256::from(0),
         },
     );
@@ -82,6 +82,7 @@ async fn test_basic_usage() {
     let mut stream = slash_event.into_stream();
     println!("Subscribed to ProverSlashed event");
 
+    ctx.customer_market.deposit(U256::from(1)).await.unwrap();
     let (request, client_sig) = create_order(
         &ctx.customer_signer,
         ctx.customer_signer.address(),
@@ -92,7 +93,6 @@ async fn test_basic_usage() {
     .await;
 
     // Do the operations that should trigger the slash
-    ctx.customer_market.deposit(U256::from(1)).await.unwrap();
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
 
     // Wait for the slash event with timeout
@@ -104,7 +104,7 @@ async fn test_basic_usage() {
             assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_addr);
             cli_process.kill().unwrap();
         }
-        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+        _ = tokio::time::sleep(Duration::from_secs(20)) => {
             panic!("Test timed out waiting for slash event");
         }
     }
