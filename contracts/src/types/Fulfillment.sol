@@ -27,9 +27,6 @@ struct Fulfillment {
     /// @notice Cryptographic proof for the validity of the execution results.
     /// @dev This will be sent to the `IRiscZeroVerifier` associated with this contract.
     bytes seal;
-    /// @notice Whether the fulfill operation should revert if there is an error preventing payment
-    /// @dev If false, the transaction will not revert, but a `PaymentRequirementsFailed` event will be logged.
-    bool requirePayment;
 }
 
 library FulfillmentLibrary {}

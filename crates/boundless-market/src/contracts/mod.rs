@@ -25,7 +25,7 @@ use alloy::{
     transports::TransportError,
 };
 use alloy_primitives::{
-    aliases::{U160, U96},
+    aliases::{U160, U32, U96},
     Address, Bytes, FixedBytes, B256, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
@@ -162,10 +162,74 @@ impl EIP721DomainSaltless {
     }
 }
 
-pub(crate) fn request_id(addr: &Address, id: u32) -> U256 {
-    #[allow(clippy::unnecessary_fallible_conversions)] // U160::from does not compile
-    let addr = U160::try_from(*addr).unwrap();
-    (U256::from(addr) << 32) | U256::from(id)
+/// Structured represent of a request ID.
+///
+/// This struct can be packed and unpacked from a U256 value.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RequestId {
+    /// Address of the wallet or contract authorizing the request.
+    pub addr: Address,
+    /// Index of the request, assigned by the requester.
+    ///
+    /// Each index can correspond to a single fulfilled request. If multiple requests have the same
+    /// address and index, only one can ever be fulfilled. This is similar to how transaction
+    /// nonces work on Ethereum.
+    pub index: u32,
+    /// A flag set to true when the signature over the request is provided by a smart contract,
+    /// using ERC-1271. When set to false, the request is signed using ECDSA.
+    pub smart_contract_signed: bool,
+}
+
+impl RequestId {
+    /// Create a [RequestId] with the given [Address] and index. Sets flags to default values.
+    pub fn new(addr: Address, index: u32) -> Self {
+        Self { addr, index, smart_contract_signed: false }
+    }
+
+    /// Create a packed [RequestId] with the given [Address] and index. Sets flags to default values.
+    pub fn u256(addr: Address, index: u32) -> U256 {
+        Self::new(addr, index).into()
+    }
+
+    /// Unpack a [RequestId] from a [U256] ignoring bits that do not correspond to known fields.
+    ///
+    /// Note that this is a lossy conversion in that converting the resulting [RequestId] back into
+    /// a [U256] is not guaranteed to give the original value. If flags are added in future
+    /// versions of the Boundless Market, this function will ignore them.
+    pub fn from_lossy(value: U256) -> Self {
+        let mut addr_u256 = value >> U256::from(32);
+        addr_u256 &= (U256::from(1) << U256::from(160)) - U256::from(1); // mask out the flags
+        let addr = Address::from(addr_u256.to::<U160>());
+        Self {
+            addr,
+            index: (value & U32::MAX.to::<U256>()).to::<u32>(),
+            smart_contract_signed: (value & (U256::from(1) << 192)) != U256::ZERO,
+        }
+    }
+}
+
+impl TryFrom<U256> for RequestId {
+    type Error = RequestError;
+
+    fn try_from(value: U256) -> Result<Self, Self::Error> {
+        // Check if any bits above the smart contract signed flag are set.
+        // An error here could indicate that this logic has not been updated to support new flags
+        if value >> 193 != U256::ZERO {
+            return Err(RequestError::MalformedRequestId);
+        }
+        Ok(RequestId::from_lossy(value))
+    }
+}
+
+impl From<RequestId> for U256 {
+    fn from(value: RequestId) -> Self {
+        #[allow(clippy::unnecessary_fallible_conversions)] // U160::from does not compile
+        let addr = U160::try_from(value.addr).unwrap();
+        let smart_contract_signed_flag =
+            if value.smart_contract_signed { U256::from(1) } else { U256::ZERO };
+        smart_contract_signed_flag << 192 | (U256::from(addr) << 32) | U256::from(value.index)
+    }
 }
 
 #[non_exhaustive]
@@ -310,7 +374,7 @@ impl ProofRequest {
         offer: Offer,
     ) -> Self {
         Self {
-            id: request_id(addr, idx),
+            id: RequestId::u256(*addr, idx),
             requirements,
             imageUrl: image_url.into(),
             input: input.into(),
@@ -1080,7 +1144,7 @@ mod tests {
         contract_addr: Address,
         chain_id: u64,
     ) -> (ProofRequest, [u8; 65]) {
-        let request_id = request_id(&signer_addr, order_id);
+        let request_id = RequestId::u256(signer_addr, order_id);
 
         let req = ProofRequest {
             id: request_id,
@@ -1136,5 +1200,46 @@ mod tests {
 
         client_sig[0] = 1;
         req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_request_id() {
+        // Test case 1: Regular signature
+        let raw_id1 =
+            U256::from_str("3130239009558586413752262552917257075388277690201777635428").unwrap();
+        let request_id1 = RequestId::from_lossy(raw_id1);
+
+        let client1 = request_id1.addr;
+        let idx1 = request_id1.index;
+        let is_smart_contract1 = request_id1.smart_contract_signed;
+
+        assert_eq!(
+            client1,
+            Address::from_str("0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496").unwrap()
+        );
+        assert_eq!(idx1, 100);
+        assert!(!is_smart_contract1);
+
+        // Test case 2: Smart contract signature
+        let raw_id2 =
+            U256::from_str("9407340744945267177588051976124923491490633134665812148266").unwrap();
+        let request_id2 = RequestId::from_lossy(raw_id2);
+
+        let client2 = request_id2.addr;
+        let idx2 = request_id2.index;
+        let is_smart_contract2 = request_id2.smart_contract_signed;
+
+        assert_eq!(
+            client2,
+            Address::from_str("0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496").unwrap()
+        );
+        assert_eq!(idx2, 42);
+        assert!(is_smart_contract2);
+
+        // Test conversion back to U256
+        let request_id1_u256: U256 = request_id1.into();
+        let request_id2_u256: U256 = request_id2.into();
+        assert_eq!(request_id1_u256, raw_id1);
+        assert_eq!(request_id2_u256, raw_id2);
     }
 }
