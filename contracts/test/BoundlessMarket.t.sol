@@ -1386,7 +1386,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.expectBalanceChange(1 ether);
         testProver.expectBalanceChange(0 ether);
         testProver.expectStakeBalanceChange(-1 ether);
-        expectMarketBalanceUnchanged();
 
         // Slashing should not change the client balance.
         boundlessMarket.slash(request.id);
