@@ -12,6 +12,7 @@ import {Input, InputType, InputLibrary} from "./Input.sol";
 import {Requirements, RequirementsLibrary} from "./Requirements.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IBoundlessMarket} from "../IBoundlessMarket.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 using ProofRequestLibrary for ProofRequest global;
 
@@ -62,34 +63,6 @@ library ProofRequestLibrary {
                 request.offer.eip712Digest()
             )
         );
-    }
-
-    /// @notice Verifies the client's signature over the proof request.
-    /// @param structHash The EIP-712 struct hash of the proof request.
-    /// @param addr The address of the client.
-    /// @param signature The signature to validate.
-    /// @return The struct hash if the signature is valid.
-    function verifyClientSignature(ProofRequest calldata, bytes32 structHash, address addr, bytes calldata signature)
-        internal
-        pure
-        returns (bytes32)
-    {
-        if (ECDSA.recover(structHash, signature) != addr) {
-            revert IBoundlessMarket.InvalidSignature();
-        }
-        return structHash;
-    }
-
-    /// @notice Extracts the prover's signature for the given proof request.
-    /// @param structHash The EIP-712 struct hash of the proof request.
-    /// @param proverSignature The prover's signature to extract.
-    /// @return The address of the prover.
-    function extractProverSignature(ProofRequest calldata, bytes32 structHash, bytes calldata proverSignature)
-        internal
-        pure
-        returns (address)
-    {
-        return ECDSA.recover(structHash, proverSignature);
     }
 
     /// @notice Validates the proof request with the intention for it to be priced.
