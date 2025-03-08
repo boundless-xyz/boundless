@@ -202,7 +202,6 @@ where
                     imageId: order_img_id,
                     journal: order_journal.into(),
                     seal: seal.into(),
-                    requirePayment: true,
                 });
                 anyhow::Ok(())
             };
@@ -247,6 +246,7 @@ where
             seal: assessor_seal.into(),
             selectors: vec![],
             prover: self.prover_address,
+            callbacks: vec![],
         };
         if single_txn_fulfill {
             if let Err(err) = self

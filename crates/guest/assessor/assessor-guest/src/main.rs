@@ -8,10 +8,11 @@
 extern crate alloc;
 
 use alloc::{vec, vec::Vec};
-use alloy_primitives::{FixedBytes, B256};
+use alloy_primitives::{Address, FixedBytes, B256};
+use alloy_sol_types::SolStruct;
 use alloy_sol_types::SolValue;
 use boundless_assessor::AssessorInput;
-use boundless_market::contracts::{AssessorJournal, Selector};
+use boundless_market::contracts::{AssessorCallback, AssessorJournal, RequestId, Selector};
 use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
@@ -39,6 +40,8 @@ fn main() {
     let mut request_digests: Vec<B256> = Vec::with_capacity(input.fills.len());
     // list of ReceiptClaim digests used as leaves in the aggregation set
     let mut claim_digests: Vec<Digest> = Vec::with_capacity(input.fills.len());
+    // sparse list of callbacks to be recorded in the journal
+    let mut callbacks: Vec<AssessorCallback> = Vec::<AssessorCallback>::new();
     // list of optional Selectors specified as part of the requests requirements
     let mut selectors = Vec::<Selector>::new();
 
@@ -47,18 +50,37 @@ fn main() {
     // - verify the request's signature
     // - evaluate the request's requirements
     // - verify the integrity of its claim
+    // - record the callback if it exists
     // - record the selector if it is present
     // We additionally collect the request and claim digests.
     for (index, fill) in input.fills.iter().enumerate() {
-        let request_digest =
-            fill.verify_signature(&eip_domain_separator).expect("signature does not verify");
+        // ECDSA signatures are always checked here.
+        // Smart contract signatures (via EIP-1271) are checked on-chain either when a request is locked,
+        // or when an unlocked request is priced and fulfilled.
+        let smart_contract_signed = RequestId::try_from(fill.request.id).unwrap().smart_contract_signed;
+        let request_digest: [u8; 32];
+        if smart_contract_signed {
+            request_digest = fill.request.eip712_signing_hash(&eip_domain_separator).into();
+        } else {
+            request_digest =
+                fill.verify_signature(&eip_domain_separator).expect("signature does not verify");
+        }
         fill.evaluate_requirements().expect("requirements not met");
         env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
         claim_digests.push(fill.receipt_claim().digest());
         request_digests.push(request_digest.into());
+        if fill.request.requirements.callback.addr != Address::ZERO {
+            callbacks.push(AssessorCallback {
+                index: index.try_into().expect("callback index overflow"),
+                addr: fill.request.requirements.callback.addr,
+                gasLimit: fill.request.requirements.callback.gasLimit,
+            });
+        }
         if fill.request.requirements.selector != FixedBytes::<4>([0; 4]) {
-            selectors
-                .push(Selector { index: index as u16, value: fill.request.requirements.selector });
+            selectors.push(Selector {
+                index: index.try_into().expect("selector index overflow"),
+                value: fill.request.requirements.selector,
+            });
         }
     }
 
@@ -67,6 +89,7 @@ fn main() {
 
     let journal = AssessorJournal {
         requestDigests: request_digests,
+        callbacks,
         selectors,
         root: <[u8; 32]>::from(root).into(),
         prover: input.prover_address,

@@ -4,3 +4,4 @@ openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
 openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
 forge-std/=lib/forge-std/src/
 risc0/=lib/risc0-ethereum/contracts/src/
+solmate/=lib/solmate/src

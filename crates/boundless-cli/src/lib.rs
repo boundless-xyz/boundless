@@ -66,8 +66,12 @@ impl OrderFulfilled {
 
         let root_seal = encode_seal(&root_receipt)?;
         let assessor_seal = assessor_receipt.abi_encode_seal()?;
-        let assessor_fill =
-            AssessorReceipt { seal: assessor_seal.into(), selectors: vec![], prover };
+        let assessor_fill = AssessorReceipt {
+            seal: assessor_seal.into(),
+            selectors: vec![],
+            prover,
+            callbacks: vec![],
+        };
 
         Ok(OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),
@@ -282,7 +286,6 @@ impl DefaultProver {
             requestDigest: order.request.eip712_signing_hash(&self.domain.alloy_struct()),
             imageId: request.requirements.imageId,
             journal: order_journal.into(),
-            requirePayment: require_payment,
             seal: order_seal.into(),
         };
 
@@ -325,6 +328,7 @@ mod tests {
         let (request, signature) = setup_proving_request_and_signature(&signer).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
+        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
@@ -333,7 +337,7 @@ mod tests {
         )
         .expect("failed to create prover");
 
-        let order = Order { request, signature };
+        let order = Order { request, request_digest, signature };
         let (_, root_receipt, order_receipt, assessor_receipt) =
             prover.fulfill(order.clone(), false).await.unwrap();
 

@@ -20,17 +20,25 @@ contract RequestLockTest is Test {
             requestLockFlags: 0,
             price: 1 ether,
             stake: 1 ether,
-            fingerprint: bytes8(0x1234567890abcdef)
+            requestDigest: bytes32(0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef)
         });
     }
 
-    function assertSlot2Clear() private view returns (uint256) {
-        uint256 slot2;
+    function assertSlotClear(uint256 slotNumber) private view {
+        uint256 slot;
         assembly {
-            let s2 := add(requestLock.slot, 1)
-            slot2 := sload(s2)
+            let num := add(requestLock.slot, slotNumber)
+            slot := sload(num)
         }
-        return slot2;
+        assertEq(slot, 0, "Slot is not zero");
+    }
+
+    function assertSlot1Clear() private view {
+        assertSlotClear(1);
+    }
+
+    function assertSlot2Clear() private view {
+        assertSlotClear(2);
     }
 
     function testDeadline() public view {
@@ -47,7 +55,7 @@ contract RequestLockTest is Test {
         );
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
-        assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
+        assertSlot1Clear();
         assertSlot2Clear();
     }
 
@@ -65,7 +73,7 @@ contract RequestLockTest is Test {
         assertEq(requestLock.requestLockFlags, RequestLockLibrary.SLASHED_FLAG, "Slashed flag not set correctly");
         assertEq(requestLock.price, 0, "Price not zeroed out");
         assertEq(requestLock.stake, 0, "Stake not zeroed out");
-        assertEq(requestLock.fingerprint, bytes8(0), "Fingerprint not zeroed out");
+        assertSlot1Clear();
         assertSlot2Clear();
     }
 
@@ -77,6 +85,8 @@ contract RequestLockTest is Test {
     function testIsProverPaidAfterLockDeadline() public {
         requestLock.setProverPaidAfterLockDeadline(address(0x456));
         assertTrue(requestLock.isProverPaidAfterLockDeadline());
+        assertNotEq(requestLock.price, 0, "Price not zeroed out");
+        assertNotEq(requestLock.stake, 0, "Stake not zeroed out");
     }
 
     function testIsProverPaid() public {
