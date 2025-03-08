@@ -337,15 +337,11 @@ contract BoundlessMarket is
         verifyDelivery(fill, assessorReceipt);
 
         // Execute the callback with the associated fulfillment information.
-        // Callbacks are called exactly once, on the first fulfillment. Checking that the request is
-        // not fulfilled at this point ensures this. Note that by the end of the transaction, the
-        // fulfilled flag for the provided fulfillment will be set, or this transaction will
-        // revert (and revery any effects from the callback along with it).
+        // Note that if any of the following fulfillment logic fails, the entire transaction will
+        // revert including this callback.
         if (assessorReceipt.callbacks.length > 0) {
             AssessorCallback memory callback = assessorReceipt.callbacks[0];
-            if (!requestIsFulfilled(fill.id)) {
-                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
-            }
+            _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
         }
 
         paymentError = _fulfillAndPay(fill, assessorReceipt.prover);
@@ -360,17 +356,13 @@ contract BoundlessMarket is
         verifyBatchDelivery(fills, assessorReceipt);
 
         // Execute the callback with the associated fulfillment information.
-        // Callbacks are called exactly once, on the first fulfillment. Checking that the request is
-        // not fulfilled at this point ensures this. Note that by the end of the transaction, the
-        // fulfilled flag for every provided fulfillment will be set, or this transaction will
-        // revert (and revery any effects from the callbacks along with it).
+        // Note that if any of the following fulfillment logic fails, the entire transaction will
+        // revert including these callbacks.
         uint256 callbacksLength = assessorReceipt.callbacks.length;
         for (uint256 i = 0; i < callbacksLength; i++) {
             AssessorCallback memory callback = assessorReceipt.callbacks[i];
             Fulfillment calldata fill = fills[callback.index];
-            if (!requestIsFulfilled(fill.id)) {
-                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
-            }
+            _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
         }
 
         paymentError = new bytes[](fills.length);

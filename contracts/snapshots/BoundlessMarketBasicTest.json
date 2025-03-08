@@ -1,6 +1,6 @@
 {
   "ERC20 approve: required for depositStake": "45966",
-  "bytecode size implementation": "22808",
+  "bytecode size implementation": "22796",
   "bytecode size proxy": "89",
   "deposit: first ever deposit": "50898",
   "deposit: second deposit": "33798",

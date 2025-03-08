@@ -2752,8 +2752,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (fill, assessorReceipt) = createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
         boundlessMarket.fulfill(fill, assessorReceipt);
 
-        // Verify callback was not called again
-        assertEq(mockCallback.getCallCount(), 1, "Callback should not be called again");
+        // Verify callback is called again
+        assertEq(mockCallback.getCallCount(), 2, "Callback should be called twice");
 
         expectRequestFulfilled(fill.id);
         testProver.expectBalanceChange(1 ether);
