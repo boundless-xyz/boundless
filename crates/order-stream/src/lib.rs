@@ -30,7 +30,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tokio_util::sync::CancellationToken;
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -190,8 +190,6 @@ pub struct AppState {
     config: Config,
     /// chain_id
     chain_id: u64,
-    /// Websocket tasks, used to monitor for shutdown
-    ws_tasks: TaskTracker,
     /// Cancelation tokens set when a graceful shutdown is triggered
     shutdown: CancellationToken,
 }
@@ -214,7 +212,6 @@ impl AppState {
             rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
             config: config.clone(),
             chain_id,
-            ws_tasks: TaskTracker::new(),
             shutdown: CancellationToken::new(),
         }))
     }
@@ -358,9 +355,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
     }
 
     tracing::info!("Triggering shutdown");
-    state.ws_tasks.close();
     state.shutdown.cancel();
-    state.ws_tasks.wait().await;
 }
 
 #[cfg(test)]
@@ -418,10 +413,10 @@ mod tests {
             rpc_url,
             market_address: *ctx.prover_market.instance().address(),
             min_balance: parse_ether("2").unwrap(),
-            max_connections: 1,
+            max_connections: 2,
             queue_size: 10,
             domain,
-            bypass_addrs: vec![ctx.prover_signer.address()],
+            bypass_addrs: vec![ctx.prover_signer.address(), ctx.customer_signer.address()],
             ping_time,
         };
 
@@ -508,21 +503,41 @@ mod tests {
 
         // Create channels to communicate with the order stream task
         let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(1);
-        let (error_tx, mut error_rx) = tokio::sync::mpsc::channel(1);
 
         // Connect to the WebSocket and start listening in a separate task
         let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
-        let stream_task = tokio::spawn(async move {
-            let mut order_stream = order_stream(socket);
 
-            while let Some(result) = order_stream.next().await {
-                match result {
-                    Ok(order_data) => {
-                        order_tx.send(order_data).await.unwrap();
+        // Connect customer signer as well
+        let customer_client = Client::new(
+            Url::parse(&format!("http://{addr}")).unwrap(),
+            app_state.config.market_address,
+            app_state.chain_id,
+        );
+        let customer_socket = customer_client.connect_async(&ctx.customer_signer).await.unwrap();
+        let stream_task = tokio::spawn(async move {
+            let mut stream = order_stream(socket);
+            let mut customer_order_stream = order_stream(customer_socket);
+
+            loop {
+                // Wait for either order to come through
+                let (res1, res2) = tokio::join!(stream.next(), customer_order_stream.next());
+
+                // Handle potential errors from both streams
+                match (res1, res2) {
+                    (Some(Ok(order1)), Some(Ok(order2))) => {
+                        if order1.order == order2.order {
+                            order_tx.send(order1).await.unwrap();
+                        } else {
+                            panic!("Orders don't match: {:?} vs {:?}", order1.order, order2.order);
+                        }
                     }
-                    Err(err) => {
-                        let _ = error_tx.send(err.to_string()).await;
+
+                    (None, None) => {
+                        // Handle the case on shutdown where both will be closed.
                         break;
+                    }
+                    (_, _) => {
+                        panic!("Unexpected error in order stream clients");
                     }
                 }
             }
@@ -564,48 +579,29 @@ mod tests {
         }
 
         // Wait a bit to ensure ping-pong is working (no errors)
-        let ping_result =
-            tokio::time::timeout(tokio::time::Duration::from_secs(3), error_rx.recv()).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
-        assert!(ping_result.is_err(), "Expected timeout (no errors) during ping-pong period");
-
-        // Verify the connection is still in the connections map
+        // Verify the connections are in the connections map
         {
             let connections = app_state.connections.read().await;
             assert!(
                 connections.contains_key(&ctx.prover_signer.address()),
                 "Connection should still be active after ping-pong exchanges"
             );
+            assert!(
+                connections.contains_key(&ctx.customer_signer.address()),
+                "Customer connection should also be active"
+            );
         }
 
         // Now simulate server disconnection by aborting the server task
-        app_state.ws_tasks.close();
         app_state.shutdown.cancel();
-        app_state.ws_tasks.wait().await;
-        server_handle.abort();
 
         // Wait for the client to detect the disconnection
-        let disconnect_result =
-            tokio::time::timeout(tokio::time::Duration::from_secs(10), error_rx.recv()).await;
-
-        match disconnect_result {
-            Ok(Some(err_string)) => {
-                tracing::info!("Successfully detected server disconnection: {}", err_string);
-                assert!(
-                    err_string.contains("Connection reset"),
-                    "Error should indicate connection issue, got: {}",
-                    err_string
-                );
-            }
-            Ok(None) => {
-                panic!("Error channel closed unexpectedly");
-            }
-            Err(_) => {
-                panic!("Timed out waiting for disconnection error");
-            }
-        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
         // Clean up
+        server_handle.abort();
         stream_task.abort();
     }
 

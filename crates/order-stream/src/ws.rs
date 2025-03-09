@@ -206,139 +206,141 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
 }
 
 async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<AppState>) {
-    let parent_state = state.clone();
-    parent_state.ws_tasks.spawn(async move {
-        let (mut sender_ws, mut recver_ws) = socket.split();
+    let (mut sender_ws, mut recver_ws) = socket.split();
 
-        let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
+    let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
 
-        let is_connected;
-        // Add sender to the list of connections
-        {
-            let mut connections = state.connections.write().await;
-            match connections.entry(address) {
-                Entry::Occupied(_) => {
-                    is_connected = true;
-                    tracing::warn!("Client {address} already connected");
-                },
-                Entry::Vacant(entry) => {
-                    is_connected = false;
-                    entry.insert(ClientConnection { sender: sender_channel.clone()});
-                },
+    let is_connected;
+    // Add sender to the list of connections
+    {
+        let mut connections = state.connections.write().await;
+        match connections.entry(address) {
+            Entry::Occupied(_) => {
+                is_connected = true;
+                tracing::warn!("Client {address} already connected");
+            }
+            Entry::Vacant(entry) => {
+                is_connected = false;
+                entry.insert(ClientConnection { sender: sender_channel.clone() });
             }
         }
+    }
 
-        // Clean up the pending connection entry before upgrading
-        state.remove_pending_connection(&address).await;
+    // Clean up the pending connection entry before upgrading
+    state.remove_pending_connection(&address).await;
 
-        if is_connected {
-            // Address is already connected, drop additional connection.
-            return;
-        }
+    if is_connected {
+        // Address is already connected, drop additional connection.
+        return;
+    }
 
-        let mut errors_counter = 0usize;
+    let mut errors_counter = 0usize;
 
-        let mut ping_data: Option<Vec<u8>> = None;
-        let mut ping_interval =
-            tokio::time::interval(tokio::time::Duration::from_secs(state.config.ping_time));
+    let mut ping_data: Option<Vec<u8>> = None;
+    let mut ping_interval =
+        tokio::time::interval(tokio::time::Duration::from_secs(state.config.ping_time));
 
-        loop {
-            tokio::select! {
-                msg = receiver_channel.recv() => {
-                    match msg {
-                        Some(msg) => {
-                            match sender_ws.send(Message::Text(msg)).await {
-                                Ok(_) => {
-                                    // Reset the error counter on successful send
-                                    errors_counter = 0;
-                                }
-                                Err(err) => {
-                                    tracing::warn!("Failed to send message to client {address}: {err}");
-                                    errors_counter += 1;
-                                    if errors_counter > 10 {
-                                        tracing::warn!(
-                                            "Too many consecutive send errors to client {}; disconnecting",
-                                            address
-                                        );
-                                        break;
-                                    }
-                                }
+    loop {
+        tokio::select! {
+            msg = receiver_channel.recv() => {
+                match msg {
+                    Some(msg) => {
+                        match sender_ws.send(Message::Text(msg)).await {
+                            Ok(_) => {
+                                // Reset the error counter on successful send
+                                errors_counter = 0;
                             }
-                        }
-                        None => break,
-                    }
-                }
-                _ = ping_interval.tick() => {
-                    if ping_data.is_some() {
-                        tracing::warn!("Client {address} never responded to ping, closing conn");
-                        break;
-                    }
-                    // Send ping
-                    let random_bytes: Vec<u8> = rand::rng().random::<[u8; 16]>().into();
-                    if let Err(err) = sender_ws.send(Message::Ping(random_bytes.clone())).await {
-                        tracing::warn!("Failed to send Ping to {address}: {err:?}");
-                        break;
-                    }
-                    tracing::trace!("Sent Ping to {address}");
-                    ping_data = Some(random_bytes);
-                }
-                ws_msg = recver_ws.next() => {
-                    // This polls on the recv side of the websocket connection, once a connection closes
-                    // either via Err or graceful Message::Close, the next() will return None and we can close the
-                    // connection.
-                    match ws_msg {
-                        Some(Ok(Message::Pong(data))) => {
-                            tracing::trace!("Got Pong from {address}");
-                            if let Some(send_data) = ping_data.take() {
-                                if send_data != data {
-                                    tracing::warn!("Invalid ping data from client {address}, closing conn");
+                            Err(err) => {
+                                tracing::warn!("Failed to send message to client {address}: {err}");
+                                errors_counter += 1;
+                                if errors_counter > 10 {
+                                    tracing::warn!(
+                                        "Too many consecutive send errors to client {}; disconnecting",
+                                        address
+                                    );
                                     break;
                                 }
-                                if let Err(err) = state.db.broker_update(address).await {
-                                    tracing::error!("Failed to update broker timestamp: {err:?}");
-                                    break;
-                                }
-                            } else {
-                                tracing::warn!("Client {address} sent out of order pong, closing conn");
-                                break;
                             }
-                        }
-                        Some(Ok(Message::Close(_))) => {
-                            tracing::warn!("Client {address} sent close message, closing conn");
-                            break;
-                            // TODO: cleaner management of Some(Ok(Message::Close))
-                        }
-                        Some(Ok(Message::Ping(data))) => {
-                            // Send pong back to client
-                            if let Err(err) = sender_ws.send(Message::Pong(data)).await {
-                                tracing::warn!("Failed to send Pong to {address}: {err:?}");
-                                break;
-                            }
-                            tracing::trace!("Sent Pong to {address}");
-                        }
-                        Some(Ok(msg)) => {
-                            tracing::warn!("Received unexpected message from {address}: {msg:?}");
-                            break;
-                        }
-                        Some(Err(err)) => {
-                            tracing::warn!("Error receiving message from {address}: {err:?}");
-                            break;
-                        }
-                        None => {
-                            tracing::debug!("Empty recv from {address}, closing connections");
-                            break;
                         }
                     }
+                    None => break,
                 }
-                _ = state.shutdown.cancelled() => {
+            }
+            _ = ping_interval.tick() => {
+                if ping_data.is_some() {
+                    tracing::warn!("Client {address} never responded to ping, closing conn");
                     break;
                 }
+                // Send ping
+                let random_bytes: Vec<u8> = rand::rng().random::<[u8; 16]>().into();
+                if let Err(err) = sender_ws.send(Message::Ping(random_bytes.clone())).await {
+                    tracing::warn!("Failed to send Ping to {address}: {err:?}");
+                    break;
+                }
+                tracing::trace!("Sent Ping to {address}");
+                ping_data = Some(random_bytes);
+            }
+            ws_msg = recver_ws.next() => {
+                // This polls on the recv side of the websocket connection, once a connection closes
+                // either via Err or graceful Message::Close, the next() will return None and we can close the
+                // connection.
+                match ws_msg {
+                    Some(Ok(Message::Pong(data))) => {
+                        tracing::trace!("Got Pong from {address}");
+                        if let Some(send_data) = ping_data.take() {
+                            if send_data != data {
+                                tracing::warn!("Invalid ping data from client {address}, closing conn");
+                                break;
+                            }
+                            if let Err(err) = state.db.broker_update(address).await {
+                                tracing::error!("Failed to update broker timestamp: {err:?}");
+                                break;
+                            }
+                        } else {
+                            tracing::warn!("Client {address} sent out of order pong, closing conn");
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) => {
+                        tracing::warn!("Client {address} sent close message, closing conn");
+                        break;
+                        // TODO: cleaner management of Some(Ok(Message::Close))
+                    }
+                    Some(Ok(Message::Ping(data))) => {
+                        // Send pong back to client
+                        if let Err(err) = sender_ws.send(Message::Pong(data)).await {
+                            tracing::warn!("Failed to send Pong to {address}: {err:?}");
+                            break;
+                        }
+                        tracing::trace!("Sent Pong to {address}");
+                    }
+                    Some(Ok(msg)) => {
+                        tracing::warn!("Received unexpected message from {address}: {msg:?}");
+                        break;
+                    }
+                    Some(Err(err)) => {
+                        tracing::warn!("Error receiving message from {address}: {err:?}");
+                        break;
+                    }
+                    None => {
+                        tracing::debug!("Empty recv from {address}, closing connections");
+                        break;
+                    }
+                }
+            }
+            _ = state.shutdown.cancelled() => {
+                break;
             }
         }
-        // Remove the connection when the send loop exits
-        state.remove_connection(&address).await;
-        tracing::debug!("WebSocket connection closed: {}", address);
-    });
+    }
+    // Remove the connection when the send loop exits
+    state.remove_connection(&address).await;
+
+    // Explicitly close the WebSocket connection.
+    if let Err(err) = sender_ws.close().await {
+        tracing::warn!("Error while closing WebSocket connection for {address}: {err}");
+    }
+    tracing::debug!("WebSocket connection closed: {}", address);
 }
 
 pub(crate) fn start_broadcast_task(
