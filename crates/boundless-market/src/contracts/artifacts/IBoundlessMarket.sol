@@ -110,6 +110,11 @@ interface IBoundlessMarket {
     /// @param requestId The ID of the request.
     error RequestIsSlashed(RequestId requestId);
 
+    /// @notice Error when a request lock is no longer valid, as the lock deadline has passed.
+    /// @param requestId The ID of the request.
+    /// @param lockDeadline The lock deadline of the request.
+    error RequestLockIsExpired(RequestId requestId, uint64 lockDeadline);
+
     /// @notice Error when a request is no longer valid, as the deadline has passed.
     /// @param requestId The ID of the request.
     /// @param deadline The deadline of the request.
