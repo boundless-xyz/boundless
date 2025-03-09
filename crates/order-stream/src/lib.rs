@@ -367,7 +367,10 @@ async fn shutdown_signal(state: Arc<AppState>) {
 mod tests {
     use super::*;
     use crate::order_db::{DbOrder, OrderDbErr};
-    use alloy::{node_bindings::Anvil, primitives::U256};
+    use alloy::{
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::U256,
+    };
     use boundless_market::{
         contracts::{
             hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
@@ -382,11 +385,50 @@ mod tests {
     use reqwest::Url;
     use risc0_zkvm::sha::Digest;
     use sqlx::PgPool;
-    use std::{
-        future::IntoFuture,
-        net::{Ipv4Addr, SocketAddr},
-    };
+    use std::net::{Ipv4Addr, SocketAddr};
     use tokio::task::JoinHandle;
+
+    /// Test setup helper that creates common test infrastructure
+    async fn setup_test_env(
+        pool: PgPool,
+        ping_time: u64,
+        listener: Option<&tokio::net::TcpListener>, // Optional listener for domain configuration
+    ) -> (Arc<AppState>, TestCtx, AnvilInstance) {
+        let anvil = Anvil::new().spawn();
+        let rpc_url = anvil.endpoint_url();
+
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
+
+        ctx.prover_market
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        // Set domain based on listener if provided
+        let domain = if let Some(l) = listener {
+            l.local_addr().unwrap().to_string()
+        } else {
+            "0.0.0.0:8585".to_string()
+        };
+
+        let config = Config {
+            rpc_url,
+            market_address: *ctx.prover_market.instance().address(),
+            min_balance: parse_ether("2").unwrap(),
+            max_connections: 1,
+            queue_size: 10,
+            domain,
+            bypass_addrs: vec![ctx.prover_signer.address()],
+            ping_time,
+        };
+
+        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
+
+        (app_state, ctx, anvil)
+    }
 
     fn new_request(idx: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
@@ -407,188 +449,16 @@ mod tests {
         )
     }
 
-    #[sqlx::test]
-    async fn integration_test(pool: PgPool) {
-        let anvil = Anvil::new().spawn();
-        let rpc_url = anvil.endpoint_url();
-
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
-
-        ctx.prover_market
-            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
-            .await
-            .unwrap();
-
-        let config = Config {
-            rpc_url,
-            market_address: *ctx.prover_market.instance().address(),
-            min_balance: parse_ether("2").unwrap(),
-            max_connections: 1,
-            queue_size: 10,
-            domain: "0.0.0.0:8585".parse().unwrap(),
-            bypass_addrs: vec![],
-            ping_time: 20,
-        };
-        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
-        let app_state_clone = app_state.clone();
-
-        let task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
-            let mut new_orders = app_state_clone.db.order_stream().await.unwrap();
-            let order = new_orders.next().await.unwrap().unwrap();
-            Ok(order)
-        });
-
-        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
-            .await
-            .unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(axum::serve(listener, self::app(app_state.clone())).into_future());
-
-        let client = Client::new(
-            Url::parse(&format!("http://{addr}")).unwrap(),
-            config.market_address,
-            app_state.chain_id,
-        );
-
-        let request = new_request(1, &ctx.prover_signer.address());
-        // 2. Requestor submits a request
-        let order = client.submit_request(&request, &ctx.prover_signer).await.unwrap();
-
-        // 3. Broker receives the request
-        let db_order = task.await.unwrap().unwrap();
-
-        // 4. Fetch the order from the order stream
-        let order_fetched =
-            client.fetch_order(request.id, Some(order.request_digest)).await.unwrap();
-        assert_eq!(order_fetched, order);
-
-        assert_eq!(order, db_order.order);
-    }
-
-    #[sqlx::test]
-    async fn test_pending_connection_timeout(pool: PgPool) {
-        let anvil = Anvil::new().spawn();
-        let rpc_url = anvil.endpoint_url();
-
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
-
-        ctx.prover_market
-            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
-            .await
-            .unwrap();
-
-        let config = Config {
-            rpc_url,
-            market_address: *ctx.prover_market.instance().address(),
-            min_balance: parse_ether("2").unwrap(),
-            max_connections: 1,
-            queue_size: 10,
-            domain: "0.0.0.0:8585".parse().unwrap(),
-            bypass_addrs: vec![],
-            ping_time: 20,
-        };
-        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
-        let addr = ctx.prover_signer.address();
-
-        // Test case 1: New connection (vacant entry)
-        let pending_connection = app_state.set_pending_connection(addr).await;
-        assert!(pending_connection, "Should return true for a new connection");
-
-        // Test case 2: Existing connection within timeout (occupied entry, not timed out)
-        let pending_connection = app_state.set_pending_connection(addr).await;
-        assert!(!pending_connection, "Should return false for a connection within timeout");
-
-        // Test case 3: Existing connection that has timed out
-        // Manually set the timestamp to be older than the timeout
-        {
-            let mut pending_connections = app_state.pending_connections.lock().await;
-            let old_time =
-                Instant::now() - (AppState::PENDING_CONNECTION_TIMEOUT + Duration::from_secs(1));
-            pending_connections.insert(addr, old_time);
-        }
-
-        // Now it should allow a new connection since the old one timed out
-        let pending_connection = app_state.set_pending_connection(addr).await;
-        assert!(pending_connection, "Should return true for a timed out connection");
-
-        // Newly set connection should result in pending_connection == false
-        let pending_connection = app_state.set_pending_connection(addr).await;
-        assert!(
-            !pending_connection,
-            "Should return false for a replaced connection within timeout"
-        );
-
-        // Test removing a pending connection
-        app_state.remove_pending_connection(&addr).await;
-        let pending_connection = app_state.set_pending_connection(addr).await;
-        assert!(pending_connection, "Should return true after removing the connection");
-    }
-
-    #[sqlx::test]
-    async fn test_websocket_ping_pong(pool: PgPool) {
-        // Set the ping interval to 500ms for this test
-        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
-
-        let anvil = Anvil::new().spawn();
-        let rpc_url = anvil.endpoint_url();
-
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
-
-        ctx.prover_market
-            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
-            .await
-            .unwrap();
-
-        // Start the server first to get the address
-        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
-            .await
-            .unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        // Configure with the actual listener address as domain
-        let config = Config {
-            rpc_url,
-            market_address: *ctx.prover_market.instance().address(),
-            min_balance: parse_ether("2").unwrap(),
-            max_connections: 1,
-            queue_size: 10,
-            domain: addr.to_string(),
-            bypass_addrs: vec![ctx.prover_signer.address()],
-            ping_time: 1, // 1 second ping interval for faster testing
-        };
-        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
-
-        // Replace the server_handle spawn with direct app serving
-        let app_state_clone = app_state.clone();
-        let server_handle = tokio::spawn(async move {
-            self::run_from_parts(app_state_clone, listener).await.unwrap();
-        });
-
-        let client = Client::new(
-            Url::parse(&format!("http://{addr}")).unwrap(),
-            config.market_address,
-            app_state.chain_id,
-        );
-
-        // Poll the health endpoint with exponential backoff
+    /// Helper to wait for server health with exponential backoff
+    async fn wait_for_server_health(client: &Client, addr: &SocketAddr, max_retries: usize) {
         let mut retry_delay = tokio::time::Duration::from_millis(50);
-        let max_retries = 5;
 
         let health_url = format!("http://{}{}", addr, HEALTH_CHECK);
         for attempt in 1..=max_retries {
             match client.client.get(&health_url).send().await {
                 Ok(response) if response.status().is_success() => {
                     tracing::info!("Server is healthy after {} attempts", attempt);
-                    break;
+                    return;
                 }
                 _ => {
                     if attempt == max_retries {
@@ -604,12 +474,37 @@ mod tests {
                 }
             }
         }
+    }
 
+    #[sqlx::test]
+    async fn integration_test(pool: PgPool) {
+        // Set the ping interval to 500ms for this test
+        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
+
+        // Create listener first
+        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Setup with the prover address in bypass list and 1 second ping time
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
+
+        // Create client
         let client = Client::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
-            config.market_address,
+            app_state.config.market_address,
             app_state.chain_id,
         );
+
+        // Start server
+        let app_state_clone = app_state.clone();
+        let server_handle = tokio::spawn(async move {
+            self::run_from_parts(app_state_clone, listener).await.unwrap();
+        });
+
+        // Poll the health endpoint with exponential backoff
+        wait_for_server_health(&client, &addr, 5).await;
 
         // Create channels to communicate with the order stream task
         let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(1);
@@ -640,15 +535,13 @@ mod tests {
             Ok(order)
         });
 
-        // Give the WebSocket connection time to establish by polling the health endpoint
-
         // Submit an order to ensure the connection is working
         let order = client
             .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
             .await
             .unwrap();
 
-        watch_task.await.unwrap().unwrap();
+        let db_order = watch_task.await.unwrap().unwrap();
 
         // Wait for the order to be received
         let order_result =
@@ -656,11 +549,11 @@ mod tests {
 
         match order_result {
             Ok(Some(received_order)) => {
-                tracing::info!("Successfully received the order");
                 assert_eq!(
                     received_order.order, order,
                     "Received order should match submitted order"
                 );
+                assert_eq!(order, db_order.order);
             }
             Ok(None) => {
                 panic!("Order channel closed unexpectedly");
@@ -714,5 +607,45 @@ mod tests {
 
         // Clean up
         stream_task.abort();
+    }
+
+    #[sqlx::test]
+    async fn test_pending_connection_timeout(pool: PgPool) {
+        // No need for a listener in this test
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 20, None).await;
+        let addr = ctx.prover_signer.address();
+
+        // Test case 1: New connection (vacant entry)
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(pending_connection, "Should return true for a new connection");
+
+        // Test case 2: Existing connection within timeout (occupied entry, not timed out)
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(!pending_connection, "Should return false for a connection within timeout");
+
+        // Test case 3: Existing connection that has timed out
+        // Manually set the timestamp to be older than the timeout
+        {
+            let mut pending_connections = app_state.pending_connections.lock().await;
+            let old_time =
+                Instant::now() - (AppState::PENDING_CONNECTION_TIMEOUT + Duration::from_secs(1));
+            pending_connections.insert(addr, old_time);
+        }
+
+        // Now it should allow a new connection since the old one timed out
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(pending_connection, "Should return true for a timed out connection");
+
+        // Newly set connection should result in pending_connection == false
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(
+            !pending_connection,
+            "Should return false for a replaced connection within timeout"
+        );
+
+        // Test removing a pending connection
+        app_state.remove_pending_connection(&addr).await;
+        let pending_connection = app_state.set_pending_connection(addr).await;
+        assert!(pending_connection, "Should return true after removing the connection");
     }
 }
