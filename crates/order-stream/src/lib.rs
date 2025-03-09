@@ -597,12 +597,14 @@ mod tests {
         // Now simulate server disconnection by aborting the server task
         app_state.shutdown.cancel();
 
-        // Wait for the client to detect the disconnection
-        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        // Ensure that the client streams have been closed.
+        tokio::time::timeout(tokio::time::Duration::from_secs(10), stream_task)
+            .await
+            .unwrap()
+            .unwrap();
 
         // Clean up
         server_handle.abort();
-        stream_task.abort();
     }
 
     #[sqlx::test]
