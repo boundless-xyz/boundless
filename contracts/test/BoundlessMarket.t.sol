@@ -916,6 +916,37 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return _testLockRequestExpired(false);
     }
 
+    function _testLockRequestLockExpired(bool withSig) private {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSignature = client.sign(request);
+        bytes memory proverSignature = testProver.sign(request);
+
+        vm.warp(request.offer.lockDeadline() + 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBoundlessMarket.RequestLockIsExpired.selector, request.id, request.offer.lockDeadline()
+            )
+        );
+        if (withSig) {
+            boundlessMarket.lockRequestWithSignature(request, clientSignature, proverSignature);
+        } else {
+            vm.prank(testProverAddress);
+            boundlessMarket.lockRequest(request, clientSignature);
+        }
+
+        expectMarketBalanceUnchanged();
+    }
+
+    function testLockRequestLockExpired() public {
+        return _testLockRequestExpired(true);
+    }
+
+    function testLockRequestWithSignatureLockExpired() public {
+        return _testLockRequestExpired(false);
+    }
+
     function _testLockRequestInvalidRequest1(bool withSig) private {
         Offer memory offer = Offer({
             minPrice: 2 ether,

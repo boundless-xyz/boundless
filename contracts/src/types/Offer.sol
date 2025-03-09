@@ -58,10 +58,10 @@ library OfferLibrary {
         view
         returns (uint64 lockDeadline1, uint64 deadline1)
     {
-        if (offer.rampUpPeriod > offer.timeout) {
+        if (offer.minPrice > offer.maxPrice) {
             revert IBoundlessMarket.InvalidRequest();
         }
-        if (offer.minPrice > offer.maxPrice) {
+        if (offer.rampUpPeriod > offer.lockTimeout) {
             revert IBoundlessMarket.InvalidRequest();
         }
         if (offer.lockTimeout > offer.timeout) {

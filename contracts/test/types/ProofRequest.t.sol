@@ -116,6 +116,18 @@ contract ProofRequestTest is Test {
 
         vm.expectRevert(IBoundlessMarket.InvalidRequest.selector);
         requestContract.validate(request);
+
+        request.offer.lockTimeout = 5;
+        request.offer.timeout = 10;
+        request.offer.rampUpPeriod = 8;
+        vm.expectRevert(IBoundlessMarket.InvalidRequest.selector);
+        requestContract.validate(request);
+
+        // sanity check
+        request.offer.timeout = 10;
+        request.offer.lockTimeout = 5;
+        request.offer.rampUpPeriod = 5;
+        requestContract.validate(request);
     }
 
     function testValidateInvalidLockTimeoutLength() public {
@@ -130,6 +142,7 @@ contract ProofRequestTest is Test {
 
     function testValidateExpired() public {
         ProofRequest memory request = defaultProofRequest;
+        request.offer.rampUpPeriod = 5;
         request.offer.lockTimeout = 5;
         request.offer.timeout = 10;
 

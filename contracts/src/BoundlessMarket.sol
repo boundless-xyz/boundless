@@ -157,6 +157,9 @@ contract BoundlessMarket is
         if (fulfilled) {
             revert RequestIsFulfilled({requestId: request.id});
         }
+        if (lockDeadline < block.timestamp) {
+            revert RequestLockIsExpired({requestId: request.id, lockDeadline: lockDeadline});
+        }
 
         // Compute the current price offered by the reverse Dutch auction.
         uint96 price = request.offer.priceAt(uint64(block.timestamp)).toUint96();
