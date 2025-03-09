@@ -309,7 +309,10 @@ pub async fn run(args: &Args) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&args.bind_addr)
         .await
         .context("Failed to bind a TCP listener")?;
+    run_from_parts(app_state, listener).await
+}
 
+async fn run_from_parts(app_state: Arc<AppState>, listener: tokio::net::TcpListener) -> Result<()> {
     let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
@@ -328,7 +331,7 @@ pub async fn run(args: &Args) -> Result<()> {
         }
     });
 
-    tracing::info!("REST API listening on: {}", args.bind_addr);
+    tracing::info!("REST API listening on: {}", listener.local_addr().unwrap());
     axum::serve(listener, self::app(app_state.clone()))
         .with_graceful_shutdown(async { shutdown_signal(app_state).await })
         .await
@@ -371,7 +374,7 @@ mod tests {
             Requirements,
         },
         input::InputBuilder,
-        order_stream_client::Client,
+        order_stream_client::{order_stream, Client},
     };
     use futures_util::StreamExt;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -445,7 +448,7 @@ mod tests {
         tokio::spawn(axum::serve(listener, self::app(app_state.clone())).into_future());
 
         let client = Client::new(
-            Url::parse(&format!("http://{addr}", addr = addr)).unwrap(),
+            Url::parse(&format!("http://{addr}")).unwrap(),
             config.market_address,
             app_state.chain_id,
         );
@@ -525,5 +528,191 @@ mod tests {
         app_state.remove_pending_connection(&addr).await;
         let pending_connection = app_state.set_pending_connection(addr).await;
         assert!(pending_connection, "Should return true after removing the connection");
+    }
+
+    #[sqlx::test]
+    async fn test_websocket_ping_pong(pool: PgPool) {
+        // Set the ping interval to 500ms for this test
+        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
+
+        let anvil = Anvil::new().spawn();
+        let rpc_url = anvil.endpoint_url();
+
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
+
+        ctx.prover_market
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        // Start the server first to get the address
+        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Configure with the actual listener address as domain
+        let config = Config {
+            rpc_url,
+            market_address: *ctx.prover_market.instance().address(),
+            min_balance: parse_ether("2").unwrap(),
+            max_connections: 1,
+            queue_size: 10,
+            domain: addr.to_string(),
+            bypass_addrs: vec![ctx.prover_signer.address()],
+            ping_time: 1, // 1 second ping interval for faster testing
+        };
+        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
+
+        // Replace the server_handle spawn with direct app serving
+        let app_state_clone = app_state.clone();
+        let server_handle = tokio::spawn(async move {
+            self::run_from_parts(app_state_clone, listener).await.unwrap();
+        });
+
+        let client = Client::new(
+            Url::parse(&format!("http://{addr}")).unwrap(),
+            config.market_address,
+            app_state.chain_id,
+        );
+
+        // Poll the health endpoint with exponential backoff
+        let mut retry_delay = tokio::time::Duration::from_millis(50);
+        let max_retries = 5;
+
+        let health_url = format!("http://{}{}", addr, HEALTH_CHECK);
+        for attempt in 1..=max_retries {
+            match client.client.get(&health_url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    tracing::info!("Server is healthy after {} attempts", attempt);
+                    break;
+                }
+                _ => {
+                    if attempt == max_retries {
+                        panic!("Server failed to become healthy after {} attempts", max_retries);
+                    }
+                    println!(
+                        "Waiting for server to become healthy (attempt {}/{})",
+                        attempt, max_retries
+                    );
+                    tokio::time::sleep(retry_delay).await;
+                    retry_delay =
+                        std::cmp::min(retry_delay * 2, tokio::time::Duration::from_secs(10));
+                }
+            }
+        }
+
+        let client = Client::new(
+            Url::parse(&format!("http://{addr}")).unwrap(),
+            config.market_address,
+            app_state.chain_id,
+        );
+
+        // Create channels to communicate with the order stream task
+        let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(1);
+        let (error_tx, mut error_rx) = tokio::sync::mpsc::channel(1);
+
+        // Connect to the WebSocket and start listening in a separate task
+        let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
+        let stream_task = tokio::spawn(async move {
+            let mut order_stream = order_stream(socket);
+
+            while let Some(result) = order_stream.next().await {
+                match result {
+                    Ok(order_data) => {
+                        order_tx.send(order_data).await.unwrap();
+                    }
+                    Err(err) => {
+                        let _ = error_tx.send(err.to_string()).await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        let app_state_clone = app_state.clone();
+        let watch_task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
+            let mut new_orders = app_state_clone.db.order_stream().await.unwrap();
+            let order = new_orders.next().await.unwrap().unwrap();
+            Ok(order)
+        });
+
+        // Give the WebSocket connection time to establish by polling the health endpoint
+
+        // Submit an order to ensure the connection is working
+        let order = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        watch_task.await.unwrap().unwrap();
+
+        // Wait for the order to be received
+        let order_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(4), order_rx.recv()).await;
+
+        match order_result {
+            Ok(Some(received_order)) => {
+                tracing::info!("Successfully received the order");
+                assert_eq!(
+                    received_order.order, order,
+                    "Received order should match submitted order"
+                );
+            }
+            Ok(None) => {
+                panic!("Order channel closed unexpectedly");
+            }
+            Err(_) => {
+                panic!("Timed out waiting for order");
+            }
+        }
+
+        // Wait a bit to ensure ping-pong is working (no errors)
+        let ping_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(3), error_rx.recv()).await;
+
+        assert!(ping_result.is_err(), "Expected timeout (no errors) during ping-pong period");
+
+        // Verify the connection is still in the connections map
+        {
+            let connections = app_state.connections.read().await;
+            assert!(
+                connections.contains_key(&ctx.prover_signer.address()),
+                "Connection should still be active after ping-pong exchanges"
+            );
+        }
+
+        // Now simulate server disconnection by aborting the server task
+        app_state.ws_tasks.close();
+        app_state.shutdown.cancel();
+        app_state.ws_tasks.wait().await;
+        server_handle.abort();
+
+        // Wait for the client to detect the disconnection
+        let disconnect_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(10), error_rx.recv()).await;
+
+        match disconnect_result {
+            Ok(Some(err_string)) => {
+                tracing::info!("Successfully detected server disconnection: {}", err_string);
+                assert!(
+                    err_string.contains("Connection reset"),
+                    "Error should indicate connection issue, got: {}",
+                    err_string
+                );
+            }
+            Ok(None) => {
+                panic!("Error channel closed unexpectedly");
+            }
+            Err(_) => {
+                panic!("Timed out waiting for disconnection error");
+            }
+        }
+
+        // Clean up
+        stream_task.abort();
     }
 }
