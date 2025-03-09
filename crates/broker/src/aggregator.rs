@@ -210,7 +210,7 @@ impl AggregatorService {
             .prover
             .prove_and_monitor_stark(&self.assessor_guest_id.to_string(), &input_id, assumptions)
             .await
-            .context("Failed to prove assesor stark")?;
+            .context("Failed to prove assessor stark")?;
 
         tracing::info!(
             "Assessor proof completed, count: {} cycles: {} time: {}",
