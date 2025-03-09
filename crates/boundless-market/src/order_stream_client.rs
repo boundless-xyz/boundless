@@ -439,10 +439,6 @@ pub fn order_stream(
                         }
                         Some(Ok(tungstenite::Message::Close(_))) => {
                             tracing::debug!("Server closed the connection");
-                            yield Err(Box::new(std::io::Error::new(
-                                std::io::ErrorKind::ConnectionAborted,
-                                "Server closed the connection"
-                            )) as Box<dyn Error + Send + Sync>);
                             break;
                         }
                         Some(Ok(other)) => {
@@ -455,10 +451,6 @@ pub fn order_stream(
                         }
                         None => {
                             tracing::warn!("order stream socket closed unexpectedly");
-                            yield Err(Box::new(std::io::Error::new(
-                                std::io::ErrorKind::ConnectionAborted,
-                                "WebSocket stream ended unexpectedly"
-                            )) as Box<dyn Error + Send + Sync>);
                             break;
                         }
                     }
