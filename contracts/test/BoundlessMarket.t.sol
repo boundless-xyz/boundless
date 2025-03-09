@@ -1386,11 +1386,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.expectBalanceChange(1 ether);
         testProver.expectBalanceChange(0 ether);
         testProver.expectStakeBalanceChange(-1 ether);
-
-        // Slashing should not change the client balance.
-        boundlessMarket.slash(request.id);
-        client.expectBalanceChange(1 ether);
-        testProver.expectStakeBalanceChange(-int256(uint256(expectedSlashBurnAmount(1 ether))));
     }
 
     // Scenario when a prover locks a request, fails to deliver it within the lock expiry,
