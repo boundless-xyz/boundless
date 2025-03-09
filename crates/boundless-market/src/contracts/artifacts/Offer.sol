@@ -35,7 +35,7 @@ struct Offer {
     /// @notice Timeout for the request, expressed as seconds from bidding start.
     /// @dev After this time the request is considered completely expired and can no longer be
     /// fulfilled. After this time, the `slash` action can be completed to finalize the transaction
-    /// if it was not fulfilled.
+    /// if it was locked but not fulfilled.
     uint32 timeout;
     /// @notice Bidders must stake this amount as part of their bid.
     uint256 lockStake;
