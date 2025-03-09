@@ -157,7 +157,7 @@ contract BoundlessMarket is
         if (fulfilled) {
             revert RequestIsFulfilled({requestId: request.id});
         }
-        if (lockDeadline < block.timestamp) {
+        if (block.timestamp > lockDeadline) {
             revert RequestLockIsExpired({requestId: request.id, lockDeadline: lockDeadline});
         }
 
