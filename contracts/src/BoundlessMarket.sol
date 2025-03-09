@@ -533,7 +533,7 @@ contract BoundlessMarket is
         // additional price for the difference between the price of the fulfilled request, at the
         // current block, and the price of the locked request.
         //
-        // Note that although they have they same ID, the locked request and the fulfilled request
+        // Note that although they have the same ID, the locked request and the fulfilled request
         // could be different. If the request fulfilled is the same as the one locked, the
         // `context.price` will be zero and the entire fee on the lock will be returned to the client.
         Account storage clientAccount = accounts[client];
