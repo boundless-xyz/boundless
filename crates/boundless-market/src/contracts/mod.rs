@@ -265,6 +265,20 @@ pub enum RequestError {
     #[error("offer lock timeout must be greater than 0")]
     OfferLockTimeoutIsZero,
 
+    /// The offer ramp up period is longer than the lock timeout
+    #[error("offer ramp up period must be less than or equal to the lock timeout")]
+    OfferRampUpGreaterThanLockTimeout,
+
+    /// The offer lock timeout is greater than the timeout
+    #[error("offer lock timeout must be less than or equal to the timeout")]
+    OfferLockTimeoutGreaterThanTimeout,
+
+    /// Difference between timeout and lockTimeout much be less than 2^24
+    ///
+    /// This is a requirement of the BoundlessMarket smart to optimize use of storage.
+    #[error("difference between timeout and lockTimeout much be less than 2^24")]
+    OfferTimeoutRangeTooLarge,
+
     /// The offer max price is zero.
     #[error("offer maxPrice must be greater than 0")]
     OfferMaxPriceIsZero,
@@ -420,6 +434,15 @@ impl ProofRequest {
         };
         if self.offer.lockTimeout == 0 {
             return Err(RequestError::OfferLockTimeoutIsZero);
+        };
+        if self.offer.rampUpPeriod > self.offer.lockTimeout {
+            return Err(RequestError::OfferRampUpGreaterThanLockTimeout);
+        };
+        if self.offer.lockTimeout > self.offer.timeout {
+            return Err(RequestError::OfferLockTimeoutGreaterThanTimeout);
+        };
+        if self.offer.timeout - self.offer.lockTimeout >= 1 << 24 {
+            return Err(RequestError::OfferTimeoutRangeTooLarge);
         };
         if self.offer.maxPrice == U256::ZERO {
             return Err(RequestError::OfferMaxPriceIsZero);
