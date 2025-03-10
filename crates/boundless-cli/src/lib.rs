@@ -286,7 +286,6 @@ impl DefaultProver {
             requestDigest: order.request.eip712_signing_hash(&self.domain.alloy_struct()),
             imageId: request.requirements.imageId,
             journal: order_journal.into(),
-            requirePayment: require_payment,
             seal: order_seal.into(),
         };
 

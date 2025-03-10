@@ -44,6 +44,7 @@ pub struct OrderMonitor<P> {
     block_time: u64,
     config: ConfigLock,
     market: BoundlessMarketService<Arc<P>>,
+    provider: Arc<P>,
 }
 
 impl<P> OrderMonitor<P>
@@ -72,7 +73,7 @@ where
             market = market.with_timeout(Duration::from_secs(txn_timeout));
         }
 
-        Ok(Self { db, chain_monitor, block_time, config, market })
+        Ok(Self { db, chain_monitor, block_time, config, market, provider })
     }
 
     async fn lock_order(&self, order_id: U256, order: &Order) -> Result<(), LockOrderErr> {
@@ -104,9 +105,19 @@ where
             .await
             .map_err(LockOrderErr::OrderLockedInBlock)?;
 
-        let lock_price = self
-            .market
-            .price_at_block(&order.request.offer, lock_block)
+        let lock_timestamp = self
+            .provider
+            .get_block_by_number(lock_block.into(), BlockTransactionsKind::Hashes)
+            .await
+            .with_context(|| format!("failed to get block {lock_block}"))?
+            .with_context(|| format!("failed to get block {lock_block}: block not found"))?
+            .header
+            .timestamp;
+
+        let lock_price = order
+            .request
+            .offer
+            .price_at(lock_timestamp)
             .context("Failed to calculate lock price")?;
 
         self.db.set_proving_status(order_id, lock_price).await.with_context(|| {
@@ -160,16 +171,18 @@ where
 
         // back scan if we have an existing block we last updated from
         // TODO: spawn a side thread to avoid missing new blocks while this is running:
-        let order_count = if let Some(last_monitor_block) = opt_last_block {
+        let order_count = if opt_last_block.is_some() {
             let current_block = self.chain_monitor.current_block_number().await?;
+            let current_block_timestamp = self.chain_monitor.current_block_timestamp().await?;
 
             tracing::debug!(
-                "Search {last_monitor_block} - {current_block} blocks for lock pending orders..."
+                "Checking status of, and locking, orders marked as pending lock at block {current_block} @ {current_block_timestamp}"
             );
 
+            // Get the orders that we wish to lock as early as the next block.
             let orders = self
                 .db
-                .get_pending_lock_orders(current_block)
+                .get_pending_lock_orders(current_block_timestamp + self.block_time)
                 .await
                 .context("Failed to find pending lock orders")?;
 
@@ -191,6 +204,7 @@ where
         let mut first_block = 0;
         loop {
             let current_block = self.chain_monitor.current_block_number().await?;
+            let current_block_timestamp = self.chain_monitor.current_block_timestamp().await?;
 
             if current_block != last_block {
                 last_block = current_block;
@@ -200,7 +214,7 @@ where
 
                 let orders = self
                     .db
-                    .get_pending_lock_orders(current_block)
+                    .get_pending_lock_orders(current_block_timestamp + self.block_time)
                     .await
                     .context("Failed to find pending lock orders")?;
 
@@ -237,7 +251,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::SqliteDb;
+    use crate::{db::SqliteDb, now_timestamp};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -304,7 +318,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(max_price),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 rampUpPeriod: 1,
                 timeout: 100,
                 lockTimeout: 100,
@@ -322,12 +336,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::Locking,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request,
             image_id: None,
             input_id: None,
             proof_id: None,
-            expire_block: None,
+            expire_timestamp: None,
             client_sig: client_sig.into(),
             lock_price: None,
             error_msg: None,
@@ -413,7 +427,7 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(max_price),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 rampUpPeriod: 1,
                 timeout: 100,
                 lockTimeout: 100,
@@ -433,12 +447,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::Locking,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request,
             image_id: None,
             input_id: None,
             proof_id: None,
-            expire_block: None,
+            expire_timestamp: None,
             client_sig,
             lock_price: None,
             error_msg: None,

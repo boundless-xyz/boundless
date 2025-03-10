@@ -2,7 +2,7 @@
 mcycle_price = "0.00001"
 assumption_price = "0.1"
 # peak_prove_khz = 500
-min_deadline = 150
+min_deadline = 300
 lookback_blocks = 100
 max_stake = "5" # HP
 skip_preflight_ids = []

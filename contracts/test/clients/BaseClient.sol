@@ -65,7 +65,7 @@ abstract contract BaseClient {
         return Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.number),
+            biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: uint32(100),

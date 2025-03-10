@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::chain_monitor::ChainMonitorService;
+use crate::now_timestamp;
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -50,8 +50,6 @@ pub struct OrderPicker<P> {
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
-    chain_monitor: Arc<ChainMonitorService<P>>,
-    block_time: u64,
     market: BoundlessMarketService<Arc<P>>,
 }
 
@@ -63,17 +61,15 @@ where
         db: DbObj,
         config: ConfigLock,
         prover: ProverObj,
-        block_time: u64,
         market_addr: Address,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
-        Self { db, config, prover, chain_monitor, block_time, provider, market }
+        Self { db, config, prover, provider, market }
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<(), PriceOrderErr> {
@@ -83,8 +79,6 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             (config.market.min_deadline, config.market.allow_client_addresses.clone())
         };
-
-        let current_block = self.chain_monitor.current_block_number().await?;
 
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
@@ -105,17 +99,19 @@ where
         }
 
         // is the order expired already?
+        // TODO: Handle lockTimeout separately from timeout.
 
-        let expire_block = order.request.offer.biddingStart + order.request.offer.timeout as u64;
+        let expiration = order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
 
-        if expire_block <= current_block {
+        let now = now_timestamp();
+        if expiration <= now {
             tracing::warn!("Removing order {order_id:x} because it has expired");
             self.db.skip_order(order_id).await.context("Failed to delete expired order")?;
             return Ok(());
         };
 
         // Does the order expire within the min deadline
-        let seconds_left = (expire_block - current_block) * self.block_time;
+        let seconds_left = expiration - now;
         if seconds_left <= min_deadline {
             tracing::warn!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             self.db.skip_order(order_id).await.context("Failed to delete short deadline order")?;
@@ -176,7 +172,7 @@ where
         if skip_preflight {
             // If we skip preflight we lockin the order asap
             self.db
-                .set_order_lock(order_id, order.request.offer.biddingStart, expire_block)
+                .set_order_lock(order_id, 0, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
             return Ok(());
@@ -325,32 +321,32 @@ where
                 "Selecting order {order_id:x} at price {} - ASAP",
                 format_ether(U256::from(order.request.offer.minPrice))
             );
-            // set the target block to a past block (aka the order block or current)
-            // so we schedule the lock ASAP.
+            // set the target timestamp to 0 so we schedule the lock ASAP.
             self.db
-                .set_order_lock(order_id, order.request.offer.biddingStart, expire_block)
+                .set_order_lock(order_id, 0, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
-        // Here we have to pick a target block that the price would be at our target price
+        // Here we have to pick a target timestamp that the price would be at our target price
         // TODO: Clean up and do more testing on this since its just a rough shot first draft
         else {
             let target_min_price =
                 config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill;
             tracing::debug!("Target price: {target_min_price}");
 
-            let target_block: u64 = self
-                .market
-                .block_at_price(&order.request.offer, target_min_price)
-                .context("Failed to get target price block")?;
+            let target_timestamp: u64 = order
+                .request
+                .offer
+                .time_at_price(target_min_price)
+                .context("Failed to get target price timestamp")?;
             tracing::info!(
-                "Selecting order {order_id:x} at price {} - at block {}",
+                "Selecting order {order_id:x} at price {} - at time {}",
                 format_ether(target_min_price),
-                target_block,
+                target_timestamp,
             );
 
             self.db
-                .set_order_lock(order_id, target_block, expire_block)
+                .set_order_lock(order_id, target_timestamp, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
@@ -389,7 +385,8 @@ where
     /// Return the total amount of stake that is marked locally in the DB to be locked
     /// but has not yet been locked in the market contract thus has not been deducted from the account balance
     async fn pending_locked_stake(&self) -> Result<U256> {
-        let pending_locks = self.db.get_pending_lock_orders(0).await?;
+        // NOTE: i64::max is the largest timestamp value possible in the DB.
+        let pending_locks = self.db.get_pending_lock_orders(i64::MAX as u64).await?;
         let stake = pending_locks
             .iter()
             .map(|(_, order)| order.request.offer.lockStake)
@@ -406,7 +403,8 @@ where
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
     async fn estimate_gas_to_lock_pending(&self) -> Result<u64> {
         let mut gas = 0;
-        for (_, order) in self.db.get_pending_lock_orders(0).await?.iter() {
+        // NOTE: i64::max is the largest timestamp value possible in the DB.
+        for (_, order) in self.db.get_pending_lock_orders(i64::MAX as u64).await?.iter() {
             gas += self.estimate_gas_to_lock(order).await?;
         }
         Ok(gas)
@@ -513,7 +511,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, provers::MockProver, OrderStatus};
+    use crate::{
+        chain_monitor::ChainMonitorService, db::SqliteDb, provers::MockProver, OrderStatus,
+    };
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
@@ -585,18 +585,18 @@ mod tests {
                         Offer {
                             minPrice: min_price,
                             maxPrice: max_price,
-                            biddingStart: 0,
-                            timeout: 100,
-                            lockTimeout: 100,
+                            biddingStart: now_timestamp(),
+                            timeout: 1200,
+                            lockTimeout: 900,
                             rampUpPeriod: 1,
                             lockStake: lock_stake,
                         },
                     ),
-                    target_block: None,
+                    target_timestamp: None,
                     image_id: None,
                     input_id: None,
                     proof_id: None,
-                    expire_block: None,
+                    expire_timestamp: None,
                     client_sig: Bytes::new(),
                     lock_price: None,
                     error_msg: None,
@@ -680,15 +680,8 @@ mod tests {
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn());
 
-            let picker = OrderPicker::new(
-                db.clone(),
-                config,
-                prover,
-                2,
-                market_address,
-                provider.clone(),
-                chain_monitor,
-            );
+            let picker =
+                OrderPicker::new(db.clone(), config, prover, market_address, provider.clone());
 
             TestCtx { anvil, picker, boundless_market, image_server, db, provider }
         }
@@ -717,7 +710,7 @@ mod tests {
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));
+        assert_eq!(db_order.target_timestamp, Some(0));
     }
 
     #[tokio::test]
@@ -814,11 +807,11 @@ mod tests {
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));
+        assert_eq!(db_order.target_timestamp, Some(0));
     }
 
     // TODO: Test
-    // need to test the non-ASAP path for pricing, aka picking a block ahead in time to make sure
+    // need to test the non-ASAP path for pricing, aka picking a timestamp ahead in time to make sure
     // that price calculator is working correctly.
 
     #[tokio::test]
@@ -848,7 +841,7 @@ mod tests {
         // order is pending lock so stake is counted
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lockin_stake);
 
-        ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
+        ctx.db.set_proving_status(order_id, U256::ZERO).await.unwrap();
         // order no longer pending lock so stake no longer counted
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
     }
@@ -935,8 +928,8 @@ mod tests {
             ctx.picker.gas_reserved().await.unwrap(),
             U256::from(gas_price) * U256::from(fulfill_gas + lockin_gas)
         );
-        // lock the order
-        ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
+        // mark the order as locked.
+        ctx.db.set_proving_status(order_id, U256::ZERO).await.unwrap();
         // only fulfillment gas now reserved
         assert_eq!(
             ctx.picker.gas_reserved().await.unwrap(),

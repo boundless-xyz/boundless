@@ -5,13 +5,12 @@
 use alloy::{
     node_bindings::Anvil,
     primitives::{utils, U256},
-    providers::Provider,
 };
 use httpmock::prelude::*;
 use risc0_zkvm::sha::Digest;
 use tempfile::NamedTempFile;
 // use broker::Broker;
-use crate::{config::Config, Args, Broker};
+use crate::{config::Config, now_timestamp, Args, Broker};
 use boundless_market::contracts::{
     hit_points::default_allowance, test_utils::DefaultTestCtx, Input, Offer, Predicate,
     PredicateType, ProofRequest, Requirements,
@@ -92,9 +91,9 @@ async fn simple_e2e() {
         Offer {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),
-            biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
-            timeout: 100,
-            lockTimeout: 100,
+            biddingStart: now_timestamp(),
+            timeout: 1200,
+            lockTimeout: 1200,
             rampUpPeriod: 1,
             lockStake: U256::from(10),
         },

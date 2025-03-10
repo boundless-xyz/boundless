@@ -265,6 +265,20 @@ pub enum RequestError {
     #[error("offer lock timeout must be greater than 0")]
     OfferLockTimeoutIsZero,
 
+    /// The offer ramp up period is longer than the lock timeout
+    #[error("offer ramp up period must be less than or equal to the lock timeout")]
+    OfferRampUpGreaterThanLockTimeout,
+
+    /// The offer lock timeout is greater than the timeout
+    #[error("offer lock timeout must be less than or equal to the timeout")]
+    OfferLockTimeoutGreaterThanTimeout,
+
+    /// Difference between timeout and lockTimeout much be less than 2^24
+    ///
+    /// This is a requirement of the BoundlessMarket smart to optimize use of storage.
+    #[error("difference between timeout and lockTimeout much be less than 2^24")]
+    OfferTimeoutRangeTooLarge,
+
     /// The offer max price is zero.
     #[error("offer maxPrice must be greater than 0")]
     OfferMaxPriceIsZero,
@@ -397,7 +411,7 @@ impl ProofRequest {
         Ok(Address::from(lower_160_bits))
     }
 
-    /// Returns the block number at which the request expires.
+    /// Returns the time, in seconds since the UNIX epoch, at which the request expires.
     pub fn expires_at(&self) -> u64 {
         self.offer.biddingStart + self.offer.timeout as u64
     }
@@ -420,6 +434,15 @@ impl ProofRequest {
         };
         if self.offer.lockTimeout == 0 {
             return Err(RequestError::OfferLockTimeoutIsZero);
+        };
+        if self.offer.rampUpPeriod > self.offer.lockTimeout {
+            return Err(RequestError::OfferRampUpGreaterThanLockTimeout);
+        };
+        if self.offer.lockTimeout > self.offer.timeout {
+            return Err(RequestError::OfferLockTimeoutGreaterThanTimeout);
+        };
+        if self.offer.timeout - self.offer.lockTimeout >= 1 << 24 {
+            return Err(RequestError::OfferTimeoutRangeTooLarge);
         };
         if self.offer.maxPrice == U256::ZERO {
             return Err(RequestError::OfferMaxPriceIsZero);
@@ -584,22 +607,22 @@ impl Offer {
         Self { lockStake: lock_stake, ..self }
     }
 
-    /// Sets the offer bidding start as block number.
+    /// Sets the offer bidding start time, in seconds since the UNIX epoch.
     pub fn with_bidding_start(self, bidding_start: u64) -> Self {
         Self { biddingStart: bidding_start, ..self }
     }
 
-    /// Sets the offer timeout as number of blocks from the bidding start before expiring.
+    /// Sets the offer timeout as seconds from the bidding start before expiring.
     pub fn with_timeout(self, timeout: u32) -> Self {
         Self { timeout, ..self }
     }
 
-    /// Sets the offer lock-in timeout as number of blocks from the bidding start before expiring.
+    /// Sets the offer lock-in timeout as seconds from the bidding start before expiring.
     pub fn with_lock_timeout(self, lock_timeout: u32) -> Self {
         Self { lockTimeout: lock_timeout, ..self }
     }
 
-    /// Sets the offer ramp-up period as number of blocks from the bidding start before the price
+    /// Sets the offer ramp-up period as seconds from the bidding start before the price
     /// starts to increase until the maximum price.
     pub fn with_ramp_up_period(self, ramp_up_period: u32) -> Self {
         Self { rampUpPeriod: ramp_up_period, ..self }

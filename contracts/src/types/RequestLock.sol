@@ -17,9 +17,9 @@ struct RequestLock {
     ///
     /// @notice The address of the prover that locked the request _or_ the address of the prover that fulfilled the request.
     address prover;
-    /// @notice The final block number at which the locked request can be fulfilled for payment by the locker.
+    /// @notice The final timestamp at which the locked request can be fulfilled for payment by the locker.
     uint64 lockDeadline;
-    /// @notice The number of blocks from the lockDeadline to where the request expires.
+    /// @notice The number of seconds from the lockDeadline to where the request expires.
     /// @dev Represented as a delta so that it can be packed into 2 slots.
     uint24 deadlineDelta;
     /// @notice Flags that indicate the state of the request lock.
@@ -67,7 +67,7 @@ library RequestLockLibrary {
 
     function setProverPaidAfterLockDeadline(RequestLock storage requestLock, address prover) internal {
         requestLock.prover = prover;
-        requestLock.requestLockFlags = PROVER_PAID_AFTER_LOCK_FLAG;
+        requestLock.requestLockFlags |= PROVER_PAID_AFTER_LOCK_FLAG;
         // We don't zero out slot 1 as stake information is required for slashing.
         // Zero out slot 2 for gas refund.
         clearSlot2(requestLock);
@@ -78,10 +78,6 @@ library RequestLockLibrary {
         // Zero out slots 1-2 for gas refund. Slot 2 may have already been zeroed out
         // in the case where the request ended up being fulfilled after the lock deadline.
         clearSlot1And2(requestLock);
-    }
-
-    function hasBeenLocked(RequestLock memory requestLock) internal pure returns (bool) {
-        return requestLock.prover != address(0);
     }
 
     /// @notice Returns true if the request was fulfilled by the locker

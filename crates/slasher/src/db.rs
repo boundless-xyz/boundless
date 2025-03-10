@@ -32,7 +32,7 @@ pub trait SlasherDb {
     async fn add_order(&self, id: U256, expires_at: u64) -> Result<(), DbError>;
     async fn remove_order(&self, id: U256) -> Result<(), DbError>;
     async fn order_exists(&self, id: U256) -> Result<bool, DbError>;
-    async fn get_expired_orders(&self, target_block: u64) -> Result<Vec<U256>, DbError>;
+    async fn get_expired_orders(&self, current_timestamp: u64) -> Result<Vec<U256>, DbError>;
 
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
@@ -120,9 +120,9 @@ impl SlasherDb for SqliteDb {
         }
     }
 
-    async fn get_expired_orders(&self, current_block: u64) -> Result<Vec<U256>, DbError> {
+    async fn get_expired_orders(&self, current_timestamp: u64) -> Result<Vec<U256>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as("SELECT id FROM orders WHERE $1 > expires_at")
-            .bind(current_block as i64)
+            .bind(current_timestamp as i64)
             .fetch_all(&self.pool)
             .await?;
 

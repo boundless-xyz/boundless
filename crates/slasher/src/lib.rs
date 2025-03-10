@@ -14,6 +14,7 @@ use alloy::{
         },
         Identity, Provider, ProviderBuilder, RootProvider,
     },
+    rpc::types::BlockTransactionsKind,
     signers::local::PrivateKeySigner,
     transports::{RpcError, TransportErrorKind},
 };
@@ -325,7 +326,8 @@ where
 
     async fn process_expired_requests(&self, current_block: u64) -> Result<(), ServiceError> {
         // Find expired requests
-        let expired = self.db.get_expired_orders(current_block).await?;
+        let expired =
+            self.db.get_expired_orders(self.block_timestamp(current_block).await?).await?;
 
         for request_id in expired {
             match self.boundless_market.slash(request_id).await {
@@ -370,7 +372,18 @@ where
     }
 
     async fn current_block(&self) -> Result<u64, ServiceError> {
-        let current_block = self.boundless_market.instance().provider().get_block_number().await?;
-        Ok(current_block)
+        Ok(self.boundless_market.instance().provider().get_block_number().await?)
+    }
+
+    async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
+        Ok(self
+            .boundless_market
+            .instance()
+            .provider()
+            .get_block_by_number(block_number.into(), BlockTransactionsKind::Hashes)
+            .await?
+            .unwrap()
+            .header
+            .timestamp)
     }
 }
