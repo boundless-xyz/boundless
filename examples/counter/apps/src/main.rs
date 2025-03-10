@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
     match dotenvy::dotenv() {
         Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
         Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
+        Err(e) => bail!(format!("failed to load .env file: {}", e)),
     }
 
     let args = Args::parse();
@@ -116,7 +116,7 @@ async fn run(
 
     // We use a timestamp as input to the ECHO guest code as the Counter contract
     // accepts only unique proofs. Using the same input twice would result in the same proof.
-    let timestamp = format! {"{:?}", SystemTime::now()};
+    let timestamp = format!("{:?}", SystemTime::now());
 
     // Encode the input and upload it to the storage provider.
     let guest_env = Input::builder().write_slice(timestamp.as_bytes()).build_env()?;
