@@ -2,6 +2,7 @@
 //
 // All rights reserved.
 
+use alloy::rpc::types::BlockTransactionsKind;
 use alloy_chains::NamedChain;
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,10 +11,7 @@ use tokio::sync::watch;
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
 
-use alloy::{
-    network::Ethereum, providers::Provider, rpc::types::BlockTransactionsKind,
-    transports::BoxTransport,
-};
+use alloy::providers::Provider;
 use anyhow::{Context, Result};
 
 use crate::task::{RetryRes, RetryTask, SupervisorErr};
@@ -27,10 +25,7 @@ pub struct ChainMonitorService<P> {
     next_update: Arc<RwLock<Instant>>,
 }
 
-impl<P> ChainMonitorService<P>
-where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
-{
+impl<P: Provider> ChainMonitorService<P> {
     pub async fn new(provider: Arc<P>) -> Result<Self> {
         let (block_number, _) = watch::channel(0);
 
@@ -81,7 +76,7 @@ where
 
 impl<P> RetryTask for ChainMonitorService<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
+    P: Provider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let self_clone = self.clone();
@@ -128,7 +123,6 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::U256,
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -142,7 +136,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -157,7 +150,7 @@ mod tests {
 
         const NUM_BLOCKS: u64 = 10;
 
-        provider.anvil_mine(Some(U256::from(NUM_BLOCKS)), Some(U256::from(2))).await.unwrap();
+        provider.anvil_mine(Some(NUM_BLOCKS), Some(2)).await.unwrap();
 
         // Block should still be 0 until the next polling interval.
         let block = chain_monitor.current_block_number().await.unwrap();

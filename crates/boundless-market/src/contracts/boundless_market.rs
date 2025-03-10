@@ -26,7 +26,6 @@ use alloy::{
     providers::Provider,
     rpc::types::{BlockTransactionsKind, Log, TransactionReceipt},
     signers::Signer,
-    transports::Transport,
 };
 use alloy_sol_types::{SolCall, SolEvent};
 use anyhow::{anyhow, Context, Result};
@@ -93,8 +92,8 @@ impl From<alloy::contract::Error> for MarketError {
 }
 
 /// Proof market service.
-pub struct BoundlessMarketService<T, P> {
-    instance: IBoundlessMarketInstance<T, P, Ethereum>,
+pub struct BoundlessMarketService<P> {
+    instance: IBoundlessMarketInstance<(), P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
     chain_id: AtomicU64,
     caller: Address,
@@ -102,9 +101,9 @@ pub struct BoundlessMarketService<T, P> {
     event_query_config: EventQueryConfig,
 }
 
-impl<T, P> Clone for BoundlessMarketService<T, P>
+impl<P> Clone for BoundlessMarketService<P>
 where
-    IBoundlessMarketInstance<T, P, Ethereum>: Clone,
+    IBoundlessMarketInstance<(), P, Ethereum>: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -151,11 +150,7 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
     }
 }
 
-impl<T, P> BoundlessMarketService<T, P>
-where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
-{
+impl<P: Provider> BoundlessMarketService<P> {
     /// Creates a new Boundless market service.
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
         let instance = IBoundlessMarket::new(address, provider);
@@ -180,7 +175,7 @@ where
     }
 
     /// Returns the market contract instance.
-    pub fn instance(&self) -> &IBoundlessMarketInstance<T, P, Ethereum> {
+    pub fn instance(&self) -> &IBoundlessMarketInstance<(), P, Ethereum> {
         &self.instance
     }
 
@@ -1302,9 +1297,10 @@ mod tests {
     use super::decode_calldata;
     use crate::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, AssessorReceipt,
-            Fulfillment, IBoundlessMarket, Input, InputType, Offer, Predicate, PredicateType,
-            ProofRequest, ProofStatus, Requirements,
+            hit_points::default_allowance,
+            test_utils::{DefaultTestCtx, TestCtx},
+            AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType,
+            Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1346,7 +1342,7 @@ mod tests {
         }
     }
 
-    async fn new_request(idx: u32, ctx: &TestCtx) -> ProofRequest {
+    async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         ProofRequest::new(
             idx,
             &ctx.customer_signer.address(),
@@ -1480,10 +1476,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         // Deposit prover balances
         ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
@@ -1508,10 +1501,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let deposit = U256::from(10);
 
@@ -1543,10 +1533,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let request = new_request(1, &ctx).await;
 
@@ -1566,10 +1553,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1645,10 +1629,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1730,10 +1711,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1804,10 +1782,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = DefaultTestCtx::create(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
