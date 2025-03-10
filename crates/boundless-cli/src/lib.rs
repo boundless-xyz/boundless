@@ -22,7 +22,7 @@ use boundless_assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
-use risc0_ethereum_contracts::encode_seal;
+use risc0_ethereum_contracts::{encode_seal, selector::Selector};
 use risc0_zkvm::{
     compute_image_id, default_prover,
     sha::{Digest, Digestible},
@@ -235,8 +235,19 @@ impl DefaultProver {
             }
             _ => bail!("Unsupported input type"),
         };
-        let order_receipt =
-            self.prove(order_elf.clone(), order_input, vec![], ProverOpts::succinct()).await?;
+
+        let selector = Selector::from_bytes(request.requirements.selector.into())
+            .context("Failed to parse selector")?;
+        match selector {
+            // Supported selectors
+            Selector::FakeReceipt | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
+            _ => bail!("Unsupported selector {}", request.requirements.selector),
+        };
+
+        let order_receipt = self
+            .prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::succinct())
+            .await?;
+
         let order_journal = order_receipt.journal.bytes.clone();
         let order_image_id = compute_image_id(&order_elf)?;
 
@@ -258,7 +269,7 @@ impl DefaultProver {
         let root_receipt = self
             .finalize(
                 vec![order_claim.clone(), assessor_claim.clone()],
-                vec![order_receipt, assessor_receipt],
+                vec![order_receipt.clone(), assessor_receipt],
             )
             .await?;
 
@@ -273,7 +284,12 @@ impl DefaultProver {
             order_path,
             verifier_parameters.digest(),
         );
-        let order_seal = order_inclusion_receipt.abi_encode_seal()?;
+        let order_seal = if selector == Selector::Groth16V1_2 {
+            let receipt = default_prover().compress(&ProverOpts::groth16(), &order_receipt)?;
+            encode_seal(&receipt)?
+        } else {
+            order_inclusion_receipt.abi_encode_seal()?
+        };
 
         let assessor_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
             assessor_claim,

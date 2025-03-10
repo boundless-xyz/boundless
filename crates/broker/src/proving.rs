@@ -11,6 +11,7 @@ use crate::{
 };
 use alloy::primitives::U256;
 use anyhow::{Context, Result};
+use risc0_ethereum_contracts::selector::Selector;
 
 #[derive(Clone)]
 pub struct ProvingService {
@@ -65,6 +66,9 @@ impl ProvingService {
 
         tracing::info!("Proving order {order_id:x}");
 
+        let selector = Selector::from_bytes(order.request.requirements.selector.into())
+            .context("Failed to parse selector")?;
+
         let proof_id = self
             .prover
             .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
@@ -75,6 +79,23 @@ impl ProvingService {
             .set_order_proof_id(order_id, &proof_id)
             .await
             .with_context(|| format!("Failed to set order {order_id:x} proof id: {}", proof_id))?;
+
+        // TODO: Add a way to support multiple groth16 versions.
+        if selector == Selector::Groth16V1_2 {
+            let groth16_proof_id = self
+                .prover
+                .compress(&proof_id)
+                .await
+                .context("Failed to prove customer proof Groth16 order")?;
+            self.db.set_order_compressed_proof_id(order_id, &groth16_proof_id).await.with_context(
+                || {
+                    format!(
+                        "Failed to set order {order_id:x} Groth16 proof id: {}",
+                        groth16_proof_id
+                    )
+                },
+            )?;
+        }
 
         self.monitor_proof(order_id, proof_id).await?;
 
@@ -249,6 +270,7 @@ mod tests {
             image_id: Some(image_id),
             input_id: Some(input_id),
             proof_id: None,
+            compressed_proof_id: None,
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
@@ -316,6 +338,7 @@ mod tests {
             image_id: Some(image_id),
             input_id: Some(input_id),
             proof_id: Some(proof_id.clone()),
+            compressed_proof_id: None,
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,

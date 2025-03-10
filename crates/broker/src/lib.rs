@@ -170,6 +170,10 @@ struct Order {
     ///
     /// Populated after proof completion
     proof_id: Option<String>,
+    /// Compressed proof Id
+    ///
+    /// Populated after proof completion. if the proof is compressed
+    compressed_proof_id: Option<String>,
     /// UNIX timestamp the order expires at
     ///
     /// Populated during order picking
@@ -192,6 +196,7 @@ impl Order {
             image_id: None,
             input_id: None,
             proof_id: None,
+            compressed_proof_id: None,
             expire_timestamp: None,
             client_sig,
             lock_price: None,

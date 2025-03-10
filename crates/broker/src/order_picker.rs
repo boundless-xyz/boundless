@@ -9,13 +9,14 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
-        Address, FixedBytes, U256,
+        Address, U256,
     },
     providers::{Provider, WalletProvider},
     transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
+use risc0_ethereum_contracts::selector::Selector;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -91,13 +92,20 @@ where
             }
         }
 
-        // TODO(#BM-536): Filter based on supported selectors
-        // Drop orders that specify a selector
-        if order.request.requirements.selector != FixedBytes::<4>([0; 4]) {
-            tracing::warn!("Removing order {order_id:x} because it has a selector requirement");
-            self.db.skip_order(order_id).await.context("Order has a selector requirement")?;
-            return Ok(());
-        }
+        match Selector::from_bytes(order.request.requirements.selector.into())
+            .context("Failed to parse selector")?
+        {
+            // Supported selectors
+            Selector::FakeReceipt | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
+            _ => {
+                tracing::warn!("Removing order {order_id:x} because it has an unsupported selector requirement");
+                self.db
+                    .skip_order(order_id)
+                    .await
+                    .context("Order has an unsupported selector requirement")?;
+                return Ok(());
+            }
+        };
 
         // is the order expired already?
         // TODO: Handle lockTimeout separately from timeout.
@@ -618,6 +626,7 @@ mod tests {
                     image_id: None,
                     input_id: None,
                     proof_id: None,
+                    compressed_proof_id: None,
                     expire_timestamp: None,
                     client_sig: Bytes::new(),
                     lock_price: None,
