@@ -30,7 +30,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tokio_util::sync::CancellationToken;
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -190,8 +190,6 @@ pub struct AppState {
     config: Config,
     /// chain_id
     chain_id: u64,
-    /// Websocket tasks, used to monitor for shutdown
-    ws_tasks: TaskTracker,
     /// Cancelation tokens set when a graceful shutdown is triggered
     shutdown: CancellationToken,
 }
@@ -214,7 +212,6 @@ impl AppState {
             rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
             config: config.clone(),
             chain_id,
-            ws_tasks: TaskTracker::new(),
             shutdown: CancellationToken::new(),
         }))
     }
@@ -301,7 +298,10 @@ pub async fn run(args: &Args) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&args.bind_addr)
         .await
         .context("Failed to bind a TCP listener")?;
+    run_from_parts(app_state, listener).await
+}
 
+async fn run_from_parts(app_state: Arc<AppState>, listener: tokio::net::TcpListener) -> Result<()> {
     let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
@@ -320,7 +320,7 @@ pub async fn run(args: &Args) -> Result<()> {
         }
     });
 
-    tracing::info!("REST API listening on: {}", args.bind_addr);
+    tracing::info!("REST API listening on: {}", listener.local_addr().unwrap());
     axum::serve(listener, self::app(app_state.clone()))
         .with_graceful_shutdown(async { shutdown_signal(app_state).await })
         .await
@@ -347,9 +347,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
     }
 
     tracing::info!("Triggering shutdown");
-    state.ws_tasks.close();
     state.shutdown.cancel();
-    state.ws_tasks.wait().await;
 }
 
 #[cfg(test)]
@@ -357,7 +355,7 @@ mod tests {
     use super::*;
     use crate::order_db::{DbOrder, OrderDbErr};
     use alloy::{
-        node_bindings::Anvil,
+        node_bindings::{Anvil, AnvilInstance},
         primitives::{B256, U256},
     };
     use boundless_market::{
@@ -366,7 +364,7 @@ mod tests {
             Requirements,
         },
         input::InputBuilder,
-        order_stream_client::Client,
+        order_stream_client::{order_stream, Client},
     };
     use futures_util::StreamExt;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -374,11 +372,50 @@ mod tests {
     use reqwest::Url;
     use risc0_zkvm::sha::Digest;
     use sqlx::PgPool;
-    use std::{
-        future::IntoFuture,
-        net::{Ipv4Addr, SocketAddr},
-    };
+    use std::net::{Ipv4Addr, SocketAddr};
     use tokio::task::JoinHandle;
+
+    /// Test setup helper that creates common test infrastructure
+    async fn setup_test_env(
+        pool: PgPool,
+        ping_time: u64,
+        listener: Option<&tokio::net::TcpListener>, // Optional listener for domain configuration
+    ) -> (Arc<AppState>, TestCtx, AnvilInstance) {
+        let anvil = Anvil::new().spawn();
+        let rpc_url = anvil.endpoint_url();
+
+        let ctx =
+            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
+
+        ctx.prover_market
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        // Set domain based on listener if provided
+        let domain = if let Some(l) = listener {
+            l.local_addr().unwrap().to_string()
+        } else {
+            "0.0.0.0:8585".to_string()
+        };
+
+        let config = Config {
+            rpc_url,
+            market_address: *ctx.prover_market.instance().address(),
+            min_balance: parse_ether("2").unwrap(),
+            max_connections: 2,
+            queue_size: 10,
+            domain,
+            bypass_addrs: vec![ctx.prover_signer.address(), ctx.customer_signer.address()],
+            ping_time,
+        };
+
+        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
+
+        (app_state, ctx, anvil)
+    }
 
     fn new_request(idx: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
@@ -398,90 +435,173 @@ mod tests {
         )
     }
 
+    /// Helper to wait for server health with exponential backoff
+    async fn wait_for_server_health(client: &Client, addr: &SocketAddr, max_retries: usize) {
+        let mut retry_delay = tokio::time::Duration::from_millis(50);
+
+        let health_url = format!("http://{}{}", addr, HEALTH_CHECK);
+        for attempt in 1..=max_retries {
+            match client.client.get(&health_url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    tracing::info!("Server is healthy after {} attempts", attempt);
+                    return;
+                }
+                _ => {
+                    if attempt == max_retries {
+                        panic!("Server failed to become healthy after {} attempts", max_retries);
+                    }
+                    println!(
+                        "Waiting for server to become healthy (attempt {}/{})",
+                        attempt, max_retries
+                    );
+                    tokio::time::sleep(retry_delay).await;
+                    retry_delay =
+                        std::cmp::min(retry_delay * 2, tokio::time::Duration::from_secs(10));
+                }
+            }
+        }
+    }
+
     #[sqlx::test]
     async fn integration_test(pool: PgPool) {
-        let anvil = Anvil::new().spawn();
-        let rpc_url = anvil.endpoint_url();
+        // Set the ping interval to 500ms for this test
+        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
-
-        ctx.prover_market
-            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+        // Create listener first
+        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
             .await
             .unwrap();
+        let addr = listener.local_addr().unwrap();
 
-        let config = Config {
-            rpc_url,
-            market_address: *ctx.prover_market.instance().address(),
-            min_balance: parse_ether("2").unwrap(),
-            max_connections: 1,
-            queue_size: 10,
-            domain: "0.0.0.0:8585".parse().unwrap(),
-            bypass_addrs: vec![],
-            ping_time: 20,
-        };
-        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
+        // Setup with the prover address in bypass list and 1 second ping time
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
+
+        // Create client
+        let client = Client::new(
+            Url::parse(&format!("http://{addr}")).unwrap(),
+            app_state.config.market_address,
+            app_state.chain_id,
+        );
+
+        // Start server
         let app_state_clone = app_state.clone();
+        let server_handle = tokio::spawn(async move {
+            self::run_from_parts(app_state_clone, listener).await.unwrap();
+        });
 
-        let task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
+        // Poll the health endpoint with exponential backoff
+        wait_for_server_health(&client, &addr, 5).await;
+
+        // Create channels to communicate with the order stream task
+        let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(1);
+
+        // Connect to the WebSocket and start listening in a separate task
+        let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
+
+        // Connect customer signer as well
+        let customer_client = Client::new(
+            Url::parse(&format!("http://{addr}")).unwrap(),
+            app_state.config.market_address,
+            app_state.chain_id,
+        );
+        let customer_socket = customer_client.connect_async(&ctx.customer_signer).await.unwrap();
+        let stream_task = tokio::spawn(async move {
+            let mut stream = order_stream(socket);
+            let mut customer_order_stream = order_stream(customer_socket);
+
+            loop {
+                // Wait for either order to come through
+                let (res1, res2) = tokio::join!(stream.next(), customer_order_stream.next());
+
+                // Handle potential errors from both streams
+                match (res1, res2) {
+                    (Some(Ok(order1)), Some(Ok(order2))) => {
+                        if order1.order == order2.order {
+                            order_tx.send(order1).await.unwrap();
+                        } else {
+                            panic!("Orders don't match: {:?} vs {:?}", order1.order, order2.order);
+                        }
+                    }
+
+                    (None, None) => {
+                        // Handle the case on shutdown where both will be closed.
+                        break;
+                    }
+                    (_, _) => {
+                        panic!("Unexpected error in order stream clients");
+                    }
+                }
+            }
+        });
+
+        let app_state_clone = app_state.clone();
+        let watch_task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
             let mut new_orders = app_state_clone.db.order_stream().await.unwrap();
             let order = new_orders.next().await.unwrap().unwrap();
             Ok(order)
         });
 
-        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
-            .await
-            .unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(axum::serve(listener, self::app(app_state.clone())).into_future());
-
-        let client = Client::new(
-            Url::parse(&format!("http://{addr}", addr = addr)).unwrap(),
-            config.market_address,
-            app_state.chain_id,
-        );
-
-        // 2. Requestor submits a request
+        // Submit an order to ensure the connection is working
         let order = client
             .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
             .await
             .unwrap();
 
-        // 3. Broker receives the request
-        let db_order = task.await.unwrap().unwrap();
+        let db_order = watch_task.await.unwrap().unwrap();
 
-        assert_eq!(order, db_order.order);
+        // Wait for the order to be received
+        let order_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(4), order_rx.recv()).await;
+
+        match order_result {
+            Ok(Some(received_order)) => {
+                assert_eq!(
+                    received_order.order, order,
+                    "Received order should match submitted order"
+                );
+                assert_eq!(order, db_order.order);
+            }
+            Ok(None) => {
+                panic!("Order channel closed unexpectedly");
+            }
+            Err(_) => {
+                panic!("Timed out waiting for order");
+            }
+        }
+
+        // Wait a bit to ensure ping-pong is working (no errors)
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // Verify the connections are in the connections map
+        {
+            let connections = app_state.connections.read().await;
+            assert!(
+                connections.contains_key(&ctx.prover_signer.address()),
+                "Connection should still be active after ping-pong exchanges"
+            );
+            assert!(
+                connections.contains_key(&ctx.customer_signer.address()),
+                "Customer connection should also be active"
+            );
+        }
+
+        // Now simulate server disconnection by aborting the server task
+        app_state.shutdown.cancel();
+
+        // Ensure that the client streams have been closed.
+        tokio::time::timeout(tokio::time::Duration::from_secs(10), stream_task)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Clean up
+        server_handle.abort();
     }
 
     #[sqlx::test]
     async fn test_pending_connection_timeout(pool: PgPool) {
-        let anvil = Anvil::new().spawn();
-        let rpc_url = anvil.endpoint_url();
-
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
-
-        ctx.prover_market
-            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
-            .await
-            .unwrap();
-
-        let config = Config {
-            rpc_url,
-            market_address: *ctx.prover_market.instance().address(),
-            min_balance: parse_ether("2").unwrap(),
-            max_connections: 1,
-            queue_size: 10,
-            domain: "0.0.0.0:8585".parse().unwrap(),
-            bypass_addrs: vec![],
-            ping_time: 20,
-        };
-        let app_state = AppState::new(&config, Some(pool)).await.unwrap();
+        // No need for a listener in this test
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 20, None).await;
         let addr = ctx.prover_signer.address();
 
         // Test case 1: New connection (vacant entry)

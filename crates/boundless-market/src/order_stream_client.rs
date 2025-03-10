@@ -331,24 +331,98 @@ pub fn order_stream(
     mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
 ) -> Pin<Box<dyn Stream<Item = Result<OrderData, Box<dyn Error + Send + Sync>>> + Send>> {
     Box::pin(stream! {
-        while let Some(msg_result) = socket.next().await {
-            match msg_result {
-                Ok(tungstenite::Message::Text(msg)) => {
-                    match serde_json::from_str::<OrderData>(&msg) {
-                        Ok(order) => yield Ok(order),
-                        Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+        // Create a ping interval - configurable via environment variable
+        let ping_duration = match std::env::var("ORDER_STREAM_CLIENT_PING_MS") {
+            Ok(ms) => match ms.parse::<u64>() {
+                Ok(ms) => {
+                    tracing::debug!("Using custom ping interval of {}ms", ms);
+                    tokio::time::Duration::from_millis(ms)
+                },
+                Err(_) => {
+                    tracing::warn!("Invalid ORDER_STREAM_CLIENT_PING_MS value: {}, using default", ms);
+                    tokio::time::Duration::from_secs(30)
+                }
+            },
+            Err(_) => tokio::time::Duration::from_secs(30),
+        };
+
+        let mut ping_interval = tokio::time::interval(ping_duration);
+        // Track the last ping we sent
+        let mut ping_data: Option<Vec<u8>> = None;
+
+        loop {
+            tokio::select! {
+                // Handle incoming messages
+                msg_result = socket.next() => {
+                    match msg_result {
+                        Some(Ok(tungstenite::Message::Text(msg))) => {
+                            match serde_json::from_str::<OrderData>(&msg) {
+                                Ok(order) => yield Ok(order),
+                                Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+                            }
+                        }
+                        // Reply to Ping's inline
+                        Some(Ok(tungstenite::Message::Ping(data))) => {
+                            tracing::trace!("Responding to ping");
+                            if let Err(err) = socket.send(tungstenite::Message::Pong(data)).await {
+                                yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                                break;
+                            }
+                        }
+                        // Handle Pong responses
+                        Some(Ok(tungstenite::Message::Pong(data))) => {
+                            tracing::trace!("Received pong from server");
+                            if let Some(expected_data) = ping_data.take() {
+                                if data != expected_data {
+                                    tracing::warn!("Server responded with invalid pong data");
+                                    yield Err(Box::new(std::io::Error::new(
+                                        std::io::ErrorKind::InvalidData,
+                                        "Server responded with invalid pong data"
+                                    )) as Box<dyn Error + Send + Sync>);
+                                    break;
+                                }
+                            } else {
+                                tracing::warn!("Received unexpected pong from order-stream server");
+                            }
+                        }
+                        Some(Ok(tungstenite::Message::Close(_))) => {
+                            tracing::debug!("Server closed the connection");
+                            break;
+                        }
+                        Some(Ok(other)) => {
+                            tracing::debug!("Ignoring non-text message: {:?}", other);
+                            continue;
+                        }
+                        Some(Err(err)) => {
+                            yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                            break;
+                        }
+                        None => {
+                            tracing::warn!("order stream socket closed unexpectedly");
+                            break;
+                        }
                     }
                 }
-                // Reply to Ping's inline
-                Ok(tungstenite::Message::Ping(data)) => {
-                    tracing::trace!("Responding to ping");
-                    socket.send(tungstenite::Message::Pong(data)).await?;
+                // Send periodic pings
+                _ = ping_interval.tick() => {
+                    // If we still have a pending ping that hasn't been responded to
+                    if ping_data.is_some() {
+                        tracing::warn!("Server did not respond to ping, closing connection");
+                        yield Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "Server did not respond to ping"
+                        )) as Box<dyn Error + Send + Sync>);
+                        break;
+                    }
+
+                    tracing::trace!("Sending ping to server");
+                    let random_bytes: Vec<u8> = (0..16).map(|_| rand::random::<u8>()).collect();
+                    if let Err(err) = socket.send(tungstenite::Message::Ping(random_bytes.clone())).await {
+                        yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                        break;
+                    }
+                    ping_data = Some(random_bytes);
                 }
-                Ok(other) => {
-                    tracing::debug!("Ignoring non-text message: {:?}", other);
-                    continue;
-                }
-                Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
             }
         }
     })
