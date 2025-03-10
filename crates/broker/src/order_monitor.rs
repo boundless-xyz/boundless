@@ -13,6 +13,7 @@ use alloy::{
     network::Ethereum,
     primitives::{Address, U256},
     providers::{Provider, WalletProvider},
+    rpc::types::BlockTransactionsKind,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{

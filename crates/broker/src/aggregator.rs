@@ -2,13 +2,7 @@
 //
 // All rights reserved.
 
-use std::sync::Arc;
-
-use alloy::{
-    network::Ethereum,
-    primitives::{utils, Address, U256},
-    providers::Provider,
-};
+use alloy::primitives::{utils, Address, U256};
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::contracts::eip712_domain;
@@ -40,10 +34,7 @@ pub struct AggregatorService {
     chain_id: u64,
 }
 
-impl<P> AggregatorService<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl AggregatorService {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DbObj,
@@ -515,10 +506,7 @@ where
     }
 }
 
-impl<P> RetryTask for AggregatorService<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl RetryTask for AggregatorService {
     fn spawn(&self) -> RetryRes {
         let mut self_clone = self.clone();
 

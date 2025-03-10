@@ -13,7 +13,7 @@ use std::{
 use alloy::{
     node_bindings::Anvil,
     primitives::{utils, U256},
-    providers::WalletProvider,
+    providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};

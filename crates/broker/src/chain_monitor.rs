@@ -2,6 +2,7 @@
 //
 // All rights reserved.
 
+use alloy::rpc::types::BlockTransactionsKind;
 use alloy_chains::NamedChain;
 use std::sync::Arc;
 use std::time::Duration;
