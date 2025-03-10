@@ -526,7 +526,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{aliases::U96, Address, Bytes, B256},
+        primitives::{aliases::U96, Address, Bytes, FixedBytes, B256},
         providers::{
             ext::AnvilApi,
             fillers::{
@@ -774,6 +774,36 @@ mod tests {
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("predicate check failed, skipping"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_unsupported_selector() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = TestCtx::builder().with_config(config).build().await;
+
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
+
+        let (order_id, mut order) =
+            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
+
+        // set an unsupported selector
+        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V1_1 as u32);
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain("has an unsupported selector requirement"));
     }
 
     #[tokio::test]
