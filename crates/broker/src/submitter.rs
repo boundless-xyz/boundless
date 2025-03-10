@@ -17,7 +17,7 @@ use boundless_market::contracts::{
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
-use risc0_ethereum_contracts::set_verifier::SetVerifierService;
+use risc0_ethereum_contracts::{selector::Selector, set_verifier::SetVerifierService};
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
@@ -191,8 +191,28 @@ where
                     order_path,
                     inclusion_params.digest(),
                 );
-                let seal =
-                    set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?;
+                let seal = match Selector::from_bytes(order_request.requirements.selector.into())
+                    .context("Failed to parse selector")?
+                {
+                    Selector::FakeReceipt | Selector::SetVerifierV0_2 => {
+                        set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?
+                    }
+                    Selector::Groth16V1_2 => {
+                        let compressed_proof_id =
+                            self.db.get_order_compressed_proof_id(*order_id).await.context(
+                                "Failed to get order compressed proof ID from DB for submission",
+                            )?;
+                        self.fetch_encode_g16(&compressed_proof_id)
+                            .await
+                            .context("Failed to fetch and encode g16 proof")?
+                    }
+                    _ => {
+                        return Err(anyhow!(
+                            "Unsupported selector: {:x}",
+                            order_request.requirements.selector
+                        ))
+                    }
+                };
 
                 let request_digest = order_request
                     .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
@@ -626,6 +646,7 @@ mod tests {
             image_id: Some(echo_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(echo_proof.id.clone()),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),

@@ -9,13 +9,14 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
-        Address, FixedBytes, U256,
+        Address, U256,
     },
     providers::{Provider, WalletProvider},
     transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
+use risc0_ethereum_contracts::selector::Selector;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -91,13 +92,20 @@ where
             }
         }
 
-        // TODO(#BM-536): Filter based on supported selectors
-        // Drop orders that specify a selector
-        if order.request.requirements.selector != FixedBytes::<4>([0; 4]) {
-            tracing::warn!("Removing order {order_id:x} because it has a selector requirement");
-            self.db.skip_order(order_id).await.context("Order has a selector requirement")?;
-            return Ok(());
-        }
+        match Selector::from_bytes(order.request.requirements.selector.into())
+            .context("Failed to parse selector")?
+        {
+            // Supported selectors
+            Selector::FakeReceipt | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
+            _ => {
+                tracing::warn!("Removing order {order_id:x} because it has an unsupported selector requirement");
+                self.db
+                    .skip_order(order_id)
+                    .await
+                    .context("Order has an unsupported selector requirement")?;
+                return Ok(());
+            }
+        };
 
         // is the order expired already?
         // TODO: Handle lockTimeout separately from timeout.
@@ -518,7 +526,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{aliases::U96, Address, Bytes, B256},
+        primitives::{aliases::U96, Address, Bytes, FixedBytes, B256},
         providers::{
             ext::AnvilApi,
             fillers::{
@@ -618,6 +626,7 @@ mod tests {
                     image_id: None,
                     input_id: None,
                     proof_id: None,
+                    compressed_proof_id: None,
                     expire_timestamp: None,
                     client_sig: Bytes::new(),
                     lock_price: None,
@@ -765,6 +774,36 @@ mod tests {
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("predicate check failed, skipping"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_unsupported_selector() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = TestCtx::builder().with_config(config).build().await;
+
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
+
+        let (order_id, mut order) =
+            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
+
+        // set an unsupported selector
+        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V1_1 as u32);
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain("has an unsupported selector requirement"));
     }
 
     #[tokio::test]
