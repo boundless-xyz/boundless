@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
         let boundless_market = BoundlessMarketService::new(
-            args.boundless_market_addr,
+            args.boundless_market_address,
             provider.clone(),
             provider.default_signer_address(),
         );

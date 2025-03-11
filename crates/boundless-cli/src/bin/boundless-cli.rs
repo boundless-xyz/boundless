@@ -272,7 +272,7 @@ struct SubmitOfferRequirements {
     journal_prefix: Option<String>,
     /// Address of the callback to use in the requirements.
     #[clap(long, requires = "callback_gas_limit")]
-    callback_addr: Option<Address>,
+    callback_address: Option<Address>,
     /// Gas limit of the callback to use in the requirements.
     #[clap(long, requires = "callback_addr")]
     callback_gas_limit: Option<u64>,
@@ -637,7 +637,7 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
-    let callback = match (&args.reqs.callback_addr, &args.reqs.callback_gas_limit) {
+    let callback = match (&args.reqs.callback_address, &args.reqs.callback_gas_limit) {
         (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
         _ => Callback::default(),
     };

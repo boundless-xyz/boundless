@@ -179,8 +179,8 @@ devnet action="up": check-deps
             $HIT_POINTS_ADDRESS "mint(address, uint256)" {{ADMIN_ADDRESS}} {{DEPOSIT_AMOUNT}}
         RISC0_DEV_MODE={{RISC0_DEV_MODE}} RUST_LOG={{RUST_LOG}} ./target/debug/broker \
             --private-key {{PRIVATE_KEY}} \
-            --boundless-market-addr $BOUNDLESS_MARKET_ADDRESS \
-            --set-verifier-addr $SET_VERIFIER_ADDRESS \
+            --boundless-market-address $BOUNDLESS_MARKET_ADDRESS \
+            --set-verifier-address $SET_VERIFIER_ADDRESS \
             --rpc-url http://localhost:{{ANVIL_PORT}} \
             --deposit-amount {{DEPOSIT_AMOUNT}} > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
         echo "Devnet is up and running!"
