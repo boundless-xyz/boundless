@@ -289,8 +289,8 @@ mod tests {
                 anvil.endpoint_url(),
                 None,
                 Some(StorageProviderConfig::dev_mode()),
-                ctx.boundless_market_addr,
-                ctx.set_verifier_addr,
+                ctx.boundless_market_address,
+                ctx.set_verifier_address,
                 counter_address,
             ),
         )
