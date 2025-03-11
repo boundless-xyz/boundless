@@ -1,0 +1,203 @@
+# Variables
+ANVIL_PORT := "8545"
+ANVIL_BLOCK_TIME := "2"
+RISC0_DEV_MODE := "1"
+CHAIN_KEY := "anvil"
+RUST_LOG := "info,broker=debug,boundless_market=debug"
+DEPLOYER_PRIVATE_KEY := "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+PRIVATE_KEY := "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+ADMIN_ADDRESS := "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+DEPOSIT_AMOUNT := "100000000000000000000"
+DEFAULT_DATABASE_URL := "postgres://postgres:password@localhost:5432/postgres"
+DATABASE_URL := env_var_or_default("DATABASE_URL", DEFAULT_DATABASE_URL)
+
+LOGS_DIR := "logs"
+PID_FILE := LOGS_DIR + "/devnet.pid"
+
+# Show available commands
+default:
+    @just --list
+
+# Check that required dependencies are installed
+check-deps:
+    #!/usr/bin/env bash
+    for cmd in forge cargo anvil jq; do
+        command -v $cmd >/dev/null 2>&1 || { echo "Error: $cmd is not installed."; exit 1; }
+    done
+
+# Run all CI checks
+ci: check test
+
+# Run all tests
+test: foundry-test cargo-test
+
+# Run all formatting and linting checks
+check: link-check format-check license-check cargo-clippy
+
+# Format all code
+format:
+    cargo sort --workspace
+    cargo fmt --all
+    cd examples/counter && cargo sort --workspace
+    cd examples/counter && cargo fmt --all
+    cd bento && cargo sort --workspace
+    cd bento && cargo fmt --all
+    cd documentation && bun run format-markdown
+    dprint fmt
+    forge fmt
+
+# Check code formatting
+format-check:
+    cargo sort --workspace --check
+    cargo fmt --all --check
+    cd examples/counter && cargo sort --workspace --check
+    cd examples/counter && cargo fmt --all --check
+    cd bento && cargo sort --workspace --check
+    cd bento && cargo fmt --all --check
+    cd documentation && bun run check
+    dprint check
+    forge fmt --check
+
+# Run Cargo clippy
+cargo-clippy:
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/counter && cargo clippy --workspace --all-targets
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd bento && cargo clippy --workspace --all-targets
+
+# Check links in markdown files
+link-check:
+    @echo "Checking links in markdown files..."
+    git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+
+# Check licenses
+license-check:
+    @python license-check.py
+
+# Build Broker Docker containers
+broker-docker-build:
+    @docker compose --profile broker --env-file ./.env-compose config
+    @docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
+
+# Clean up all build artifacts
+clean: devnet-down
+    @echo "Cleaning up..."
+    @rm -rf {{LOGS_DIR}} ./broadcast
+    cargo clean
+    forge clean
+    @echo "Cleanup complete."
+
+# Start the development network
+devnet-up: check-deps
+    #!/usr/bin/env bash
+    mkdir -p {{LOGS_DIR}}
+    echo "Building contracts..."
+    forge build || { echo "Failed to build contracts"; just devnet-down; exit 1; }
+    echo "Building Rust project..."
+    cargo build --bin broker || { echo "Failed to build broker binary"; just devnet-down; exit 1; }
+    # Check if Anvil is already running
+    if nc -z localhost {{ANVIL_PORT}}; then
+        echo "Anvil is already running on port {{ANVIL_PORT}}. Reusing existing instance."
+    else
+        echo "Starting Anvil..."
+        anvil -b {{ANVIL_BLOCK_TIME}} > {{LOGS_DIR}}/anvil.txt 2>&1 & echo $! >> {{PID_FILE}}
+        sleep 5
+    fi
+    echo "Deploying contracts..."
+    DEPLOYER_PRIVATE_KEY={{DEPLOYER_PRIVATE_KEY}} CHAIN_KEY={{CHAIN_KEY}} RISC0_DEV_MODE={{RISC0_DEV_MODE}} BOUNDLESS_MARKET_OWNER={{ADMIN_ADDRESS}} forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:{{ANVIL_PORT}} --broadcast -vv || { echo "Failed to deploy contracts"; just devnet-down; exit 1; }
+    echo "Fetching contract addresses..."
+    SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
+    BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
+    HIT_POINTS_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
+    echo "Contract deployed at addresses:"
+    echo "SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
+    echo "BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
+    echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS"
+    echo "Updating .env file..."
+    sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env
+    sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env
+    rm .env.bak
+    echo ".env file updated successfully."
+    echo "Minting HP for prover address."
+    cast send --private-key {{DEPLOYER_PRIVATE_KEY}} \
+        --rpc-url http://localhost:{{ANVIL_PORT}} \
+        $HIT_POINTS_ADDRESS "mint(address, uint256)" {{ADMIN_ADDRESS}} {{DEPOSIT_AMOUNT}}
+    RISC0_DEV_MODE={{RISC0_DEV_MODE}} RUST_LOG={{RUST_LOG}} ./target/debug/broker \
+        --private-key {{PRIVATE_KEY}} \
+        --boundless-market-addr $BOUNDLESS_MARKET_ADDRESS \
+        --set-verifier-addr $SET_VERIFIER_ADDRESS \
+        --rpc-url http://localhost:{{ANVIL_PORT}} \
+        --deposit-amount {{DEPOSIT_AMOUNT}} > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
+    echo "Devnet is up and running!"
+    echo "Make sure to run 'source .env' to load the environment variables."
+
+# Stop the development network
+devnet-down:
+    #!/usr/bin/env bash
+    if [ -f {{PID_FILE}} ]; then
+        while read pid; do
+            kill $pid 2>/dev/null || true
+        done < {{PID_FILE}}
+        rm {{PID_FILE}}
+    fi
+
+# Run Foundry tests
+foundry-test:
+    forge clean # Required by OpenZeppelin upgrades plugin
+    forge test -vvv --isolate
+
+# Run all Cargo tests
+cargo-test: cargo-test-root cargo-test-example-counter cargo-test-bento cargo-test-db
+
+# Run Cargo tests for root workspace
+cargo-test-root:
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream
+
+# Run Cargo tests for bento
+cargo-test-bento:
+    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb --exclude order-stream
+
+# Run Cargo tests for counter example
+cargo-test-example-counter:
+    cd examples/counter && \
+    forge build && \
+    RISC0_DEV_MODE=1 cargo test
+
+# Run database tests
+cargo-test-db: setup-db
+    DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
+    cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
+    just clean-db
+
+# Set up test database
+setup-db:
+    docker inspect postgres-test > /dev/null || \
+    docker run -d \
+        --name postgres-test \
+        -e POSTGRES_PASSWORD=password \
+        -p 5432:5432 \
+        postgres:latest
+    # Wait for PostgreSQL to be ready
+    sleep 3
+
+# Clean up test database
+clean-db:
+    docker stop postgres-test
+    docker rm postgres-test
+
+# Update cargo dependencies
+cargo-update:
+    cargo update
+    cd examples/counter && cargo update
+
+# Start or stop the broker service
+broker action="start" env_file="":
+    #!/usr/bin/env bash
+    if [ -n "{{env_file}}" ]; then
+        ./scripts/boundless_service.sh {{action}} --env-file {{env_file}}
+    else
+        ./scripts/boundless_service.sh {{action}}
+    fi
