@@ -101,13 +101,13 @@ where
         let res = self.inner.send_raw_transaction(encoded_tx).await;
         let balance = self.inner.get_balance(self.config.watch_address).await?;
 
-        if balance < self.config.error_threshold.unwrap_or(U256::MAX) {
+        if balance < self.config.error_threshold.unwrap_or(U256::ZERO) {
             tracing::error!(
                 "balance of {} < error threshold: {}",
                 self.config.watch_address,
                 balance
             );
-        } else if balance < self.config.warn_threshold.unwrap_or(U256::MAX) {
+        } else if balance < self.config.warn_threshold.unwrap_or(U256::ZERO) {
             tracing::warn!(
                 "balance of {} < warning threshold: {}",
                 self.config.watch_address,
@@ -166,6 +166,39 @@ mod tests {
 
         burn_eth(&provider, parse_ether("6").unwrap()).await?;
         assert!(logs_contain("< error threshold"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_balance_alert_layer_no_config() -> anyhow::Result<()> {
+        // Initial wallet balance is 10 eth, set up to warn if < 9 and error if < 5
+        let anvil = Anvil::default().args(["--balance", "10"]).spawn();
+        let wallet = EthereumWallet::from(LocalSigner::from(anvil.keys()[0].clone()));
+        let client = RpcClient::builder().http(anvil.endpoint_url()).boxed();
+
+        let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: None,
+            error_threshold: None,
+        });
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .layer(balance_alerts_layer)
+            .wallet(wallet)
+            .on_client(client);
+
+        // no warning or error logs should be emitted
+        burn_eth(&provider, parse_ether("0.5").unwrap()).await?;
+        assert!(!logs_contain("< warning threshold"));
+
+        burn_eth(&provider, parse_ether("0.6").unwrap()).await?;
+        assert!(!logs_contain("< warning threshold"));
+
+        burn_eth(&provider, parse_ether("6").unwrap()).await?;
+        assert!(!logs_contain("< error threshold"));
 
         Ok(())
     }
