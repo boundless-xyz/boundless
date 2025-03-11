@@ -29,10 +29,91 @@ check-deps:
 ci: check test
 
 # Run all tests
-test: foundry-test cargo-test
+test: test-foundry test-cargo
+
+# Run Foundry tests
+test-foundry:
+    forge clean # Required by OpenZeppelin upgrades plugin
+    forge test -vvv --isolate
+
+# Run all Cargo tests
+test-cargo: test-cargo-root test-cargo-bento test-cargo-example test-cargo-db
+
+# Run Cargo tests for root workspace
+test-cargo-root:
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream
+
+# Run Cargo tests for bento
+test-cargo-bento:
+    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb --exclude order-stream
+
+# Run Cargo tests for counter example
+test-cargo-example:
+    cd examples/counter && \
+    forge build && \
+    RISC0_DEV_MODE=1 cargo test
+
+# Run database tests
+test-cargo-db: 
+    just db setup
+    DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
+    cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
+    just db clean
+
+# Manage test postgres instance (setup or clean, defaults to setup)
+test-db action="setup":
+    #!/usr/bin/env bash
+    if [ "{{action}}" = "setup" ]; then
+        docker inspect postgres-test > /dev/null 2>&1 || \
+        docker run -d \
+            --name postgres-test \
+            -e POSTGRES_PASSWORD=password \
+            -p 5432:5432 \
+            postgres:latest
+        # Wait for PostgreSQL to be ready
+        sleep 3
+    elif [ "{{action}}" = "clean" ]; then
+        docker stop postgres-test
+        docker rm postgres-test
+    else
+        echo "Unknown action: {{action}}"
+        echo "Available actions: setup, clean"
+        exit 1
+    fi
 
 # Run all formatting and linting checks
-check: link-check format-check license-check cargo-clippy
+check: check-links check-license check-format check-clippy
+
+# Check links in markdown files
+check-links:
+    @echo "Checking links in markdown files..."
+    git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+
+# Check licenses
+check-license:
+    @python license-check.py
+
+# Check code formatting
+check-format:
+    cargo sort --workspace --check
+    cargo fmt --all --check
+    cd examples/counter && cargo sort --workspace --check
+    cd examples/counter && cargo fmt --all --check
+    cd bento && cargo sort --workspace --check
+    cd bento && cargo fmt --all --check
+    cd documentation && bun run check
+    dprint check
+    forge fmt --check
+
+# Run Cargo clippy
+check-clippy:
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/counter && cargo clippy --workspace --all-targets
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd bento && cargo clippy --workspace --all-targets
 
 # Format all code
 format:
@@ -45,36 +126,6 @@ format:
     cd documentation && bun run format-markdown
     dprint fmt
     forge fmt
-
-# Check code formatting
-format-check:
-    cargo sort --workspace --check
-    cargo fmt --all --check
-    cd examples/counter && cargo sort --workspace --check
-    cd examples/counter && cargo fmt --all --check
-    cd bento && cargo sort --workspace --check
-    cd bento && cargo fmt --all --check
-    cd documentation && bun run check
-    dprint check
-    forge fmt --check
-
-# Run Cargo clippy
-cargo-clippy:
-    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cargo clippy --workspace --all-targets
-    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cd examples/counter && cargo clippy --workspace --all-targets
-    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cd bento && cargo clippy --workspace --all-targets
-
-# Check links in markdown files
-link-check:
-    @echo "Checking links in markdown files..."
-    git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
-
-# Check licenses
-license-check:
-    @python license-check.py
 
 # Build Broker Docker containers
 broker-docker-build:
@@ -146,51 +197,6 @@ devnet action="up": check-deps
         echo "Available actions: up, down"
         exit 1
     fi
-
-# Run Foundry tests
-foundry-test:
-    forge clean # Required by OpenZeppelin upgrades plugin
-    forge test -vvv --isolate
-
-# Run all Cargo tests
-cargo-test: cargo-test-root cargo-test-example-counter cargo-test-bento cargo-test-db
-
-# Run Cargo tests for root workspace
-cargo-test-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream
-
-# Run Cargo tests for bento
-cargo-test-bento:
-    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb --exclude order-stream
-
-# Run Cargo tests for counter example
-cargo-test-example-counter:
-    cd examples/counter && \
-    forge build && \
-    RISC0_DEV_MODE=1 cargo test
-
-# Run database tests
-cargo-test-db: setup-db
-    DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
-    cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
-    just clean-db
-
-# Set up test database
-setup-db:
-    docker inspect postgres-test > /dev/null || \
-    docker run -d \
-        --name postgres-test \
-        -e POSTGRES_PASSWORD=password \
-        -p 5432:5432 \
-        postgres:latest
-    # Wait for PostgreSQL to be ready
-    sleep 3
-
-# Clean up test database
-clean-db:
-    docker stop postgres-test
-    docker rm postgres-test
 
 # Update cargo dependencies
 cargo-update:
