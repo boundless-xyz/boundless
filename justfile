@@ -211,3 +211,18 @@ broker action="start" env_file="":
     else
         ./scripts/boundless_service.sh {{action}}
     fi
+
+# Run the setup script
+bento-setup:
+    #!/usr/bin/env bash
+    ./scripts/setup.sh
+
+# Run the set_nvcc_flags script
+bento-set-nvcc-flags:
+    #!/usr/bin/env bash
+    ./scripts/set_nvcc_flags.sh
+
+# Check job status in Postgres
+job-status job_id:
+    #!/usr/bin/env bash
+    ./scripts/job_status.sh {{job_id}}
