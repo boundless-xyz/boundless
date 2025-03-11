@@ -1,8 +1,6 @@
 .POSIX:
 .SILENT:
 
-.PHONY: devnet-up devnet-down check-deps clean all test check format format-check cargo-test foundry-test cargo-clippy license-check link-check docker setup-db clean-db
-
 # Variables
 ANVIL_PORT = 8545
 ANVIL_BLOCK_TIME = 2
@@ -19,7 +17,8 @@ DATABASE_URL ?= $(DEFAULT_DATABASE_URL)
 LOGS_DIR = logs
 PID_FILE = $(LOGS_DIR)/devnet.pid
 
-all: devnet-up
+help:
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[.a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 # Check that required dependencies are installed
 check-deps:
@@ -27,8 +26,72 @@ check-deps:
 		command -v $$cmd >/dev/null 2>&1 || { echo "Error: $$cmd is not installed."; exit 1; }; \
 	done
 
-# Development network commands
-devnet-up: check-deps
+##@ Development
+.PHONY: ci test check format format-check cargo-clippy license-check link-check broker-docker clean
+
+ci: check test ## Run all CI checks
+
+test: foundry-test cargo-test ## Run all tests
+
+check: link-check format-check license-check cargo-clippy ## Run all code quality checks
+
+format: ## Format all code
+	echo "Formatting code..."
+	cargo sort --workspace
+	cargo fmt --all
+	cd examples/counter && cargo sort --workspace
+	cd examples/counter && cargo fmt --all
+	cd bento && cargo sort --workspace
+	cd bento && cargo fmt --all
+	cd documentation && bun run format-markdown
+	dprint fmt
+	forge fmt
+
+format-check: ## Check code formatting
+	echo "Checking code formatting..."
+	cargo sort --workspace --check
+	cargo fmt --all --check
+	cd examples/counter && cargo sort --workspace --check
+	cd examples/counter && cargo fmt --all --check
+	cd bento && cargo sort --workspace --check
+	cd bento && cargo fmt --all --check
+	cd documentation && bun run check
+	dprint check
+	forge fmt --check
+
+cargo-clippy: ## Run Cargo clippy
+	echo "Running Cargo clippy..."
+	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+	cargo clippy --workspace --all-targets
+	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+	cd examples/counter && cargo clippy --workspace --all-targets
+	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+	cd bento && cargo clippy --workspace --all-targets
+
+link-check: ## Check links in markdown files
+	echo "Checking links in markdown files..."
+	git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+
+license-check: ## Check licenses
+	echo "Checking licenses..."
+	python license-check.py
+
+broker-docker: ## Build Broker Docker containers
+	echo "Building Docker containers..."
+	docker compose --profile broker --env-file ./.env-compose config
+	docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
+
+clean: devnet-down ## Clean up all build artifacts
+	echo "Cleaning up..."
+	rm -rf $(LOGS_DIR) ./broadcast
+	cargo clean
+	forge clean
+	echo "Cleanup complete."
+
+##@ Devnet
+.PHONY: devnet-up devnet-down
+
+devnet-up: check-deps ## Start the development network
 	mkdir -p $(LOGS_DIR)
 	echo "Building contracts..."
 	forge build || { echo "Failed to build contracts"; $(MAKE) devnet-down; exit 1; }
@@ -72,7 +135,7 @@ devnet-up: check-deps
 	echo "Devnet is up and running!"
 	echo "Make sure to run 'source .env' to load the environment variables."
 
-devnet-down:
+devnet-down: ## Stop the development network
 	echo "Bringing down all services..."
 	if [ -f $(PID_FILE) ]; then \
 		while read pid; do \
@@ -82,95 +145,38 @@ devnet-down:
 	fi
 	echo "Devnet stopped."
 
-# CI and testing commands
-ci: check test
+##@ Testing
+.PHONY: foundry-test cargo-test cargo-test-root cargo-test-example-counter cargo-test-bento cargo-test-db setup-db clean-db
 
-test: foundry-test cargo-test
-
-check: link-check format-check license-check cargo-clippy
-
-foundry-test:
+foundry-test: ## Run Foundry tests
 	echo "Running Foundry tests..."
 	forge clean # Required by OpenZeppelin upgrades plugin
 	forge test -vvv --isolate
 
-cargo-test: cargo-test-root cargo-test-example-counter
+cargo-test: cargo-test-root cargo-test-example-counter cargo-test-bento cargo-test-db ## Run all Cargo tests
 
-cargo-test-root:
+cargo-test-root: ## Run Cargo tests for root workspace
 	echo "Running Cargo tests for root workspace..."
 	RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream
 
-cargo-test-bento:
+cargo-test-bento: ## Run Cargo tests for bento
 	echo "Running Cargo tests for bento..."
 	cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb --exclude order-stream
 
-cargo-test-example-counter:
+cargo-test-example-counter: ## Run Cargo tests for counter example
 	echo "Running Cargo tests for counter example..."
 	cd examples/counter && \
 	forge build && \
 	RISC0_DEV_MODE=1 cargo test
 
-cargo-test-db:
+cargo-test-db: setup-db ## Run database tests
 	echo "Running database tests..."
-	$(MAKE) setup-db
 	DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ./bento/crates/taskdb/migrations/
 	cd bento && DATABASE_URL=$(DATABASE_URL) RISC0_DEV_MODE=1 cargo test -p taskdb
 	DATABASE_URL=$(DATABASE_URL) RISC0_DEV_MODE=1 cargo test -p order-stream
 	$(MAKE) clean-db
 
-cargo-clippy:
-	echo "Running Cargo clippy..."
-	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-	cargo clippy --workspace --all-targets
-	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-	cd examples/counter && cargo clippy --workspace --all-targets
-	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-	cd bento && cargo clippy --workspace --all-targets
-
-cargo-update:
-	echo "Updating Cargo dependencies..."
-	cargo update
-	cd examples/counter && cargo update
-
-link-check:
-	echo "Checking links in markdown files..."
-	git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
-
-license-check:
-	echo "Checking licenses..."
-	python license-check.py
-
-format:
-	echo "Formatting code..."
-	cargo sort --workspace
-	cargo fmt --all
-	cd examples/counter && cargo sort --workspace
-	cd examples/counter && cargo fmt --all
-	cd bento && cargo sort --workspace
-	cd bento && cargo fmt --all
-	cd documentation && bun run format-markdown
-	dprint fmt
-	forge fmt
-
-format-check:
-	echo "Checking code formatting..."
-	cargo sort --workspace --check
-	cargo fmt --all --check
-	cd examples/counter && cargo sort --workspace --check
-	cd examples/counter && cargo fmt --all --check
-	cd bento && cargo sort --workspace --check
-	cd bento && cargo fmt --all --check
-	cd documentation && bun run check
-	dprint check
-	forge fmt --check
-
-docker:
-	echo "Building Docker containers..."
-	docker compose --profile broker --env-file ./.env-compose config
-	docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
-
-# Database management
-setup-db:
+setup-db: ## Set up test database
 	echo "Setting up test database..."
 	docker inspect postgres-test > /dev/null || \
 	docker run -d \
@@ -181,14 +187,7 @@ setup-db:
 	# Wait for PostgreSQL to be ready
 	sleep 3
 
-clean-db:
+clean-db: ## Clean up test database
 	echo "Cleaning up test database..."
 	docker stop postgres-test
 	docker rm postgres-test
-
-clean: devnet-down
-	echo "Cleaning up..."
-	rm -rf $(LOGS_DIR) ./broadcast
-	cargo clean
-	forge clean
-	echo "Cleanup complete."
