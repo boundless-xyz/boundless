@@ -430,7 +430,7 @@ jobs:
           submodules: recursive
 
       - name: docker-compose lint
-        run: docker compose --profile broker --env-file ./.env-compose config
+        run: docker compose --profile broker --env-file ./.env.broker-template config
 
       - name: Fetch CI AWS Creds
         id: aws-creds
@@ -451,4 +451,4 @@ jobs:
         run: docker buildx create --driver docker-container --use
 
       - name: docker compose build
-        run: docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
+        run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build

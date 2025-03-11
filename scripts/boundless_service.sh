@@ -14,7 +14,7 @@
 #   stop    Stop and remove Docker Compose services
 #
 # Options:
-#   -e, --env-file FILE    Specify a custom environment file (default: ./.env-compose)
+#   -e, --env-file FILE    Specify a custom environment file (default: ./.env.broker)
 #   -h, --help             Display this help message
 #
 # Examples:
@@ -72,7 +72,7 @@ Commands:
   stop    Stop and remove Docker Compose services
 
 Options:
-  -e, --env-file FILE    Specify a custom environment file (default: ./.env-compose)
+  -e, --env-file FILE    Specify a custom environment file (default: ./.env.broker)
   -h, --help             Display this help message
 
 Examples:

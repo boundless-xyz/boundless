@@ -60,7 +60,7 @@ Commands:
   stop    Stop and remove Docker Compose services
 
 Options:
-  -e, --env-file FILE    Specify a custom environment file (default: ./.env-compose)
+  -e, --env-file FILE    Specify a custom environment file (default: ./.env.broker)
   -h, --help             Display this help message
 
 Examples:
@@ -91,7 +91,7 @@ In `compose.yml`, you can configure the number of GPU's via adding new `gpu_agen
 
 ### Multi Host
 
-Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host. See the `.env-compose` HOST configuration options [here](https://github.com/boundless-xyz/boundless/blob/main/.env-compose) to adjust them.
+Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host. See the `.env.broker-template` HOST configuration options [here](https://github.com/boundless-xyz/boundless/blob/main/.env.broker-template) to adjust them.
 
 ### Segment Size
 

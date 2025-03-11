@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source .env-compose
+source .env.broker
 
 JOB=$1
 if [ -z "$JOB" ]; then
