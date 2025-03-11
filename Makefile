@@ -1,7 +1,7 @@
 .POSIX:
 .SILENT:
 
-.PHONY: devnet-up devnet-down check-deps clean all
+.PHONY: devnet-up devnet-down check-deps clean all test check format format-check cargo-test foundry-test cargo-clippy license-check link-check docker setup-db clean-db
 
 # Variables
 ANVIL_PORT = 8545
@@ -13,6 +13,8 @@ DEPLOYER_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7
 PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ADMIN_ADDRESS = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 DEPOSIT_AMOUNT = 100000000000000000000
+DEFAULT_DATABASE_URL = postgres://postgres:password@localhost:5432/postgres
+DATABASE_URL ?= $(DEFAULT_DATABASE_URL)
 
 LOGS_DIR = logs
 PID_FILE = $(LOGS_DIR)/devnet.pid
@@ -25,6 +27,7 @@ check-deps:
 		command -v $$cmd >/dev/null 2>&1 || { echo "Error: $$cmd is not installed."; exit 1; }; \
 	done
 
+# Development network commands
 devnet-up: check-deps
 	mkdir -p $(LOGS_DIR)
 	echo "Building contracts..."
@@ -78,6 +81,110 @@ devnet-down:
 		rm $(PID_FILE); \
 	fi
 	echo "Devnet stopped."
+
+# CI and testing commands
+ci: check test
+
+test: foundry-test cargo-test
+
+check: link-check format-check license-check cargo-clippy
+
+foundry-test:
+	echo "Running Foundry tests..."
+	forge clean # Required by OpenZeppelin upgrades plugin
+	forge test -vvv --isolate
+
+cargo-test: cargo-test-root cargo-test-example-counter
+
+cargo-test-root:
+	echo "Running Cargo tests for root workspace..."
+	RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream
+
+cargo-test-bento:
+	echo "Running Cargo tests for bento..."
+	cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb --exclude order-stream
+
+cargo-test-example-counter:
+	echo "Running Cargo tests for counter example..."
+	cd examples/counter && \
+	forge build && \
+	RISC0_DEV_MODE=1 cargo test
+
+cargo-test-db:
+	echo "Running database tests..."
+	$(MAKE) setup-db
+	DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ./bento/crates/taskdb/migrations/
+	cd bento && DATABASE_URL=$(DATABASE_URL) RISC0_DEV_MODE=1 cargo test -p taskdb
+	DATABASE_URL=$(DATABASE_URL) RISC0_DEV_MODE=1 cargo test -p order-stream
+	$(MAKE) clean-db
+
+cargo-clippy:
+	echo "Running Cargo clippy..."
+	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+	cargo clippy --workspace --all-targets
+	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+	cd examples/counter && cargo clippy --workspace --all-targets
+	RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+	cd bento && cargo clippy --workspace --all-targets
+
+cargo-update:
+	echo "Updating Cargo dependencies..."
+	cargo update
+	cd examples/counter && cargo update
+
+link-check:
+	echo "Checking links in markdown files..."
+	git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+
+license-check:
+	echo "Checking licenses..."
+	python license-check.py
+
+format:
+	echo "Formatting code..."
+	cargo sort --workspace
+	cargo fmt --all
+	cd examples/counter && cargo sort --workspace
+	cd examples/counter && cargo fmt --all
+	cd bento && cargo sort --workspace
+	cd bento && cargo fmt --all
+	cd documentation && bun run format-markdown
+	dprint fmt
+	forge fmt
+
+format-check:
+	echo "Checking code formatting..."
+	cargo sort --workspace --check
+	cargo fmt --all --check
+	cd examples/counter && cargo sort --workspace --check
+	cd examples/counter && cargo fmt --all --check
+	cd bento && cargo sort --workspace --check
+	cd bento && cargo fmt --all --check
+	cd documentation && bun run check
+	dprint check
+	forge fmt --check
+
+docker:
+	echo "Building Docker containers..."
+	docker compose --profile broker --env-file ./.env-compose config
+	docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
+
+# Database management
+setup-db:
+	echo "Setting up test database..."
+	docker inspect postgres-test > /dev/null || \
+	docker run -d \
+		--name postgres-test \
+		-e POSTGRES_PASSWORD=password \
+		-p 5432:5432 \
+		postgres:latest
+	# Wait for PostgreSQL to be ready
+	sleep 3
+
+clean-db:
+	echo "Cleaning up test database..."
+	docker stop postgres-test
+	docker rm postgres-test
 
 clean: devnet-down
 	echo "Cleaning up..."
