@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,3 +37,13 @@ pub mod order_stream_client;
 #[cfg(not(target_os = "zkvm"))]
 /// Storage module for interacting with the storage provider.
 pub mod storage;
+
+/// A very small utility function to get the current unix timestamp.
+// TODO(#379): Avoid drift relative to the chain's timestamps.
+#[cfg(not(target_os = "zkvm"))]
+pub(crate) fn now_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}

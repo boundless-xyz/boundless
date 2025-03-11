@@ -9,6 +9,10 @@ requirements:
     predicate:
         predicateType: PrefixMatch
         data: "53797374"
+    callback:
+        addr: "0x0000000000000000000000000000000000000000"
+        gasLimit: 0
+    selector: "00000000"
 
 # A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.
@@ -25,8 +29,8 @@ input:
 offer:
     minPrice: 100000000000000
     maxPrice: 2000000000000000
-    biddingStart: 0 # if set to 0, gets overwritten by the current block height
-    rampUpPeriod: 100
-    timeout: 300 # 1 hour at 12s block times.
-    lockTimeout: 300
+    biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
+    rampUpPeriod: 300
+    timeout: 3600 # 1 hor
+    lockTimeout: 2700 # 45 minutes
     lockStake: 5000000000000000000 # 5 HP tokens (set between 1 and 100)

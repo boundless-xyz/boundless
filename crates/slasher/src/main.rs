@@ -44,6 +44,13 @@ struct MainArgs {
     /// Balance threshold at which to log an error.
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
+    /// Comma-separated list of addresses to skip when processing locked events.
+    #[clap(long, value_delimiter = ',', value_parser = parse_address)]
+    skip_addresses: Vec<Address>,
+}
+
+fn parse_address(s: &str) -> Result<Address, String> {
+    s.trim().parse::<Address>().map_err(|e| format!("Failed to parse address {}: {}", s, e))
 }
 
 #[derive(Args, Clone, Debug)]
@@ -79,6 +86,7 @@ async fn main() -> Result<()> {
         Duration::from_secs(args.interval),
         args.retries,
         (args.warn_balance_below, args.error_balance_below),
+        args.skip_addresses,
     )
     .await?;
 

@@ -10,7 +10,10 @@ use tokio::sync::watch;
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
 
-use alloy::{network::Ethereum, providers::Provider, transports::BoxTransport};
+use alloy::{
+    network::Ethereum, providers::Provider, rpc::types::BlockTransactionsKind,
+    transports::BoxTransport,
+};
 use anyhow::{Context, Result};
 
 use crate::task::{RetryRes, RetryTask, SupervisorErr};
@@ -19,6 +22,7 @@ use crate::task::{RetryRes, RetryTask, SupervisorErr};
 pub struct ChainMonitorService<P> {
     provider: Arc<P>,
     block_number: watch::Sender<u64>,
+    block_timestamp: Arc<RwLock<Option<u64>>>,
     update_notifier: Arc<Notify>,
     next_update: Arc<RwLock<Instant>>,
 }
@@ -33,6 +37,7 @@ where
         Ok(Self {
             provider,
             block_number,
+            block_timestamp: Arc::new(RwLock::new(None)),
             update_notifier: Arc::new(Notify::new()),
             next_update: Arc::new(RwLock::new(Instant::now())),
         })
@@ -44,11 +49,33 @@ where
             let mut rx = self.block_number.subscribe();
             self.update_notifier.notify_one();
             rx.changed().await.context("failed to query block number from chain monitor")?;
+            // Clear the block timestamp cache.
+            self.block_timestamp.write().await.take();
             let block_number = *rx.borrow();
             Ok(block_number)
         } else {
             Ok(*self.block_number.borrow())
         }
+    }
+
+    /// Returns the latest block timestamp, triggering an update if enough time has passed
+    pub async fn current_block_timestamp(&self) -> Result<u64> {
+        // Get the current_block_number. This may clear the timestamp cache.
+        let block_number = self.current_block_number().await?;
+        let cached_timestamp: Option<u64> = *self.block_timestamp.read().await;
+        if let Some(ts) = cached_timestamp {
+            return Ok(ts);
+        }
+        let current_timestamp = self
+            .provider
+            .get_block_by_number(block_number.into(), BlockTransactionsKind::Hashes)
+            .await
+            .with_context(|| format!("failed to get block {block_number}"))?
+            .with_context(|| format!("failed to get block {block_number}: block not found"))?
+            .header
+            .timestamp;
+        *self.block_timestamp.write().await = Some(current_timestamp);
+        Ok(current_timestamp)
     }
 }
 

@@ -33,6 +33,7 @@ http = "1.1"
 notify = "6.1"
 reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

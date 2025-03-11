@@ -13,11 +13,11 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, encode_seal, set_verifier::SetVerifierService,
-    Fulfillment,
+    boundless_market::BoundlessMarketService, encode_seal, AssessorReceipt, Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
@@ -202,7 +202,6 @@ where
                     imageId: order_img_id,
                     journal: order_journal.into(),
                     seal: seal.into(),
-                    requirePayment: true,
                 });
                 anyhow::Ok(())
             };
@@ -243,7 +242,12 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             config.batcher.single_txn_fulfill
         };
-
+        let assessor_fill = AssessorReceipt {
+            seal: assessor_seal.into(),
+            selectors: vec![],
+            prover: self.prover_address,
+            callbacks: vec![],
+        };
         if single_txn_fulfill {
             if let Err(err) = self
                 .market
@@ -252,12 +256,12 @@ where
                     root,
                     batch_seal.into(),
                     fulfillments.clone(),
-                    assessor_seal.into(),
-                    self.prover_address,
+                    assessor_fill,
                 )
                 .await
             {
                 tracing::error!("Failed to submit proofs for batch {batch_id}: {err:?}");
+
                 for fulfillment in fulfillments.iter() {
                     if let Err(db_err) = self
                         .db
@@ -290,11 +294,7 @@ where
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
 
-            if let Err(err) = self
-                .market
-                .fulfill_batch(fulfillments.clone(), assessor_seal.into(), self.prover_address)
-                .await
-            {
+            if let Err(err) = self.market.fulfill_batch(fulfillments.clone(), assessor_fill).await {
                 tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
                 for fulfillment in fulfillments.iter() {
                     if let Err(db_err) = self
@@ -343,28 +343,43 @@ where
             return Ok(false);
         };
 
-        match self.submit_batch(batch_id, &batch).await {
-            Ok(_) => {
-                if let Err(db_err) = self.db.set_batch_submitted(batch_id).await {
-                    tracing::error!("Failed to set batch submitted status: {db_err:?}");
-                    // TODO: Handle error here? / record it?
-                    return Err(SupervisorErr::Fault(db_err.into()));
+        let max_batch_submission_attempts = self
+            .config
+            .lock_all()
+            .map_err(|e| SupervisorErr::Recover(e.into()))?
+            .batcher
+            .max_submission_attempts;
+
+        let mut errors = Vec::new();
+        for attempt in 0..max_batch_submission_attempts {
+            match self.submit_batch(batch_id, &batch).await {
+                Ok(_) => {
+                    if let Err(db_err) = self.db.set_batch_submitted(batch_id).await {
+                        tracing::error!("Failed to set batch submitted status: {db_err:?}");
+                        return Err(SupervisorErr::Fault(db_err.into()));
+                    }
+                    tracing::info!(
+                        "Completed batch: {batch_id} total_fees: {}",
+                        format_ether(batch.fees)
+                    );
+                    return Ok(true);
                 }
-                tracing::info!(
-                    "Completed batch: {batch_id} total_fees: {}",
-                    format_ether(batch.fees)
-                );
-            }
-            Err(err) => {
-                tracing::error!("Submission of batch {batch_id} failed: {err:?}");
-                if let Err(err) = self.db.set_batch_failure(batch_id, format!("{err:?}")).await {
-                    tracing::error!("Failed to set batch failure: {batch_id} - {err:?}");
-                    return Err(SupervisorErr::Recover(err.into()));
+                Err(err) => {
+                    tracing::warn!(
+                        "Batch submission attempt {}/{} failed",
+                        attempt + 1,
+                        max_batch_submission_attempts,
+                    );
+                    errors.push(err);
                 }
             }
         }
-
-        Ok(true)
+        tracing::error!("Batch {batch_id} has reached max submission attempts");
+        if let Err(err) = self.db.set_batch_failure(batch_id, format!("{errors:?}")).await {
+            tracing::error!("Failed to set batch failure in db: {batch_id} - {err:?}");
+            return Err(SupervisorErr::Recover(err.into()));
+        }
+        Ok(false)
     }
 }
 
@@ -392,14 +407,21 @@ mod tests {
     use super::*;
     use crate::{
         db::SqliteDb,
+        now_timestamp,
         provers::{encode_input, MockProver},
         AggregationState, Batch, BatchStatus, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
-        node_bindings::Anvil,
-        primitives::{B256, U256},
-        providers::ProviderBuilder,
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::U256,
+        providers::{
+            fillers::{
+                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+                WalletFiller,
+            },
+            Identity, ProviderBuilder, RootProvider,
+        },
         signers::local::PrivateKeySigner,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
@@ -418,7 +440,22 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    async fn run_submit_batch(config: ConfigLock) {
+    type TestProvider = FillProvider<
+        JoinFill<
+            JoinFill<
+                Identity,
+                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+            >,
+            WalletFiller<EthereumWallet>,
+        >,
+        RootProvider<BoxTransport>,
+        BoxTransport,
+        Ethereum,
+    >;
+
+    async fn build_submitter_and_batch(
+        config: ConfigLock,
+    ) -> (AnvilInstance, Submitter<TestProvider>, DbObj, usize) {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
@@ -494,19 +531,16 @@ mod tests {
         let order_request = ProofRequest::new(
             market_customer.index_from_nonce().await.unwrap(),
             &customer_addr,
-            Requirements {
-                imageId: B256::from_slice(echo_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                echo_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(2),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -587,12 +621,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingSubmission,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request: order_request,
             image_id: Some(echo_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(echo_proof.id.clone()),
-            expire_block: Some(100),
+            expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),
             error_msg: None,
@@ -607,9 +641,7 @@ mod tests {
             orders: vec![order_id],
             fees: U256::ZERO,
             start_time: Utc::now(),
-            block_deadline: Some(
-                order.request.offer.biddingStart + order.request.offer.timeout as u64,
-            ),
+            deadline: Some(order.request.offer.biddingStart + order.request.offer.timeout as u64),
             error_msg: None,
             aggregation_state: Some(AggregationState {
                 guest_state: batch_guest_state,
@@ -636,8 +668,14 @@ mod tests {
         )
         .unwrap();
 
-        assert!(submitter.process_next_batch().await.unwrap());
+        (anvil, submitter, db, batch_id)
+    }
 
+    async fn process_next_batch<P>(submitter: Submitter<P>, db: DbObj, batch_id: usize)
+    where
+        P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    {
+        assert!(submitter.process_next_batch().await.unwrap());
         let batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(batch.status, BatchStatus::Submitted);
     }
@@ -646,7 +684,8 @@ mod tests {
     #[traced_test]
     async fn submit_batch() {
         let config = ConfigLock::default();
-        run_submit_batch(config).await;
+        let (_anvil, submitter, db, batch_id) = build_submitter_and_batch(config).await;
+        process_next_batch(submitter, db, batch_id).await;
     }
 
     #[tokio::test]
@@ -654,6 +693,25 @@ mod tests {
     async fn submit_batch_merged_txn() {
         let config = ConfigLock::default();
         config.load_write().as_mut().unwrap().batcher.single_txn_fulfill = true;
-        run_submit_batch(config).await;
+        let (_anvil, submitter, db, batch_id) = build_submitter_and_batch(config).await;
+        process_next_batch(submitter, db, batch_id).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn submit_batch_retry_max_attempts() {
+        let config = ConfigLock::default();
+        let (anvil, submitter, _db, _batch_id) = build_submitter_and_batch(config).await;
+
+        drop(anvil); // drop anvil to simluate an RPC fault
+
+        assert!(!submitter.process_next_batch().await.unwrap()); // returned Ok(false)
+        assert!(logs_contain("Batch submission attempt 1/3 failed"));
+
+        assert!(!submitter.process_next_batch().await.unwrap()); // returned Ok(false)
+        assert!(logs_contain("Batch submission attempt 2/3 failed"));
+
+        assert!(!submitter.process_next_batch().await.unwrap()); // returned Ok(false)
+        assert!(logs_contain("reached max submission attempts"));
     }
 }

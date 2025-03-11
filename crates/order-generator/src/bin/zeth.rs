@@ -6,7 +6,10 @@ use std::cmp::min;
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
-    primitives::{utils::parse_ether, Address, U256},
+    primitives::{
+        utils::{format_units, parse_ether},
+        Address, U256,
+    },
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::Transport,
@@ -15,7 +18,7 @@ use anyhow::{anyhow, bail, Result};
 use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::{
     client::{Client, ClientBuilder},
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
     storage::{StorageProvider, StorageProviderConfig},
 };
 use clap::Parser;
@@ -77,10 +80,11 @@ struct Args {
     /// Maximum price per mcycle in ether.
     #[clap(long = "max", value_parser = parse_ether, default_value = "0.000011")]
     max_price_per_mcycle: U256,
-    /// Number of blocks, from the current block, before the bid expires.
-    #[clap(long, default_value = "1000")]
+    /// Number of seconds, from the bidding start, before the bid expires.
+    #[clap(long, default_value = "12000")]
     timeout: u32,
-    /// Ramp-up period in blocks.
+    /// Ramp-up period in seconds.
+    ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
     #[clap(long, default_value = "0")]
     ramp_up: u32,
@@ -293,16 +297,10 @@ where
         default_executor().execute(guest_env.try_into()?, ZETH_GUESTS_RETH_ETHEREUM_ELF)?;
 
     let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
-    let min_price = args
-        .min_price_per_mcycle
-        .checked_mul(U256::from(cycles_count))
-        .unwrap()
-        .div_ceil(U256::from(1_000_000));
-    let max_price = args
-        .max_price_per_mcycle
-        .checked_mul(U256::from(cycles_count))
-        .unwrap()
-        .div_ceil(U256::from(1_000_000));
+    let min_price =
+        params.min.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
+    let max_price =
+        params.max.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
 
     tracing::info!(
         "{} cycles count {} mcycles count {} min_price in ether {} max_price in ether",

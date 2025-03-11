@@ -16,6 +16,8 @@ use alloy::{
     primitives::{Address, PrimitiveSignature, U256},
     signers::{Error as SignerErr, Signer},
 };
+use alloy_primitives::B256;
+use alloy_sol_types::SolStruct;
 use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::{DateTime, Utc};
@@ -33,7 +35,7 @@ use tokio_tungstenite::{
 };
 use utoipa::ToSchema;
 
-use crate::contracts::{ProofRequest, RequestError};
+use crate::contracts::{eip712_domain, ProofRequest, RequestError};
 
 /// Order stream submission API path.
 pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
@@ -86,6 +88,9 @@ pub struct Order {
     /// Order request
     #[schema(value_type = Object)]
     pub request: ProofRequest,
+    /// Request digest
+    #[schema(value_type = Object)]
+    pub request_digest: B256,
     /// Order signature
     #[schema(value_type = Object)]
     pub signature: PrimitiveSignature,
@@ -122,13 +127,18 @@ pub struct SubmitOrderRes {
 
 impl Order {
     /// Create a new Order
-    pub fn new(request: ProofRequest, signature: PrimitiveSignature) -> Self {
-        Self { request, signature }
+    pub fn new(request: ProofRequest, request_digest: B256, signature: PrimitiveSignature) -> Self {
+        Self { request, request_digest, signature }
     }
 
     /// Validate the Order
     pub fn validate(&self, market_address: Address, chain_id: u64) -> Result<(), OrderError> {
         self.request.validate()?;
+        let domain = eip712_domain(market_address, chain_id);
+        let hash = self.request.eip712_signing_hash(&domain.alloy_struct());
+        if hash != self.request_digest {
+            return Err(OrderError::RequestError(RequestError::DigestMismatch));
+        }
         self.request.verify_signature(
             &self.signature.as_bytes().into(),
             market_address,
@@ -213,7 +223,9 @@ impl Client {
         let url = self.base_url.join(ORDER_SUBMISSION_PATH)?;
         let signature =
             request.sign_request(signer, self.boundless_market_address, self.chain_id).await?;
-        let order = Order { request: request.clone(), signature };
+        let domain = eip712_domain(self.boundless_market_address, self.chain_id);
+        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
+        let order = Order { request: request.clone(), request_digest, signature };
         order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;
         let response = self
@@ -237,6 +249,46 @@ impl Client {
         }
 
         Ok(order)
+    }
+
+    /// Fetch an order from the order stream server.
+    ///
+    /// If multiple orders are found, the `request_digest` must be provided to select the correct order.
+    pub async fn fetch_order(&self, id: U256, request_digest: Option<B256>) -> Result<Order> {
+        let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            let error_message = match response.json::<serde_json::Value>().await {
+                Ok(json_body) => {
+                    json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
+                }
+                Err(_) => "Failed to read server error message".to_string(),
+            };
+
+            return Err(anyhow::Error::msg(error_message));
+        }
+
+        let order_data: Vec<OrderData> = response.json().await?;
+        let orders: Vec<Order> = order_data.into_iter().map(|data| data.order).collect();
+        if orders.is_empty() {
+            return Err(anyhow::Error::msg("No order found"));
+        } else if orders.len() == 1 {
+            return Ok(orders[0].clone());
+        }
+        match request_digest {
+            Some(digest) => {
+                for order in orders {
+                    if order.request_digest == digest {
+                        return Ok(order);
+                    }
+                }
+                Err(anyhow::Error::msg("No order found"))
+            }
+            None => {
+                Err(anyhow::Error::msg("Multiple orders found, please provide a request digest"))
+            }
+        }
     }
 
     /// Get the nonce from the order stream service for websocket auth
@@ -331,24 +383,98 @@ pub fn order_stream(
     mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
 ) -> Pin<Box<dyn Stream<Item = Result<OrderData, Box<dyn Error + Send + Sync>>> + Send>> {
     Box::pin(stream! {
-        while let Some(msg_result) = socket.next().await {
-            match msg_result {
-                Ok(tungstenite::Message::Text(msg)) => {
-                    match serde_json::from_str::<OrderData>(&msg) {
-                        Ok(order) => yield Ok(order),
-                        Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+        // Create a ping interval - configurable via environment variable
+        let ping_duration = match std::env::var("ORDER_STREAM_CLIENT_PING_MS") {
+            Ok(ms) => match ms.parse::<u64>() {
+                Ok(ms) => {
+                    tracing::debug!("Using custom ping interval of {}ms", ms);
+                    tokio::time::Duration::from_millis(ms)
+                },
+                Err(_) => {
+                    tracing::warn!("Invalid ORDER_STREAM_CLIENT_PING_MS value: {}, using default", ms);
+                    tokio::time::Duration::from_secs(30)
+                }
+            },
+            Err(_) => tokio::time::Duration::from_secs(30),
+        };
+
+        let mut ping_interval = tokio::time::interval(ping_duration);
+        // Track the last ping we sent
+        let mut ping_data: Option<Vec<u8>> = None;
+
+        loop {
+            tokio::select! {
+                // Handle incoming messages
+                msg_result = socket.next() => {
+                    match msg_result {
+                        Some(Ok(tungstenite::Message::Text(msg))) => {
+                            match serde_json::from_str::<OrderData>(&msg) {
+                                Ok(order) => yield Ok(order),
+                                Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+                            }
+                        }
+                        // Reply to Ping's inline
+                        Some(Ok(tungstenite::Message::Ping(data))) => {
+                            tracing::trace!("Responding to ping");
+                            if let Err(err) = socket.send(tungstenite::Message::Pong(data)).await {
+                                yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                                break;
+                            }
+                        }
+                        // Handle Pong responses
+                        Some(Ok(tungstenite::Message::Pong(data))) => {
+                            tracing::trace!("Received pong from server");
+                            if let Some(expected_data) = ping_data.take() {
+                                if data != expected_data {
+                                    tracing::warn!("Server responded with invalid pong data");
+                                    yield Err(Box::new(std::io::Error::new(
+                                        std::io::ErrorKind::InvalidData,
+                                        "Server responded with invalid pong data"
+                                    )) as Box<dyn Error + Send + Sync>);
+                                    break;
+                                }
+                            } else {
+                                tracing::warn!("Received unexpected pong from order-stream server");
+                            }
+                        }
+                        Some(Ok(tungstenite::Message::Close(_))) => {
+                            tracing::debug!("Server closed the connection");
+                            break;
+                        }
+                        Some(Ok(other)) => {
+                            tracing::debug!("Ignoring non-text message: {:?}", other);
+                            continue;
+                        }
+                        Some(Err(err)) => {
+                            yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                            break;
+                        }
+                        None => {
+                            tracing::warn!("order stream socket closed unexpectedly");
+                            break;
+                        }
                     }
                 }
-                // Reply to Ping's inline
-                Ok(tungstenite::Message::Ping(data)) => {
-                    tracing::trace!("Responding to ping");
-                    socket.send(tungstenite::Message::Pong(data)).await?;
+                // Send periodic pings
+                _ = ping_interval.tick() => {
+                    // If we still have a pending ping that hasn't been responded to
+                    if ping_data.is_some() {
+                        tracing::warn!("Server did not respond to ping, closing connection");
+                        yield Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "Server did not respond to ping"
+                        )) as Box<dyn Error + Send + Sync>);
+                        break;
+                    }
+
+                    tracing::trace!("Sending ping to server");
+                    let random_bytes: Vec<u8> = (0..16).map(|_| rand::random::<u8>()).collect();
+                    if let Err(err) = socket.send(tungstenite::Message::Ping(random_bytes.clone())).await {
+                        yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                        break;
+                    }
+                    ping_data = Some(random_bytes);
                 }
-                Ok(other) => {
-                    tracing::debug!("Ignoring non-text message: {:?}", other);
-                    continue;
-                }
-                Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
             }
         }
     })
