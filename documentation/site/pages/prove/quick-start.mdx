@@ -41,13 +41,21 @@ Boundless is comprised of two major components:
 To get started, run:
 
 ```sh [Terminal]
-sudo scripts/boundless_service.sh start
+just broker
+
+# Or run the script directly
+
+scripts/boundless_service.sh start
 ```
 
 To stop all services, run:
 
 ```sh [Terminal]
-sudo scripts/boundless_service.sh stop
+just broker down
+
+# Or run the script directly
+
+scripts/boundless_service.sh stop
 ```
 
 ---
