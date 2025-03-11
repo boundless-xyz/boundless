@@ -876,10 +876,10 @@ pub mod test_utils {
     >;
 
     pub struct TestCtx {
-        pub verifier_addr: Address,
-        pub set_verifier_addr: Address,
-        pub hit_points_addr: Address,
-        pub boundless_market_addr: Address,
+        pub verifier_address: Address,
+        pub set_verifier_address: Address,
+        pub hit_points_address: Address,
+        pub boundless_market_address: Address,
         pub prover_signer: PrivateKeySigner,
         pub customer_signer: PrivateKeySigner,
         pub prover_provider: ProviderWallet,
@@ -1138,10 +1138,10 @@ pub mod test_utils {
             hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
 
             Ok(TestCtx {
-                verifier_addr,
-                set_verifier_addr,
-                hit_points_addr,
-                boundless_market_addr,
+                verifier_address: verifier_addr,
+                set_verifier_address: set_verifier_addr,
+                hit_points_address: hit_points_addr,
+                boundless_market_address: boundless_market_addr,
                 prover_signer,
                 customer_signer,
                 prover_provider,

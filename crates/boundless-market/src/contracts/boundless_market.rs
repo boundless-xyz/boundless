@@ -1708,7 +1708,7 @@ mod tests {
         // publish the committed root + fulfillments
         ctx.prover_market
             .submit_merkle_and_fulfill(
-                ctx.set_verifier_addr,
+                ctx.set_verifier_address,
                 root,
                 set_verifier_seal,
                 fulfillments.clone(),
