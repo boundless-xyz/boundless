@@ -16,7 +16,8 @@ deployment_secrets.toml
 /logs
 
 # Dotenv file
-# .env
+.env
+.env.localnet
 
 # Cargo
 target/

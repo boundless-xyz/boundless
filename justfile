@@ -12,7 +12,7 @@ DEFAULT_DATABASE_URL := "postgres://postgres:password@localhost:5432/postgres"
 DATABASE_URL := env_var_or_default("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 LOGS_DIR := "logs"
-PID_FILE := LOGS_DIR + "/devnet.pid"
+PID_FILE := LOGS_DIR + "/localnet.pid"
 
 # Show available commands
 default:
@@ -55,11 +55,11 @@ test-cargo-example:
 
 # Run database tests
 test-cargo-db: 
-    just db setup
+    just test-db setup
     DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
     cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
-    just db clean
+    just test-db clean
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
@@ -134,7 +134,7 @@ broker-docker-build:
 
 # Clean up all build artifacts
 clean: 
-    @just devnet down
+    @just localnet down
     @echo "Cleaning up..."
     @rm -rf {{LOGS_DIR}} ./broadcast
     cargo clean
@@ -142,14 +142,21 @@ clean:
     @echo "Cleanup complete."
 
 # Manage the development network (up or down, defaults to up)
-devnet action="up": check-deps
+localnet action="up": check-deps
     #!/usr/bin/env bash
     if [ "{{action}}" = "up" ]; then
         mkdir -p {{LOGS_DIR}}
+        
+        # Create .env.localnet from template if it doesn't exist
+        if [ ! -f .env.localnet ]; then
+            echo "Creating .env.localnet from template..."
+            cp .env.localnet-template .env.localnet || { echo "Error: .env.localnet-template not found"; exit 1; }
+        fi
+        
         echo "Building contracts..."
-        forge build || { echo "Failed to build contracts"; just devnet down; exit 1; }
+        forge build || { echo "Failed to build contracts"; just localnet down; exit 1; }
         echo "Building Rust project..."
-        cargo build --bin broker || { echo "Failed to build broker binary"; just devnet down; exit 1; }
+        cargo build --bin broker || { echo "Failed to build broker binary"; just localnet down; exit 1; }
         # Check if Anvil is already running
         if nc -z localhost {{ANVIL_PORT}}; then
             echo "Anvil is already running on port {{ANVIL_PORT}}. Reusing existing instance."
@@ -159,7 +166,7 @@ devnet action="up": check-deps
             sleep 5
         fi
         echo "Deploying contracts..."
-        DEPLOYER_PRIVATE_KEY={{DEPLOYER_PRIVATE_KEY}} CHAIN_KEY={{CHAIN_KEY}} RISC0_DEV_MODE={{RISC0_DEV_MODE}} BOUNDLESS_MARKET_OWNER={{ADMIN_ADDRESS}} forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:{{ANVIL_PORT}} --broadcast -vv || { echo "Failed to deploy contracts"; just devnet down; exit 1; }
+        DEPLOYER_PRIVATE_KEY={{DEPLOYER_PRIVATE_KEY}} CHAIN_KEY={{CHAIN_KEY}} RISC0_DEV_MODE={{RISC0_DEV_MODE}} BOUNDLESS_MARKET_OWNER={{ADMIN_ADDRESS}} forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:{{ANVIL_PORT}} --broadcast -vv || { echo "Failed to deploy contracts"; just localnet down; exit 1; }
         echo "Fetching contract addresses..."
         SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
         BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
@@ -168,11 +175,16 @@ devnet action="up": check-deps
         echo "SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
         echo "BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
         echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS"
-        echo "Updating .env file..."
-        sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env
-        sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env
-        rm .env.bak
-        echo ".env file updated successfully."
+        echo "Updating .env.localnet file..."
+        # Update the environment variables in .env.localnet
+        sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
+        sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
+        # Add HIT_POINTS_ADDRESS to .env.localnet
+        grep -q "^HIT_POINTS_ADDRESS=" .env.localnet && \
+            sed -i.bak "s/^HIT_POINTS_ADDRESS=.*/HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet || \
+            echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS" >> .env.localnet
+        rm .env.localnet.bak
+        echo ".env.localnet file updated successfully."
         echo "Minting HP for prover address."
         cast send --private-key {{DEPLOYER_PRIVATE_KEY}} \
             --rpc-url http://localhost:{{ANVIL_PORT}} \
@@ -183,8 +195,8 @@ devnet action="up": check-deps
             --set-verifier-address $SET_VERIFIER_ADDRESS \
             --rpc-url http://localhost:{{ANVIL_PORT}} \
             --deposit-amount {{DEPOSIT_AMOUNT}} > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
-        echo "Devnet is up and running!"
-        echo "Make sure to run 'source .env' to load the environment variables."
+        echo "Localnet is running!"
+        echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
     elif [ "{{action}}" = "down" ]; then
         if [ -f {{PID_FILE}} ]; then
             while read pid; do

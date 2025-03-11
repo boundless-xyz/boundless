@@ -251,7 +251,7 @@ mod tests {
             .on_builtin(&anvil.endpoint())
             .await
             .unwrap();
-        let counter = Counter::deploy(&deployer_provider, test_ctx.set_verifier_addr).await?;
+        let counter = Counter::deploy(&deployer_provider, test_ctx.set_verifier_address).await?;
 
         Ok(*counter.address())
     }
