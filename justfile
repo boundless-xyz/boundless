@@ -127,11 +127,6 @@ format:
     dprint fmt
     forge fmt
 
-# Build Broker Docker containers
-broker-docker-build:
-    @docker compose --profile broker --env-file ./.env-compose config
-    @docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
-
 # Clean up all build artifacts
 clean: 
     @just localnet down

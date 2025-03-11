@@ -15,9 +15,12 @@ deployment_secrets.toml
 # Devnet logs
 /logs
 
-# Dotenv file
-.env
-.env.localnet
+# Ignore all env files
+.env*
+# Except for the templates and running network env files
+!.env.broker-template
+!.env.localnet-template
+!.env.testnet
 
 # Cargo
 target/

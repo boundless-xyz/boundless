@@ -417,7 +417,7 @@ jobs:
             src:
               - 'dockerfiles/**'
               - 'compose.yml'
-              - '.env-compose'
+              - '.env.broker-template'
 
   docker:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
