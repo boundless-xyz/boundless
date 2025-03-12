@@ -137,7 +137,7 @@ The `[prover]` settings in `broker.toml` are used to configure the prover servic
 
 ### Orders Stuck in 'Lockin' or `submit_merkle` Confirmation Timeouts
 
-You may notice on the [indexer](https://indexer.beboundless.xyz) that the broker has a high number of orders locked-in, but the fulfillment rate is low or even zero. This could be due to transaction confirmation timeouts. A good place to start would be to increase the `txn_timeout` in the `broker.toml` file iteratively, and see how that affects the broker's fulfillment rate.
+You may notice on the [explorer](https://explorer.beboundless.xyz) that the broker has a high number of orders locked-in, but the fulfillment rate is low or even zero. This could be due to transaction confirmation timeouts. A good place to start would be to increase the `txn_timeout` in the `broker.toml` file iteratively, and see how that affects the broker's fulfillment rate.
 
 If you need a manual way to restart orders that are "stuck", please follow:
 
