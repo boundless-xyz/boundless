@@ -14,6 +14,8 @@ import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
 import {Account} from "../src/types/Account.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
+import {AssessorReceipt} from "../src/types/AssessorReceipt.sol";
+import {Callback} from "../src/types/Callback.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
 import {Input, InputType} from "../src/types/Input.sol";
 import {Requirements} from "../src/types/Requirements.sol";
@@ -22,7 +24,6 @@ import {ProofRequest} from "../src/types/ProofRequest.sol";
 import {Predicate, PredicateType} from "../src/types/Predicate.sol";
 import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
 import {RequestLock} from "../src/types/RequestLock.sol";
-import {TransientPrice, TransientPriceLibrary} from "../src/types/TransientPrice.sol";
 
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
@@ -49,11 +50,14 @@ contract DeploymentTest is Test {
     mapping(uint256 => Client) internal clients;
 
     struct OrderFulfilled {
+        /// The root of the set.
         bytes32 root;
+        /// The seal of the root.
         bytes seal;
+        /// The fulfillments of the order.
         Fulfillment[] fills;
-        bytes assessorSeal;
-        address prover;
+        /// The fulfillment of the assessor.
+        AssessorReceipt assessorReceipt;
     }
 
     // Creates a client account with the given index, gives it some Ether, and deposits from Ether in the market.
@@ -171,10 +175,58 @@ contract DeploymentTest is Test {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, hex"", hex"");
+        emit IBoundlessMarket.ProofDelivered(request.id);
 
         boundlessMarket.priceAndFulfillBatch(
-            requests, clientSignatures, result.fills, result.assessorSeal, address(testProver)
+            requests, clientSignatures, result.fills, result.assessorReceipt
+        );
+        Fulfillment memory fill = result.fills[0];
+        assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+    }
+
+    function testPriceAndFulfillBatchWithSelector() external {
+        Client testProver = createClientContract("PROVER");
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        request.requirements.selector = bytes4(0xc101b42b);
+
+        ProofRequest[] memory requests = new ProofRequest[](1);
+        requests[0] = request;
+        bytes[] memory clientSignatures = new bytes[](1);
+        clientSignatures[0] = client.sign(request);
+
+        (, string memory setBuilderUrl) = setVerifier.imageInfo();
+        (, string memory assessorUrl) = boundlessMarket.imageInfo();
+
+        string[] memory argv = new string[](15);
+        uint256 i = 0;
+        argv[i++] = "boundless-ffi";
+        argv[i++] = "--set-builder-url";
+        argv[i++] = setBuilderUrl;
+        argv[i++] = "--assessor-url";
+        argv[i++] = assessorUrl;
+        argv[i++] = "--boundless-market-address";
+        argv[i++] = vm.toString(address(boundlessMarket));
+        argv[i++] = "--chain-id";
+        argv[i++] = vm.toString(block.chainid);
+        argv[i++] = "--prover-address";
+        argv[i++] = vm.toString(address(testProver));
+        argv[i++] = "--request";
+        argv[i++] = vm.toString(abi.encode(request));
+        argv[i++] = "--signature";
+        argv[i++] = vm.toString(clientSignatures[0]);
+
+        OrderFulfilled memory result = abi.decode(vm.ffi(argv), (OrderFulfilled));
+
+        setVerifier.submitMerkleRoot(result.root, result.seal);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id);
+
+        boundlessMarket.priceAndFulfillBatch(
+            requests, clientSignatures, result.fills, result.assessorReceipt
         );
         Fulfillment memory fill = result.fills[0];
         assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
@@ -205,6 +257,7 @@ contract Client {
             biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             timeout: uint32(100),
+            lockTimeout: uint32(100),
             lockStake: 1 ether
         });
     }
@@ -212,7 +265,9 @@ contract Client {
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
             imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.PrefixMatch, data: hex"53797374"})
+            predicate: Predicate({predicateType: PredicateType.PrefixMatch, data: hex"53797374"}),
+            callback: Callback({gasLimit: 0, addr: address(0)}),
+            selector: bytes4(0)
         });
     }
 
