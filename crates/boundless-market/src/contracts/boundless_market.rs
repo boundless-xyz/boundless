@@ -100,6 +100,15 @@ pub struct BoundlessMarketService<T, P> {
     caller: Address,
     timeout: Duration,
     event_query_config: EventQueryConfig,
+    balance_alert_config: StakeBalanceAlertConfig,
+}
+
+#[derive(Clone, Debug, Default)]
+struct StakeBalanceAlertConfig {
+    /// Threshold at which to log a warning
+    warn_threshold: Option<U256>,
+    /// Threshold at which to log an error
+    error_threshold: Option<U256>,
 }
 
 impl<T, P> Clone for BoundlessMarketService<T, P>
@@ -113,6 +122,7 @@ where
             caller: self.caller,
             timeout: self.timeout,
             event_query_config: self.event_query_config.clone(),
+            balance_alert_config: self.balance_alert_config.clone(),
         }
     }
 }
@@ -166,6 +176,7 @@ where
             caller,
             timeout: TXN_CONFIRM_TIMEOUT,
             event_query_config: EventQueryConfig::default(),
+            balance_alert_config: StakeBalanceAlertConfig::default(),
         }
     }
 
@@ -177,6 +188,21 @@ where
     /// Sets the event query configuration.
     pub fn with_event_query_config(self, config: EventQueryConfig) -> Self {
         Self { event_query_config: config, ..self }
+    }
+
+    /// Set stake balance thresholds to warn or error alert on
+    pub fn with_stake_balance_alert(
+        self,
+        warn_threshold: &Option<U256>,
+        error_threshold: &Option<U256>,
+    ) -> Self {
+        Self {
+            balance_alert_config: StakeBalanceAlertConfig {
+                warn_threshold: *warn_threshold,
+                error_threshold: *error_threshold,
+            },
+            ..self
+        }
     }
 
     /// Returns the market contract instance.
@@ -345,6 +371,8 @@ where
         }
 
         tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
+
+        self.check_stake_balance().await?;
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -1182,6 +1210,7 @@ where
             .await
             .context("failed to confirm tx")?;
         tracing::debug!("Submitted stake withdraw {}", tx_hash);
+        self.check_stake_balance().await?;
         Ok(())
     }
 
@@ -1190,6 +1219,28 @@ where
         tracing::debug!("Calling balanceOfStake({})", account);
         let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?._0;
         Ok(balance)
+    }
+
+    /// Check the current stake balance against the alert config
+    /// and log a warning or error or below the thresholds.
+    async fn check_stake_balance(&self) -> Result<(), MarketError> {
+        let stake_balance = self.balance_of_stake(self.caller()).await?;
+        if stake_balance < self.balance_alert_config.error_threshold.unwrap_or(U256::ZERO) {
+            tracing::error!(
+                "stake balance {} for {} < error threshold",
+                stake_balance,
+                self.caller(),
+            );
+        } else if stake_balance < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO) {
+            tracing::warn!(
+                "stake balance {} for {} < warning threshold",
+                stake_balance,
+                self.caller(),
+            );
+        } else {
+            tracing::trace!("stake balance for {} is: {}", self.caller(), stake_balance);
+        }
+        Ok(())
     }
 }
 
@@ -1504,16 +1555,21 @@ mod tests {
     }
 
     #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_deposit_withdraw_stake() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
+        let mut ctx =
             TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
                 .await
                 .unwrap();
 
         let deposit = U256::from(10);
+
+        // set stake balance alerts
+        ctx.prover_market =
+            ctx.prover_market.with_stake_balance_alert(&Some(U256::from(10)), &Some(U256::from(5)));
 
         // Approve and deposit stake
         ctx.prover_market.approve_deposit_stake(deposit).await.unwrap();
@@ -1527,8 +1583,23 @@ mod tests {
             U256::from(20)
         );
 
-        // Withdraw prover balances
-        ctx.prover_market.withdraw_stake(U256::from(20)).await.unwrap();
+        // Withdraw prover balances in chunks to observe alerts
+
+        ctx.prover_market.withdraw_stake(U256::from(11)).await.unwrap();
+        assert_eq!(
+            ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+            U256::from(9)
+        );
+        assert!(logs_contain("< warning threshold"));
+
+        ctx.prover_market.withdraw_stake(U256::from(5)).await.unwrap();
+        assert_eq!(
+            ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+            U256::from(4)
+        );
+        assert!(logs_contain("< error threshold"));
+
+        ctx.prover_market.withdraw_stake(U256::from(4)).await.unwrap();
         assert_eq!(
             ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
             U256::ZERO
