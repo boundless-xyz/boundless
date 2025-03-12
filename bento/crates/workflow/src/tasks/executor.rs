@@ -219,6 +219,12 @@ impl Coprocessor {
 
 impl CoprocessorCallback for Coprocessor {
     fn prove_keccak(&mut self, request: ProveKeccakRequest) -> Result<()> {
+        if request.input.is_empty() {
+            anyhow::bail!(
+                "Received empty keccak input with claim_digest: {}",
+                request.claim_digest
+            );
+        }
         self.tx.send_blocking(request)?;
         Ok(())
     }
@@ -408,13 +414,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
     writer_tasks.spawn(async move {
         while let Ok(mut keccak_req) = keccak_rx.recv().await {
-            if keccak_req.input.is_empty() {
-                tracing::error!(
-                    "Received empty keccak input with claim_digest: {}, skipping",
-                    keccak_req.claim_digest
-                );
-                continue;
-            }
             let keccak_count_tmp = keccak_count.load(Ordering::Relaxed);
             let redis_key = format!("{coproc_prefix}:{}", keccak_req.claim_digest);
             redis::set_key_with_expiry(
