@@ -11,7 +11,13 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {ReceiptClaim, ReceiptClaimLib, VerificationFailed} from "risc0/IRiscZeroVerifier.sol";
+import {
+    IRiscZeroVerifier,
+    ReceiptClaim,
+    Receipt as RiscZeroReceipt,
+    ReceiptClaimLib,
+    VerificationFailed
+} from "risc0/IRiscZeroVerifier.sol";
 import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
@@ -92,6 +98,7 @@ contract BoundlessMarketTest is Test {
     int256 internal stakeTreasuryBalanceSnapshot;
 
     uint256 constant DEFAULT_BALANCE = 1000 ether;
+    uint256 constant EXPECTED_DEFAULT_MAX_GAS_FOR_VERIFY = 50000;
     uint256 constant EXPECTED_SLASH_BURN_BPS = 7500;
 
     ReceiptClaim internal APP_CLAIM = ReceiptClaimLib.ok(APP_IMAGE_ID, sha256(APP_JOURNAL));
@@ -473,6 +480,7 @@ contract BoundlessMarketTest is Test {
 }
 
 contract BoundlessMarketBasicTest is BoundlessMarketTest {
+    using ReceiptClaimLib for ReceiptClaim;
     using BoundlessMarketLib for Offer;
     using BoundlessMarketLib for ProofRequest;
     using SafeCast for uint256;
@@ -2195,6 +2203,63 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         );
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
 
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillApplicationVerificationGasLimit() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(3);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+
+        bytes memory clientSignature = client.sign(request);
+
+        bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+
+        // If no selector is specified, we expect the call to verifyIntegrity to use the default
+        // gas limit when verifying the application.
+        vm.expectCall(
+            address(setVerifier),
+            0,
+            uint64(EXPECTED_DEFAULT_MAX_GAS_FOR_VERIFY),
+            abi.encodeWithSelector(IRiscZeroVerifier.verifyIntegrity.selector, RiscZeroReceipt(fill.seal, claimDigest))
+        );
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
+
+        expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillVerificationGasLimitForSelector() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(3);
+        request.requirements.selector = setVerifier.SELECTOR();
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+
+        bytes memory clientSignature = client.sign(request);
+
+        bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+
+        // If a selector is specified, we expect the call to verifyIntegrity to not use the default
+        // gas limit, so the minimum gas it should have should exceed it.
+        vm.expectCallMinGas(
+            address(setVerifier),
+            0,
+            uint64(EXPECTED_DEFAULT_MAX_GAS_FOR_VERIFY + 1),
+            abi.encodeWithSelector(IRiscZeroVerifier.verifyIntegrity.selector, RiscZeroReceipt(fill.seal, claimDigest))
+        );
+        boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
+
+        expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
     }
 
