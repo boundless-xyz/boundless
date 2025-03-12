@@ -64,10 +64,11 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable STAKE_TOKEN_CONTRACT;
 
-    /// In order to fulfill a request, the prover must provide a proof that can be verified with at
-    /// most the amount of gas specified by this constant. This requirement exists to ensure the
-    /// client can then post the given proof in a new transaction as part of the application.
-    uint256 public constant FULFILL_MAX_GAS_FOR_VERIFY = 50000;
+    /// If no selector is specified as part of the request's requirements, the prover must provide
+    /// a proof that can be verified with at most the amount of gas specified by this constant.
+    /// This requirement exists to ensure that by default, the client can then post the given proof
+    /// in a new transaction as part of the application.
+    uint256 public constant DEFAULT_MAX_GAS_FOR_VERIFY = 50000;
 
     /// @notice When a prover is slashed for failing to fulfill a request, a portion of the stake
     /// is burned, and the remaining portion is either send to the prover that ultimately fulfilled
@@ -225,7 +226,14 @@ contract BoundlessMarket is
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-        VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
+
+        // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
+        // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
+        if (assessorReceipt.selectors.length > 0) {
+            VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigest));
+        } else {
+            VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
+        }
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // Recursive verification happens inside the assessor.
@@ -252,7 +260,7 @@ contract BoundlessMarket is
         if (assessorReceipt.selectors.length > 0 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
             revert SelectorMismatch(assessorReceipt.selectors[0].value, bytes4(fill.seal[0:4]));
         }
-        // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
+        // Verification of the assessor seal does not need to comply with DEFAULT_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
     }
 
@@ -267,6 +275,7 @@ contract BoundlessMarket is
         }
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
+        bool[] memory hasSelector = new bool[](fills.length);
 
         // Check the selector constraints.
         // NOTE: The assessor guest adds non-zero selector values to the list.
@@ -274,6 +283,7 @@ contract BoundlessMarket is
         for (uint256 i = 0; i < selectorsLength; i++) {
             bytes4 expected = assessorReceipt.selectors[i].value;
             bytes4 received = bytes4(fills[assessorReceipt.selectors[i].index].seal[0:4]);
+            hasSelector[assessorReceipt.selectors[i].index] = true;
             if (expected != received) {
                 revert SelectorMismatch(expected, received);
             }
@@ -286,7 +296,13 @@ contract BoundlessMarket is
             requestDigests[i] = fill.requestDigest;
             claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
 
-            VERIFIER.verifyIntegrity{gas: FULFILL_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigests[i]));
+            // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
+            // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
+            if (!hasSelector[i]) {
+                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigests[i]));
+            } else {
+                VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigests[i]));
+            }
         }
 
         bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
@@ -304,7 +320,7 @@ contract BoundlessMarket is
                 })
             )
         );
-        // Verification of the assessor seal does not need to comply with FULFILL_MAX_GAS_FOR_VERIFY.
+        // Verification of the assessor seal does not need to comply with DEFAULT_MAX_GAS_FOR_VERIFY.
         VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
     }
 
