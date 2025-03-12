@@ -1,13 +1,4 @@
 # Variables
-ANVIL_PORT := "8545"
-ANVIL_BLOCK_TIME := "2"
-RISC0_DEV_MODE := "1"
-CHAIN_KEY := "anvil"
-RUST_LOG := "info,broker=debug,boundless_market=debug"
-DEPLOYER_PRIVATE_KEY := "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-PRIVATE_KEY := "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-ADMIN_ADDRESS := "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-DEPOSIT_AMOUNT := "100000000000000000000"
 DEFAULT_DATABASE_URL := "postgres://postgres:password@localhost:5432/postgres"
 DATABASE_URL := env_var_or_default("DATABASE_URL", DEFAULT_DATABASE_URL)
 
@@ -139,6 +130,18 @@ clean:
 # Manage the development network (up or down, defaults to up)
 localnet action="up": check-deps
     #!/usr/bin/env bash
+    # Localnet-specific variables
+    ANVIL_PORT="8545"
+    ANVIL_BLOCK_TIME="2"
+    RISC0_DEV_MODE="1"
+    CHAIN_KEY="anvil"
+    RUST_LOG="info,broker=debug,boundless_market=debug"
+    # This key is a prefunded address for the anvil test configuration (index 0)
+    DEPLOYER_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    ADMIN_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+    DEPOSIT_AMOUNT="100000000000000000000"
+    
     if [ "{{action}}" = "up" ]; then
         mkdir -p {{LOGS_DIR}}
         
@@ -153,15 +156,15 @@ localnet action="up": check-deps
         echo "Building Rust project..."
         cargo build --bin broker || { echo "Failed to build broker binary"; just localnet down; exit 1; }
         # Check if Anvil is already running
-        if nc -z localhost {{ANVIL_PORT}}; then
-            echo "Anvil is already running on port {{ANVIL_PORT}}. Reusing existing instance."
+        if nc -z localhost $ANVIL_PORT; then
+            echo "Anvil is already running on port $ANVIL_PORT. Reusing existing instance."
         else
             echo "Starting Anvil..."
-            anvil -b {{ANVIL_BLOCK_TIME}} > {{LOGS_DIR}}/anvil.txt 2>&1 & echo $! >> {{PID_FILE}}
+            anvil -b $ANVIL_BLOCK_TIME > {{LOGS_DIR}}/anvil.txt 2>&1 & echo $! >> {{PID_FILE}}
             sleep 5
         fi
         echo "Deploying contracts..."
-        DEPLOYER_PRIVATE_KEY={{DEPLOYER_PRIVATE_KEY}} CHAIN_KEY={{CHAIN_KEY}} RISC0_DEV_MODE={{RISC0_DEV_MODE}} BOUNDLESS_MARKET_OWNER={{ADMIN_ADDRESS}} forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:{{ANVIL_PORT}} --broadcast -vv || { echo "Failed to deploy contracts"; just localnet down; exit 1; }
+        DEPLOYER_PRIVATE_KEY=$DEPLOYER_PRIVATE_KEY CHAIN_KEY=$CHAIN_KEY RISC0_DEV_MODE=$RISC0_DEV_MODE BOUNDLESS_MARKET_OWNER=$ADMIN_ADDRESS forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$ANVIL_PORT --broadcast -vv || { echo "Failed to deploy contracts"; just localnet down; exit 1; }
         echo "Fetching contract addresses..."
         SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
         BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
@@ -181,15 +184,15 @@ localnet action="up": check-deps
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
         echo "Minting HP for prover address."
-        cast send --private-key {{DEPLOYER_PRIVATE_KEY}} \
-            --rpc-url http://localhost:{{ANVIL_PORT}} \
-            $HIT_POINTS_ADDRESS "mint(address, uint256)" {{ADMIN_ADDRESS}} {{DEPOSIT_AMOUNT}}
-        RISC0_DEV_MODE={{RISC0_DEV_MODE}} RUST_LOG={{RUST_LOG}} ./target/debug/broker \
-            --private-key {{PRIVATE_KEY}} \
+        cast send --private-key $DEPLOYER_PRIVATE_KEY \
+            --rpc-url http://localhost:$ANVIL_PORT \
+            $HIT_POINTS_ADDRESS "mint(address, uint256)" $ADMIN_ADDRESS $DEPOSIT_AMOUNT
+        RISC0_DEV_MODE=$RISC0_DEV_MODE RUST_LOG=$RUST_LOG ./target/debug/broker \
+            --private-key $PRIVATE_KEY \
             --boundless-market-address $BOUNDLESS_MARKET_ADDRESS \
             --set-verifier-address $SET_VERIFIER_ADDRESS \
-            --rpc-url http://localhost:{{ANVIL_PORT}} \
-            --deposit-amount {{DEPOSIT_AMOUNT}} > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
+            --rpc-url http://localhost:$ANVIL_PORT \
+            --deposit-amount $DEPOSIT_AMOUNT > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
         echo "Localnet is running!"
         echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
     elif [ "{{action}}" = "down" ]; then
