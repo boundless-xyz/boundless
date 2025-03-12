@@ -19,6 +19,8 @@ use tokio::{
 };
 
 mod defaults {
+    use std::path::PathBuf;
+
     pub const fn max_journal_bytes() -> usize {
         10_000
     }
@@ -37,6 +39,10 @@ mod defaults {
 
     pub const fn max_submission_attempts() -> u32 {
         3
+    }
+
+    pub fn cache_dir() -> Option<PathBuf> {
+        Some(PathBuf::from("/tmp/broker_cache"))
     }
 }
 /// All configuration related to markets mechanics
@@ -208,6 +214,9 @@ pub struct Config {
     pub prover: ProverConf,
     /// Aggregation batch configs
     pub batcher: BatcherConfig,
+    /// Path to cache directory used for images and inputs
+    #[serde(default = "defaults::cache_dir", deserialize_with = "empty_path_to_none")]
+    pub cache_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -347,10 +356,23 @@ impl ConfigWatcher {
     }
 }
 
+fn empty_path_to_none<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let s = PathBuf::deserialize(deserializer)?;
+    if s.to_str().unwrap().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(s))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloy::hex::FromHex;
+    use proptest::prelude::any_with;
     use std::{
         fs::File,
         io::{Seek, Write},
@@ -359,6 +381,8 @@ mod tests {
     use tracing_test::traced_test;
 
     const CONFIG_TEMPL: &str = r#"
+cache_dir = ""
+
 [market]
 mcycle_price = "0.1"
 peak_prove_khz = 500
@@ -422,6 +446,7 @@ error = ?"#;
         write_config(CONFIG_TEMPL, config_temp.as_file_mut());
         let config = Config::load(config_temp.path()).await.unwrap();
 
+        assert_eq!(config.cache_dir, None); // empty yields None
         assert_eq!(config.market.mcycle_price, "0.1");
         assert_eq!(config.market.assumption_price, None);
         assert_eq!(config.market.peak_prove_khz, Some(500));
@@ -448,6 +473,13 @@ error = ?"#;
         assert_eq!(config.batcher.block_deadline_buffer_secs, 120);
         assert_eq!(config.batcher.txn_timeout, None);
         assert_eq!(config.batcher.batch_poll_time_ms, None);
+
+        // config 2
+        let mut config_temp = NamedTempFile::new().unwrap();
+        write_config(CONFIG_TEMPL_2, config_temp.as_file_mut());
+        let config = Config::load(config_temp.path()).await.unwrap();
+
+        assert_eq!(config.cache_dir, Some("/tmp/broker_cache".into())); // default cache dir
     }
 
     #[tokio::test]
