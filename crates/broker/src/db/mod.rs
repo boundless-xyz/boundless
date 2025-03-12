@@ -67,7 +67,7 @@ pub enum DbError {
 pub struct AggregationOrder {
     pub order_id: U256,
     pub proof_id: String,
-    pub expire_block: u64,
+    pub expiration: u64,
     pub fee: U256,
 }
 
@@ -85,8 +85,8 @@ pub trait BrokerDb {
     async fn set_order_lock(
         &self,
         id: U256,
-        lock_block: u64,
-        expire_block: u64,
+        lock_timestamp: u64,
+        expire_timestamp: u64,
     ) -> Result<(), DbError>;
     async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError>;
     async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError>;
@@ -94,7 +94,10 @@ pub trait BrokerDb {
     async fn skip_order(&self, id: U256) -> Result<(), DbError>;
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
-    async fn get_pending_lock_orders(&self, end_block: u64) -> Result<Vec<(U256, Order)>, DbError>;
+    async fn get_pending_lock_orders(
+        &self,
+        end_timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError>;
     async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError>;
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
@@ -287,8 +290,8 @@ impl BrokerDb for SqliteDb {
     async fn set_order_lock(
         &self,
         id: U256,
-        lock_block: u64,
-        expire_block: u64,
+        lock_timestamp: u64,
+        expire_timestamp: u64,
     ) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
@@ -298,8 +301,8 @@ impl BrokerDb for SqliteDb {
                        json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.target_block', $2),
-                       '$.expire_block', $3),
+                       '$.target_timestamp', $2),
+                       '$.expire_timestamp', $3),
                        '$.updated_at', $4)
             WHERE
                 id = $5"#,
@@ -308,10 +311,13 @@ impl BrokerDb for SqliteDb {
         // TODO: can we work out how to correctly
         // use bind + a json field with out string formatting
         // the sql query?
-        .bind(i64::try_from(lock_block).map_err(|_| DbError::BadBlockNumb(lock_block.to_string()))?)
         .bind(
-            i64::try_from(expire_block)
-                .map_err(|_| DbError::BadBlockNumb(expire_block.to_string()))?,
+            i64::try_from(lock_timestamp)
+                .map_err(|_| DbError::BadBlockNumb(lock_timestamp.to_string()))?,
+        )
+        .bind(
+            i64::try_from(expire_timestamp)
+                .map_err(|_| DbError::BadBlockNumb(expire_timestamp.to_string()))?,
         )
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
@@ -457,12 +463,15 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
-    async fn get_pending_lock_orders(&self, end_block: u64) -> Result<Vec<(U256, Order)>, DbError> {
+    async fn get_pending_lock_orders(
+        &self,
+        end_timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
-            "SELECT * FROM orders WHERE data->>'status' = $1 AND data->>'target_block' <= $2",
+            "SELECT * FROM orders WHERE data->>'status' = $1 AND data->>'target_timestamp' <= $2",
         )
         .bind(OrderStatus::Locking)
-        .bind(end_block as i64)
+        .bind(end_timestamp as i64)
         .fetch_all(&self.pool)
         .await?;
 
@@ -477,9 +486,13 @@ impl BrokerDb for SqliteDb {
 
     async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM orders WHERE data->>'status' >= $1 AND data->>'status' <= $2",
+            "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6)",
         )
         .bind(OrderStatus::Locking)
+        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::Proving)
+        .bind(OrderStatus::PendingAgg)
+        .bind(OrderStatus::Aggregating)
         .bind(OrderStatus::PendingSubmission)
         .fetch_one(&self.pool)
         .await?;
@@ -637,10 +650,10 @@ impl BrokerDb for SqliteDb {
                     .data
                     .proof_id
                     .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
-                expire_block: order
+                expiration: order
                     .data
-                    .expire_block
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "expire_block"))?,
+                    .expire_timestamp
+                    .ok_or(DbError::InvalidOrder(order.id.clone(), "expire_timestamp"))?,
                 fee: order.data.lock_price.ok_or(DbError::InvalidOrder(order.id, "lock_price"))?,
             })
         }
@@ -780,7 +793,7 @@ impl BrokerDb for SqliteDb {
     ) -> Result<(), DbError> {
         let mut txn = self.pool.begin().await?;
 
-        let rows = sqlx::query(r#"SELECT data->>'fees' as fees, data->>'block_deadline' as deadline FROM batches WHERE id = $1"#)
+        let rows = sqlx::query(r#"SELECT data->>'fees' as fees, data->>'deadline' as deadline FROM batches WHERE id = $1"#)
             .bind(batch_id as i64)
             .fetch_optional(&mut *txn)
             .await?;
@@ -795,7 +808,7 @@ impl BrokerDb for SqliteDb {
         let new_deadline = orders
             .iter()
             .fold(db_deadline, |min, order| {
-                Some(i64::min(min.unwrap_or(i64::MAX), order.expire_block as i64))
+                Some(i64::min(min.unwrap_or(i64::MAX), order.expiration as i64))
             })
             .unwrap_or(i64::MAX);
 
@@ -810,7 +823,7 @@ impl BrokerDb for SqliteDb {
                 data = json_set(
                        json_set(
                        json_set(data,
-                       '$.block_deadline', $1),
+                       '$.deadline', $1),
                        '$.fees', $2),
                        '$.aggregation_state', json($3))
             WHERE
@@ -961,17 +974,17 @@ mod tests {
         Order {
             status: OrderStatus::New,
             updated_at: Utc::now(),
-            target_block: None,
+            target_timestamp: None,
             request: ProofRequest::new(
                 1,
                 &Address::ZERO,
-                Requirements {
-                    imageId: Default::default(),
-                    predicate: Predicate {
-                        predicateType: PredicateType::DigestMatch,
-                        data: B256::ZERO.into(),
+                Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
+                        predicateType: PredicateType::PrefixMatch,
+                        data: Default::default(),
                     },
-                },
+                ),
                 "http://risczero.com",
                 Input { inputType: InputType::Inline, data: "".into() },
                 Offer {
@@ -979,6 +992,7 @@ mod tests {
                     maxPrice: U256::from(2),
                     biddingStart: 0,
                     timeout: 100,
+                    lockTimeout: 100,
                     rampUpPeriod: 1,
                     lockStake: U256::from(0),
                 },
@@ -986,7 +1000,7 @@ mod tests {
             image_id: None,
             input_id: None,
             proof_id: None,
-            expire_block: None,
+            expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,
@@ -1081,14 +1095,14 @@ mod tests {
         let order = create_order();
         db.add_order(id, order.clone()).await.unwrap();
 
-        let lock_block = 10;
-        let expire_block = 20;
-        db.set_order_lock(id, lock_block, expire_block).await.unwrap();
+        let lock_timestamp = 10;
+        let expire_timestamp = 20;
+        db.set_order_lock(id, lock_timestamp, expire_timestamp).await.unwrap();
 
         let db_order = db.get_order(id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_block, Some(lock_block));
-        assert_eq!(db_order.expire_block, Some(expire_block));
+        assert_eq!(db_order.target_timestamp, Some(lock_timestamp));
+        assert_eq!(db_order.expire_timestamp, Some(expire_timestamp));
     }
 
     #[sqlx::test]
@@ -1180,21 +1194,21 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let id = U256::ZERO;
-        let target_block = 20;
+        let target_timestamp = 20;
         let good_end = 25;
         let bad_end = 15;
         let mut order = create_order();
         order.status = OrderStatus::Locking;
-        order.target_block = Some(target_block);
+        order.target_timestamp = Some(target_timestamp);
         db.add_order(id, order.clone()).await.unwrap();
-        order.target_block = Some(good_end + 1);
+        order.target_timestamp = Some(good_end + 1);
         db.add_order(id + U256::from(1), order.clone()).await.unwrap();
 
         let res = db.get_pending_lock_orders(good_end).await.unwrap();
 
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].0, id);
-        assert_eq!(res[0].1.target_block, Some(target_block));
+        assert_eq!(res[0].1.target_timestamp, Some(target_timestamp));
 
         let res = db.get_pending_lock_orders(bad_end).await.unwrap();
         assert_eq!(res.len(), 0);
@@ -1291,28 +1305,28 @@ mod tests {
             Order {
                 status: OrderStatus::New,
                 proof_id: Some("test_id3".to_string()),
-                expire_block: Some(10),
+                expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
                 status: OrderStatus::PendingAgg,
                 proof_id: Some("test_id1".to_string()),
-                expire_block: Some(10),
+                expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
                 status: OrderStatus::Aggregating,
                 proof_id: Some("test_id2".to_string()),
-                expire_block: Some(10),
+                expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
                 status: OrderStatus::PendingSubmission,
                 proof_id: Some("test_id4".to_string()),
-                expire_block: Some(10),
+                expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
@@ -1328,13 +1342,13 @@ mod tests {
         let agg_proof = &agg_proofs[0];
         assert_eq!(agg_proof.order_id, U256::from(1u64));
         assert_eq!(agg_proof.proof_id, "test_id1");
-        assert_eq!(agg_proof.expire_block, 10);
+        assert_eq!(agg_proof.expiration, 10);
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let agg_proof = &agg_proofs[1];
         assert_eq!(agg_proof.order_id, U256::from(2u64));
         assert_eq!(agg_proof.proof_id, "test_id2");
-        assert_eq!(agg_proof.expire_block, 10);
+        assert_eq!(agg_proof.expiration, 10);
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let db_order = db.get_order(U256::from(1u64)).await.unwrap().unwrap();
@@ -1460,13 +1474,13 @@ mod tests {
             AggregationOrder {
                 proof_id: "a".to_string(),
                 order_id: U256::from(11),
-                expire_block: 20,
+                expiration: 20,
                 fee: U256::from(5),
             },
             AggregationOrder {
                 proof_id: "b".to_string(),
                 order_id: U256::from(12),
-                expire_block: 25,
+                expiration: 25,
                 fee: U256::from(10),
             },
         ];
@@ -1483,7 +1497,7 @@ mod tests {
         let base_fees = U256::from(10);
         let batch = Batch {
             start_time: Utc::now(),
-            block_deadline: Some(100),
+            deadline: Some(100),
             fees: base_fees,
             ..Default::default()
         };
@@ -1494,7 +1508,7 @@ mod tests {
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::PendingCompression);
         assert_eq!(db_batch.orders, vec![U256::from(11), U256::from(12)]);
-        assert_eq!(db_batch.block_deadline, Some(20));
+        assert_eq!(db_batch.deadline, Some(20));
         assert_eq!(db_batch.fees, U256::from(25));
         assert!(db_batch.aggregation_state.is_some());
         let agg_state = db_batch.aggregation_state.unwrap();

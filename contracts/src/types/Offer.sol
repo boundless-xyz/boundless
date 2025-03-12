@@ -17,13 +17,25 @@ struct Offer {
     uint256 minPrice;
     /// @notice Price at the end of the bidding period, this is the maximum price the client will pay.
     uint256 maxPrice;
-    /// @notice Block number at which bidding starts.
+    /// @notice Time at which bidding starts, in seconds since the UNIX epoch.
     uint64 biddingStart;
-    /// @notice Length of the "ramp-up period," measured in blocks since bidding start.
-    /// @dev Once bidding starts, the price begins to "ramp-up." During this time, the price rises each block until it reaches maxPrice.
+    /// @notice Length of the "ramp-up period," measured in seconds since bidding start.
+    /// @dev Once bidding starts, the price begins to "ramp-up." During this time, the price rises
+    /// each block until it reaches `maxPrice.
     uint32 rampUpPeriod;
-    /// @notice Timeout for delivering the proof, expressed as a number of blocks from bidding start.
-    /// @dev Once locked-in, if a valid proof is not submitted before this deadline, the prover can be "slashed," which refunds the price to the requester.
+    /// @notice Timeout for the lock, expressed as seconds from bidding start.
+    /// @dev Once locked, if a valid proof is not submitted before this deadline, the prover can
+    /// be "slashed", which refunds the price to the requester and takes the prover stake.
+    ///
+    /// Additionally, the fee paid by the client is zero for proofs delivered after this time.
+    /// Note that after this time, and before `timeout` a proof can still be delivered to fulfill
+    /// the request. This applies both to locked and unlocked requests; if a proof is delivered
+    /// after this timeout, no fee will be paid from the client.
+    uint32 lockTimeout;
+    /// @notice Timeout for the request, expressed as seconds from bidding start.
+    /// @dev After this time the request is considered completely expired and can no longer be
+    /// fulfilled. After this time, the `slash` action can be completed to finalize the transaction
+    /// if it was locked but not fulfilled.
     uint32 timeout;
     /// @notice Bidders must stake this amount as part of their bid.
     uint256 lockStake;
@@ -33,31 +45,44 @@ library OfferLibrary {
     using SafeCast for uint256;
 
     string constant OFFER_TYPE =
-        "Offer(uint256 minPrice,uint256 maxPrice,uint64 biddingStart,uint32 rampUpPeriod,uint32 timeout,uint256 lockStake)";
+        "Offer(uint256 minPrice,uint256 maxPrice,uint64 biddingStart,uint32 rampUpPeriod,uint32 lockTimeout,uint32 timeout,uint256 lockStake)";
     bytes32 constant OFFER_TYPEHASH = keccak256(abi.encodePacked(OFFER_TYPE));
 
     /// @notice Validates that price, ramp-up, timeout, and deadline are internally consistent and the offer has not expired.
     /// @param offer The offer to validate.
     /// @param requestId The ID of the request associated with the offer.
-    /// @return deadline1 The deadline for the offer.
-    function validate(Offer memory offer, RequestId requestId) internal view returns (uint64 deadline1) {
-        if (offer.rampUpPeriod > offer.timeout) {
-            revert IBoundlessMarket.InvalidRequest();
-        }
+    /// @return lockDeadline1 The deadline for when a lock expires for the offer.
+    /// @return deadline1 The deadline for the offer as a whole.
+    function validate(Offer memory offer, RequestId requestId)
+        internal
+        view
+        returns (uint64 lockDeadline1, uint64 deadline1)
+    {
         if (offer.minPrice > offer.maxPrice) {
             revert IBoundlessMarket.InvalidRequest();
         }
+        if (offer.rampUpPeriod > offer.lockTimeout) {
+            revert IBoundlessMarket.InvalidRequest();
+        }
+        if (offer.lockTimeout > offer.timeout) {
+            revert IBoundlessMarket.InvalidRequest();
+        }
+        lockDeadline1 = offer.lockDeadline();
         deadline1 = offer.deadline();
-        if (deadline1 < block.number) {
+        if (deadline1 - lockDeadline1 > type(uint24).max) {
+            revert IBoundlessMarket.InvalidRequest();
+        }
+        if (deadline1 < block.timestamp) {
             revert IBoundlessMarket.RequestIsExpired(requestId, deadline1);
         }
     }
 
-    /// @notice Calculates the earliest block at which the offer will be worth at least the given price.
+    /// @notice Calculates the earliest time at which the offer will be worth at least the given price.
+    /// @dev Returned time will always be in the range 0 to offer.biddingStart + offer.rampUpPeriod.
     /// @param offer The offer to calculate for.
-    /// @param price The price to calculate the block for.
-    /// @return The earliest block at which the offer will be worth at least the given price.
-    function blockAtPrice(Offer memory offer, uint256 price) internal pure returns (uint64) {
+    /// @param price The price to calculate the time for.
+    /// @return The earliest time at which the offer will be worth at least the given price.
+    function timeAtPrice(Offer memory offer, uint256 price) internal pure returns (uint64) {
         if (price > offer.maxPrice) {
             revert IBoundlessMarket.InvalidRequest();
         }
@@ -77,22 +102,30 @@ library OfferLibrary {
         return offer.biddingStart + delta.toUint64();
     }
 
-    /// @notice Calculates the price at the given block.
+    /// @notice Calculates the price at the given time.
+    /// @dev Price increases linearly during the ramp-up period, then remains at the max price until
+    /// the lock deadline. After the lock deadline, the price goes to zero. As a result, provers are
+    /// paid no fee from the client for requests that are fulfilled after lock deadline. Note though
+    /// that there may be a reward of stake available, if a prover failed to deliver on the request.
     /// @param offer The offer to calculate for.
-    /// @param _block The block to calculate the price for.
-    /// @return The price at the given block.
-    function priceAtBlock(Offer memory offer, uint64 _block) internal pure returns (uint256) {
-        if (_block <= offer.biddingStart) {
+    /// @param timestamp The time to calculate the price for, as a UNIX timestamp.
+    /// @return The price at the given time.
+    function priceAt(Offer memory offer, uint64 timestamp) internal pure returns (uint256) {
+        if (timestamp <= offer.biddingStart) {
             return offer.minPrice;
         }
 
-        if (_block <= offer.biddingStart + offer.rampUpPeriod) {
+        if (timestamp > offer.lockDeadline()) {
+            return 0;
+        }
+
+        if (timestamp <= offer.biddingStart + offer.rampUpPeriod) {
             // Note: if we are in this branch, then 0 < offer.rampUpPeriod
             // This means it is safe to divide by offer.rampUpPeriod
 
             uint256 rise = uint256(offer.maxPrice - offer.minPrice);
             uint256 run = uint256(offer.rampUpPeriod);
-            uint256 delta = _block - uint256(offer.biddingStart);
+            uint256 delta = timestamp - uint256(offer.biddingStart);
 
             // Note: delta <= run
             // This means (delta * rise) / run <= rise
@@ -107,9 +140,16 @@ library OfferLibrary {
 
     /// @notice Calculates the deadline for the offer.
     /// @param offer The offer to calculate the deadline for.
-    /// @return The deadline for the offer.
+    /// @return The deadline for the offer, as a UNIX timestamp.
     function deadline(Offer memory offer) internal pure returns (uint64) {
         return offer.biddingStart + offer.timeout;
+    }
+
+    /// @notice Calculates the lock deadline for the offer.
+    /// @param offer The offer to calculate the lock deadline for.
+    /// @return The lock deadline for the offer, as a UNIX timestamp.
+    function lockDeadline(Offer memory offer) internal pure returns (uint64) {
+        return offer.biddingStart + offer.lockTimeout;
     }
 
     /// @notice Computes the EIP-712 digest for the given offer.
@@ -123,6 +163,7 @@ library OfferLibrary {
                 offer.maxPrice,
                 offer.biddingStart,
                 offer.rampUpPeriod,
+                offer.lockTimeout,
                 offer.timeout,
                 offer.lockStake
             )

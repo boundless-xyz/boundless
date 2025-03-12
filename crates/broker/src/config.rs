@@ -34,6 +34,10 @@ mod defaults {
     pub const fn fulfill_gas_estimate() -> u64 {
         300_000_000
     }
+
+    pub const fn max_submission_attempts() -> u32 {
+        3
+    }
 }
 /// All configuration related to markets mechanics
 #[derive(Deserialize, Serialize)]
@@ -57,7 +61,7 @@ pub struct MarketConf {
     ///
     /// Used for sanity checking bids to prevent slashing
     pub peak_prove_khz: Option<u64>,
-    /// Min blocks allowed to consider bidding on the proof
+    /// Min seconds left before the deadline allowed to consider bidding on the proof
     pub min_deadline: u64,
     /// Order lookback blocks
     ///
@@ -89,6 +93,12 @@ pub struct MarketConf {
     /// Gas estimate for fulfill call to use if it cannot be estimated using the node RPC
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Stake balance warning threshold (in stake tokens)
+    /// if the stake balance drops below this the broker will issue warning logs
+    pub stake_balance_warn_threshold: Option<String>,
+    /// Stake balance error threshold (in stake tokens)
+    /// if the stake balance drops below this the broker will issue error logs
+    pub stake_balance_error_threshold: Option<String>,
 }
 
 impl Default for MarketConf {
@@ -99,7 +109,7 @@ impl Default for MarketConf {
             max_mcycle_limit: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,
-            min_deadline: 150, // ~300 seconds aka 5 mins
+            min_deadline: 300, // 5 mins
             lookback_blocks: 100,
             max_stake: "0.1".to_string(),
             skip_preflight_ids: None,
@@ -109,6 +119,8 @@ impl Default for MarketConf {
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            stake_balance_warn_threshold: None,
+            stake_balance_error_threshold: None,
         }
     }
 }
@@ -174,6 +186,9 @@ pub struct BatcherConfig {
     /// be present on the deployed contract
     #[serde(default)]
     pub single_txn_fulfill: bool,
+    /// Number of attempts to make to submit a batch before abandoning
+    #[serde(default = "defaults::max_submission_attempts")]
+    pub max_submission_attempts: u32,
 }
 
 impl Default for BatcherConfig {
@@ -187,6 +202,7 @@ impl Default for BatcherConfig {
             txn_timeout: None,
             batch_poll_time_ms: Some(1000),
             single_txn_fulfill: false,
+            max_submission_attempts: defaults::max_submission_attempts(),
         }
     }
 }
@@ -354,7 +370,7 @@ mod tests {
 [market]
 mcycle_price = "0.1"
 peak_prove_khz = 500
-min_deadline = 150
+min_deadline = 300
 lookback_blocks = 100
 max_stake = "0.1"
 skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
@@ -376,7 +392,7 @@ block_deadline_buffer_secs = 120"#;
 mcycle_price = "0.1"
 assumption_price = "0.1"
 peak_prove_khz = 10000
-min_deadline = 150
+min_deadline = 300
 lookback_blocks = 100
 max_stake = "0.1"
 skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
@@ -417,7 +433,7 @@ error = ?"#;
         assert_eq!(config.market.mcycle_price, "0.1");
         assert_eq!(config.market.assumption_price, None);
         assert_eq!(config.market.peak_prove_khz, Some(500));
-        assert_eq!(config.market.min_deadline, 150);
+        assert_eq!(config.market.min_deadline, 300);
         assert_eq!(config.market.lookback_blocks, 100);
         assert_eq!(config.market.max_stake, "0.1");
         assert_eq!(config.market.max_file_size, 50_000_000);
@@ -462,7 +478,7 @@ error = ?"#;
             assert_eq!(config.market.mcycle_price, "0.1");
             assert_eq!(config.market.assumption_price, None);
             assert_eq!(config.market.peak_prove_khz, Some(500));
-            assert_eq!(config.market.min_deadline, 150);
+            assert_eq!(config.market.min_deadline, 300);
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.max_mcycle_limit, None);
             assert_eq!(config.prover.status_poll_ms, 1000);
@@ -477,7 +493,7 @@ error = ?"#;
             assert_eq!(config.market.mcycle_price, "0.1");
             assert_eq!(config.market.assumption_price, Some("0.1".into()));
             assert_eq!(config.market.peak_prove_khz, Some(10000));
-            assert_eq!(config.market.min_deadline, 150);
+            assert_eq!(config.market.min_deadline, 300);
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
             assert_eq!(config.market.lockin_priority_gas, Some(100));

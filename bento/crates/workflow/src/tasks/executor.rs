@@ -219,6 +219,12 @@ impl Coprocessor {
 
 impl CoprocessorCallback for Coprocessor {
     fn prove_keccak(&mut self, request: ProveKeccakRequest) -> Result<()> {
+        if request.input.is_empty() {
+            anyhow::bail!(
+                "Received empty keccak input with claim_digest: {}",
+                request.claim_digest
+            );
+        }
         self.tx.send_blocking(request)?;
         Ok(())
     }
@@ -413,7 +419,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             redis::set_key_with_expiry(
                 &mut coproc_redis,
                 &redis_key,
-                keccak_req.input,
+                bytemuck::cast_slice::<_, u8>(&keccak_req.input).to_vec(),
                 Some(redis_ttl),
             )
             .await

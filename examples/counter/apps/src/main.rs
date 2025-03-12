@@ -145,9 +145,9 @@ async fn run(
     // verify that the proof is correct by checking both the committed image id and digest of the
     // journal. The offer specifies the price range and the timeout for the request.
     // Additionally, the offer can also specify:
-    // - the bidding start time: the block number when the bidding starts;
-    // - the ramp up period: the number of blocks before the price start increasing until reaches
-    //   the maxPrice, starting from the the bidding start;
+    // - the bidding start time: the UNIX timestamp at which the bidding starts;
+    // - the ramp up period: the number of seconds before the price increases until reaches
+    //   the maxPrice, starting from the bidding start;
     // - the lockin price: the price at which the request can be locked in by a prover, if the
     //   request is not fulfilled before the timeout, the prover can be slashed.
     let request = ProofRequest::builder()
@@ -164,11 +164,12 @@ async fn run(
                 .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
                 // NOTE: If your offer is not being accepted, try increasing the max price.
                 .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
-                // The timeout is the maximum number of blocks the request can stay
+                // The timeout is the maximum number of seconds the request can stay
                 // unfulfilled in the market before it expires. If a prover locks in
                 // the request and does not fulfill it before the timeout, the prover can be
                 // slashed.
-                .with_timeout(1000),
+                .with_timeout(1000)
+                .with_lock_timeout(1000),
         )
         .build()?;
 

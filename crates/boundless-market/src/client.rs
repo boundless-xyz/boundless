@@ -31,25 +31,30 @@ use alloy::{
     },
     transports::{http::Http, Transport},
 };
+use alloy_primitives::{PrimitiveSignature, B256};
+use alloy_sol_types::SolStruct;
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client as HttpClient;
+use risc0_aggregation::SetInclusionReceipt;
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
+use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use url::Url;
 
 use crate::{
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
-        set_verifier::SetVerifierService,
         ProofRequest, RequestError,
     },
-    order_stream_client::Client as OrderStreamClient,
+    now_timestamp,
+    order_stream_client::{Client as OrderStreamClient, Order},
     storage::{
         storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider,
         BuiltinStorageProviderError, StorageProvider, StorageProviderConfig,
     },
 };
 
-// Default bidding start offset (from the current block) in blocks
-const BIDDING_START_OFFSET: u64 = 5;
+// Default bidding start delay (from the current time) in seconds
+const BIDDING_START_DELAY: u64 = 30;
 
 type ProviderWallet = FillProvider<
     JoinFill<
@@ -92,7 +97,7 @@ pub struct ClientBuilder {
     order_stream_url: Option<Url>,
     storage_config: Option<StorageProviderConfig>,
     tx_timeout: Option<std::time::Duration>,
-    bidding_start_offset: u64,
+    bidding_start_delay: u64,
 }
 
 impl Default for ClientBuilder {
@@ -106,7 +111,7 @@ impl Default for ClientBuilder {
             order_stream_url: None,
             storage_config: None,
             tx_timeout: None,
-            bidding_start_offset: BIDDING_START_OFFSET,
+            bidding_start_delay: BIDDING_START_DELAY,
         }
     }
 }
@@ -140,7 +145,7 @@ impl ClientBuilder {
         if let Some(local_signer) = self.local_signer {
             client = client.with_local_signer(local_signer);
         }
-        client = client.with_bidding_start_offset(self.bidding_start_offset);
+        client = client.with_bidding_start_delay(self.bidding_start_delay);
         Ok(client)
     }
 
@@ -191,9 +196,11 @@ impl ClientBuilder {
         Self { tx_timeout, ..self }
     }
 
-    /// Set the bidding start offset in blocks
-    pub fn with_bidding_start_offset(self, bidding_start_offset: u64) -> Self {
-        Self { bidding_start_offset, ..self }
+    /// Set the bidding start delay in seconds, from the current time.
+    ///
+    /// Used to set the bidding start time on requests, when a start time is not specified.
+    pub fn with_bidding_start_delay(self, bidding_start_delay: u64) -> Self {
+        Self { bidding_start_delay, ..self }
     }
 }
 
@@ -210,8 +217,8 @@ pub struct Client<T, P, S> {
     pub offchain_client: Option<OrderStreamClient>,
     /// Local signer for signing requests.
     pub local_signer: Option<LocalSigner<SigningKey>>,
-    /// Bidding start offset wrt the current block (in blocks).
-    pub bidding_start_offset: u64,
+    /// Bidding start delay with regard to the current time, in seconds.
+    pub bidding_start_delay: u64,
 }
 
 impl<T, P, S> Client<T, P, S>
@@ -233,7 +240,7 @@ where
             storage_provider: None,
             offchain_client: None,
             local_signer: None,
-            bidding_start_offset: BIDDING_START_OFFSET,
+            bidding_start_delay: BIDDING_START_DELAY,
         }
     }
 
@@ -281,9 +288,9 @@ where
         Self { local_signer: Some(local_signer), ..self }
     }
 
-    /// Set the bidding start offset
-    pub fn with_bidding_start_offset(self, bidding_start_offset: u64) -> Self {
-        Self { bidding_start_offset, ..self }
+    /// Set the bidding start delay, in seconds.
+    pub fn with_bidding_start_delay(self, bidding_start_delay: u64) -> Self {
+        Self { bidding_start_delay, ..self }
     }
 
     /// Upload an image to the storage provider
@@ -312,7 +319,7 @@ where
     ///
     /// Requires a local signer to be set to sign the request.
     /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current block number will be used.
+    /// If the bidding start is not set, the current time will be used, plus a delay.
     pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
     where
         <S as StorageProvider>::Error: std::fmt::Debug,
@@ -325,7 +332,7 @@ where
     ///
     /// Accepts a signer to sign the request.
     /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current block number will be used.
+    /// If the bidding start is not set, the current time will be used, plus a delay.
     pub async fn submit_request_with_signer(
         &self,
         request: &ProofRequest,
@@ -344,12 +351,7 @@ where
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
         if request.offer.biddingStart == 0 {
-            request.offer.biddingStart = self
-                .provider()
-                .get_block_number()
-                .await
-                .context("Failed to get current block number")?
-                + self.bidding_start_offset
+            request.offer.biddingStart = now_timestamp() + self.bidding_start_delay
         };
 
         request.validate()?;
@@ -362,7 +364,7 @@ where
     ///
     /// Accepts a signer to sign the request.
     /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current block number will be used.
+    /// If the bidding start is not set, the current time plus a delay will be used.
     pub async fn submit_request_offchain_with_signer(
         &self,
         request: &ProofRequest,
@@ -385,12 +387,7 @@ where
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
         if request.offer.biddingStart == 0 {
-            request.offer.biddingStart = self
-                .provider()
-                .get_block_number()
-                .await
-                .context("Failed to get current block number")?
-                + self.bidding_start_offset
+            request.offer.biddingStart = now_timestamp() + self.bidding_start_delay
         };
         // Ensure address' balance is sufficient to cover the request
         let balance = self.boundless_market.balance_of(request.client_address()?).await?;
@@ -411,7 +408,7 @@ where
     ///
     /// Requires a local signer to be set to sign the request.
     /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current block number will be used.
+    /// If the bidding start is not set, the current timestamp plus a delay will be used.
     pub async fn submit_request_offchain(
         &self,
         request: &ProofRequest,
@@ -437,6 +434,69 @@ where
             .boundless_market
             .wait_for_request_fulfillment(request_id, check_interval, expires_at)
             .await?)
+    }
+
+    /// Get the [SetInclusionReceipt] for a request.
+    ///
+    /// Example:
+    /// ```
+    /// use anyhow::Result;
+    /// use alloy::primitives::{B256, Bytes, U256};
+    /// use boundless_market::client::ClientBuilder;
+    /// use risc0_aggregation::SetInclusionReceipt;
+    /// use risc0_zkvm::ReceiptClaim;
+    ///
+    /// async fn fetch_set_inclusion_receipt(request_id: U256, image_id: B256) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>)> {
+    ///     let client = ClientBuilder::default().build().await?;
+    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, image_id).await?;
+    ///     Ok((journal, receipt))
+    /// }
+    /// ```
+    ///
+    pub async fn fetch_set_inclusion_receipt(
+        &self,
+        request_id: U256,
+        image_id: B256,
+    ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
+        let (journal, seal) = self.boundless_market.get_request_fulfillment(request_id).await?;
+        let claim = ReceiptClaim::ok(Digest::from(image_id.0), journal.to_vec());
+        let receipt =
+            self.set_verifier.fetch_receipt_with_claim(seal, claim, journal.to_vec()).await?;
+        Ok((journal, receipt))
+    }
+
+    /// Fetch an order as a proof request and signature pair.
+    ///
+    /// If the request is not found in the boundless market, it will be fetched from the order stream service.
+    pub async fn fetch_order(
+        &self,
+        request_id: U256,
+        tx_hash: Option<B256>,
+        request_digest: Option<B256>,
+    ) -> Result<Order, ClientError> {
+        match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
+            Ok((request, signature_bytes)) => {
+                let domain = self.boundless_market.eip712_domain().await?;
+                let digest = request.eip712_signing_hash(&domain.alloy_struct());
+                if let Some(expected_digest) = request_digest {
+                    if digest != expected_digest {
+                        return Err(ClientError::RequestError(RequestError::DigestMismatch));
+                    }
+                }
+                Ok(Order {
+                    request,
+                    request_digest: digest,
+                    signature: PrimitiveSignature::try_from(signature_bytes.as_ref())
+                        .map_err(|_| ClientError::Error(anyhow!("Failed to parse signature")))?,
+                })
+            }
+            Err(_) => Ok(self
+                .offchain_client
+                .as_ref()
+                .context("Request not found on-chain and order stream client not available. Please provide an order stream URL")?
+                .fetch_order(request_id, request_digest)
+                .await?),
+        }
     }
 }
 
@@ -498,7 +558,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             storage_provider,
             offchain_client,
             local_signer: Some(private_key),
-            bidding_start_offset: BIDDING_START_OFFSET,
+            bidding_start_delay: BIDDING_START_DELAY,
         })
     }
 
@@ -532,7 +592,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
             storage_provider,
             offchain_client,
             local_signer: None,
-            bidding_start_offset: BIDDING_START_OFFSET,
+            bidding_start_delay: BIDDING_START_DELAY,
         })
     }
 }

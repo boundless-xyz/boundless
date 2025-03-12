@@ -51,7 +51,7 @@ enum DbOperation {
 #[derive(Debug, Arbitrary, Clone)]
 enum ExistingOrderOperation {
     GetOrder,
-    SetOrderLock { lock_block: u32, expire_block: u32 },
+    SetOrderLock { lock_timestamp: u32, expire_timestamp: u32 },
     SetProvingStatus { lock_price: u64 },
     SetOrderComplete,
     SkipOrder,
@@ -85,17 +85,14 @@ fn generate_test_order(id: u32) -> Order {
     Order {
         status: OrderStatus::New,
         updated_at: Utc::now(),
-        target_block: None,
+        target_timestamp: None,
         request: ProofRequest::new(
             id,
             &Address::ZERO,
-            Requirements {
-                imageId: Default::default(),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "test",
             Input { inputType: InputType::Url, data: Default::default() },
             Offer {
@@ -103,6 +100,7 @@ fn generate_test_order(id: u32) -> Order {
                 maxPrice: U256::from(10),
                 biddingStart: 0,
                 timeout: 1000,
+                lockTimeout: 1000,
                 rampUpPeriod: 1,
                 lockStake: U256::from(0),
             },
@@ -110,7 +108,7 @@ fn generate_test_order(id: u32) -> Order {
         image_id: None,
         input_id: None,
         proof_id: Some(format!("proof_{}", id)),
-        expire_block: Some(1000),
+        expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
         error_msg: None,
@@ -191,8 +189,8 @@ proptest! {
                                     ExistingOrderOperation::GetOrder => {
                                         db.get_order(U256::from(id)).await.unwrap();
                                     },
-                                    ExistingOrderOperation::SetOrderLock { lock_block, expire_block } => {
-                                        db.set_order_lock(U256::from(id), lock_block as u64, expire_block as u64).await.unwrap();
+                                    ExistingOrderOperation::SetOrderLock { lock_timestamp, expire_timestamp } => {
+                                        db.set_order_lock(U256::from(id), lock_timestamp as u64, expire_timestamp as u64).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetProvingStatus { lock_price } => {
                                         db.set_proving_status(U256::from(id), U256::from(lock_price)).await.unwrap();
@@ -271,7 +269,7 @@ proptest! {
                                                 orders.push(AggregationOrder {
                                                     order_id: U256::from(id),
                                                     proof_id: format!("proof_{}", id),
-                                                    expire_block: 1000,
+                                                    expiration: 1000,
                                                     fee: U256::from(10),
                                                 });
                                             }
@@ -299,8 +297,8 @@ proptest! {
                             DbOperation::GetActivePricingOrders => {
                                 db.get_active_pricing_orders().await.unwrap();
                             },
-                            DbOperation::GetPendingLockOrders(end_block) => {
-                                db.get_pending_lock_orders(end_block as u64).await.unwrap();
+                            DbOperation::GetPendingLockOrders(end_timestamp) => {
+                                db.get_pending_lock_orders(end_timestamp as u64).await.unwrap();
                             },
                             DbOperation::GetProvingOrder => {
                                 db.get_proving_order().await.unwrap();

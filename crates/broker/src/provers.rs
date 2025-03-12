@@ -77,7 +77,6 @@ pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Er
 pub trait Prover {
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError>;
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError>;
-    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError>;
     async fn preflight(
         &self,
         image_id: &str,
@@ -126,6 +125,71 @@ impl Bonsai {
     }
 }
 
+struct StatusPoller {
+    poll_sleep: u64,
+    retry_counts: u64,
+}
+
+impl StatusPoller {
+    async fn poll_with_retries(
+        &self,
+        proof_id: &SessionId,
+        client: &BonsaiClient,
+    ) -> Result<ProofResult, ProverError> {
+        loop {
+            let mut status = None;
+            for retry_count in 0..self.retry_counts {
+                match proof_id.status(client).await {
+                    Ok(res) => {
+                        status = Some(res);
+                        break;
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed to get status: {err:?}, retrying {retry_count} / {}",
+                            self.retry_counts
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(self.poll_sleep)).await;
+                        continue;
+                    }
+                }
+            }
+
+            let Some(status) = status else {
+                return Err(ProverError::StatusFailure);
+            };
+
+            match status.status.as_ref() {
+                "RUNNING" => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep)).await;
+                    continue;
+                }
+                "SUCCEEDED" => {
+                    let Some(stats) = status.stats else {
+                        return Err(ProverError::MissingStatus);
+                    };
+                    return Ok(ProofResult {
+                        id: proof_id.uuid.clone(),
+                        stats: ExecutorResp {
+                            assumption_count: 0,
+                            segments: stats.segments as u64,
+                            user_cycles: stats.cycles,
+                            total_cycles: stats.total_cycles,
+                        },
+                        elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
+                    });
+                }
+                _ => {
+                    let err_msg = status.error_msg.unwrap_or_default();
+                    return Err(ProverError::ProvingFailed(format!(
+                        "{proof_id:?} failed: {err_msg}"
+                    )));
+                }
+            }
+        }
+    }
+}
+
 #[async_trait]
 impl Prover for Bonsai {
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
@@ -134,12 +198,6 @@ impl Prover for Bonsai {
 
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
         Ok(self.client.upload_img(image_id, image).await.map(|_| ())?)
-    }
-
-    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
-        // upload_img will early return true if the image_id already exists
-        // so calling this with empty data is a way to check this
-        Ok(self.client.upload_img(image_id, vec![]).await?)
     }
 
     async fn preflight(
@@ -164,53 +222,9 @@ impl Prover for Bonsai {
             let config = self.config.lock_all()?;
             (config.prover.status_poll_ms, config.prover.req_retry_count)
         };
-
-        loop {
-            let mut status = None;
-            for retry_count in 0..retry_counts {
-                match preflight_id.status(&self.client).await {
-                    Ok(res) => {
-                        status = Some(res);
-                        break;
-                    }
-                    Err(err) => {
-                        tracing::warn!("Failed to get status: {err:?}, retrying {retry_count} / {retry_counts}");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(poll_sleep)).await;
-                        continue;
-                    }
-                }
-            }
-
-            let Some(status) = status else {
-                return Err(ProverError::StatusFailure);
-            };
-
-            match status.status.as_ref() {
-                "RUNNING" => {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(poll_sleep)).await;
-                    continue;
-                }
-                "SUCCEEDED" => {
-                    let Some(stats) = status.stats else {
-                        return Err(ProverError::MissingStatus);
-                    };
-                    return Ok(ProofResult {
-                        id: preflight_id.uuid,
-                        stats: ExecutorResp {
-                            assumption_count: 0,
-                            segments: stats.segments as u64,
-                            user_cycles: stats.cycles,
-                            total_cycles: stats.total_cycles,
-                        },
-                        elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
-                    });
-                }
-                _ => {
-                    let err_msg = status.error_msg.unwrap_or_default();
-                    return Err(ProverError::ProvingFailed(format!("preflight failed: {err_msg}")));
-                }
-            }
-        }
+        StatusPoller { poll_sleep, retry_counts }
+            .poll_with_retries(&preflight_id, &self.client)
+            .await
     }
 
     async fn prove_stark(
@@ -239,41 +253,13 @@ impl Prover for Bonsai {
     async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
         let proof_id = SessionId::new(proof_id.into());
 
-        let poll_sleep = {
+        let (poll_sleep, retry_counts) = {
             let config = self.config.lock_all()?;
-            config.prover.status_poll_ms
+            (config.prover.status_poll_ms, config.prover.req_retry_count)
         };
+        let poller = StatusPoller { poll_sleep, retry_counts };
 
-        loop {
-            let status = proof_id.status(&self.client).await?;
-            match status.status.as_ref() {
-                "RUNNING" => {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(poll_sleep)).await;
-                    continue;
-                }
-                "SUCCEEDED" => {
-                    let Some(stats) = status.stats else {
-                        return Err(ProverError::MissingStatus);
-                    };
-                    return Ok(ProofResult {
-                        id: proof_id.uuid,
-                        stats: ExecutorResp {
-                            assumption_count: 0,
-                            segments: stats.segments as u64,
-                            user_cycles: stats.cycles,
-                            total_cycles: stats.total_cycles,
-                        },
-                        elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
-                    });
-                }
-                _ => {
-                    let err_msg = status.error_msg.unwrap_or_default();
-                    return Err(ProverError::ProvingFailed(format!(
-                        "stark proving failed: {err_msg}"
-                    )));
-                }
-            }
-        }
+        poller.poll_with_retries(&proof_id, &self.client).await
     }
 
     async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
@@ -429,10 +415,6 @@ impl Prover for MockProver {
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
         self.images.lock().unwrap().insert(image_id.to_string(), image);
         Ok(())
-    }
-
-    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
-        Ok(self.images.lock().unwrap().contains_key(image_id))
     }
 
     async fn preflight(

@@ -186,10 +186,11 @@ mod tests {
     use super::*;
     use crate::{
         db::SqliteDb,
+        now_timestamp,
         provers::{encode_input, MockProver},
         OrderStatus,
     };
-    use alloy::primitives::{Bytes, B256, U256};
+    use alloy::primitives::{Bytes, U256};
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
@@ -223,23 +224,24 @@ mod tests {
         let order = Order {
             status: OrderStatus::Locking,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request: ProofRequest {
                 id: U256::ZERO,
-                requirements: Requirements {
-                    imageId: B256::ZERO,
-                    predicate: Predicate {
+                requirements: Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
                         predicateType: PredicateType::PrefixMatch,
                         data: Default::default(),
                     },
-                },
+                ),
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
-                    biddingStart: 4,
+                    biddingStart: now_timestamp(),
                     rampUpPeriod: 1,
+                    lockTimeout: 100,
                     timeout: 100,
                     lockStake: U256::from(10),
                 },
@@ -247,7 +249,7 @@ mod tests {
             image_id: Some(image_id),
             input_id: Some(input_id),
             proof_id: None,
-            expire_block: None,
+            expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,
@@ -289,31 +291,32 @@ mod tests {
         let order = Order {
             status: OrderStatus::Proving,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request: ProofRequest {
                 id: order_id,
-                requirements: Requirements {
-                    imageId: B256::ZERO,
-                    predicate: Predicate {
+                requirements: Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
                         predicateType: PredicateType::PrefixMatch,
                         data: Default::default(),
                     },
-                },
+                ),
                 imageUrl: "http://risczero.com/image".into(),
                 input: Input { inputType: InputType::Inline, data: Default::default() },
                 offer: Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
-                    biddingStart: 4,
+                    biddingStart: now_timestamp(),
                     rampUpPeriod: 1,
                     timeout: 100,
+                    lockTimeout: 100,
                     lockStake: U256::from(10),
                 },
             },
             image_id: Some(image_id),
             input_id: Some(input_id),
             proof_id: Some(proof_id.clone()),
-            expire_block: None,
+            expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
             error_msg: None,

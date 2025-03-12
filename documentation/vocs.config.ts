@@ -77,7 +77,7 @@ const SIDEBAR_CONFIG = [
         collapsed: true,
         items: [
           {
-            text: "The Boundless Proving Stack", 
+            text: "The Boundless Proving Stack",
             link: "/prove/proving-stack",
           },
           {
@@ -92,7 +92,7 @@ const SIDEBAR_CONFIG = [
             text: "Performance Optimization",
             link: "/prove/performance-optimization",
           },
-        ]
+        ],
       },
     ],
   },
@@ -112,10 +112,9 @@ const SIDEBAR_CONFIG = [
         link: "/terminology",
       },
       {
-        text: "Bento Technical Design", 
+        text: "Bento Technical Design",
         link: "/bento-technical-design",
       },
-      
     ],
   },
 ];
@@ -167,7 +166,7 @@ export default defineConfig({
   },
   sidebar: SIDEBAR_CONFIG,
   topNav: [
-    { text: "Indexer", link: "https://indexer.beboundless.xyz" },
+    { text: "Explorer", link: "https://explorer.beboundless.xyz" },
     { text: "Help", link: "https://t.me/+E9J7zgtyoTVlNzk1" },
     /*{
       text: process.env.LATEST_TAG || "Latest",
@@ -222,7 +221,8 @@ export default defineConfig({
   },
   banner: {
     dismissable: true,
-    content: 'BREAKING: Boundless is opening the allowlist for infrastructure companies to start proving, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more info.'
+    content:
+      "BREAKING: Boundless is opening the allowlist for infrastructure companies to start proving, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more info.",
   },
   ogImageUrl: "https://docs.beboundless.xyz/og.png",
 });

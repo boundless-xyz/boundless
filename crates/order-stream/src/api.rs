@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -62,7 +62,7 @@ pub struct Pagination {
         (status = 500, description = "Internal error", body = ErrMsg)
     )
 )]
-/// Submit a new order to the market order-stream
+/// Returns a list of orders, with optional paging.
 pub(crate) async fn list_orders(
     State(state): State<Arc<AppState>>,
     paging: Query<Pagination>,
@@ -73,6 +73,27 @@ pub(crate) async fn list_orders(
     let offset = i64::try_from(paging.offset).map_err(|_| AppError::QueryParamErr("index"))?;
 
     let results = state.db.list_orders(offset, limit).await.context("Failed to query DB")?;
+    Ok(Json(results))
+}
+
+#[utoipa::path(
+    get,
+    path = "api/orders/<request_id>",
+    params(
+        ("id" = String, Path, description = "Request ID")
+    ),
+    responses(
+        (status = 200, description = "list of orders", body = Vec<OrderData>),
+        (status = 500, description = "Internal error", body = ErrMsg)
+    )
+)]
+/// Returns all the orders with the given request_id.
+pub(crate) async fn find_orders_by_request_id(
+    State(state): State<Arc<AppState>>,
+    Path(request_id): Path<String>,
+) -> Result<Json<Vec<DbOrder>>, AppError> {
+    let results =
+        state.db.find_orders_by_request_id(request_id).await.context("Failed to query DB")?;
     Ok(Json(results))
 }
 

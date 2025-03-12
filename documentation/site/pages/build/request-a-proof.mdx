@@ -144,7 +144,7 @@ A proof request consists of four essential components that specify which program
 ```rust showLineNumbers
 # use anyhow::Result;
 # use alloy_primitives::utils::parse_ether;
-# use boundless_market::contracts::{Input, Offer, Predicate, ProofRequest, Requirements};
+# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
 # use risc0_zkvm::sha::{Digest, Digestible};
 # fn create_proof_request(
 # ECHO_ID: Digest,
@@ -300,7 +300,7 @@ To submit a proof, a valid `request.yaml` is required, this config file will spe
     The input can have any encoding. The bytes will be passed to the guest without modification.
 - Offer:
   - This includes the minimum and maximum price for the proof request, the block number to open bidding, the price ramp up period, how many blocks before the request should timeout, and the lock-in stake the prover has to escrow to submit a bid.
-  
+
 :::note[Note]
 During this current Boundless phase, provers require HP tokens for lock-in stake. They receive 100 HP tokens, so setting 5 per lock-in stake is the recommended amount (i.e., they can fail 20 proof requests before they run out of HP.) Setting it higher may cause provers to deprioritize your proof requests. To learn more about HP tokens, please read [Hitpoint Tokens](/prove/broker#hitpoints-hp-tokens).
 :::
@@ -334,7 +334,7 @@ input:
 offer:
   minPrice: 1000000000000000 # 0.001 Sepolia ETH
   maxPrice: 2000000000000000 # 0.002 Sepolia ETH
-  biddingStart: 0 # if set to 0, gets overwritten by the current block height
+  biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
   rampUpPeriod: 100
   timeout: 300 # 1 hour at 12s block times.
   lockStake: 5000000000000000000 # 5 Hitpoint Tokens
