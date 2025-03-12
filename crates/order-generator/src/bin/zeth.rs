@@ -123,15 +123,14 @@ async fn main() -> Result<()> {
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 
-    let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+    let balance_alerts = BalanceAlertConfig {
         watch_address: wallet.default_signer().address(),
         warn_threshold: args.warn_balance_below,
         error_threshold: args.error_balance_below,
-    });
+    };
 
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()
-        .layer(balance_alerts_layer)
         .wallet(wallet)
         .on_http(args.zeth_rpc_url.clone());
     let rpc = Some(args.zeth_rpc_url.to_string());
@@ -145,6 +144,7 @@ async fn main() -> Result<()> {
         .with_order_stream_url(args.order_stream_url)
         .with_storage_provider_config(args.storage_config.clone())
         .with_private_key(args.private_key)
+        .with_balance_alerts(balance_alerts)
         .build()
         .await?;
 

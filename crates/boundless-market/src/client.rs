@@ -34,6 +34,7 @@ use alloy::{
 use alloy_primitives::{PrimitiveSignature, B256};
 use alloy_sol_types::SolStruct;
 use anyhow::{anyhow, Context, Result};
+use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider};
 use reqwest::Client as HttpClient;
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -64,7 +65,7 @@ type ProviderWallet = FillProvider<
         >,
         WalletFiller<EthereumWallet>,
     >,
-    RootProvider<Http<HttpClient>>,
+    BalanceAlertProvider<RootProvider<Http<HttpClient>>, Http<HttpClient>>,
     Http<HttpClient>,
     Ethereum,
 >;
@@ -98,6 +99,7 @@ pub struct ClientBuilder {
     storage_config: Option<StorageProviderConfig>,
     tx_timeout: Option<std::time::Duration>,
     bidding_start_delay: u64,
+    balance_alerts: Option<BalanceAlertConfig>,
 }
 
 impl Default for ClientBuilder {
@@ -112,6 +114,7 @@ impl Default for ClientBuilder {
             storage_config: None,
             tx_timeout: None,
             bidding_start_delay: BIDDING_START_DELAY,
+            balance_alerts: None,
         }
     }
 }
@@ -137,6 +140,7 @@ impl ClientBuilder {
             } else {
                 None
             },
+            self.balance_alerts,
         )
         .await?;
         if let Some(timeout) = self.tx_timeout {
@@ -201,6 +205,11 @@ impl ClientBuilder {
     /// Used to set the bidding start time on requests, when a start time is not specified.
     pub fn with_bidding_start_delay(self, bidding_start_delay: u64) -> Self {
         Self { bidding_start_delay, ..self }
+    }
+
+    /// Set the balance alerts configuration
+    pub fn with_balance_alerts(self, config: BalanceAlertConfig) -> Self {
+        Self { balance_alerts: Some(config), ..self }
     }
 }
 
@@ -529,6 +538,7 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
             .wallet(wallet.clone())
+            .layer(BalanceAlertLayer::default())
             .on_http(rpc_url);
 
         let boundless_market =
@@ -570,12 +580,14 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         set_verifier_address: Address,
         order_stream_url: Option<Url>,
         storage_provider: Option<BuiltinStorageProvider>,
+        balance_alerts: Option<BalanceAlertConfig>,
     ) -> Result<Self, ClientError> {
         let caller = wallet.default_signer().address();
 
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
             .wallet(wallet.clone())
+            .layer(BalanceAlertLayer::new(balance_alerts.unwrap_or_default()))
             .on_http(rpc_url);
 
         let boundless_market =

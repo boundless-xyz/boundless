@@ -2377,6 +2377,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
+ "balance-alerts-layer",
  "boundless-market",
  "bytemuck",
  "chrono",
