@@ -40,6 +40,13 @@ pub async fn keccak(agent: &Agent, job_id: &Uuid, request: &KeccakReq) -> Result
         input: try_keccak_bytes_to_input(&keccak_input)?,
     };
 
+    if keccak_req.input.is_empty() {
+        anyhow::bail!(
+            "Received empty keccak input with claim_digest: {}, skipping",
+            request.claim_digest
+        );
+    }
+
     tracing::info!("Keccak proving {}", request.claim_digest);
 
     let keccak_receipt = agent
