@@ -219,6 +219,12 @@ impl Coprocessor {
 
 impl CoprocessorCallback for Coprocessor {
     fn prove_keccak(&mut self, request: ProveKeccakRequest) -> Result<()> {
+        if request.input.is_empty() {
+            anyhow::bail!(
+                "Received empty keccak input with claim_digest: {}",
+                request.claim_digest
+            );
+        }
         self.tx.send_blocking(request)?;
         Ok(())
     }
