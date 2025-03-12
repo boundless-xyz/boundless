@@ -42,7 +42,7 @@ pub async fn keccak(agent: &Agent, job_id: &Uuid, request: &KeccakReq) -> Result
 
     if keccak_req.input.is_empty() {
         anyhow::bail!(
-            "Received empty keccak input with claim_digest: {}, skipping",
+            "Received empty keccak input with claim_digest: {}",
             request.claim_digest
         );
     }
