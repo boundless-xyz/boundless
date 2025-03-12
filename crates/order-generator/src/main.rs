@@ -302,6 +302,8 @@ mod tests {
             elf: None,
             input: OrderInput { input: None, input_file: None },
             encode_input: false,
+            warn_balance_below: None,
+            error_balance_below: None,
         };
 
         run(&args).await.unwrap();
