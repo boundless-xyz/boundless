@@ -9,7 +9,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
-use boundless_slasher::SlashService;
+use boundless_slasher::{SlashService, SlashServiceConfig};
 use clap::{Args, Parser};
 use url::Url;
 
@@ -83,10 +83,13 @@ async fn main() -> Result<()> {
         &args.private_key,
         args.boundless_market_address,
         &args.db,
-        Duration::from_secs(args.interval),
-        args.retries,
-        (args.warn_balance_below, args.error_balance_below),
-        args.skip_addresses,
+        SlashServiceConfig {
+            interval: Duration::from_secs(args.interval),
+            retries: args.retries,
+            balance_warn_threshold: args.warn_balance_below,
+            balance_error_threshold: args.error_balance_below,
+            skip_addresses: args.skip_addresses,
+        },
     )
     .await?;
 
