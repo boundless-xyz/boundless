@@ -93,6 +93,12 @@ pub struct MarketConf {
     /// Gas estimate for fulfill call to use if it cannot be estimated using the node RPC
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Stake balance warning threshold (in stake tokens)
+    /// if the stake balance drops below this the broker will issue warning logs
+    pub stake_balance_warn_threshold: Option<String>,
+    /// Stake balance error threshold (in stake tokens)
+    /// if the stake balance drops below this the broker will issue error logs
+    pub stake_balance_error_threshold: Option<String>,
 }
 
 impl Default for MarketConf {
@@ -113,6 +119,8 @@ impl Default for MarketConf {
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            stake_balance_warn_threshold: None,
+            stake_balance_error_threshold: None,
         }
     }
 }
