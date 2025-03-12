@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -107,7 +107,7 @@ impl UriHandler {
         let client = if let Some(cache_dir) = cache_dir {
             let manager = CACacheManager { path: cache_dir };
             let cache = Cache(HttpCache {
-                mode: CacheMode::ForceCache,
+                mode: CacheMode::Default,
                 manager,
                 options: HttpCacheOptions::default(),
             });
@@ -232,8 +232,8 @@ impl UriHandlerBuilder {
         self
     }
 
-    pub fn set_cache_dir(mut self, cache_dir: Option<PathBuf>) -> Self {
-        self.cache_dir = cache_dir;
+    pub fn set_cache_dir(mut self, cache_dir: &Option<PathBuf>) -> Self {
+        self.cache_dir = cache_dir.clone();
         self
     }
 
