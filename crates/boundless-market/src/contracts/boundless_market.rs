@@ -193,11 +193,14 @@ where
     /// Set stake balance thresholds to warn or error alert on
     pub fn with_stake_balance_alert(
         self,
-        warn_threshold: Option<U256>,
-        error_threshold: Option<U256>,
+        warn_threshold: &Option<U256>,
+        error_threshold: &Option<U256>,
     ) -> Self {
         Self {
-            balance_alert_config: StakeBalanceAlertConfig { warn_threshold, error_threshold },
+            balance_alert_config: StakeBalanceAlertConfig {
+                warn_threshold: *warn_threshold,
+                error_threshold: *error_threshold,
+            },
             ..self
         }
     }
@@ -1566,7 +1569,7 @@ mod tests {
 
         // set stake balance alerts
         ctx.prover_market =
-            ctx.prover_market.with_stake_balance_alert(Some(U256::from(10)), Some(U256::from(5)));
+            ctx.prover_market.with_stake_balance_alert(&Some(U256::from(10)), &Some(U256::from(5)));
 
         // Approve and deposit stake
         ctx.prover_market.approve_deposit_stake(deposit).await.unwrap();
