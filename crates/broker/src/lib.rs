@@ -289,6 +289,7 @@ where
             let (image_id, image_url_str) =
                 boundless_market.image_info().await.context("Failed to get contract image_info")?;
             let image_uri = UriHandlerBuilder::new(&image_url_str)
+                .set_cache_dir(self.config.cache_dir.clone())
                 .set_max_size(max_file_size)
                 .build()
                 .context("Failed to parse image URI")?;

@@ -232,8 +232,8 @@ impl UriHandlerBuilder {
         self
     }
 
-    pub fn set_cache_dir(mut self, cache_dir: PathBuf) -> Self {
-        self.cache_dir = Some(cache_dir);
+    pub fn set_cache_dir(mut self, cache_dir: Option<PathBuf>) -> Self {
+        self.cache_dir = cache_dir;
         self
     }
 
