@@ -4,11 +4,14 @@
 
 use std::{
     fmt::{Display, Formatter},
+    path::PathBuf,
     str::FromStr,
 };
 
 use alloy::primitives::bytes::Buf;
 use futures::StreamExt;
+use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheOptions};
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -27,6 +30,9 @@ pub enum StorageErr {
 
     #[error("Http reqwest error")]
     HttpErr(#[from] reqwest::Error),
+
+    #[error("Http reqwest_middleware error")]
+    HttpMiddlewareErr(#[from] reqwest_middleware::Error),
 
     #[error("HTTP status error {0}")]
     HttpStatusErr(String),
@@ -49,6 +55,7 @@ pub struct UriHandler {
     uri_scheme: String,
     max_size: Option<usize>,
     retries: u8,
+    client: ClientWithMiddleware,
 }
 
 const DEFAULT_RETRY_NUMB: u8 = 1;
@@ -69,6 +76,7 @@ impl UriHandler {
         uri_str: &str,
         max_size: Option<usize>,
         retries: Option<u8>,
+        cache_dir: Option<PathBuf>,
     ) -> Result<Self, StorageErr> {
         let uri = url::Url::parse(uri_str)?;
 
@@ -96,11 +104,24 @@ impl UriHandler {
             }
         }
 
+        let client = if let Some(cache_dir) = cache_dir {
+            let manager = CACacheManager { path: cache_dir };
+            let cache = Cache(HttpCache {
+                mode: CacheMode::ForceCache,
+                manager,
+                options: HttpCacheOptions::default(),
+            });
+            ClientBuilder::new(reqwest::Client::new()).with(cache).build()
+        } else {
+            ClientBuilder::new(reqwest::Client::new()).build()
+        };
+
         Ok(Self {
             uri,
             uri_scheme: scheme,
             max_size,
             retries: retries.unwrap_or(DEFAULT_RETRY_NUMB),
+            client,
         })
     }
 
@@ -122,7 +143,7 @@ impl UriHandler {
                 let res = loop {
                     // TODO: move these ?'s to captures + retries
                     // currently only retry on http status code failures
-                    let res = reqwest::get(self.uri.to_string()).await?;
+                    let res = self.client.get(self.uri.to_string()).send().await?;
                     let status = res.status();
                     if status.is_success() {
                         break res;
@@ -193,11 +214,12 @@ pub struct UriHandlerBuilder {
     uri_str: String,
     max_size: Option<usize>,
     retries: Option<u8>,
+    cache_dir: Option<PathBuf>,
 }
 
 impl UriHandlerBuilder {
     pub fn new(uri_str: &str) -> Self {
-        Self { uri_str: uri_str.into(), max_size: None, retries: None }
+        Self { uri_str: uri_str.into(), max_size: None, retries: None, cache_dir: None }
     }
 
     pub fn set_max_size(mut self, max_size: usize) -> Self {
@@ -210,8 +232,13 @@ impl UriHandlerBuilder {
         self
     }
 
+    pub fn set_cache_dir(mut self, cache_dir: PathBuf) -> Self {
+        self.cache_dir = Some(cache_dir);
+        self
+    }
+
     pub fn build(self) -> Result<UriHandler, StorageErr> {
-        UriHandler::new(&self.uri_str, self.max_size, self.retries)
+        UriHandler::new(&self.uri_str, self.max_size, self.retries, self.cache_dir)
     }
 }
 
