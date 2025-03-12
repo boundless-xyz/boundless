@@ -99,6 +99,12 @@ pub struct MarketConf {
     /// Balance warning threshold (in native token)
     /// if the submitter balance drops below this the broker will issue error logs
     pub balance_error_threshold: Option<String>,
+    /// Stake balance warning threshold (in stake tokens)
+    /// if the stake balance drops below this the broker will issue warning logs
+    pub stake_balance_warn_threshold: Option<String>,
+    /// Stake balance error threshold (in stake tokens)
+    /// if the stake balance drops below this the broker will issue error logs
+    pub stake_balance_error_threshold: Option<String>,
 }
 
 impl Default for MarketConf {
@@ -121,6 +127,8 @@ impl Default for MarketConf {
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
             balance_warn_threshold: None,
             balance_error_threshold: None,
+            stake_balance_warn_threshold: None,
+            stake_balance_error_threshold: None,
         }
     }
 }
