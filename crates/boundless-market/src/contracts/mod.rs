@@ -788,7 +788,7 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
-pub mod bytecode;
+pub(crate) mod bytecode;
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
@@ -938,87 +938,81 @@ pub mod test_utils {
         Ok((verifier, set_verifier, hit_points, boundless_market))
     }
 
-    pub struct DefaultTestCtx;
+    pub async fn create_test_ctx(
+        anvil: &AnvilInstance,
+        set_builder_id: impl Into<Digest>,
+        assessor_guest_id: impl Into<Digest>,
+    ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
+        create_test_ctx_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id)
+            .await
+    }
 
-    impl DefaultTestCtx {
-        pub async fn create(
-            anvil: &AnvilInstance,
-            set_builder_id: impl Into<Digest>,
-            assessor_guest_id: impl Into<Digest>,
-        ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-            Self::create_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id)
-                .await
-        }
+    pub async fn create_test_ctx_with_rpc_url(
+        anvil: &AnvilInstance,
+        rpc_url: &str,
+        set_builder_id: impl Into<Digest>,
+        assessor_guest_id: impl Into<Digest>,
+    ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
+        let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
+            deploy_contracts(anvil, set_builder_id.into(), assessor_guest_id.into()).await.unwrap();
 
-        pub async fn create_with_rpc_url(
-            anvil: &AnvilInstance,
-            rpc_url: &str,
-            set_builder_id: impl Into<Digest>,
-            assessor_guest_id: impl Into<Digest>,
-        ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-            let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
-                deploy_contracts(anvil, set_builder_id.into(), assessor_guest_id.into())
-                    .await
-                    .unwrap();
+        let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
+        let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
+        let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
-            let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
-            let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
-            let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let prover_provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(prover_signer.clone()))
+            .on_builtin(rpc_url)
+            .await?;
+        let customer_provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(customer_signer.clone()))
+            .on_builtin(rpc_url)
+            .await?;
+        let verifier_provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(verifier_signer.clone()))
+            .on_builtin(rpc_url)
+            .await?;
 
-            let prover_provider = ProviderBuilder::new()
-                .wallet(EthereumWallet::from(prover_signer.clone()))
-                .on_builtin(rpc_url)
-                .await?;
-            let customer_provider = ProviderBuilder::new()
-                .wallet(EthereumWallet::from(customer_signer.clone()))
-                .on_builtin(rpc_url)
-                .await?;
-            let verifier_provider = ProviderBuilder::new()
-                .wallet(EthereumWallet::from(verifier_signer.clone()))
-                .on_builtin(rpc_url)
-                .await?;
+        let prover_market = BoundlessMarketService::new(
+            boundless_market_addr,
+            prover_provider.clone(),
+            prover_signer.address(),
+        );
 
-            let prover_market = BoundlessMarketService::new(
-                boundless_market_addr,
-                prover_provider.clone(),
-                prover_signer.address(),
-            );
+        let customer_market = BoundlessMarketService::new(
+            boundless_market_addr,
+            customer_provider.clone(),
+            customer_signer.address(),
+        );
 
-            let customer_market = BoundlessMarketService::new(
-                boundless_market_addr,
-                customer_provider.clone(),
-                customer_signer.address(),
-            );
+        let set_verifier = SetVerifierService::new(
+            set_verifier_addr,
+            verifier_provider.clone(),
+            verifier_signer.address(),
+        );
 
-            let set_verifier = SetVerifierService::new(
-                set_verifier_addr,
-                verifier_provider.clone(),
-                verifier_signer.address(),
-            );
+        let hit_points_service = HitPointsService::new(
+            hit_points_addr,
+            verifier_provider.clone(),
+            verifier_signer.address(),
+        );
 
-            let hit_points_service = HitPointsService::new(
-                hit_points_addr,
-                verifier_provider.clone(),
-                verifier_signer.address(),
-            );
+        hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
 
-            hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
-
-            Ok(TestCtx {
-                verifier_addr,
-                set_verifier_addr,
-                hit_points_addr,
-                boundless_market_addr,
-                prover_signer,
-                customer_signer,
-                prover_provider,
-                prover_market,
-                customer_provider,
-                customer_market,
-                set_verifier,
-                hit_points_service,
-            })
-        }
+        Ok(TestCtx {
+            verifier_addr,
+            set_verifier_addr,
+            hit_points_addr,
+            boundless_market_addr,
+            prover_signer,
+            customer_signer,
+            prover_provider,
+            prover_market,
+            customer_provider,
+            customer_market,
+            set_verifier,
+            hit_points_service,
+        })
     }
 }
 

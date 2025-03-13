@@ -230,7 +230,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         hit_points::default_allowance,
-        test_utils::{DefaultTestCtx, TestCtx},
+        test_utils::{create_test_ctx, TestCtx},
     };
     use broker::test_utils::BrokerBuilder;
     use guest_assessor::ASSESSOR_GUEST_ID;
@@ -269,13 +269,10 @@ mod tests {
     async fn test_main() {
         // Setup anvil and deploy contracts
         let anvil = Anvil::new().spawn();
-        let ctx = DefaultTestCtx::create(
-            &anvil,
-            Digest::from(SET_BUILDER_ID),
-            Digest::from(ASSESSOR_GUEST_ID),
-        )
-        .await
-        .unwrap();
+        let ctx =
+            create_test_ctx(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+                .await
+                .unwrap();
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await
