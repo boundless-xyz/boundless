@@ -188,7 +188,6 @@ impl AggregatorService {
                 request: order.request.clone(),
                 signature: order.client_sig.clone().to_vec(),
                 journal,
-                require_payment: true,
             })
         }
 

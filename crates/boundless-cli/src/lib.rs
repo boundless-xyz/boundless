@@ -16,7 +16,10 @@
 
 #![deny(missing_docs)]
 
-use alloy::{primitives::Address, sol_types::SolStruct};
+use alloy::{
+    primitives::Address,
+    sol_types::{SolStruct, SolValue},
+};
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
@@ -32,7 +35,8 @@ use url::Url;
 
 use boundless_market::{
     contracts::{
-        AssessorReceipt, EIP721DomainSaltless, Fulfillment as BoundlessFulfillment, InputType,
+        AssessorJournal, AssessorReceipt, EIP721DomainSaltless,
+        Fulfillment as BoundlessFulfillment, InputType,
     },
     input::GuestEnv,
     order_stream_client::Order,
@@ -58,26 +62,18 @@ impl OrderFulfilled {
     pub fn new(
         fill: BoundlessFulfillment,
         root_receipt: Receipt,
-        assessor_receipt: SetInclusionReceipt<ReceiptClaim>,
-        prover: Address,
+        assessor_receipt: AssessorReceipt,
     ) -> Result<Self> {
         let state = GuestState::decode(&root_receipt.journal.bytes)?;
         let root = state.mmr.finalized_root().context("failed to get finalized root")?;
 
         let root_seal = encode_seal(&root_receipt)?;
-        let assessor_seal = assessor_receipt.abi_encode_seal()?;
-        let assessor_fill = AssessorReceipt {
-            seal: assessor_seal.into(),
-            selectors: vec![],
-            prover,
-            callbacks: vec![],
-        };
 
         Ok(OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),
             seal: root_seal.into(),
             fills: vec![fill],
-            assessorReceipt: assessor_fill,
+            assessorReceipt: assessor_receipt,
         })
     }
 }
@@ -212,12 +208,12 @@ impl DefaultProver {
     pub async fn fulfill(
         &self,
         order: Order,
-        require_payment: bool,
     ) -> Result<(
         BoundlessFulfillment,
         Receipt,
         SetInclusionReceipt<ReceiptClaim>,
         SetInclusionReceipt<ReceiptClaim>,
+        AssessorReceipt,
     )> {
         let request = order.request.clone();
         let order_elf = fetch_url(&request.imageUrl).await?;
@@ -255,7 +251,6 @@ impl DefaultProver {
             request: order.request.clone(),
             signature: order.signature.into(),
             journal: order_journal.clone(),
-            require_payment,
         };
 
         let assessor_receipt = self.assessor(vec![fill], vec![order_receipt.clone()]).await?;
@@ -264,8 +259,10 @@ impl DefaultProver {
 
         let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
         let order_claim_digest = order_claim.digest();
-        let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal);
+        let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal.clone());
         let assessor_claim_digest = assessor_claim.digest();
+        let assessor_receipt_journal: AssessorJournal =
+            AssessorJournal::abi_decode(&assessor_journal, true)?;
         let root_receipt = self
             .finalize(
                 vec![order_claim.clone(), assessor_claim.clone()],
@@ -285,7 +282,12 @@ impl DefaultProver {
             verifier_parameters.digest(),
         );
         let order_seal = if selector == Selector::Groth16V1_2 {
-            let receipt = default_prover().compress(&ProverOpts::groth16(), &order_receipt)?;
+            // We re-run the entire proof as the default prover with Bonsai does not support
+            // compressing with receipts uploaded by the client.
+            // TODO: refactor the prover trait to use the bonsai sdk instead.
+            let receipt = self
+                .prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::groth16())
+                .await?;
             encode_seal(&receipt)?
         } else {
             order_inclusion_receipt.abi_encode_seal()?
@@ -305,7 +307,20 @@ impl DefaultProver {
             seal: order_seal.into(),
         };
 
-        Ok((fulfillment, root_receipt, order_inclusion_receipt, assessor_inclusion_receipt))
+        let assessor_receipt = AssessorReceipt {
+            seal: assessor_inclusion_receipt.abi_encode_seal()?.into(),
+            prover: self.address,
+            selectors: assessor_receipt_journal.selectors,
+            callbacks: assessor_receipt_journal.callbacks,
+        };
+
+        Ok((
+            fulfillment,
+            root_receipt,
+            order_inclusion_receipt,
+            assessor_inclusion_receipt,
+            assessor_receipt,
+        ))
     }
 }
 
@@ -361,13 +376,13 @@ mod tests {
         .expect("failed to create prover");
 
         let order = Order { request, request_digest, signature };
-        let (fill, root_receipt, _, assessor_receipt) =
-            prover.fulfill(order.clone(), false).await.unwrap();
+        let (fill, root_receipt, _, assessor_inclusion_receipt, _) =
+            prover.fulfill(order.clone()).await.unwrap();
 
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: prover.set_builder_image_id };
 
-        assessor_receipt
+        assessor_inclusion_receipt
             .with_root(root_receipt.clone())
             .verify_integrity_with_context(&VerifierContext::default(), verifier_parameters, None)
             .unwrap();
@@ -393,13 +408,13 @@ mod tests {
         .expect("failed to create prover");
 
         let order = Order { request, request_digest, signature };
-        let (_, root_receipt, order_receipt, assessor_receipt) =
-            prover.fulfill(order.clone(), false).await.unwrap();
+        let (_, root_receipt, order_inclusion_receipt, assessor_receipt, _) =
+            prover.fulfill(order.clone()).await.unwrap();
 
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: prover.set_builder_image_id };
 
-        order_receipt
+        order_inclusion_receipt
             .with_root(root_receipt.clone())
             .verify_integrity_with_context(
                 &VerifierContext::default(),

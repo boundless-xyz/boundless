@@ -525,7 +525,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{aliases::U96, Address, Bytes, B256},
+        primitives::{aliases::U96, Address, Bytes, FixedBytes, B256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -760,7 +760,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;

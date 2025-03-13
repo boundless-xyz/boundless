@@ -562,7 +562,6 @@ mod tests {
                         request: order_request.clone(),
                         signature: client_sig.into(),
                         journal: echo_receipt.journal.bytes.clone(),
-                        require_payment: true,
                     }],
                     prover_address: prover_addr,
                 }
