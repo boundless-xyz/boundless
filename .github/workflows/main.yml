@@ -482,6 +482,9 @@ jobs:
       - name: forge build
         run: forge build
 
+      - name: cargo build
+        run: cargo build
+
       - name: install boundless-cli
         run: cargo install --path crates/boundless-cli
 
