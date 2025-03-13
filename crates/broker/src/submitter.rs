@@ -9,7 +9,6 @@ use alloy::{
     primitives::{utils::format_ether, Address, B256, U256},
     providers::{Provider, WalletProvider},
     sol_types::SolStruct,
-    transports::BoxTransport,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
@@ -35,8 +34,8 @@ use crate::{
 pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
-    market: BoundlessMarketService<BoxTransport, Arc<P>>,
-    set_verifier: SetVerifierService<BoxTransport, Arc<P>>,
+    market: BoundlessMarketService<Arc<P>>,
+    set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
     set_builder_img_id: Digest,
     prover_address: Address,
@@ -45,7 +44,7 @@ pub struct Submitter<P> {
 
 impl<P> Submitter<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -386,7 +385,7 @@ where
 
 impl<P> RetryTask for Submitter<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let obj_clone = self.clone();
@@ -415,13 +414,7 @@ mod tests {
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
         primitives::{B256, U256},
-        providers::{
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, ProviderBuilder, RootProvider,
-        },
+        providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
@@ -440,22 +433,10 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    type TestProvider = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
-    >;
-
     async fn build_submitter_and_batch(
         config: ConfigLock,
-    ) -> (AnvilInstance, Submitter<TestProvider>, DbObj, usize) {
+    ) -> (AnvilInstance, Submitter<impl Provider + WalletProvider + Clone + 'static>, DbObj, usize)
+    {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
@@ -465,7 +446,6 @@ mod tests {
 
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -474,7 +454,6 @@ mod tests {
 
         let customer_provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -677,7 +656,7 @@ mod tests {
 
     async fn process_next_batch<P>(submitter: Submitter<P>, db: DbObj, batch_id: usize)
     where
-        P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+        P: Provider<Ethereum> + WalletProvider + 'static + Clone,
     {
         assert!(submitter.process_next_batch().await.unwrap());
         let batch = db.get_batch(batch_id).await.unwrap();

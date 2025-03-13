@@ -8,7 +8,6 @@ use alloy::{
     network::Ethereum,
     primitives::{utils, Address, U256},
     providers::Provider,
-    transports::BoxTransport,
 };
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
@@ -45,7 +44,7 @@ pub struct AggregatorService<P> {
 
 impl<P> AggregatorService<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
@@ -536,7 +535,7 @@ where
 
 impl<P> RetryTask for AggregatorService<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let mut self_clone = self.clone();
@@ -592,7 +591,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -751,7 +749,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -925,7 +922,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -1036,7 +1032,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -1132,7 +1127,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        provider.anvil_mine(Some(U256::from(51)), Some(U256::from(2))).await.unwrap();
+        provider.anvil_mine(Some(51), Some(2)).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
@@ -1152,7 +1147,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
