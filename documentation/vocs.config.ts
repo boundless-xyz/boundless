@@ -216,8 +216,8 @@ export default defineConfig({
     },
   },
   iconUrl: {
-    light: "/favicon.ico",
-    dark: "/favicon.ico",
+    light: "/favicon.svg",
+    dark: "/favicon.svg",
   },
   banner: {
     dismissable: true,
