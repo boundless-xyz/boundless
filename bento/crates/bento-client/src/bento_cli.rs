@@ -125,12 +125,11 @@ async fn main() -> Result<()> {
                 break;
             }
             _ => {
-                tracing::error!(
+                panic!(
                     "Job failed: {} - {}",
                     session.uuid,
                     res.error_msg.as_ref().unwrap_or(&String::new())
                 );
-                break;
             }
         }
     }
@@ -159,12 +158,11 @@ async fn main() -> Result<()> {
                     break;
                 }
                 _ => {
-                    tracing::error!(
-                        "Job failed: {} - {}",
+                    panic!(
+                        "SNARK Job failed: {} - {}",
                         snark_session.uuid,
                         res.error_msg.as_ref().unwrap_or(&String::new())
                     );
-                    break;
                 }
             }
         }

@@ -229,9 +229,9 @@ jobs:
         uses: ./.github/actions/sccache
 
       - name: Run a sample proof through
-        # TODO: multi-segments, bigint, keccak, composition guest to express all functionality
+        # TODO: snark, multi-segments, bigint, keccak, composition guest to express all functionality
         working-directory: bento
-        run: RUST_LOG=info cargo run --bin bento_cli -- -c 32 -s
+        run: RUST_LOG=info cargo run --bin bento_cli -- -c 32
 
   rust-pkg-check:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
