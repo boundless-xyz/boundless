@@ -190,7 +190,7 @@ jobs:
 
 
   bento_run:
-    runs-on: [self-hosted, Linux, X64, prod, cuda, g6.xlarge]
+    runs-on: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
     needs: files-changed
     if: needs.files-changed.outputs.bento == 'true'
     steps:
