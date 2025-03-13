@@ -72,7 +72,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0'
+          risczero-version: '~1.2.0'
           toolchain-version: 'r0.1.81.0'
 
       - name: install cargo-sort
@@ -255,7 +255,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0'
+          risczero-version: '~1.2.0'
           toolchain-version: 'r0.1.81.0'
 
       - name: check order-stream
@@ -340,10 +340,13 @@ jobs:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
-      - run: "git checkout -f $(git -c user.name=x -c user.email=x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
+      - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - uses: risc0/risc0/.github/actions/rustup@release-1.2
+        with:
+          toolchain: '1.81'
       - uses: risc0/risc0/.github/actions/rustup@release-1.2
         with:
           # Building with docs.rs config requires the nightly toolchain.

@@ -2,21 +2,17 @@
 //
 // All rights reserved.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
-    transports::BoxTransport,
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
-    contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, InputType,
-        ProofRequest,
-    },
+    contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
 };
@@ -25,6 +21,7 @@ use clap::Parser;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
 use provers::ProverObj;
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};
@@ -129,7 +126,7 @@ enum OrderStatus {
     New,
     /// Order is in the process of being priced
     Pricing,
-    /// Order is ready to lock at target_block
+    /// Order is ready to lock at target_timestamp
     Locking,
     /// Order has been locked in and ready to begin proving
     Locked,
@@ -158,8 +155,8 @@ struct Order {
     /// Last update time
     #[serde(with = "ts_seconds")]
     updated_at: DateTime<Utc>,
-    /// Locking status target block
-    target_block: Option<u64>,
+    /// Locking status target UNIX timestamp
+    target_timestamp: Option<u64>,
     /// Prover image Id
     ///
     /// Populated after preflight
@@ -172,10 +169,10 @@ struct Order {
     ///
     /// Populated after proof completion
     proof_id: Option<String>,
-    /// Block the order expires at
+    /// UNIX timestamp the order expires at
     ///
     /// Populated during order picking
-    expire_block: Option<u64>,
+    expire_timestamp: Option<u64>,
     /// Client Signature
     client_sig: Bytes,
     /// Price the lockin was set at
@@ -190,11 +187,11 @@ impl Order {
             request,
             status: OrderStatus::New,
             updated_at: Utc::now(),
-            target_block: None,
+            target_timestamp: None,
             image_id: None,
             input_id: None,
             proof_id: None,
-            expire_block: None,
+            expire_timestamp: None,
             client_sig,
             lock_price: None,
             error_msg: None,
@@ -241,7 +238,7 @@ struct Batch {
     pub start_time: DateTime<Utc>,
     /// The deadline for the batch, which is the earliest deadline for any order in the batch.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_deadline: Option<u64>,
+    pub deadline: Option<u64>,
     /// The total fees for the batch, which is the sum of fees from all orders.
     pub fees: U256,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -257,7 +254,7 @@ pub struct Broker<P> {
 
 impl<P> Broker<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
     pub async fn new(args: Args, provider: P) -> Result<Self> {
         let config_watcher =
@@ -440,10 +437,8 @@ where
             self.db.clone(),
             self.config_watcher.config.clone(),
             prover.clone(),
-            block_times,
             self.args.boundless_market_addr,
             self.provider.clone(),
-            chain_monitor.clone(),
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
@@ -487,8 +482,7 @@ where
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
                 self.db.clone(),
-                self.provider.clone(),
-                chain_monitor.clone(),
+                chain_id,
                 set_builder_img_data.0,
                 set_builder_img_data.1,
                 assessor_img_data.0,
@@ -497,7 +491,6 @@ where
                 prover_addr,
                 self.config_watcher.config.clone(),
                 prover.clone(),
-                block_times,
             )
             .await
             .context("Failed to initialize aggregator service")?,
@@ -643,52 +636,36 @@ async fn upload_input_uri(
     })
 }
 
+/// A very small utility function to get the current unix timestamp.
+// TODO(#379): Avoid drift relative to the chain's timestamps.
+pub(crate) fn now_timestamp() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+}
+
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
-
-    use alloy::{
-        network::{Ethereum, EthereumWallet},
-        providers::{
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, RootProvider,
-        },
-        transports::BoxTransport,
-    };
+    use alloy::network::Ethereum;
+    use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
     use boundless_market::contracts::test_utils::TestCtx;
     use guest_assessor::ASSESSOR_GUEST_PATH;
     use guest_set_builder::SET_BUILDER_PATH;
-
     use tempfile::NamedTempFile;
-
     use url::Url;
 
     use crate::{config::Config, Args, Broker};
 
-    type TestProvider = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
-    >;
-
-    pub struct BrokerBuilder {
+    pub struct BrokerBuilder<P> {
         args: Args,
-        provider: TestProvider,
+        provider: P,
         config_file: NamedTempFile,
     }
 
-    impl BrokerBuilder {
-        pub async fn new_test(ctx: &TestCtx, rpc_url: Url) -> Self {
+    impl<P> BrokerBuilder<P>
+    where
+        P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+    {
+        pub async fn new_test(ctx: &TestCtx<P>, rpc_url: Url) -> Self {
             let config_file = NamedTempFile::new().unwrap();
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -715,15 +692,13 @@ pub mod test_utils {
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }
-    }
 
-    impl BrokerBuilder {
         pub fn with_db_url(mut self, db_url: String) -> Self {
             self.args.db_url = db_url;
             self
         }
 
-        pub async fn build(self) -> Result<(Broker<TestProvider>, NamedTempFile)> {
+        pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
             Ok((Broker::new(self.args, self.provider).await?, self.config_file))
         }
     }

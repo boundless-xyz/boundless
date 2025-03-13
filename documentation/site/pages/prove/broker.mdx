@@ -18,21 +18,7 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 To apply for access to HP tokens and become a prover, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) with your details.
 :::
 
-In the current phase, the Boundless market will only accept hitpoint (HP) tokens as stake for proving lock-ins. Provers stake HP tokens to participate in proof generation, and failure to meet performance standards results in slashing of your provers HP. These HP tokens can only be used within the Boundless market and as such, they are **non-transferrable** and **hold no monetary value**. 
-
-#### I got slashed, pls help?
-
-If a slashing event occurs against your broker, your stake account will enter a frozen state. This means that your prover will not be able to lock-in any proof requests *until* you unfreeze your account manually. 
-
-To unfreeze your account after slashing, run:
-
-```sh [Terminal]
-export RPC_URL=<TARGET_CHAIN_RPC_URL>
-export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
- 
-boundless-cli unfreeze
-```
+In the current phase, the Boundless market will only accept hitpoint (HP) tokens as stake for proving lock-ins. Provers stake HP tokens to participate in proof generation, and failure to meet performance standards results in slashing of your provers HP. These HP tokens can only be used within the Boundless market and as such, they are **non-transferrable** and **hold no monetary value**.
 
 Please refer to the [Deployments](/deployments) page for the correct Boundless market contract address.
 
@@ -46,7 +32,7 @@ It is recommend that a broker keep a balance on the market >= `max_stake` (confi
 #### Deposit Stake to the Market
 
 :::note[Note]
-You will need the Boundless CLI installed to deposit/check your balance. 
+You will need the Boundless CLI installed to deposit/check your balance.
 Please see [Installing the Boundless CLI](/build/request-a-proof#installing-the-boundless-cli) for instructions.
 :::
 
@@ -151,7 +137,7 @@ The `[prover]` settings in `broker.toml` are used to configure the prover servic
 
 ### Orders Stuck in 'Lockin' or `submit_merkle` Confirmation Timeouts
 
-You may notice on the [indexer](https://indexer.beboundless.xyz) that the broker has a high number of orders locked-in, but the fulfillment rate is low or even zero. This could be due to transaction confirmation timeouts. A good place to start would be to increase the `txn_timeout` in the `broker.toml` file iteratively, and see how that affects the broker's fulfillment rate.
+You may notice on the [explorer](https://explorer.beboundless.xyz) that the broker has a high number of orders locked-in, but the fulfillment rate is low or even zero. This could be due to transaction confirmation timeouts. A good place to start would be to increase the `txn_timeout` in the `broker.toml` file iteratively, and see how that affects the broker's fulfillment rate.
 
 If you need a manual way to restart orders that are "stuck", please follow:
 

@@ -14,12 +14,12 @@ use alloy::{
         },
         Identity, Provider, ProviderBuilder, RootProvider,
     },
+    rpc::types::BlockTransactionsKind,
     signers::local::PrivateKeySigner,
-    transports::{http::Http, RpcError, Transport, TransportErrorKind},
+    transports::{RpcError, TransportErrorKind},
 };
 use boundless_market::contracts::boundless_market::{BoundlessMarketService, MarketError};
 use db::{DbError, DbObj, SqliteDb};
-use reqwest::Client as HttpClient;
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
@@ -34,9 +34,7 @@ type ProviderWallet = FillProvider<
         >,
         WalletFiller<EthereumWallet>,
     >,
-    RootProvider<Http<HttpClient>>,
-    Http<HttpClient>,
-    Ethereum,
+    RootProvider<Ethereum>,
 >;
 
 #[derive(Error, Debug)]
@@ -64,14 +62,15 @@ pub enum ServiceError {
 }
 
 #[derive(Clone)]
-pub struct SlashService<T, P> {
-    pub boundless_market: BoundlessMarketService<T, P>,
+pub struct SlashService<P> {
+    pub boundless_market: BoundlessMarketService<P>,
     pub db: DbObj,
     pub interval: Duration,
     pub retries: u32,
+    pub skip_addresses: Vec<Address>,
 }
 
-impl SlashService<Http<HttpClient>, ProviderWallet> {
+impl SlashService<ProviderWallet> {
     pub async fn new(
         rpc_url: Url,
         private_key: &PrivateKeySigner,
@@ -79,27 +78,24 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
         db_conn: &str,
         interval: Duration,
         retries: u32,
+        skip_addresses: Vec<Address>,
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .wallet(wallet.clone())
-            .on_http(rpc_url);
+        let provider = ProviderBuilder::new().wallet(wallet.clone()).on_http(rpc_url);
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
 
         let db: DbObj = Arc::new(SqliteDb::new(db_conn).await.unwrap());
 
-        Ok(Self { boundless_market, db, interval, retries })
+        Ok(Self { boundless_market, db, interval, retries, skip_addresses })
     }
 }
 
-impl<T, P> SlashService<T, P>
+impl<P> SlashService<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
 {
     pub async fn run(self, starting_block: Option<u64>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.interval);
@@ -216,7 +212,38 @@ where
             to_block
         );
 
-        for (log, _) in logs {
+        for (log, log_data) in logs {
+            // TODO(willpote): Remove, or make more resilient.
+            // Note this logic is not full proof. It will not handle lockRequestWithSignature
+            // nor if the lockRequest calls were for example, made via a proxy contract.
+            // This is a temporary solution to avoid slashing requests from the team's broker.
+            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx = self
+                .boundless_market
+                .instance()
+                .provider()
+                .get_transaction_by_hash(tx_hash)
+                .await?
+                .unwrap();
+
+            let sender = tx.from;
+
+            // Skip if sender is in the skip list
+            if self.skip_addresses.contains(&sender) {
+                tracing::info!(
+                    "Skipping locked event from sender: {:?} for request: 0x{:x}",
+                    sender,
+                    log.requestId
+                );
+                continue;
+            }
+
+            tracing::debug!(
+                "Processing locked event from sender: {:?} for request: 0x{:x}",
+                sender,
+                log.requestId
+            );
+
             self.add_order(log.requestId).await?;
         }
 
@@ -299,7 +326,8 @@ where
 
     async fn process_expired_requests(&self, current_block: u64) -> Result<(), ServiceError> {
         // Find expired requests
-        let expired = self.db.get_expired_orders(current_block).await?;
+        let expired =
+            self.db.get_expired_orders(self.block_timestamp(current_block).await?).await?;
 
         for request_id in expired {
             match self.boundless_market.slash(request_id).await {
@@ -344,7 +372,18 @@ where
     }
 
     async fn current_block(&self) -> Result<u64, ServiceError> {
-        let current_block = self.boundless_market.instance().provider().get_block_number().await?;
-        Ok(current_block)
+        Ok(self.boundless_market.instance().provider().get_block_number().await?)
+    }
+
+    async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
+        Ok(self
+            .boundless_market
+            .instance()
+            .provider()
+            .get_block_by_number(block_number.into(), BlockTransactionsKind::Hashes)
+            .await?
+            .unwrap()
+            .header
+            .timestamp)
     }
 }

@@ -2,17 +2,26 @@
 //
 // All rights reserved.
 
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::SystemTime,
+};
+
 use alloy::{
     node_bindings::Anvil,
     primitives::{utils, U256},
-    providers::Provider,
+    providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, test_utils::TestCtx, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements,
+        hit_points::default_allowance,
+        test_utils::{create_test_ctx_with_rpc_url, TestCtx},
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
     input::InputBuilder,
 };
@@ -23,10 +32,6 @@ use guest_set_builder::SET_BUILDER_ID;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use risc0_zkp::core::digest::Digest;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
 use tempfile::NamedTempFile;
 use tokio::{
     task::JoinSet,
@@ -61,9 +66,9 @@ struct StressTestArgs {
     rpc_reset_toxicity: f32,
 }
 
-async fn request_spawner(
+async fn request_spawner<P: Provider>(
     shutdown: Arc<AtomicBool>,
-    ctx: Arc<TestCtx>,
+    ctx: Arc<TestCtx<P>>,
     elf_url: &str,
     args: StressTestArgs,
     spawner_id: u32,
@@ -74,13 +79,10 @@ async fn request_spawner(
         let request = ProofRequest::new(
             ctx.customer_market.index_from_nonce().await?,
             &ctx.customer_signer.address(),
-            Requirements {
-                imageId: <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                Digest::from(ECHO_ID),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             elf_url,
             Input {
                 inputType: InputType::Inline,
@@ -93,7 +95,10 @@ async fn request_spawner(
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: ctx.customer_provider.get_block_number().await?,
+                biddingStart: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -110,8 +115,8 @@ async fn request_spawner(
     Ok(())
 }
 
-async fn spawn_broker(
-    ctx: &TestCtx,
+async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider>(
+    ctx: &TestCtx<P>,
     rpc_url: Url,
     db_url: &str,
 ) -> Result<(tokio::task::JoinHandle<()>, NamedTempFile)> {
@@ -157,14 +162,9 @@ async fn main() -> Result<()> {
 
     // Setup test context
     let ctx = Arc::new(
-        TestCtx::new_with_rpc_url(
-            &anvil,
-            &rpc_url,
-            SET_BUILDER_ID.into(),
-            ASSESSOR_GUEST_ID.into(),
-        )
-        .await
-        .context("Failed to create test context")?,
+        create_test_ctx_with_rpc_url(&anvil, &rpc_url, SET_BUILDER_ID, ASSESSOR_GUEST_ID)
+            .await
+            .context("Failed to create test context")?,
     );
     let (broker_task, _config_file) =
         spawn_broker(&ctx, Url::parse(&rpc_url).unwrap(), &args.database_url).await?;

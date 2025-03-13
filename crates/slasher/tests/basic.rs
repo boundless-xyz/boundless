@@ -6,12 +6,13 @@ use std::{process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{Address, Bytes, U256},
     providers::Provider,
+    rpc::types::{BlockNumberOrTag, BlockTransactionsKind},
     signers::Signer,
 };
 use boundless_market::contracts::{
-    test_utils::TestCtx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+    test_utils::create_test_ctx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
 };
 use futures_util::StreamExt;
 use guest_assessor::ASSESSOR_GUEST_ID;
@@ -24,27 +25,24 @@ async fn create_order(
     order_id: u32,
     contract_addr: Address,
     chain_id: u64,
-    current_block: u64,
+    now: u64,
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         order_id,
         &signer_addr,
-        Requirements {
-            imageId: B256::ZERO,
-            predicate: Predicate {
-                predicateType: PredicateType::PrefixMatch,
-                data: Default::default(),
-            },
-        },
+        Requirements::new(
+            Digest::ZERO,
+            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+        ),
         "https://dev.null".to_string(),
         Input::builder().build_inline().unwrap(),
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
-            biddingStart: 0,
-            timeout: current_block as u32 + 2,
+            biddingStart: now - 3,
+            timeout: 12,
             rampUpPeriod: 1,
-            lockTimeout: current_block as u32 + 2,
+            lockTimeout: 12,
             lockStake: U256::from(0),
         },
     );
@@ -58,9 +56,7 @@ async fn create_order(
 async fn test_basic_usage() {
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-        .await
-        .unwrap();
+    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-slasher");
     let args = [
@@ -87,13 +83,23 @@ async fn test_basic_usage() {
     let mut stream = slash_event.into_stream();
     println!("Subscribed to ProverSlashed event");
 
+    // Use the chain's timestamps to avoid inconsistencies with system time.
+    let now = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+
     let (request, client_sig) = create_order(
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
         ctx.boundless_market_addr,
         anvil.chain_id(),
-        ctx.customer_provider.get_block_number().await.unwrap(),
+        now,
     )
     .await;
 
@@ -110,7 +116,7 @@ async fn test_basic_usage() {
             assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_addr);
             cli_process.kill().unwrap();
         }
-        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+        _ = tokio::time::sleep(Duration::from_secs(20)) => {
             panic!("Test timed out waiting for slash event");
         }
     }

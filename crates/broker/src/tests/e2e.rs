@@ -4,17 +4,16 @@
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, B256, U256},
-    providers::Provider,
+    primitives::{utils, U256},
 };
 use httpmock::prelude::*;
 use risc0_zkvm::sha::Digest;
 use tempfile::NamedTempFile;
 // use broker::Broker;
-use crate::{config::Config, Args, Broker};
+use crate::{config::Config, now_timestamp, Args, Broker};
 use boundless_market::contracts::{
-    hit_points::default_allowance, test_utils::TestCtx, Input, Offer, Predicate, PredicateType,
-    ProofRequest, Requirements,
+    hit_points::default_allowance, test_utils::create_test_ctx, Input, Offer, Predicate,
+    PredicateType, ProofRequest, Requirements,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -29,9 +28,7 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-        .await
-        .unwrap();
+    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -85,21 +82,18 @@ async fn simple_e2e() {
     let request = ProofRequest::new(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        Requirements {
-            imageId: B256::from_slice(Digest::from(ECHO_ID).as_bytes()),
-            predicate: Predicate {
-                predicateType: PredicateType::PrefixMatch,
-                data: Default::default(),
-            },
-        },
+        Requirements::new(
+            Digest::from(ECHO_ID),
+            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+        ),
         &image_uri,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         Offer {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),
-            biddingStart: ctx.customer_provider.get_block_number().await.unwrap(),
-            timeout: 100,
-            lockTimeout: 100,
+            biddingStart: now_timestamp(),
+            timeout: 1200,
+            lockTimeout: 1200,
             rampUpPeriod: 1,
             lockStake: U256::from(10),
         },

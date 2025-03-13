@@ -18,24 +18,24 @@ use std::{
     io::BufReader,
     num::ParseIntError,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use alloy::{
     network::Ethereum,
     primitives::{
+        aliases::U96,
         utils::{format_ether, parse_ether},
-        Address, Bytes, PrimitiveSignature, B256, U256,
+        Address, Bytes, FixedBytes, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
-    transports::Transport,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
-use risc0_ethereum_contracts::IRiscZeroVerifier;
+use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
     default_executor,
     sha::{Digest, Digestible},
@@ -48,11 +48,10 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, set_verifier::SetVerifierService, Input,
-        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
+        PredicateType, ProofRequest, Requirements,
     },
     input::{GuestEnv, InputBuilder},
-    order_stream_client::Order,
     storage::{StorageProvider, StorageProviderConfig},
 };
 
@@ -143,11 +142,17 @@ enum Command {
         /// The image id of the original request
         image_id: B256,
     },
+    GetSetInclusionReceipt {
+        /// The proof request identifier
+        request_id: U256,
+        /// The image id of the request
+        image_id: B256,
+    },
     /// Get the status of a given request
     Status {
         /// The proof request identifier
         request_id: U256,
-        /// The block number at which the request expires
+        /// The time at which the request expires, in seconds since the UNIX epoch.
         expires_at: Option<u64>,
     },
     /// Execute a proof request using the RISC Zero zkVM executor.
@@ -164,27 +169,45 @@ enum Command {
         #[arg(long, conflicts_with = "request_path")]
         request_id: Option<U256>,
 
+        /// The request digest
+        ///
+        /// If provided along with request-id, uses the request digest to find the request.
+        #[arg(long)]
+        request_digest: Option<B256>,
+
         /// The tx hash of the request submission.
         ///
         /// If provided along with request-id, uses the transaction hash to find the request.
         #[arg(long, conflicts_with = "request_path", requires = "request_id")]
         tx_hash: Option<B256>,
+
+        /// The order stream service URL.
+        ///
+        /// If provided, the request will be fetched offchain via the provided order stream service URL.
+        #[arg(long, conflicts_with_all = ["request_path", "tx_hash"])]
+        order_stream_url: Option<Url>,
     },
     /// Fulfill a proof request using the RISC Zero zkVM default prover
     Fulfill {
         /// The proof request identifier
         #[arg(long)]
         request_id: U256,
+        /// The request digest
+        #[arg(long)]
+        request_digest: Option<B256>,
         /// The tx hash of the request submission
         #[arg(long)]
         tx_hash: Option<B256>,
+        /// The order stream service URL.
+        ///
+        /// If provided, the request will be fetched offchain via the provided order stream service URL.
+        #[arg(long, conflicts_with_all = ["tx_hash"])]
+        order_stream_url: Option<Url>,
         /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
         /// request is locked to another prover).
         #[arg(long, default_value = "false")]
         require_payment: bool,
     },
-    /// Unfreeze a prover's account after being slashed
-    Unfreeze,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -246,6 +269,12 @@ struct SubmitOfferRequirements {
     /// Journal prefix to use as the predicate in the requirements.
     #[clap(long)]
     journal_prefix: Option<String>,
+    /// Address of the callback to use in the requirements.
+    #[clap(long, requires = "callback_gas_limit")]
+    callback_addr: Option<Address>,
+    /// Gas limit of the callback to use in the requirements.
+    #[clap(long, requires = "callback_addr")]
+    callback_gas_limit: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
@@ -295,10 +324,7 @@ async fn main() -> Result<()> {
 pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     let caller = args.private_key.address();
     let wallet = EthereumWallet::from(args.private_key.clone());
-    let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(wallet)
-        .on_http(args.rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.rpc_url.clone());
     let mut boundless_market =
         BoundlessMarketService::new(args.boundless_market_address, provider.clone(), caller);
     if let Some(tx_timeout) = args.tx_timeout {
@@ -422,17 +448,50 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 .map_err(|_| anyhow::anyhow!("Verification failed"))?;
             tracing::info!("Proof for request id 0x{request_id:x} verified successfully.");
         }
+        Command::GetSetInclusionReceipt { request_id, image_id } => {
+            let client = ClientBuilder::default()
+                .with_private_key(args.private_key.clone())
+                .with_rpc_url(args.rpc_url.clone())
+                .with_boundless_market_address(args.boundless_market_address)
+                .with_set_verifier_address(args.set_verifier_address)
+                .with_timeout(args.tx_timeout)
+                .build()
+                .await?;
+            let (journal, receipt) =
+                client.fetch_set_inclusion_receipt(request_id, image_id).await?;
+            tracing::info!(
+                "Journal: {} - Receipt: {}",
+                serde_json::to_string_pretty(&journal)?,
+                serde_json::to_string_pretty(&receipt)?
+            );
+        }
         Command::Status { request_id, expires_at } => {
             let status = boundless_market.get_status(request_id, expires_at).await?;
             tracing::info!("Status: {:?}", status);
         }
-        Command::Execute { request_id, request_path, tx_hash } => {
+        Command::Execute {
+            request_id,
+            request_digest,
+            request_path,
+            tx_hash,
+            order_stream_url,
+        } => {
             let request: ProofRequest = if let Some(file_path) = request_path {
                 let file = File::open(file_path).context("failed to open request file")?;
                 let reader = BufReader::new(file);
                 serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
             } else if let Some(request_id) = request_id {
-                boundless_market.get_submitted_request(request_id, tx_hash).await?.0
+                let client = ClientBuilder::default()
+                    .with_private_key(args.private_key.clone())
+                    .with_rpc_url(args.rpc_url.clone())
+                    .with_boundless_market_address(args.boundless_market_address)
+                    .with_set_verifier_address(args.set_verifier_address)
+                    .with_order_stream_url(order_stream_url.clone())
+                    .with_timeout(args.tx_timeout)
+                    .build()
+                    .await?;
+                let order = client.fetch_order(request_id, tx_hash, request_digest).await?;
+                order.request
             } else {
                 bail!("execute requires either a request file path or request ID")
             };
@@ -444,7 +503,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Execution succeeded.");
             tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
         }
-        Command::Fulfill { request_id, tx_hash, require_payment } => {
+        Command::Fulfill {
+            request_id,
+            request_digest,
+            tx_hash,
+            order_stream_url,
+            require_payment,
+        } => {
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
@@ -461,15 +526,24 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
 
             let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
 
-            let (request, sig) =
-                boundless_market.get_submitted_request(request_id, tx_hash).await?;
-            tracing::debug!("Fulfilling request {:?}", request);
-            request.verify_signature(
+            let client = ClientBuilder::default()
+                .with_private_key(args.private_key.clone())
+                .with_rpc_url(args.rpc_url.clone())
+                .with_boundless_market_address(args.boundless_market_address)
+                .with_set_verifier_address(args.set_verifier_address)
+                .with_order_stream_url(order_stream_url.clone())
+                .with_timeout(args.tx_timeout)
+                .build()
+                .await?;
+
+            let order = client.fetch_order(request_id, tx_hash, request_digest).await?;
+            tracing::debug!("Fulfilling request {:?}", order.request);
+            let sig: Bytes = order.signature.as_bytes().into();
+            order.request.verify_signature(
                 &sig,
                 args.boundless_market_address,
                 boundless_market.get_chain_id().await?,
             )?;
-            let order = Order { request, signature: PrimitiveSignature::try_from(sig.as_ref())? };
 
             let (fill, root_receipt, _, assessor_receipt) =
                 prover.fulfill(order.clone(), require_payment).await?;
@@ -485,14 +559,12 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                     .then_some(order.request)
                     .into_iter()
                     .collect();
-
             match boundless_market
                 .price_and_fulfill_batch(
                     requests_to_price,
                     vec![sig],
                     order_fulfilled.fills,
-                    order_fulfilled.assessorSeal,
-                    caller,
+                    order_fulfilled.assessorReceipt,
                     None,
                 )
                 .await
@@ -505,23 +577,18 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 }
             }
         }
-        Command::Unfreeze => {
-            boundless_market.unfreeze_account().await?;
-            tracing::info!("Account unfrozen");
-        }
     };
 
     Ok(request_id)
 }
 
-async fn submit_offer<T, P, S>(
-    client: Client<T, P, S>,
+async fn submit_offer<P, S>(
+    client: Client<P, S>,
     signer: &impl Signer,
     args: &SubmitOfferArgs,
 ) -> Result<Option<U256>>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     // TODO(victor): Execute the request before sending it.
@@ -531,18 +598,11 @@ where
     let mut offer: Offer =
         serde_yaml::from_reader(reader).context("failed to parse offer from YAML")?;
 
-    // If set to 0, override the offer bidding_start field with the current block number.
+    // If set to 0, override the offer bidding_start field with the current timestamp + 30 seconds.
     if offer.biddingStart == 0 {
-        let latest_block = client
-            .boundless_market
-            .instance()
-            .provider()
-            .get_block_number()
-            .await
-            .context("Failed to get block number")?;
         // NOTE: Adding a bit of a delay to bidding start lets provers see and evaluate the request
-        // before the price starts to ramp up. 3 is an arbirary value.
-        offer = Offer { biddingStart: latest_block + 3, ..offer };
+        // before the price starts to ramp up. 30s is an arbitrary value.
+        offer = Offer { biddingStart: now_timestamp() + 30, ..offer };
     }
 
     // Resolve the ELF and input from command line arguments.
@@ -572,6 +632,11 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
+    let callback = match (&args.reqs.callback_addr, &args.reqs.callback_gas_limit) {
+        (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
+        _ => Callback::default(),
+    };
+
     // Compute the image_id, then upload the ELF.
     let elf_url = client.upload_image(&elf).await?;
     let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&elf)?));
@@ -592,7 +657,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate },
+        Requirements { imageId: image_id, predicate, callback, selector: FixedBytes::<4>([0; 4]) },
         elf_url,
         requirements_input,
         offer.clone(),
@@ -617,7 +682,7 @@ where
         client.submit_request_with_signer(&request, signer).await?
     };
     tracing::info!(
-        "Submitted request ID 0x{request_id:x}, bidding start at block number {}",
+        "Submitted request ID 0x{request_id:x}, bidding start at timestamp {}",
         offer.biddingStart
     );
 
@@ -635,18 +700,17 @@ where
     Ok(Some(request_id))
 }
 
-async fn submit_request<T, P, S>(
+async fn submit_request<P, S>(
     id: u32,
     request_path: impl AsRef<Path>,
-    client: Client<T, P, S>,
+    client: Client<P, S>,
     signer: &impl Signer,
     wait: bool,
     offchain: bool,
     preflight: bool,
 ) -> Result<Option<U256>>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     // TODO(victor): Execute the request before sending it.
@@ -656,18 +720,11 @@ where
     let mut request_yaml: ProofRequest =
         serde_yaml::from_reader(reader).context("failed to parse request from YAML")?;
 
-    // If set to 0, override the offer bidding_start field with the current block number.
+    // If set to 0, override the offer bidding_start field with the current timestamp + 30s.
     if request_yaml.offer.biddingStart == 0 {
-        let latest_block = client
-            .boundless_market
-            .instance()
-            .provider()
-            .get_block_number()
-            .await
-            .context("Failed to get block number")?;
         // NOTE: Adding a bit of a delay to bidding start lets provers see and evaluate the request
-        // before the price starts to ramp up. 3 is an arbirary value.
-        request_yaml.offer = Offer { biddingStart: latest_block + 3, ..request_yaml.offer };
+        // before the price starts to ramp up. 30s is an arbitrary value.
+        request_yaml.offer = Offer { biddingStart: now_timestamp() + 30, ..request_yaml.offer };
     }
 
     let mut request = ProofRequest::new(
@@ -711,13 +768,12 @@ where
         client.submit_request_with_signer(&request, signer).await?
     };
     tracing::info!(
-        "Request ID 0x{request_id:x}, bidding start at block number {}",
+        "Request ID 0x{request_id:x}, bidding start at timestamp {}",
         request.offer.biddingStart
     );
 
     if wait {
         let (journal, seal) = client
-            .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
         tracing::info!(
@@ -774,15 +830,19 @@ async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
     Ok(data)
 }
 
+// TODO(#379): Avoid drift relative to the chain's timestamps.
+fn now_timestamp() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use alloy::node_bindings::Anvil;
-    use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
+    use boundless_market::contracts::{hit_points::default_allowance, test_utils::create_test_ctx};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
-    use risc0_zkvm::sha::Digest;
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
@@ -792,10 +852,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -824,10 +881,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await

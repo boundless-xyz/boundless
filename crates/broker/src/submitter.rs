@@ -9,15 +9,14 @@ use alloy::{
     primitives::{utils::format_ether, Address, B256, U256},
     providers::{Provider, WalletProvider},
     sol_types::SolStruct,
-    transports::BoxTransport,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, encode_seal, set_verifier::SetVerifierService,
-    Fulfillment,
+    boundless_market::BoundlessMarketService, encode_seal, AssessorReceipt, Fulfillment,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
@@ -35,8 +34,8 @@ use crate::{
 pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
-    market: BoundlessMarketService<BoxTransport, Arc<P>>,
-    set_verifier: SetVerifierService<BoxTransport, Arc<P>>,
+    market: BoundlessMarketService<Arc<P>>,
+    set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
     set_builder_img_id: Digest,
     prover_address: Address,
@@ -45,7 +44,7 @@ pub struct Submitter<P> {
 
 impl<P> Submitter<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -202,7 +201,6 @@ where
                     imageId: order_img_id,
                     journal: order_journal.into(),
                     seal: seal.into(),
-                    requirePayment: true,
                 });
                 anyhow::Ok(())
             };
@@ -243,7 +241,12 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             config.batcher.single_txn_fulfill
         };
-
+        let assessor_fill = AssessorReceipt {
+            seal: assessor_seal.into(),
+            selectors: vec![],
+            prover: self.prover_address,
+            callbacks: vec![],
+        };
         if single_txn_fulfill {
             if let Err(err) = self
                 .market
@@ -252,8 +255,7 @@ where
                     root,
                     batch_seal.into(),
                     fulfillments.clone(),
-                    assessor_seal.into(),
-                    self.prover_address,
+                    assessor_fill,
                 )
                 .await
             {
@@ -291,11 +293,7 @@ where
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
 
-            if let Err(err) = self
-                .market
-                .fulfill_batch(fulfillments.clone(), assessor_seal.into(), self.prover_address)
-                .await
-            {
+            if let Err(err) = self.market.fulfill_batch(fulfillments.clone(), assessor_fill).await {
                 tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
                 for fulfillment in fulfillments.iter() {
                     if let Err(db_err) = self
@@ -386,7 +384,7 @@ where
 
 impl<P> RetryTask for Submitter<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let obj_clone = self.clone();
@@ -408,20 +406,15 @@ mod tests {
     use super::*;
     use crate::{
         db::SqliteDb,
+        now_timestamp,
         provers::{encode_input, MockProver},
         AggregationState, Batch, BatchStatus, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{B256, U256},
-        providers::{
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, ProviderBuilder, RootProvider,
-        },
+        primitives::U256,
+        providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
@@ -440,22 +433,10 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    type TestProvider = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
-    >;
-
     async fn build_submitter_and_batch(
         config: ConfigLock,
-    ) -> (AnvilInstance, Submitter<TestProvider>, DbObj, usize) {
+    ) -> (AnvilInstance, Submitter<impl Provider + WalletProvider + Clone + 'static>, DbObj, usize)
+    {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
@@ -465,7 +446,6 @@ mod tests {
 
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -474,7 +454,6 @@ mod tests {
 
         let customer_provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -531,19 +510,16 @@ mod tests {
         let order_request = ProofRequest::new(
             market_customer.index_from_nonce().await.unwrap(),
             &customer_addr,
-            Requirements {
-                imageId: B256::from_slice(echo_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                echo_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(2),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -624,12 +600,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingSubmission,
             updated_at: Utc::now(),
-            target_block: Some(0),
+            target_timestamp: Some(0),
             request: order_request,
             image_id: Some(echo_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(echo_proof.id.clone()),
-            expire_block: Some(100),
+            expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),
             error_msg: None,
@@ -644,9 +620,7 @@ mod tests {
             orders: vec![order_id],
             fees: U256::ZERO,
             start_time: Utc::now(),
-            block_deadline: Some(
-                order.request.offer.biddingStart + order.request.offer.timeout as u64,
-            ),
+            deadline: Some(order.request.offer.biddingStart + order.request.offer.timeout as u64),
             error_msg: None,
             aggregation_state: Some(AggregationState {
                 guest_state: batch_guest_state,
@@ -678,7 +652,7 @@ mod tests {
 
     async fn process_next_batch<P>(submitter: Submitter<P>, db: DbObj, batch_id: usize)
     where
-        P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+        P: Provider<Ethereum> + WalletProvider + 'static + Clone,
     {
         assert!(submitter.process_next_batch().await.unwrap());
         let batch = db.get_batch(batch_id).await.unwrap();

@@ -66,19 +66,19 @@ struct MainArgs {
     /// Lockin stake amount in ether.
     #[clap(short, long, value_parser = parse_ether, default_value = "0.0")]
     lockin_stake: U256,
-    /// Number of blocks, from the current block, before the bid starts.
-    #[clap(long, default_value = "5")]
-    bidding_start_offset: u64,
-    /// Ramp-up period in blocks.
+    /// Number of seconds, from the current time, before the auction period starts.
+    #[clap(long, default_value = "30")]
+    bidding_start_delay: u64,
+    /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
     #[clap(long, default_value = "0")]
     ramp_up: u32,
-    /// Number of blocks before the request lock-in expires.
-    #[clap(long, default_value = "300")]
+    /// Number of seconds before the request lock-in expires.
+    #[clap(long, default_value = "1200")]
     lock_timeout: u32,
-    /// Number of blocks before the request expires.
-    #[clap(long, default_value = "300")]
+    /// Number of seconds before the request expires.
+    #[clap(long, default_value = "1800")]
     timeout: u32,
     /// Elf file to use as the guest image, given as a path.
     ///
@@ -134,7 +134,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_order_stream_url(args.order_stream_url.clone())
         .with_storage_provider_config(args.storage_config.clone())
         .with_private_key(args.private_key.clone())
-        .with_bidding_start_offset(args.bidding_start_offset)
+        .with_bidding_start_delay(args.bidding_start_delay)
         .build()
         .await?;
 
@@ -250,10 +250,9 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::contracts::{test_utils::TestCtx, IBoundlessMarket};
+    use boundless_market::contracts::{test_utils::create_test_ctx, IBoundlessMarket};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
-    use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
     use super::*;
@@ -262,10 +261,7 @@ mod tests {
     #[traced_test]
     async fn test_main() {
         let anvil = Anvil::new().spawn();
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -279,7 +275,7 @@ mod tests {
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
             max_price_per_mcycle: parse_ether("0.002").unwrap(),
             lockin_stake: parse_ether("0.0").unwrap(),
-            bidding_start_offset: 5,
+            bidding_start_delay: 30,
             ramp_up: 0,
             timeout: 1000,
             lock_timeout: 1000,

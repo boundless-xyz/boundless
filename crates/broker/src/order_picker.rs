@@ -4,15 +4,14 @@
 
 use std::sync::Arc;
 
-use crate::chain_monitor::ChainMonitorService;
+use crate::now_timestamp;
 use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
-        Address, U256,
+        Address, FixedBytes, U256,
     },
     providers::{Provider, WalletProvider},
-    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
@@ -51,30 +50,26 @@ pub struct OrderPicker<P> {
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
-    chain_monitor: Arc<ChainMonitorService<P>>,
-    block_time: u64,
-    market: BoundlessMarketService<BoxTransport, Arc<P>>,
+    market: BoundlessMarketService<Arc<P>>,
 }
 
 impl<P> OrderPicker<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
     pub fn new(
         db: DbObj,
         config: ConfigLock,
         prover: ProverObj,
-        block_time: u64,
         market_addr: Address,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
-        Self { db, config, prover, chain_monitor, block_time, provider, market }
+        Self { db, config, prover, provider, market }
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<(), PriceOrderErr> {
@@ -84,8 +79,6 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             (config.market.min_deadline, config.market.allow_client_addresses.clone())
         };
-
-        let current_block = self.chain_monitor.current_block_number().await?;
 
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
@@ -97,18 +90,28 @@ where
             }
         }
 
+        // TODO(#BM-536): Filter based on supported selectors
+        // Drop orders that specify a selector
+        if order.request.requirements.selector != FixedBytes::<4>([0; 4]) {
+            tracing::warn!("Removing order {order_id:x} because it has a selector requirement");
+            self.db.skip_order(order_id).await.context("Order has a selector requirement")?;
+            return Ok(());
+        }
+
         // is the order expired already?
+        // TODO: Handle lockTimeout separately from timeout.
 
-        let expire_block = order.request.offer.biddingStart + order.request.offer.timeout as u64;
+        let expiration = order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
 
-        if expire_block <= current_block {
+        let now = now_timestamp();
+        if expiration <= now {
             tracing::warn!("Removing order {order_id:x} because it has expired");
             self.db.skip_order(order_id).await.context("Failed to delete expired order")?;
             return Ok(());
         };
 
         // Does the order expire within the min deadline
-        let seconds_left = (expire_block - current_block) * self.block_time;
+        let seconds_left = expiration - now;
         if seconds_left <= min_deadline {
             tracing::warn!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             self.db.skip_order(order_id).await.context("Failed to delete short deadline order")?;
@@ -169,7 +172,7 @@ where
         if skip_preflight {
             // If we skip preflight we lockin the order asap
             self.db
-                .set_order_lock(order_id, order.request.offer.biddingStart, expire_block)
+                .set_order_lock(order_id, 0, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
             return Ok(());
@@ -318,32 +321,32 @@ where
                 "Selecting order {order_id:x} at price {} - ASAP",
                 format_ether(U256::from(order.request.offer.minPrice))
             );
-            // set the target block to a past block (aka the order block or current)
-            // so we schedule the lock ASAP.
+            // set the target timestamp to 0 so we schedule the lock ASAP.
             self.db
-                .set_order_lock(order_id, order.request.offer.biddingStart, expire_block)
+                .set_order_lock(order_id, 0, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
-        // Here we have to pick a target block that the price would be at our target price
+        // Here we have to pick a target timestamp that the price would be at our target price
         // TODO: Clean up and do more testing on this since its just a rough shot first draft
         else {
             let target_min_price =
                 config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill;
             tracing::debug!("Target price: {target_min_price}");
 
-            let target_block: u64 = self
-                .market
-                .block_at_price(&order.request.offer, target_min_price)
-                .context("Failed to get target price block")?;
+            let target_timestamp: u64 = order
+                .request
+                .offer
+                .time_at_price(target_min_price)
+                .context("Failed to get target price timestamp")?;
             tracing::info!(
-                "Selecting order {order_id:x} at price {} - at block {}",
+                "Selecting order {order_id:x} at price {} - at time {}",
                 format_ether(target_min_price),
-                target_block,
+                target_timestamp,
             );
 
             self.db
-                .set_order_lock(order_id, target_block, expire_block)
+                .set_order_lock(order_id, target_timestamp, expiration)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
@@ -382,7 +385,8 @@ where
     /// Return the total amount of stake that is marked locally in the DB to be locked
     /// but has not yet been locked in the market contract thus has not been deducted from the account balance
     async fn pending_locked_stake(&self) -> Result<U256> {
-        let pending_locks = self.db.get_pending_lock_orders(0).await?;
+        // NOTE: i64::max is the largest timestamp value possible in the DB.
+        let pending_locks = self.db.get_pending_lock_orders(i64::MAX as u64).await?;
         let stake = pending_locks
             .iter()
             .map(|(_, order)| order.request.offer.lockStake)
@@ -399,7 +403,8 @@ where
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
     async fn estimate_gas_to_lock_pending(&self) -> Result<u64> {
         let mut gas = 0;
-        for (_, order) in self.db.get_pending_lock_orders(0).await?.iter() {
+        // NOTE: i64::max is the largest timestamp value possible in the DB.
+        for (_, order) in self.db.get_pending_lock_orders(i64::MAX as u64).await?.iter() {
             gas += self.estimate_gas_to_lock(order).await?;
         }
         Ok(gas)
@@ -408,7 +413,7 @@ where
     /// Estimate of gas for fulfilling any orders either pending lock or locked
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         let pending_fulfill_orders = self.db.get_orders_committed_to_fulfill_count().await?;
-        Ok((pending_fulfill_orders as u64)
+        Ok((pending_fulfill_orders)
             * self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
     }
 
@@ -453,7 +458,7 @@ where
 
 impl<P> RetryTask for OrderPicker<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
     fn spawn(&self) -> RetryRes {
         let picker_copy = self.clone();
@@ -506,19 +511,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, provers::MockProver, OrderStatus};
+    use crate::{
+        chain_monitor::ChainMonitorService, db::SqliteDb, provers::MockProver, OrderStatus,
+    };
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
         primitives::{aliases::U96, Address, Bytes, B256},
-        providers::{
-            ext::AnvilApi,
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, ProviderBuilder, RootProvider,
-        },
+        providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -532,34 +532,20 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    type TestProvider = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
-    >;
-
     /// Reusable context for testing the order picker
     struct TestCtx<P> {
         pub anvil: AnvilInstance,
         pub picker: OrderPicker<P>,
-        pub boundless_market: BoundlessMarketService<BoxTransport, Arc<P>>,
+        pub boundless_market: BoundlessMarketService<Arc<P>>,
         pub image_server: MockServer,
         pub db: DbObj,
         pub provider: Arc<P>,
     }
 
-    impl TestCtx<TestProvider> {
-        pub fn builder() -> TestCtxBuilder {
-            TestCtxBuilder::default()
-        }
-
+    impl<P> TestCtx<P>
+    where
+        P: Provider + WalletProvider,
+    {
         pub fn image_uri(&self) -> String {
             format!("http://{}/image", self.image_server.address())
         }
@@ -584,13 +570,13 @@ mod tests {
                     request: ProofRequest::new(
                         order_index,
                         &self.provider.default_signer_address(),
-                        Requirements {
-                            imageId: <[u8; 32]>::from(image_id).into(),
-                            predicate: Predicate {
+                        Requirements::new(
+                            image_id,
+                            Predicate {
                                 predicateType: PredicateType::PrefixMatch,
                                 data: Default::default(),
                             },
-                        },
+                        ),
                         self.image_uri(),
                         Input::builder()
                             .write_slice(&[0x41, 0x41, 0x41, 0x41])
@@ -599,18 +585,18 @@ mod tests {
                         Offer {
                             minPrice: min_price,
                             maxPrice: max_price,
-                            biddingStart: 0,
-                            timeout: 100,
-                            lockTimeout: 100,
+                            biddingStart: now_timestamp(),
+                            timeout: 1200,
+                            lockTimeout: 900,
                             rampUpPeriod: 1,
                             lockStake: lock_stake,
                         },
                     ),
-                    target_block: None,
+                    target_timestamp: None,
                     image_id: None,
                     input_id: None,
                     proof_id: None,
-                    expire_block: None,
+                    expire_timestamp: None,
                     client_sig: Bytes::new(),
                     lock_price: None,
                     error_msg: None,
@@ -637,21 +623,20 @@ mod tests {
         pub fn with_config(self, config: ConfigLock) -> Self {
             Self { config: Some(config), ..self }
         }
-        pub async fn build(self) -> TestCtx<TestProvider> {
+        pub async fn build(self) -> TestCtx<impl Provider + WalletProvider + Clone + 'static> {
             let anvil = Anvil::new()
                 .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
                 .spawn();
             let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
             let provider = Arc::new(
                 ProviderBuilder::new()
-                    .with_recommended_fillers()
                     .wallet(EthereumWallet::from(signer.clone()))
                     .on_builtin(&anvil.endpoint())
                     .await
                     .unwrap(),
             );
 
-            provider.anvil_mine(Some(U256::from(4)), Some(U256::from(2))).await.unwrap();
+            provider.anvil_mine(Some(4), Some(2)).await.unwrap();
 
             let hp_contract = deploy_hit_points(&signer, provider.clone()).await.unwrap();
             let market_address = deploy_boundless_market(
@@ -695,15 +680,8 @@ mod tests {
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn());
 
-            let picker = OrderPicker::new(
-                db.clone(),
-                config,
-                prover,
-                2,
-                market_address,
-                provider.clone(),
-                chain_monitor,
-            );
+            let picker =
+                OrderPicker::new(db.clone(), config, prover, market_address, provider.clone());
 
             TestCtx { anvil, picker, boundless_market, image_server, db, provider }
         }
@@ -716,7 +694,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
@@ -732,7 +710,7 @@ mod tests {
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));
+        assert_eq!(db_order.target_timestamp, Some(0));
     }
 
     #[tokio::test]
@@ -742,7 +720,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
@@ -774,7 +752,7 @@ mod tests {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
@@ -801,7 +779,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
@@ -829,11 +807,11 @@ mod tests {
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_block, Some(order.request.offer.biddingStart));
+        assert_eq!(db_order.target_timestamp, Some(0));
     }
 
     // TODO: Test
-    // need to test the non-ASAP path for pricing, aka picking a block ahead in time to make sure
+    // need to test the non-ASAP path for pricing, aka picking a timestamp ahead in time to make sure
     // that price calculator is working correctly.
 
     #[tokio::test]
@@ -847,8 +825,11 @@ mod tests {
             config.load_write().unwrap().market.max_stake = "10".into();
         }
 
-        let ctx =
-            TestCtx::builder().with_config(config).with_initial_hp(U256::from(100)).build().await;
+        let ctx = TestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(U256::from(100))
+            .build()
+            .await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (order_id, order) = ctx
@@ -860,7 +841,7 @@ mod tests {
         // order is pending lock so stake is counted
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lockin_stake);
 
-        ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
+        ctx.db.set_proving_status(order_id, U256::ZERO).await.unwrap();
         // order no longer pending lock so stake no longer counted
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
     }
@@ -875,7 +856,7 @@ mod tests {
             config.load_write().unwrap().market.lockin_gas_estimate = lockin_gas;
         }
 
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (order_id, order) = ctx
@@ -899,7 +880,7 @@ mod tests {
             config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
         }
 
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (_, order) = ctx
@@ -933,7 +914,7 @@ mod tests {
             config.load_write().unwrap().market.lockin_gas_estimate = lockin_gas;
         }
 
-        let ctx = TestCtx::builder().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let (order_id, order) = ctx
@@ -947,8 +928,8 @@ mod tests {
             ctx.picker.gas_reserved().await.unwrap(),
             U256::from(gas_price) * U256::from(fulfill_gas + lockin_gas)
         );
-        // lock the order
-        ctx.db.set_order_lock(order_id, 2, 100).await.unwrap();
+        // mark the order as locked.
+        ctx.db.set_proving_status(order_id, U256::ZERO).await.unwrap();
         // only fulfillment gas now reserved
         assert_eq!(
             ctx.picker.gas_reserved().await.unwrap(),
@@ -968,7 +949,7 @@ mod tests {
             config.load_write().unwrap().market.max_stake = "10".into();
         }
 
-        let ctx = TestCtx::builder()
+        let ctx = TestCtxBuilder::default()
             .with_initial_signer_eth(signer_inital_balance_eth)
             .with_initial_hp(lockin_stake)
             .with_config(config)
@@ -1008,8 +989,11 @@ mod tests {
         }
         let lockin_stake = U256::from(10);
 
-        let ctx =
-            TestCtx::builder().with_config(config).with_initial_hp(lockin_stake).build().await;
+        let ctx = TestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(lockin_stake)
+            .build()
+            .await;
         let (_, order) = ctx
             .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake)
             .await;

@@ -2,14 +2,7 @@
 //
 // All rights reserved.
 
-use std::sync::Arc;
-
-use alloy::{
-    network::Ethereum,
-    primitives::{utils, Address, U256},
-    providers::Provider,
-    transports::BoxTransport,
-};
+use alloy::primitives::{utils, Address, U256};
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::contracts::eip712_domain;
@@ -21,21 +14,19 @@ use risc0_zkvm::{
 };
 
 use crate::{
-    chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
+    now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     AggregationState, Batch, BatchStatus,
 };
 
 #[derive(Clone)]
-pub struct AggregatorService<P> {
+pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
-    chain_monitor: Arc<ChainMonitorService<P>>,
-    block_time: u64,
     set_builder_guest_id: Digest,
     assessor_guest_id: Digest,
     market_addr: Address,
@@ -43,15 +34,11 @@ pub struct AggregatorService<P> {
     chain_id: u64,
 }
 
-impl<P> AggregatorService<P>
-where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
-{
+impl AggregatorService {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DbObj,
-        provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
+        chain_id: u64,
         set_builder_guest_id: Digest,
         set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
@@ -60,7 +47,6 @@ where
         prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
-        block_time: u64,
     ) -> Result<Self> {
         prover
             .upload_image(&set_builder_guest_id.to_string(), set_builder_guest)
@@ -72,13 +58,9 @@ where
             .await
             .context("Failed to upload assessor guest")?;
 
-        let chain_id = provider.get_chain_id().await?;
-
         Ok(Self {
             db,
             config,
-            chain_monitor,
-            block_time,
             prover,
             set_builder_guest_id,
             assessor_guest_id,
@@ -371,31 +353,21 @@ where
         }
 
         // Finalize whenever a deadline is approaching.
-        let conf_block_deadline_buf = {
+        let conf_deadline_buf_secs = {
             let config = self.config.lock_all().context("Failed to lock config")?;
             config.batcher.block_deadline_buffer_secs
         };
-        let block_number = self.chain_monitor.current_block_number().await?;
+        let now = now_timestamp();
 
-        let block_deadline = pending_orders
+        let deadline = pending_orders
             .iter()
-            .map(|order| order.expire_block)
-            .chain(batch.block_deadline)
+            .map(|order| order.expiration)
+            .chain(batch.deadline)
             .reduce(u64::min);
 
-        if let Some(block_deadline) = block_deadline {
-            let remaining_secs = (block_deadline - block_number) * self.block_time;
-            let buffer_secs = conf_block_deadline_buf;
-            // tracing::info!(
-            //     "{:?} {} {} {} {}",
-            //     batch.block_deadline,
-            //     block_number,
-            //     self.block_time,
-            //     remaining_secs,
-            //     buffer_secs
-            // );
-
-            if remaining_secs <= buffer_secs {
+        if let Some(deadline) = deadline {
+            let remaining_secs = deadline.saturating_sub(now);
+            if remaining_secs <= conf_deadline_buf_secs {
                 tracing::info!(
                     "Finalizing batch {batch_id}: getting close to deadline {remaining_secs}"
                 );
@@ -534,10 +506,7 @@ where
     }
 }
 
-impl<P> RetryTask for AggregatorService<P>
-where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
-{
+impl RetryTask for AggregatorService {
     fn spawn(&self) -> RetryRes {
         let mut self_clone = self.clone();
 
@@ -562,17 +531,21 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{ops::Add, sync::Arc};
+
     use super::*;
     use crate::{
+        chain_monitor::ChainMonitorService,
         db::SqliteDb,
+        now_timestamp,
         provers::{encode_input, MockProver, Prover},
         BatchStatus, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{B256, U256},
-        providers::{ext::AnvilApi, ProviderBuilder},
+        primitives::U256,
+        providers::{ext::AnvilApi, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -581,7 +554,6 @@ mod tests {
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use std::ops::Add;
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -592,7 +564,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -624,8 +595,7 @@ mod tests {
         let _handle = tokio::spawn(chain_monitor.spawn());
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor.clone(),
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -634,7 +604,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -647,22 +616,19 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
-                rampUpPeriod: 1,
                 lockTimeout: 100,
+                rampUpPeriod: 1,
                 lockStake: U256::from(10),
             },
         );
@@ -676,12 +642,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
-            target_block: None,
+            target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
-            expire_block: Some(100),
+            expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -693,19 +659,16 @@ mod tests {
         let order_request = ProofRequest::new(
             1,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -722,12 +685,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
-            target_block: None,
+            target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str),
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
-            expire_block: Some(100),
+            expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -753,7 +716,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -785,8 +747,7 @@ mod tests {
         let _handle = tokio::spawn(chain_monitor.spawn());
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor.clone(),
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -795,7 +756,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -808,21 +768,18 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
-                timeout: 100,
-                lockTimeout: 100,
+                biddingStart: now_timestamp(),
+                timeout: 1200,
+                lockTimeout: 1200,
                 rampUpPeriod: 1,
                 lockStake: U256::from(10),
             },
@@ -837,15 +794,15 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
-            target_block: None,
-            request: order_request,
+            target_timestamp: None,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
-            expire_block: Some(100),
+            expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
+            request: order_request,
         };
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
@@ -869,21 +826,18 @@ mod tests {
         let order_request = ProofRequest::new(
             1,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: 0,
-                timeout: 100,
-                lockTimeout: 100,
+                biddingStart: now_timestamp(),
+                timeout: 1200,
+                lockTimeout: 1200,
                 rampUpPeriod: 1,
                 lockStake: U256::from(10),
             },
@@ -898,15 +852,15 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
-            target_block: None,
-            request: order_request,
+            target_timestamp: None,
             image_id: Some(image_id_str),
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
-            expire_block: Some(100),
+            expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
+            request: order_request,
         };
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
@@ -929,7 +883,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -956,12 +909,9 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor,
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -970,7 +920,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -982,19 +931,16 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -1011,12 +957,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
-            target_block: None,
+            target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
-            expire_block: Some(100),
+            expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -1041,7 +987,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -1074,8 +1019,7 @@ mod tests {
 
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor,
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -1084,7 +1028,6 @@ mod tests {
             signer.address(),
             config.clone(),
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -1096,22 +1039,19 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 50,
-                rampUpPeriod: 1,
                 lockTimeout: 100,
+                rampUpPeriod: 1,
                 lockStake: U256::from(10),
             },
         );
@@ -1125,12 +1065,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
-            target_block: None,
+            target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
-            expire_block: Some(100),
+            expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
@@ -1138,7 +1078,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        provider.anvil_mine(Some(U256::from(51)), Some(U256::from(2))).await.unwrap();
+        provider.anvil_mine(Some(51), Some(2)).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
@@ -1158,7 +1098,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -1196,8 +1135,7 @@ mod tests {
 
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.clone(),
-            chain_monitor,
+            provider.get_chain_id().await.unwrap(),
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -1206,7 +1144,6 @@ mod tests {
             signer.address(),
             config.clone(),
             prover,
-            2,
         )
         .await
         .unwrap();
@@ -1218,19 +1155,16 @@ mod tests {
         let order_request = ProofRequest::new(
             0,
             &customer_signer.address(),
-            Requirements {
-                imageId: B256::from_slice(image_id.as_bytes()),
-                predicate: Predicate {
-                    predicateType: PredicateType::PrefixMatch,
-                    data: Default::default(),
-                },
-            },
+            Requirements::new(
+                image_id,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             "http://risczero.com/image",
             Input { inputType: InputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: 0,
+                biddingStart: now_timestamp(),
                 timeout: 50,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
@@ -1247,12 +1181,12 @@ mod tests {
         let order = Order {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
-            target_block: None,
+            target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
-            expire_block: Some(1000),
+            expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
             error_msg: None,
