@@ -1375,7 +1375,7 @@ mod tests {
         sha::{Digest, Digestible},
         FakeReceipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
     };
-    use tracing_subscriber::EnvFilter;
+    use tracing_test::traced_test;
 
     fn ether(value: &str) -> U256 {
         parse_ether(value).unwrap()
@@ -1548,7 +1548,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    #[traced_test]
     async fn test_deposit_withdraw_stake() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
@@ -1619,8 +1619,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[traced_test]
     async fn test_e2e() {
-        tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
