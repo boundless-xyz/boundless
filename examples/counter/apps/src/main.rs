@@ -225,10 +225,13 @@ mod tests {
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
         primitives::Address,
-        providers::ProviderBuilder,
+        providers::{Provider, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
     };
-    use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
+    use boundless_market::contracts::{
+        hit_points::default_allowance,
+        test_utils::{create_test_ctx, TestCtx},
+    };
     use broker::test_utils::BrokerBuilder;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
@@ -243,10 +246,12 @@ mod tests {
         "../contracts/out/Counter.sol/Counter.json"
     );
 
-    async fn deploy_counter(anvil: &AnvilInstance, test_ctx: &TestCtx) -> Result<Address> {
+    async fn deploy_counter<P: Provider + 'static + Clone + WalletProvider>(
+        anvil: &AnvilInstance,
+        test_ctx: &TestCtx<P>,
+    ) -> Result<Address> {
         let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let deployer_provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(EthereumWallet::from(deployer_signer))
             .on_builtin(&anvil.endpoint())
             .await
@@ -265,7 +270,7 @@ mod tests {
         // Setup anvil and deploy contracts
         let anvil = Anvil::new().spawn();
         let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+            create_test_ctx(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
                 .await
                 .unwrap();
         ctx.prover_market

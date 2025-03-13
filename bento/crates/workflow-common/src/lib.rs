@@ -28,7 +28,7 @@ pub const SNARK_WORK_TYPE: &str = "snark";
 pub const SNARK_RETRIES: i32 = 0;
 pub const SNARK_TIMEOUT: i32 = 60 * 2;
 
-#[derive(Deserialize, Serialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 pub enum CompressType {
     None,
     Groth16,
@@ -41,7 +41,7 @@ impl Default for CompressType {
 }
 
 /// Executor / init request
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ExecutorReq {
     /// Image uuid
     pub image: String,
@@ -75,14 +75,14 @@ pub struct ExecutorResp {
 }
 
 /// prove + lift task definition
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProveReq {
     /// Segment index
     pub index: usize,
 }
 
 /// Join Request
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct JoinReq {
     /// Node index
     pub idx: usize,
@@ -93,21 +93,21 @@ pub struct JoinReq {
 }
 
 /// Resolve Request
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ResolveReq {
     /// Index of the final joined receipt
     pub max_idx: usize,
 }
 
 /// Input request
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct FinalizeReq {
     /// Index of the final joined receipt
     pub max_idx: usize,
 }
 
 /// Snark task definition
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SnarkReq {
     /// Stark receipt UUID to pull from minio
     pub receipt: String,
@@ -116,14 +116,14 @@ pub struct SnarkReq {
 }
 
 /// Snark task response
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SnarkResp {
     /// Snark UUID in object store snarks/{snark}
     pub snark: String,
 }
 
 /// Keccak prove request
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct KeccakReq {
     /// The digest of the claim that this keccak input is expected to produce.
     pub claim_digest: Digest,
@@ -134,7 +134,7 @@ pub struct KeccakReq {
 }
 
 /// High level enum of different sub task types and data
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum TaskType {
     /// Executor task
     Executor(ExecutorReq),
