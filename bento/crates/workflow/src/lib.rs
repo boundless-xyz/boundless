@@ -248,11 +248,14 @@ impl Agent {
                         tracing::info!("update_task_retried failed: {}", task.job_id);
                     }
                 } else {
+                    // Prevent massive errors from being reported to the DB
+                    let mut err_str = format!("{err:?}");
+                    err_str.truncate(1024);
                     taskdb::update_task_failed(
                         &self.db_pool,
                         &task.job_id,
                         &task.task_id,
-                        &format!("{err:?}"),
+                        &err_str,
                     )
                     .await
                     .context("Failed to report task failure")?;

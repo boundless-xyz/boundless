@@ -159,6 +159,7 @@ services:
 
     entrypoint: /app/agent -t prove
 
+    # comment-out if running in CPU proving mode
     deploy:
       resources:
         reservations:
