@@ -11,7 +11,7 @@ use crate::{
 };
 use alloy::{
     network::Ethereum,
-    primitives::{Address, U256},
+    primitives::{utils::parse_ether, Address, U256},
     providers::{Provider, WalletProvider},
     rpc::types::BlockTransactionsKind,
 };
@@ -72,6 +72,21 @@ where
         );
         if let Some(txn_timeout) = txn_timeout_opt {
             market = market.with_timeout(Duration::from_secs(txn_timeout));
+        }
+        {
+            let config = config.lock_all().context("Failed to lock config")?;
+            market = market.with_stake_balance_alert(
+                &config
+                    .market
+                    .stake_balance_warn_threshold
+                    .as_ref()
+                    .and_then(|s| parse_ether(s).ok()),
+                &config
+                    .market
+                    .stake_balance_error_threshold
+                    .as_ref()
+                    .and_then(|s| parse_ether(s).ok()),
+            );
         }
 
         Ok(Self { db, chain_monitor, block_time, config, market, provider })
