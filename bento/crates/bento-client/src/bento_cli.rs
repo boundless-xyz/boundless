@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as ProvingClient;
 use clap::Parser;
 use risc0_zkvm::compute_image_id;
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
 
         (TEST_ELF.to_vec(), input)
     } else {
-        panic!("Invalid arg config, either elf_file or iter_count should be supplied");
+        bail!("Invalid arg config, either elf_file or iter_count should be supplied");
     };
 
     let image_id = compute_image_id(&image).unwrap().to_string();
@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
                 break;
             }
             _ => {
-                panic!(
+                bail!(
                     "Job failed: {} - {}",
                     session.uuid,
                     res.error_msg.as_ref().unwrap_or(&String::new())
@@ -158,7 +158,7 @@ async fn main() -> Result<()> {
                     break;
                 }
                 _ => {
-                    panic!(
+                    bail!(
                         "SNARK Job failed: {} - {}",
                         snark_session.uuid,
                         res.error_msg.as_ref().unwrap_or(&String::new())
