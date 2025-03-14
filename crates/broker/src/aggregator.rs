@@ -536,7 +536,7 @@ mod tests {
     use super::*;
     use crate::{
         chain_monitor::ChainMonitorService,
-        db::SqliteDb,
+        db::{DBPoolManager, SqliteDb},
         now_timestamp,
         provers::{encode_input, MockProver, Prover},
         BatchStatus, Order, OrderStatus,

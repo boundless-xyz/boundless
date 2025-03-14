@@ -185,7 +185,7 @@ impl RetryTask for ProvingService {
 mod tests {
     use super::*;
     use crate::{
-        db::SqliteDb,
+        db::{DBPoolManager, SqliteDb},
         now_timestamp,
         provers::{encode_input, MockProver},
         OrderStatus,

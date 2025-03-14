@@ -19,7 +19,7 @@ use boundless_market::{
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 use config::ConfigWatcher;
-use db::{DbObj, SqliteDb};
+use db::{DBPoolManager, DbObj, PostgresDb, SqliteDb};
 use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
@@ -47,8 +47,13 @@ pub(crate) mod task;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// sqlite database connection url
-    #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
+    /// database connection url
+    #[clap(
+        short = 's',
+        long,
+        env,
+        default_value = "postgres://postgres:postgres@localhost:5432/postgres"
+    )]
     pub db_url: String,
 
     /// RPC URL
@@ -120,7 +125,9 @@ pub struct Args {
 }
 
 /// Status of a order as it moves through the lifecycle
+/// Note: any changes to this enum must be reflected in the `order_status` type in the database migrations
 #[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
+#[sqlx(type_name = "order_status")]
 enum OrderStatus {
     /// New order found on chain, waiting pricing analysis
     New,
@@ -199,7 +206,9 @@ impl Order {
     }
 }
 
+/// Note: any changes to this enum must be reflected in the `batch_status` type in the database migrations.
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[sqlx(type_name = "batch_status")]
 enum BatchStatus {
     #[default]
     Aggregating,
@@ -260,8 +269,19 @@ where
         let config_watcher =
             ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
 
-        let db: DbObj =
-            Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
+        // check if the db url is postgres or sqlite, and initialize the correct db type
+        let db: DbObj = if args.db_url.contains("postgres") {
+            Arc::new(
+                PostgresDb::new(&args.db_url).await.context("Failed to connect to postgres DB")?,
+            )
+        } else if args.db_url.contains("sqlite") {
+            Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?)
+        } else {
+            anyhow::bail!(
+                "Unsupported database URL. Only sqlite and postgres are supported: {}",
+                args.db_url
+            );
+        };
 
         Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
     }

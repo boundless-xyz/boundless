@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::runtime::Builder;
 
+use crate::db::DBPoolManager;
 use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
 
 use super::{BrokerDb, SqliteDb};

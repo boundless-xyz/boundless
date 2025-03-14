@@ -304,7 +304,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, now_timestamp};
+    use crate::{db::{DBPoolManager, SqliteDb}, now_timestamp};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
