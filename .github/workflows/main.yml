@@ -223,7 +223,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Start bento cluster
-        run: docker compose --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml up -d
+        run: docker compose --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml up -d
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
