@@ -108,14 +108,18 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 32
 Before running the Broker, make sure you have connected to a running instance of Bento.
 :::
 
+:::note[Note]
+`just` installation instructions can be found [here](https://github.com/casey/just#installation).
+:::
+
 ```sh [Terminal]
-docker compose --profile broker --env-file ./.env-compose up --build
+just broker
 ```
 
 ### Stopping The Broker Service
 
 ```sh [Terminal]
-docker compose --profile broker down
+just broker down
 ```
 
 ## Broker Optimization

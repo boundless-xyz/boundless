@@ -65,12 +65,12 @@ pub struct Args {
 
     /// Boundless market address
     #[clap(long, env)]
-    pub boundless_market_addr: Address,
+    pub boundless_market_address: Address,
 
     /// Risc zero Set verifier address
     // TODO: Get this from the market contract via view call
     #[clap(long, env)]
-    set_verifier_addr: Address,
+    set_verifier_address: Address,
 
     /// local prover API (Bento)
     ///
@@ -280,7 +280,7 @@ where
             Ok((img_id, elf_buf))
         } else {
             let boundless_market = BoundlessMarketService::new(
-                self.args.boundless_market_addr,
+                self.args.boundless_market_address,
                 self.provider.clone(),
                 Address::ZERO,
             );
@@ -312,7 +312,7 @@ where
             Ok((img_id, elf_buf))
         } else {
             let set_verifier_contract = SetVerifierService::new(
-                self.args.set_verifier_addr,
+                self.args.set_verifier_address,
                 self.provider.clone(),
                 Address::ZERO,
             );
@@ -360,7 +360,7 @@ where
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
-            self.args.boundless_market_addr,
+            self.args.boundless_market_address,
             self.provider.clone(),
             self.db.clone(),
             chain_monitor.clone(),
@@ -377,11 +377,10 @@ where
         });
 
         let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client = self
-            .args
-            .order_stream_url
-            .clone()
-            .map(|url| OrderStreamClient::new(url, self.args.boundless_market_addr, chain_id));
+        let client =
+            self.args.order_stream_url.clone().map(|url| {
+                OrderStreamClient::new(url, self.args.boundless_market_address, chain_id)
+            });
         // spin up a supervisor for the offchain market monitor
         if let Some(client) = client {
             let offchain_market_monitor =
@@ -437,7 +436,7 @@ where
             self.db.clone(),
             self.config_watcher.config.clone(),
             prover.clone(),
-            self.args.boundless_market_addr,
+            self.args.boundless_market_address,
             self.provider.clone(),
         ));
         supervisor_tasks.spawn(async move {
@@ -451,7 +450,7 @@ where
             chain_monitor.clone(),
             self.config_watcher.config.clone(),
             block_times,
-            self.args.boundless_market_addr,
+            self.args.boundless_market_address,
         )?);
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_monitor).await.context("Failed to start order monitor")?;
@@ -487,7 +486,7 @@ where
                 set_builder_img_data.1,
                 assessor_img_data.0,
                 assessor_img_data.1,
-                self.args.boundless_market_addr,
+                self.args.boundless_market_address,
                 prover_addr,
                 self.config_watcher.config.clone(),
                 prover.clone(),
@@ -506,8 +505,8 @@ where
             self.config_watcher.config.clone(),
             prover.clone(),
             self.provider.clone(),
-            self.args.set_verifier_addr,
-            self.args.boundless_market_addr,
+            self.args.set_verifier_address,
+            self.args.boundless_market_address,
             set_builder_img_data.0,
         )?);
         supervisor_tasks.spawn(async move {
@@ -677,8 +676,8 @@ pub mod test_utils {
             let args = Args {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
-                boundless_market_addr: ctx.boundless_market_addr,
-                set_verifier_addr: ctx.set_verifier_addr,
+                boundless_market_address: ctx.boundless_market_address,
+                set_verifier_address: ctx.set_verifier_address,
                 rpc_url,
                 order_stream_url: None,
                 private_key: ctx.prover_signer.clone(),

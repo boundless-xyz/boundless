@@ -14,7 +14,7 @@
 #   stop    Stop and remove Docker Compose services
 #
 # Options:
-#   -e, --env-file FILE    Specify a custom environment file (default: ./.env-compose)
+#   -e, --env-file FILE    Specify a custom environment file (default: ./.env.broker)
 #   -h, --help             Display this help message
 #
 # Examples:
@@ -36,7 +36,7 @@ set -euo pipefail
 # Constants and Defaults
 # =============================================================================
 
-DEFAULT_ENV_FILE="./.env-compose"
+DEFAULT_ENV_FILE="./.env.broker"
 
 # =============================================================================
 # Helper Functions
@@ -57,6 +57,11 @@ log_error() {
     echo -e "\033[31m[ERROR]\033[0m $1" >&2
 }
 
+# Function to display warning messages
+log_warn() {
+    echo -e "\033[33m[WARNING]\033[0m $1"
+}
+
 # Function to display usage instructions
 usage() {
     cat <<EOF
@@ -67,7 +72,7 @@ Commands:
   stop    Stop and remove Docker Compose services
 
 Options:
-  -e, --env-file FILE    Specify a custom environment file (default: ./.env-compose)
+  -e, --env-file FILE    Specify a custom environment file (default: ./.env.broker)
   -h, --help             Display this help message
 
 Examples:
@@ -135,8 +140,21 @@ verify_prerequisites() {
         exit 1
     fi
 
-    if [[ ! -f "$ENV_FILE" ]]; then
-        log_error "Environment file '$ENV_FILE' does not exist."
+    # Only create default env file from template if we're using the default env file
+    if [ "$ENV_FILE" = "$DEFAULT_ENV_FILE" ] && [ ! -f "$DEFAULT_ENV_FILE" ]; then
+        log_warn "Creating $DEFAULT_ENV_FILE from template..."
+        if [ -f ".env.broker-template" ]; then
+            cp .env.broker-template "$DEFAULT_ENV_FILE"
+            log_warn "Please review and update values in $DEFAULT_ENV_FILE before running the service again."
+        else
+            log_error "Error: .env.broker-template not found."
+            exit 1
+        fi
+    fi
+
+    # Check if environment file exists
+    if [ ! -f "$ENV_FILE" ]; then
+        log_error "Environment file $ENV_FILE does not exist."
         exit 1
     fi
 }
