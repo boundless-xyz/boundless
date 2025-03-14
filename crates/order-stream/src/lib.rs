@@ -381,7 +381,7 @@ mod tests {
     use boundless_market::{
         contracts::{
             hit_points::default_allowance,
-            test_utils::{create_test_ctx, TestCtx, DEV_MODE_TRUE},
+            test_utils::{create_test_ctx_mock, TestCtx},
             Offer, Predicate, ProofRequest, Requirements,
         },
         input::InputBuilder,
@@ -406,9 +406,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID, DEV_MODE_TRUE)
-            .await
-            .unwrap();
+        let ctx = create_test_ctx_mock(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)

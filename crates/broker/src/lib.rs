@@ -234,7 +234,7 @@ struct Batch {
     /// Orders from the market that are included in this batch.
     pub orders: Vec<U256>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub assessor_claim_digest: Option<Digest>,
+    pub assessor_proof_id: Option<String>,
     /// Tuple of the current aggregation state, as committed by the set builder guest, and the
     /// proof ID for the receipt that attests to the correctness of this state.
     #[serde(skip_serializing_if = "Option::is_none")]

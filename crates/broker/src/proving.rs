@@ -80,8 +80,9 @@ impl ProvingService {
             .await
             .with_context(|| format!("Failed to set order {order_id:x} proof id: {}", proof_id))?;
 
-        // TODO: Add a way to support multiple groth16 versions.
+        // TODO: Read supported groth16 version from config.
         if selector == Selector::Groth16V1_2 {
+            self.prover.wait_for_stark(&proof_id).await?;
             let groth16_proof_id = self
                 .prover
                 .compress(&proof_id)

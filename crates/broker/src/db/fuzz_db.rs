@@ -286,7 +286,7 @@ proptest! {
                                                 batch_id,
                                                 &agg_state,
                                                 &orders,
-                                                Some(Digest::from([2u32; 8])),
+                                                Some("proof_id".to_string()),
                                             ).await.unwrap();
                                         }
                                     },

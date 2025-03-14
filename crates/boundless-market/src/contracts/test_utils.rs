@@ -39,11 +39,6 @@ use risc0_zkvm::{
     Groth16ReceiptVerifierParameters,
 };
 
-// Spin up a test deployment in dev mode, with a RiscZeroMockVerifier.
-pub const DEV_MODE_TRUE: bool = true;
-// Spin up a test deployment in production mode, with a RiscZeroGroth16Verifier.
-pub const DEV_MODE_FALSE: bool = false;
-
 pub struct TestCtx<P> {
     pub verifier_addr: Address,
     pub set_verifier_addr: Address,
@@ -229,20 +224,24 @@ async fn deploy_contracts(
     Ok((verifier, set_verifier, hit_points, boundless_market))
 }
 
-pub async fn create_test_ctx(
+// Spin up a test deployment in dev mode, with a RiscZeroMockVerifier.
+pub async fn create_test_ctx_mock(
     anvil: &AnvilInstance,
     set_builder_id: impl Into<Digest>,
     assessor_guest_id: impl Into<Digest>,
-    dev_mode: bool,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-    create_test_ctx_with_rpc_url(
-        anvil,
-        &anvil.endpoint(),
-        set_builder_id,
-        assessor_guest_id,
-        dev_mode,
-    )
-    .await
+    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id, true)
+        .await
+}
+
+// Spin up a test deployment in production mode, with a RiscZeroGroth16Verifier.
+pub async fn create_test_ctx_prod(
+    anvil: &AnvilInstance,
+    set_builder_id: impl Into<Digest>,
+    assessor_guest_id: impl Into<Digest>,
+) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
+    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id, false)
+        .await
 }
 
 pub async fn create_test_ctx_with_rpc_url(

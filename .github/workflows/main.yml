@@ -112,9 +112,15 @@ jobs:
         run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
 
       - name: cargo test
-        run: cargo test --locked --workspace --all-targets -- ignored
+        run: cargo test --locked --workspace --all-targets
         env:
           RISC0_DEV_MODE: true
+
+      - name: cargo test ignored
+        run: cargo test -- --ignored
+        env:
+          BONSAI_API_KEY: ${{ secrets.BONSAI_API_KEY }}
+          BONSAI_API_URL: ${{ secrets.BONSAI_API_URL }}
 
       - name: sccache stats
         run: sccache --show-stats

@@ -20,7 +20,7 @@ use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
         hit_points::default_allowance,
-        test_utils::{create_test_ctx_with_rpc_url, TestCtx, DEV_MODE_TRUE},
+        test_utils::{create_test_ctx_with_rpc_url, TestCtx},
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
     input::InputBuilder,
@@ -162,15 +162,9 @@ async fn main() -> Result<()> {
 
     // Setup test context
     let ctx = Arc::new(
-        create_test_ctx_with_rpc_url(
-            &anvil,
-            &rpc_url,
-            SET_BUILDER_ID,
-            ASSESSOR_GUEST_ID,
-            DEV_MODE_TRUE,
-        )
-        .await
-        .context("Failed to create test context")?,
+        create_test_ctx_with_rpc_url(&anvil, &rpc_url, SET_BUILDER_ID, ASSESSOR_GUEST_ID, true)
+            .await
+            .context("Failed to create test context")?,
     );
     let (broker_task, _config_file) =
         spawn_broker(&ctx, Url::parse(&rpc_url).unwrap(), &args.database_url).await?;
