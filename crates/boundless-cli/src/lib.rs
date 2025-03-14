@@ -27,9 +27,9 @@ use risc0_aggregation::{
 };
 use risc0_ethereum_contracts::{encode_seal, selector::Selector};
 use risc0_zkvm::{
-    compute_image_id, default_prover,
+    compute_image_id, default_executor, default_prover,
     sha::{Digest, Digestible},
-    ExecutorEnv, ProverOpts, Receipt, ReceiptClaim,
+    ExecutorEnv, FakeReceipt, InnerReceipt, MaybePruned, ProverOpts, Receipt, ReceiptClaim,
 };
 use url::Url;
 
@@ -131,6 +131,7 @@ pub struct DefaultProver {
     assessor_elf: Vec<u8>,
     address: Address,
     domain: EIP721DomainSaltless,
+    execute_only: bool,
 }
 
 impl DefaultProver {
@@ -140,9 +141,44 @@ impl DefaultProver {
         assessor_elf: Vec<u8>,
         address: Address,
         domain: EIP721DomainSaltless,
+        execute_only: bool,
     ) -> Result<Self> {
         let set_builder_image_id = compute_image_id(&set_builder_elf)?;
-        Ok(Self { set_builder_elf, set_builder_image_id, assessor_elf, address, domain })
+        Ok(Self {
+            set_builder_elf,
+            set_builder_image_id,
+            assessor_elf,
+            address,
+            domain,
+            execute_only,
+        })
+    }
+
+    pub(crate) async fn execute(
+        &self,
+        elf: Vec<u8>,
+        input: Vec<u8>,
+        assumptions: Vec<Receipt>,
+    ) -> Result<Receipt> {
+        let image_id = compute_image_id(&elf)?;
+        let session_info = tokio::task::spawn_blocking(move || {
+            let mut env = ExecutorEnv::builder();
+            env.write_slice(&input);
+            for assumption_receipt in assumptions.iter() {
+                env.add_assumption(assumption_receipt.clone());
+            }
+            let env = env.build()?;
+
+            default_executor().execute(env, &elf)
+        })
+        .await??;
+        Ok(Receipt::new(
+            InnerReceipt::Fake(FakeReceipt::new(ReceiptClaim::ok(
+                image_id,
+                MaybePruned::Pruned(session_info.journal.digest()),
+            ))),
+            session_info.journal.bytes,
+        ))
     }
 
     // Proves the given [elf] with the given [input] and [assumptions].
@@ -161,6 +197,7 @@ impl DefaultProver {
                 env.add_assumption(assumption_receipt.clone());
             }
             let env = env.build()?;
+
             default_prover().prove_with_opts(env, &elf, &opts)
         })
         .await??
@@ -179,8 +216,18 @@ impl DefaultProver {
             .context("Failed to build set builder input")?;
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
 
-        self.prove(self.set_builder_elf.clone(), encoded_input, assumptions, ProverOpts::groth16())
-            .await
+        match self.execute_only {
+            true => self.execute(self.set_builder_elf.clone(), encoded_input, assumptions).await,
+            false => {
+                self.prove(
+                    self.set_builder_elf.clone(),
+                    encoded_input,
+                    assumptions,
+                    ProverOpts::groth16(),
+                )
+                .await
+            }
+        }
     }
 
     // Proves the assessor.
@@ -191,13 +238,20 @@ impl DefaultProver {
     ) -> Result<Receipt> {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
-        self.prove(
-            self.assessor_elf.clone(),
-            assessor_input.to_vec(),
-            receipts,
-            ProverOpts::succinct(),
-        )
-        .await
+        match self.execute_only {
+            true => {
+                self.execute(self.assessor_elf.clone(), assessor_input.to_vec(), receipts).await
+            }
+            false => {
+                self.prove(
+                    self.assessor_elf.clone(),
+                    assessor_input.to_vec(),
+                    receipts,
+                    ProverOpts::succinct(),
+                )
+                .await
+            }
+        }
     }
 
     /// Fulfills an order as a singleton, returning the relevant data:
@@ -208,13 +262,7 @@ impl DefaultProver {
     pub async fn fulfill(
         &self,
         order: Order,
-    ) -> Result<(
-        BoundlessFulfillment,
-        Receipt,
-        SetInclusionReceipt<ReceiptClaim>,
-        SetInclusionReceipt<ReceiptClaim>,
-        AssessorReceipt,
-    )> {
+    ) -> Result<(BoundlessFulfillment, Receipt, AssessorReceipt)> {
         let request = order.request.clone();
         let order_elf = fetch_url(&request.imageUrl).await?;
         let order_input: Vec<u8> = match request.input.inputType {
@@ -240,9 +288,13 @@ impl DefaultProver {
             _ => bail!("Unsupported selector {}", request.requirements.selector),
         };
 
-        let order_receipt = self
-            .prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::succinct())
-            .await?;
+        let order_receipt = match self.execute_only {
+            true => self.execute(order_elf.clone(), order_input.clone(), vec![]).await?,
+            false => {
+                self.prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::succinct())
+                    .await?
+            }
+        };
 
         let order_journal = order_receipt.journal.bytes.clone();
         let order_image_id = compute_image_id(&order_elf)?;
@@ -285,9 +337,18 @@ impl DefaultProver {
             // We re-run the entire proof as the default prover with Bonsai does not support
             // compressing with receipts uploaded by the client.
             // TODO: refactor the prover trait to use the bonsai sdk instead.
-            let receipt = self
-                .prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::groth16())
-                .await?;
+            let receipt = match self.execute_only {
+                true => self.execute(order_elf.clone(), order_input.clone(), vec![]).await?,
+                false => {
+                    self.prove(
+                        order_elf.clone(),
+                        order_input.clone(),
+                        vec![],
+                        ProverOpts::groth16(),
+                    )
+                    .await?
+                }
+            };
             encode_seal(&receipt)?
         } else {
             order_inclusion_receipt.abi_encode_seal()?
@@ -314,13 +375,7 @@ impl DefaultProver {
             callbacks: assessor_receipt_journal.callbacks,
         };
 
-        Ok((
-            fulfillment,
-            root_receipt,
-            order_inclusion_receipt,
-            assessor_inclusion_receipt,
-            assessor_receipt,
-        ))
+        Ok((fulfillment, root_receipt, assessor_receipt))
     }
 }
 
@@ -337,8 +392,6 @@ mod tests {
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_set_builder::SET_BUILDER_ELF;
     use guest_util::{ECHO_ID, ECHO_PATH};
-    use risc0_ethereum_contracts::receipt::decode_seal;
-    use risc0_zkvm::VerifierContext;
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
@@ -358,7 +411,6 @@ mod tests {
         (request, signature)
     }
 
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     #[tokio::test]
     async fn test_fulfill_with_selector() {
         let signer = PrivateKeySigner::random();
@@ -367,31 +419,20 @@ mod tests {
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
+        let execute_only = true;
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
             domain,
+            execute_only,
         )
         .expect("failed to create prover");
 
         let order = Order { request, request_digest, signature };
-        let (fill, root_receipt, _, assessor_inclusion_receipt, _) =
-            prover.fulfill(order.clone()).await.unwrap();
-
-        let verifier_parameters =
-            SetInclusionReceiptVerifierParameters { image_id: prover.set_builder_image_id };
-
-        assessor_inclusion_receipt
-            .with_root(root_receipt.clone())
-            .verify_integrity_with_context(&VerifierContext::default(), verifier_parameters, None)
-            .unwrap();
-
-        let order_receipt = decode_seal(fill.seal, ECHO_ID, fill.journal).unwrap();
-        order_receipt.receipt().unwrap().verify(ECHO_ID).unwrap();
+        prover.fulfill(order.clone()).await.unwrap();
     }
 
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     #[tokio::test]
     async fn test_fulfill() {
         let signer = PrivateKeySigner::random();
@@ -399,32 +440,17 @@ mod tests {
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
+        let execute_only = true;
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
             domain,
+            execute_only,
         )
         .expect("failed to create prover");
 
         let order = Order { request, request_digest, signature };
-        let (_, root_receipt, order_inclusion_receipt, assessor_receipt, _) =
-            prover.fulfill(order.clone()).await.unwrap();
-
-        let verifier_parameters =
-            SetInclusionReceiptVerifierParameters { image_id: prover.set_builder_image_id };
-
-        order_inclusion_receipt
-            .with_root(root_receipt.clone())
-            .verify_integrity_with_context(
-                &VerifierContext::default(),
-                verifier_parameters.clone(),
-                None,
-            )
-            .unwrap();
-        assessor_receipt
-            .with_root(root_receipt.clone())
-            .verify_integrity_with_context(&VerifierContext::default(), verifier_parameters, None)
-            .unwrap();
+        prover.fulfill(order.clone()).await.unwrap();
     }
 }

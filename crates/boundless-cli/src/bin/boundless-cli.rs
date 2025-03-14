@@ -514,7 +514,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::debug!("Fetching SetBuilder ELF from {}", set_builder_url);
             let set_builder_elf = fetch_url(&set_builder_url).await?;
 
-            let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
+            let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain, false)?;
 
             let client = ClientBuilder::default()
                 .with_private_key(args.private_key.clone())
@@ -535,8 +535,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 boundless_market.get_chain_id().await?,
             )?;
 
-            let (fill, root_receipt, _, _, assessor_receipt) =
-                prover.fulfill(order.clone()).await?;
+            let (fill, root_receipt, assessor_receipt) = prover.fulfill(order.clone()).await?;
             let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt)?;
             set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
 
