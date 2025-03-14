@@ -34,10 +34,6 @@ pub struct Fulfillment {
     pub signature: Vec<u8>,
     /// The journal of the request.
     pub journal: Vec<u8>,
-    /// Whether the fulfillment requires payment.
-    ///
-    /// When set to true, the fulfill transaction will revert if the payment conditions are not met (e.g. the request is locked to a different prover address)
-    pub require_payment: bool,
 }
 
 impl Fulfillment {
@@ -153,7 +149,6 @@ mod tests {
             request: proving_request,
             signature: signature.as_bytes().to_vec(),
             journal: vec![1, 2, 3],
-            require_payment: true,
         };
 
         claim.verify_signature(&eip712_domain(Address::ZERO, 1).alloy_struct()).unwrap();
@@ -226,7 +221,7 @@ mod tests {
         let journal = application_receipt.journal.bytes.clone();
 
         // 3. Prove the Assessor
-        let claims = vec![Fulfillment { request, signature, journal, require_payment: true }];
+        let claims = vec![Fulfillment { request, signature, journal }];
         assessor(claims, vec![application_receipt]);
     }
 
@@ -240,7 +235,7 @@ mod tests {
         // 2. Prove the request via the application guest
         let application_receipt = echo("test");
         let journal = application_receipt.journal.bytes.clone();
-        let claim = Fulfillment { request, signature, journal, require_payment: true };
+        let claim = Fulfillment { request, signature, journal };
 
         // 3. Prove the Assessor reusing the same leaf twice
         let claims = vec![claim.clone(), claim];

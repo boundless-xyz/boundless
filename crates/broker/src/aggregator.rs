@@ -188,7 +188,6 @@ impl AggregatorService {
                 request: order.request.clone(),
                 signature: order.client_sig.clone().to_vec(),
                 journal,
-                require_payment: true,
             })
         }
 
@@ -423,25 +422,8 @@ impl AggregatorService {
 
         tracing::info!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
 
-        let assessor_claim_digest = if let Some(proof_id) = assessor_proof_id {
-            let receipt = self
-                .prover
-                .get_receipt(&proof_id)
-                .await
-                .with_context(|| format!("Failed to get proof receipt for proof {proof_id}"))?
-                .with_context(|| format!("Proof receipt not found for proof {proof_id}"))?;
-            let claim = receipt
-                .claim()
-                .with_context(|| format!("Receipt for proof {proof_id} missing claim"))?
-                .value()
-                .with_context(|| format!("Receipt for proof {proof_id} claims pruned"))?;
-            Some(claim.digest())
-        } else {
-            None
-        };
-
         self.db
-            .update_batch(batch_id, &aggregation_state, new_proofs, assessor_claim_digest)
+            .update_batch(batch_id, &aggregation_state, new_proofs, assessor_proof_id)
             .await
             .with_context(|| format!("Failed to update batch {batch_id} in the DB"))?;
 
@@ -647,6 +629,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -690,6 +673,7 @@ mod tests {
             image_id: Some(image_id_str),
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
             lock_price: Some(U256::from(min_price)),
@@ -798,6 +782,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -856,6 +841,7 @@ mod tests {
             image_id: Some(image_id_str),
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
@@ -962,6 +948,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1070,6 +1057,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1186,6 +1174,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),

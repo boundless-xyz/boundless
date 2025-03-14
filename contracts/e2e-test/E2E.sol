@@ -9,9 +9,12 @@ import {console2} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
-import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
+import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
+import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
+import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
+import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
+import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
 import {Account} from "../src/types/Account.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 import {AssessorReceipt} from "../src/types/AssessorReceipt.sol";
@@ -25,29 +28,34 @@ import {Predicate, PredicateType} from "../src/types/Predicate.sol";
 import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
 import {RequestLock} from "../src/types/RequestLock.sol";
 
+import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
-import {ConfigLoader, DeploymentConfig} from "../scripts/Config.s.sol";
+import {HitPoints} from "../src/HitPoints.sol";
 import {IHitPoints} from "../src/HitPoints.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 bytes32 constant APP_IMAGE_ID = 0x722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4;
 uint256 constant DEFAULT_BALANCE = 1000 ether;
 
-/// Test designed to be run against a chain with an active deployment of the RISC Zero contracts.
-/// Checks that the deployment matches what is recorded in the deployment.toml file.
-contract DeploymentTest is Test {
-    // Path to deployment config file, relative to the project root.
-    string constant CONFIG_FILE = "contracts/deployment.toml";
-    // Load the deployment config
-    DeploymentConfig internal deployment;
-
+/// Test designed to checks that a full e2e flow works.
+contract E2E is RiscZeroCheats, Test {
+   
+    RiscZeroVerifierRouter internal verifierRouter;
     IRiscZeroVerifier internal verifier;
-    IRiscZeroSetVerifier internal setVerifier;
-    IBoundlessMarket internal boundlessMarket;
+    RiscZeroSetVerifier internal setVerifier;
+    BoundlessMarket internal boundlessMarket;
     IHitPoints internal stakeToken;
+    bytes4 internal groth16Selector;
+    bytes4 internal setBuilderSelector;
+
+    address internal boundlessMarketSource;
+    address internal proxy;
+    
 
     mapping(uint256 => Client) internal clients;
+
+    Vm.Wallet internal OWNER_WALLET = vm.createWallet("OWNER");
 
     struct OrderFulfilled {
         /// The root of the set.
@@ -88,53 +96,52 @@ contract DeploymentTest is Test {
     }
 
     function setUp() external {
-        // Load the deployment config
-        deployment = ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG_FILE));
+        vm.deal(OWNER_WALLET.addr, DEFAULT_BALANCE);
+        vm.startPrank(OWNER_WALLET.addr);
+   
+        verifierRouter = new RiscZeroVerifierRouter(OWNER_WALLET.addr);
 
-        verifier = IRiscZeroVerifier(deployment.verifier);
-        setVerifier = IRiscZeroSetVerifier(deployment.setVerifier);
-        boundlessMarket = IBoundlessMarket(deployment.boundlessMarket);
-        stakeToken = IHitPoints(deployment.stakeToken);
-    }
+        verifier = deployRiscZeroVerifier();
+        IRiscZeroSelectable selectable = IRiscZeroSelectable(address(verifier));
+        groth16Selector = selectable.SELECTOR();
+        verifierRouter.addVerifier(groth16Selector, verifier);
 
-    function testAdminIsSet() external view {
-        require(deployment.admin != address(0), "no admin address is set");
-    }
+        string memory setBuilderPath =
+            "/target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder";
+        string memory cwd = vm.envString("PWD");
+        string memory setBuilderGuestUrl = string.concat("file://", cwd, setBuilderPath);
 
-    function testRouterIsDeployed() external view {
-        require(address(verifier) != address(0), "no verifier (router) address is set");
-        require(keccak256(address(verifier).code) != keccak256(bytes("")), "verifier code is empty");
-    }
+        string[] memory argv = new string[](4);
+        argv[0] = "r0vm";
+        argv[1] = "--id";
+        argv[2] = "--elf";
+        argv[3] = string.concat(".", setBuilderPath);
+        bytes32 setBuilderImageId = abi.decode(vm.ffi(argv), (bytes32));
 
-    function testSetVerifierIsDeployed() external view {
-        require(address(setVerifier) != address(0), "no set verifier address is set");
-        require(keccak256(address(setVerifier).code) != keccak256(bytes("")), "set verifier code is empty");
-    }
+        setVerifier = new RiscZeroSetVerifier(verifierRouter, setBuilderImageId, setBuilderGuestUrl);
+        selectable = IRiscZeroSelectable(address(setVerifier));
+        setBuilderSelector = selectable.SELECTOR();
+        verifierRouter.addVerifier(setBuilderSelector, IRiscZeroVerifier(setVerifier));
 
-    function testBoundlessMarketIsDeployed() external view {
-        require(address(boundlessMarket) != address(0), "no boundless market address is set");
-        require(keccak256(address(boundlessMarket).code) != keccak256(bytes("")), "boundless market code is empty");
-    }
+        stakeToken = new HitPoints(OWNER_WALLET.addr);
 
-    function testStakeTokenIsDeployed() external view {
-        require(address(stakeToken) != address(0), "no stake token address is set");
-        require(keccak256(address(stakeToken).code) != keccak256(bytes("")), "stake token code is empty");
-    }
+        string memory assessorPath =
+            "/target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest";
+        string memory assessorGuestUrl = string.concat("file://", cwd, assessorPath);
 
-    function testBoundlessMarketOwner() external view {
-        require(
-            deployment.admin == BoundlessMarket(address(boundlessMarket)).owner(),
-            "boundless market owner does not match admin"
+        argv[3] = string.concat(".", assessorPath);
+        bytes32 assessorImageId = abi.decode(vm.ffi(argv), (bytes32));
+
+        boundlessMarketSource = address(new BoundlessMarket(IRiscZeroVerifier(verifierRouter), assessorImageId, address(stakeToken)));
+        proxy = UnsafeUpgrades.deployUUPSProxy(
+            boundlessMarketSource,
+            abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, assessorGuestUrl))
         );
-    }
-
-    function testAssessorInfo() external view {
-        (bytes32 assessorImageId, string memory assessorGuestUrl) = boundlessMarket.imageInfo();
-        require(deployment.assessorImageId == assessorImageId, "assessor image ID does not match");
-        require(
-            keccak256(abi.encode(deployment.assessorGuestUrl)) == keccak256(abi.encode(assessorGuestUrl)),
-            "assessor guest URL does not match"
-        );
+        boundlessMarket = BoundlessMarket(proxy);
+        
+        stakeToken.grantMinterRole(OWNER_WALLET.addr);
+        stakeToken.grantAuthorizedTransferRole(proxy);
+        vm.stopPrank();
     }
 
     function testPriceAndFulfillBatch() external {
@@ -188,7 +195,7 @@ contract DeploymentTest is Test {
         Client testProver = createClientContract("PROVER");
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
-        request.requirements.selector = bytes4(0xc101b42b);
+        request.requirements.selector = groth16Selector;
 
         ProofRequest[] memory requests = new ProofRequest[](1);
         requests[0] = request;

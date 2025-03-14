@@ -108,6 +108,7 @@ fn generate_test_order(id: u32) -> Order {
         image_id: None,
         input_id: None,
         proof_id: Some(format!("proof_{}", id)),
+        compressed_proof_id: Some(format!("compressed_proof_{}", id)),
         expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
@@ -285,7 +286,7 @@ proptest! {
                                                 batch_id,
                                                 &agg_state,
                                                 &orders,
-                                                Some(Digest::from([2u32; 8])),
+                                                Some("proof_id".to_string()),
                                             ).await.unwrap();
                                         }
                                     },

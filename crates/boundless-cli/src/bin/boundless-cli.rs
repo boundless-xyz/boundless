@@ -32,7 +32,7 @@ use alloy::{
     signers::{local::PrivateKeySigner, Signer},
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use boundless_cli::{DefaultProver, OrderFulfilled};
+use boundless_cli::{DefaultProver, OrderFulfilled, ProverMode};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
@@ -203,10 +203,6 @@ enum Command {
         /// If provided, the request will be fetched offchain via the provided order stream service URL.
         #[arg(long, conflicts_with_all = ["tx_hash"])]
         order_stream_url: Option<Url>,
-        /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
-        /// request is locked to another prover).
-        #[arg(long, default_value = "false")]
-        require_payment: bool,
     },
 }
 
@@ -503,13 +499,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Execution succeeded.");
             tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
         }
-        Command::Fulfill {
-            request_id,
-            request_digest,
-            tx_hash,
-            order_stream_url,
-            require_payment,
-        } => {
+        Command::Fulfill { request_id, request_digest, tx_hash, order_stream_url } => {
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
@@ -524,7 +514,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::debug!("Fetching SetBuilder ELF from {}", set_builder_url);
             let set_builder_elf = fetch_url(&set_builder_url).await?;
 
-            let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
+            let prover = DefaultProver::new(
+                set_builder_elf,
+                assessor_elf,
+                caller,
+                domain,
+                ProverMode::Prove,
+            )?;
 
             let client = ClientBuilder::default()
                 .with_private_key(args.private_key.clone())
@@ -545,10 +541,8 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 boundless_market.get_chain_id().await?,
             )?;
 
-            let (fill, root_receipt, _, assessor_receipt) =
-                prover.fulfill(order.clone(), require_payment).await?;
-            let order_fulfilled =
-                OrderFulfilled::new(fill, root_receipt, assessor_receipt, caller)?;
+            let (fill, root_receipt, assessor_receipt) = prover.fulfill(order.clone()).await?;
+            let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt)?;
             set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
 
             // If the request is not locked in, we need to "price" which checks the requirements
@@ -840,7 +834,9 @@ mod tests {
     use super::*;
 
     use alloy::node_bindings::Anvil;
-    use boundless_market::contracts::{hit_points::default_allowance, test_utils::create_test_ctx};
+    use boundless_market::contracts::{
+        hit_points::default_allowance, test_utils::create_test_ctx_mock,
+    };
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use tokio::time::timeout;
@@ -851,8 +847,7 @@ mod tests {
     async fn test_deposit_withdraw() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
-
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx_mock(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -880,8 +875,7 @@ mod tests {
     async fn test_submit_request() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
-
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx_mock(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await

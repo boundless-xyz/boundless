@@ -7,7 +7,6 @@ use std::{default::Default, str::FromStr, sync::Arc};
 use alloy::primitives::{ruint::ParseError as RuintParseErr, B256, U256};
 use async_trait::async_trait;
 use chrono::Utc;
-use risc0_zkvm::sha::Digest;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Row,
@@ -80,6 +79,7 @@ pub trait BrokerDb {
         &self,
         id: U256,
     ) -> Result<(ProofRequest, String, B256, U256), DbError>;
+    async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError>;
     async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
@@ -102,6 +102,11 @@ pub trait BrokerDb {
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_proof_id(&self, order_id: U256, proof_id: &str) -> Result<(), DbError>;
+    async fn set_order_compressed_proof_id(
+        &self,
+        order_id: U256,
+        proof_id: &str,
+    ) -> Result<(), DbError>;
     async fn set_image_input_ids(
         &self,
         id: U256,
@@ -119,13 +124,13 @@ pub trait BrokerDb {
     /// Update a batch with the results of an aggregation step.
     ///
     /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
-    /// and deadline. During finalization, the assessor_claim_digest is recorded as well.
+    /// and deadline. During finalization, the assessor_proof_id is recorded as well.
     async fn update_batch(
         &self,
         batch_id: usize,
         aggreagtion_state: &AggregationState,
         orders: &[AggregationOrder],
-        assessor_claim_digest: Option<Digest>,
+        assessor_proof_id: Option<String>,
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
 
@@ -241,6 +246,15 @@ impl BrokerDb for SqliteDb {
                 order.request.requirements.imageId,
                 order.lock_price.ok_or(DbError::MissingElm("lock_price"))?,
             ))
+        } else {
+            Err(DbError::OrderNotFound(id))
+        }
+    }
+
+    async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError> {
+        let order = self.get_order(id).await?;
+        if let Some(order) = order {
+            Ok(order.compressed_proof_id.ok_or(DbError::MissingElm("compressed_proof_id"))?)
         } else {
             Err(DbError::OrderNotFound(id))
         }
@@ -565,6 +579,34 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
+    async fn set_order_compressed_proof_id(
+        &self,
+        id: U256,
+        compressed_proof_id: &str,
+    ) -> Result<(), DbError> {
+        let res = sqlx::query(
+            r#"
+            UPDATE orders
+            SET data = json_set(
+                       json_set(data,
+                       '$.compressed_proof_id', $1),
+                       '$.updated_at', $2)
+            WHERE
+                id = $3"#,
+        )
+        .bind(compressed_proof_id)
+        .bind(Utc::now().timestamp())
+        .bind(format!("{id:x}"))
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::OrderNotFound(id));
+        }
+
+        Ok(())
+    }
+
     async fn set_image_input_ids(
         &self,
         id: U256,
@@ -789,7 +831,7 @@ impl BrokerDb for SqliteDb {
         batch_id: usize,
         aggreagtion_state: &AggregationState,
         orders: &[AggregationOrder],
-        assessor_claim_digest: Option<Digest>,
+        assessor_proof_id: Option<String>,
     ) -> Result<(), DbError> {
         let mut txn = self.pool.begin().await?;
 
@@ -880,7 +922,7 @@ impl BrokerDb for SqliteDb {
             }
         }
 
-        if let Some(assessor_claim_digest) = assessor_claim_digest {
+        if let Some(assessor_proof_id) = assessor_proof_id {
             let res = sqlx::query(
                 r#"
                 UPDATE batches
@@ -888,12 +930,12 @@ impl BrokerDb for SqliteDb {
                     data = json_set(
                            json_set(data,
                            '$.status', $1),
-                           '$.assessor_claim_digest', json($2))
+                           '$.assessor_proof_id', json($2))
                 WHERE
                     id = $3"#,
             )
             .bind(BatchStatus::PendingCompression)
-            .bind(sqlx::types::Json(assessor_claim_digest))
+            .bind(sqlx::types::Json(assessor_proof_id))
             .bind(batch_id as i64)
             .execute(&mut *txn)
             .await?;
@@ -969,6 +1011,7 @@ mod tests {
         Input, InputType, Offer, Predicate, PredicateType, Requirements,
     };
     use risc0_aggregation::GuestState;
+    use risc0_zkvm::sha::Digest;
 
     fn create_order() -> Order {
         Order {
@@ -1000,6 +1043,7 @@ mod tests {
             image_id: None,
             input_id: None,
             proof_id: None,
+            compressed_proof_id: None,
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
@@ -1503,7 +1547,9 @@ mod tests {
         };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
-        db.update_batch(batch_id, &agg_state, &agg_proofs, Some([4u32; 8].into())).await.unwrap();
+        db.update_batch(batch_id, &agg_state, &agg_proofs, Some("proof_id".to_string()))
+            .await
+            .unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::PendingCompression);

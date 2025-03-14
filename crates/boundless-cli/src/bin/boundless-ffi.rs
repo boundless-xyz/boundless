@@ -25,7 +25,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{ensure, Context, Result};
-use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled};
+use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled, ProverMode};
 use boundless_market::{
     contracts::{eip712_domain, ProofRequest},
     order_stream_client::Order,
@@ -72,8 +72,13 @@ async fn main() -> Result<()> {
     let set_builder_elf = fetch_url(&args.set_builder_url).await?;
     let assessor_elf = fetch_url(&args.assessor_url).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
-    let prover =
-        DefaultProver::new(set_builder_elf, assessor_elf, args.prover_address, domain.clone())?;
+    let prover = DefaultProver::new(
+        set_builder_elf,
+        assessor_elf,
+        args.prover_address,
+        domain.clone(),
+        ProverMode::Prove,
+    )?;
     let request =
         <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?, true)
             .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
@@ -85,10 +90,8 @@ async fn main() -> Result<()> {
             Bytes::from_hex(args.signature.trim_start_matches("0x"))?.as_ref(),
         )?,
     };
-    let (fill, root_receipt, _, assessor_receipt) =
-        prover.fulfill(order.clone(), args.require_payment).await?;
-    let order_fulfilled =
-        OrderFulfilled::new(fill, root_receipt, assessor_receipt, args.prover_address)?;
+    let (fill, root_receipt, assessor_receipt) = prover.fulfill(order.clone()).await?;
+    let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt)?;
 
     // Forge test FFI calls expect hex encoded bytes sent to stdout
     write!(&mut stdout, "{}", hex::encode(order_fulfilled.abi_encode()))
