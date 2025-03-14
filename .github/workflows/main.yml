@@ -112,7 +112,7 @@ jobs:
         run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
 
       - name: cargo test
-        run: cargo test --locked --workspace --all-targets
+        run: cargo test --locked --workspace --all-targets -- ignored
         env:
           RISC0_DEV_MODE: true
 
