@@ -43,9 +43,23 @@ export default function Main() {
         </h2>
 
         <h2 className="mb-16 text-neutral-800 text-xl">
-          Our <strong className="font-bold">Core Services</strong> handle proof generation, aggregation, and settlement,
-          while <strong className="font-bold">Extensions</strong> like Steel and Kailua unlock unprecedented cost
-          savings and speed—all using the tools and languages you already know.
+          Our <strong className="font-bold">Core Services</strong> handle{" "}
+          <a className="link underline" href="/introduction/proof-lifecycle">
+            proof generation
+          </a>
+          , aggregation, and settlement, while{" "}
+          <a className="link underline" href="/introduction/extensions">
+            Extensions
+          </a>{" "}
+          like{" "}
+          <a className="link underline" href="/introduction/extensions#steel">
+            Steel
+          </a>{" "}
+          and{" "}
+          <a className="link underline" href="/introduction/extensions#kailua">
+            Kailua
+          </a>{" "}
+          unlock unprecedented cost savings and speed—all using the tools and languages you already know.
         </h2>
 
         <h2 className="mb-16 text-neutral-900 text-xl">Focus on building while Boundless handles the rest.</h2>
