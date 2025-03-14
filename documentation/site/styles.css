@@ -147,6 +147,10 @@ body {
   @apply font-bold;
 }
 
+.vocs_Sidebar_logo {
+  @apply max-w-40;
+}
+
 .vocs_ExternalLink {
   @apply whitespace-pre;
 }
