@@ -123,7 +123,8 @@ async fn simple_e2e() {
 }
 
 #[tokio::test]
-#[traced_test]
+// It gets too noisy with tracing enabled, uncomment when needed
+// #[traced_test]
 #[ignore]
 async fn e2e_with_selector() {
     // Setup anvil
@@ -202,8 +203,8 @@ async fn e2e_with_selector() {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),
             biddingStart: now_timestamp(),
-            timeout: 180,
-            lockTimeout: 180,
+            timeout: 300,
+            lockTimeout: 300,
             rampUpPeriod: 1,
             lockStake: U256::from(10),
         },
