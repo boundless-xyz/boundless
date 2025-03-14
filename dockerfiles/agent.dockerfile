@@ -61,8 +61,7 @@ FROM risczero/risc0-groth16-prover@sha256:2829419e1bee4b87a2ade42569d9dffb4a304b
 
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
-RUN mkdir /app/ && \
-    apt-get update -q -y && apt-get install -q -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -q -y && apt-get install -q -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
 
 # Copy the witness generator and data files from the binary stage
 COPY --from=binaries /usr/local/bin/stark_verify /app/stark_verify

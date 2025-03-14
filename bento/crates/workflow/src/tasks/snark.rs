@@ -74,7 +74,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
     let proof_file = work_dir.path().join(PROOF_FILE);
 
     // Spawn prover process
-    let mut prover = Command::new("prover")
+    let mut prover = Command::new(app_path.join("prover"))
         .arg(cs_file)
         .arg(pk_file)
         .arg(witness_file)
@@ -82,6 +82,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         .spawn()?;
 
     // Wait for stark_verify to complete
+    tracing::info!("Running prover, {job_id}");
     match wit_gen.wait().await {
         // Make sure the prover is always killed, otherwise it will wait forever
         Err(err) => {
