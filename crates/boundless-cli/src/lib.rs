@@ -355,9 +355,7 @@ impl DefaultProver {
         );
         let order_seal = if selector == Selector::Groth16V1_2 {
             let receipt = match self.mode {
-                ProverMode::Execute => {
-                    self.execute(order_elf.clone(), order_input.clone(), vec![]).await?
-                }
+                ProverMode::Execute => order_receipt.clone(),
                 ProverMode::Prove => self.compress(&order_receipt).await?,
             };
             encode_seal(&receipt)?
