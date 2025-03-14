@@ -788,238 +788,113 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
+pub(crate) mod bytecode;
+
+#[cfg(feature = "test-utils")]
+#[allow(missing_docs)]
 /// Module for testing utilities.
 pub mod test_utils {
+    use crate::contracts::{
+        boundless_market::BoundlessMarketService,
+        bytecode::*,
+        hit_points::{default_allowance, HitPointsService},
+    };
     use alloy::{
-        network::{Ethereum, EthereumWallet},
+        network::EthereumWallet,
         node_bindings::AnvilInstance,
-        primitives::{Address, FixedBytes, U256},
-        providers::{
-            ext::AnvilApi,
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, Provider, ProviderBuilder, RootProvider,
-        },
+        primitives::{Address, FixedBytes},
+        providers::{ext::AnvilApi, Provider, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
-        sol_types::{SolCall, SolConstructor},
-        transports::{BoxTransport, Transport},
+        sol_types::SolCall,
     };
     use anyhow::{Context, Result};
     use risc0_ethereum_contracts::set_verifier::SetVerifierService;
     use risc0_zkvm::sha::Digest;
-    use std::sync::Arc;
 
-    use crate::contracts::{
-        boundless_market::BoundlessMarketService,
-        hit_points::{default_allowance, HitPointsService},
-    };
-
-    // Bytecode for the contracts is copied from the contract build output by the build script. It
-    // is checked into git so that we can avoid issues with publishing to crates.io. We do not use
-    // the full JSON build out because it is less stable.
-
-    const MOCK_VERIFIER_BYTECODE: &str = include_str!("./artifacts/RiscZeroMockVerifier.hex");
-    alloy::sol! {
-        #[sol(rpc)]
-        contract MockVerifier {
-            constructor(bytes4 selector) {}
-        }
-    }
-
-    const SET_VERIFIER_BYTECODE: &str = include_str!("./artifacts/RiscZeroSetVerifier.hex");
-    alloy::sol! {
-        #![sol(rpc)]
-        contract SetVerifier {
-            constructor(address verifier, bytes32 imageId, string memory imageUrl) {}
-        }
-    }
-
-    const BOUNDLESS_MARKET_BYTECODE: &str = include_str!("./artifacts/BoundlessMarket.hex");
-    alloy::sol! {
-        #![sol(rpc)]
-        contract BoundlessMarket {
-            constructor(address verifier, bytes32 assessorId, address stakeTokenContract) {}
-            function initialize(address initialOwner, string calldata imageUrl) {}
-        }
-    }
-
-    const ERC1967_PROXY_BYTECODE: &str = include_str!("./artifacts/ERC1967Proxy.hex");
-    alloy::sol! {
-        #![sol(rpc)]
-        contract ERC1967Proxy {
-            constructor(address implementation, bytes memory data) payable {}
-        }
-    }
-
-    const HIT_POINTS_BYTECODE: &str = include_str!("./artifacts/HitPoints.hex");
-    alloy::sol! {
-        #![sol(rpc)]
-        contract HitPoints {
-            constructor(address initialOwner) payable {}
-        }
-    }
-
-    // Note: I was completely unable to solve this with generics or trait objects
-    type ProviderWallet = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
-    >;
-
-    pub struct TestCtx {
+    pub struct TestCtx<P> {
         pub verifier_address: Address,
         pub set_verifier_address: Address,
         pub hit_points_address: Address,
         pub boundless_market_address: Address,
         pub prover_signer: PrivateKeySigner,
         pub customer_signer: PrivateKeySigner,
-        pub prover_provider: ProviderWallet,
-        pub prover_market: BoundlessMarketService<BoxTransport, ProviderWallet>,
-        pub customer_provider: ProviderWallet,
-        pub customer_market: BoundlessMarketService<BoxTransport, ProviderWallet>,
-        pub set_verifier: SetVerifierService<BoxTransport, ProviderWallet>,
-        pub hit_points_service: HitPointsService<BoxTransport, ProviderWallet>,
+        pub prover_provider: P,
+        pub prover_market: BoundlessMarketService<P>,
+        pub customer_provider: P,
+        pub customer_market: BoundlessMarketService<P>,
+        pub set_verifier: SetVerifierService<P>,
+        pub hit_points_service: HitPointsService<P>,
     }
 
-    pub async fn deploy_mock_verifier<T, P>(deployer_provider: P) -> Result<Address>
-    where
-        T: Transport + Clone,
-        P: Provider<T, Ethereum> + 'static + Clone,
-    {
-        alloy::contract::RawCallBuilder::new_raw_deploy(
-            deployer_provider,
-            [
-                hex::decode(MOCK_VERIFIER_BYTECODE).unwrap(),
-                MockVerifier::constructorCall { selector: FixedBytes::ZERO }.abi_encode(),
-            ]
-            .concat()
-            .into(),
-        )
-        .deploy()
-        .await
-        .context("failed to deploy RiscZeroMockVerifier")
+    pub async fn deploy_mock_verifier<P: Provider>(deployer_provider: P) -> Result<Address> {
+        let instance = RiscZeroMockVerifier::deploy(deployer_provider, FixedBytes::ZERO)
+            .await
+            .context("failed to deploy RiscZeroMockVerifier")?;
+        Ok(*instance.address())
     }
 
-    pub async fn deploy_set_verifier<T, P>(
+    pub async fn deploy_set_verifier<P: Provider>(
         deployer_provider: P,
         verifier_address: Address,
         set_builder_id: Digest,
-    ) -> Result<Address>
-    where
-        T: Transport + Clone,
-        P: Provider<T, Ethereum> + 'static + Clone,
-    {
-        alloy::contract::RawCallBuilder::new_raw_deploy(
+    ) -> Result<Address> {
+        let instance = RiscZeroSetVerifier::deploy(
             deployer_provider,
-            [
-                hex::decode(SET_VERIFIER_BYTECODE).unwrap(),
-                SetVerifier::constructorCall {
-                    verifier: verifier_address,
-                    imageId: <[u8; 32]>::from(set_builder_id).into(),
-                    imageUrl: String::new(),
-                }
-                .abi_encode(),
-            ]
-            .concat()
-            .into(),
+            verifier_address,
+            <[u8; 32]>::from(set_builder_id).into(),
+            String::default(),
         )
-        .deploy()
         .await
-        .context("failed to deploy RiscZeroSetVerifier")
+        .context("failed to deploy RiscZeroSetVerifier")?;
+        Ok(*instance.address())
     }
 
-    pub async fn deploy_hit_points<T, P>(
+    pub async fn deploy_hit_points<P: Provider>(
         deployer_signer: &PrivateKeySigner,
         deployer_provider: P,
-    ) -> Result<Address>
-    where
-        T: Transport + Clone,
-        P: Provider<T, Ethereum> + 'static + Clone,
-    {
+    ) -> Result<Address> {
         let deployer_address = deployer_signer.address();
-        alloy::contract::RawCallBuilder::new_raw_deploy(
-            deployer_provider,
-            [
-                hex::decode(HIT_POINTS_BYTECODE).unwrap(),
-                HitPoints::constructorCall { initialOwner: deployer_address }.abi_encode(),
-            ]
-            .concat()
-            .into(),
-        )
-        .deploy()
-        .await
-        .context("failed to deploy HitPoints contract")
+        let instance = HitPoints::deploy(deployer_provider, deployer_address)
+            .await
+            .context("failed to deploy HitPoints contract")?;
+        Ok(*instance.address())
     }
 
-    pub async fn deploy_boundless_market<T, P>(
+    pub async fn deploy_boundless_market<P: Provider>(
         deployer_signer: &PrivateKeySigner,
         deployer_provider: P,
         set_verifier: Address,
         hit_points: Address,
         assessor_guest_id: Digest,
         allowed_prover: Option<Address>,
-    ) -> Result<Address>
-    where
-        T: Transport + Clone,
-        P: Provider<T, Ethereum> + 'static + Clone,
-    {
+    ) -> Result<Address> {
         let deployer_address = deployer_signer.address();
-
-        let boundless_market = alloy::contract::RawCallBuilder::new_raw_deploy(
+        let market_instance = BoundlessMarket::deploy(
             &deployer_provider,
-            [
-                hex::decode(BOUNDLESS_MARKET_BYTECODE).unwrap(),
-                BoundlessMarket::constructorCall {
-                    verifier: set_verifier,
-                    assessorId: <[u8; 32]>::from(assessor_guest_id).into(),
-                    stakeTokenContract: hit_points,
-                }
-                .abi_encode(),
-            ]
-            .concat()
-            .into(),
+            set_verifier,
+            <[u8; 32]>::from(assessor_guest_id).into(),
+            hit_points,
         )
-        .deploy()
         .await
         .context("failed to deploy BoundlessMarket implementation")?;
 
-        let proxy = alloy::contract::RawCallBuilder::new_raw_deploy(
+        let proxy_instance = ERC1967Proxy::deploy(
             &deployer_provider,
-            [
-                hex::decode(ERC1967_PROXY_BYTECODE).unwrap(),
-                ERC1967Proxy::constructorCall {
-                    implementation: boundless_market,
-                    data: BoundlessMarket::initializeCall {
-                        initialOwner: deployer_address,
-                        imageUrl: "".to_string(),
-                    }
-                    .abi_encode()
-                    .into(),
-                }
-                .abi_encode(),
-            ]
-            .concat()
+            *market_instance.address(),
+            BoundlessMarket::initializeCall {
+                initialOwner: deployer_address,
+                imageUrl: "".to_string(),
+            }
+            .abi_encode()
             .into(),
         )
-        .deploy()
         .await
         .context("failed to deploy BoundlessMarket proxy")?;
+        let proxy = *proxy_instance.address();
 
         if hit_points != Address::ZERO {
-            let hit_points_service = HitPointsService::new(
-                hit_points,
-                deployer_provider.clone(),
-                deployer_signer.address(),
-            );
+            let hit_points_service =
+                HitPointsService::new(hit_points, &deployer_provider, deployer_signer.address());
             hit_points_service.grant_minter_role(hit_points_service.caller()).await?;
             hit_points_service.grant_authorized_transfer_role(proxy).await?;
             if let Some(prover) = allowed_prover {
@@ -1030,128 +905,114 @@ pub mod test_utils {
         Ok(proxy)
     }
 
-    impl TestCtx {
-        async fn deploy_contracts(
-            anvil: &AnvilInstance,
-            set_builder_id: Digest,
-            assessor_guest_id: Digest,
-        ) -> Result<(Address, Address, Address, Address)> {
-            let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-            let deployer_provider = Arc::new(
-                ProviderBuilder::new()
-                    .with_recommended_fillers()
-                    .wallet(EthereumWallet::from(deployer_signer.clone()))
-                    .on_builtin(&anvil.endpoint())
-                    .await
-                    .unwrap(),
-            );
-
-            // Deploy contracts
-            let verifier = deploy_mock_verifier(Arc::clone(&deployer_provider)).await?;
-            let set_verifier =
-                deploy_set_verifier(Arc::clone(&deployer_provider), verifier, set_builder_id)
-                    .await?;
-            let hit_points =
-                deploy_hit_points(&deployer_signer, Arc::clone(&deployer_provider)).await?;
-            let boundless_market = deploy_boundless_market(
-                &deployer_signer,
-                Arc::clone(&deployer_provider),
-                set_verifier,
-                hit_points,
-                assessor_guest_id,
-                None,
-            )
+    async fn deploy_contracts(
+        anvil: &AnvilInstance,
+        set_builder_id: Digest,
+        assessor_guest_id: Digest,
+    ) -> Result<(Address, Address, Address, Address)> {
+        let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let deployer_provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(deployer_signer.clone()))
+            .on_builtin(&anvil.endpoint())
             .await?;
 
-            // Mine forward some blocks using the provider
-            deployer_provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
-            deployer_provider.anvil_set_interval_mining(2).await.unwrap();
+        // Deploy contracts
+        let verifier = deploy_mock_verifier(&deployer_provider).await?;
+        let set_verifier =
+            deploy_set_verifier(&deployer_provider, verifier, set_builder_id).await?;
+        let hit_points = deploy_hit_points(&deployer_signer, &deployer_provider).await?;
+        let boundless_market = deploy_boundless_market(
+            &deployer_signer,
+            &deployer_provider,
+            set_verifier,
+            hit_points,
+            assessor_guest_id,
+            None,
+        )
+        .await?;
 
-            Ok((verifier, set_verifier, hit_points, boundless_market))
-        }
+        // Mine forward some blocks using the provider
+        deployer_provider.anvil_mine(Some(10), Some(2)).await.unwrap();
+        deployer_provider.anvil_set_interval_mining(2).await.unwrap();
 
-        pub async fn new(
-            anvil: &AnvilInstance,
-            set_builder_id: Digest,
-            assessor_guest_id: Digest,
-        ) -> Result<Self> {
-            Self::new_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id)
-                .await
-        }
+        Ok((verifier, set_verifier, hit_points, boundless_market))
+    }
 
-        pub async fn new_with_rpc_url(
-            anvil: &AnvilInstance,
-            rpc_url: &str,
-            set_builder_id: Digest,
-            assessor_guest_id: Digest,
-        ) -> Result<Self> {
-            let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
-                TestCtx::deploy_contracts(anvil, set_builder_id, assessor_guest_id).await.unwrap();
+    pub async fn create_test_ctx(
+        anvil: &AnvilInstance,
+        set_builder_id: impl Into<Digest>,
+        assessor_guest_id: impl Into<Digest>,
+    ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
+        create_test_ctx_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id)
+            .await
+    }
 
-            let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
-            let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
-            let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+    pub async fn create_test_ctx_with_rpc_url(
+        anvil: &AnvilInstance,
+        rpc_url: &str,
+        set_builder_id: impl Into<Digest>,
+        assessor_guest_id: impl Into<Digest>,
+    ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
+        let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
+            deploy_contracts(anvil, set_builder_id.into(), assessor_guest_id.into()).await.unwrap();
 
-            let prover_provider = ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(prover_signer.clone()))
-                .on_builtin(rpc_url)
-                .await
-                .unwrap();
-            let customer_provider = ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(customer_signer.clone()))
-                .on_builtin(rpc_url)
-                .await
-                .unwrap();
-            let verifier_provider = ProviderBuilder::new()
-                .with_recommended_fillers()
-                .wallet(EthereumWallet::from(verifier_signer.clone()))
-                .on_builtin(rpc_url)
-                .await
-                .unwrap();
+        let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
+        let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
+        let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
-            let prover_market = BoundlessMarketService::new(
-                boundless_market_addr,
-                prover_provider.clone(),
-                prover_signer.address(),
-            );
+        let prover_provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(prover_signer.clone()))
+            .on_builtin(rpc_url)
+            .await?;
+        let customer_provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(customer_signer.clone()))
+            .on_builtin(rpc_url)
+            .await?;
+        let verifier_provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(verifier_signer.clone()))
+            .on_builtin(rpc_url)
+            .await?;
 
-            let customer_market = BoundlessMarketService::new(
-                boundless_market_addr,
-                customer_provider.clone(),
-                customer_signer.address(),
-            );
+        let prover_market = BoundlessMarketService::new(
+            boundless_market_addr,
+            prover_provider.clone(),
+            prover_signer.address(),
+        );
 
-            let set_verifier = SetVerifierService::new(
-                set_verifier_addr,
-                verifier_provider.clone(),
-                verifier_signer.address(),
-            );
+        let customer_market = BoundlessMarketService::new(
+            boundless_market_addr,
+            customer_provider.clone(),
+            customer_signer.address(),
+        );
 
-            let hit_points_service = HitPointsService::new(
-                hit_points_addr,
-                verifier_provider.clone(),
-                verifier_signer.address(),
-            );
+        let set_verifier = SetVerifierService::new(
+            set_verifier_addr,
+            verifier_provider.clone(),
+            verifier_signer.address(),
+        );
 
-            hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
+        let hit_points_service = HitPointsService::new(
+            hit_points_addr,
+            verifier_provider.clone(),
+            verifier_signer.address(),
+        );
 
-            Ok(TestCtx {
-                verifier_address: verifier_addr,
-                set_verifier_address: set_verifier_addr,
-                hit_points_address: hit_points_addr,
-                boundless_market_address: boundless_market_addr,
-                prover_signer,
-                customer_signer,
-                prover_provider,
-                prover_market,
-                customer_provider,
-                customer_market,
-                set_verifier,
-                hit_points_service,
-            })
-        }
+        hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
+
+        Ok(TestCtx {
+            verifier_address: verifier_addr,
+            set_verifier_address: set_verifier_addr,
+            hit_points_address: hit_points_addr,
+            boundless_market_address: boundless_market_addr,
+            prover_signer,
+            customer_signer,
+            prover_provider,
+            prover_market,
+            customer_provider,
+            customer_market,
+            set_verifier,
+            hit_points_service,
+        })
     }
 }
 

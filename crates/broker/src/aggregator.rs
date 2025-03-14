@@ -564,7 +564,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -717,7 +716,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -885,7 +883,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -990,7 +987,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -1082,7 +1078,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        provider.anvil_mine(Some(U256::from(51)), Some(U256::from(2))).await.unwrap();
+        provider.anvil_mine(Some(51), Some(2)).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
@@ -1102,7 +1098,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await

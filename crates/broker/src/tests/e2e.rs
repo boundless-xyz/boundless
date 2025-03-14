@@ -12,8 +12,8 @@ use tempfile::NamedTempFile;
 // use broker::Broker;
 use crate::{config::Config, now_timestamp, Args, Broker};
 use boundless_market::contracts::{
-    hit_points::default_allowance, test_utils::TestCtx, Input, Offer, Predicate, PredicateType,
-    ProofRequest, Requirements,
+    hit_points::default_allowance, test_utils::create_test_ctx, Input, Offer, Predicate,
+    PredicateType, ProofRequest, Requirements,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -28,9 +28,7 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-        .await
-        .unwrap();
+    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market

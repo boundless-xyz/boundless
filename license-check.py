@@ -40,6 +40,7 @@ SKIP_PATHS = [
     str(Path.cwd()) + "/contracts/src/libraries/AssessorImageID.sol",
     str(Path.cwd()) + "/contracts/src/libraries/UtilImageID.sol",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/artifacts",
+    str(Path.cwd()) + "/crates/boundless-market/src/contracts/bytecode.rs",
 ]
 
 APACHE_PATHS = [

@@ -11,10 +11,9 @@ use crate::{
 };
 use alloy::{
     network::Ethereum,
-    primitives::{Address, U256},
+    primitives::{utils::parse_ether, Address, U256},
     providers::{Provider, WalletProvider},
     rpc::types::BlockTransactionsKind,
-    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
@@ -45,13 +44,13 @@ pub struct OrderMonitor<P> {
     chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     config: ConfigLock,
-    market: BoundlessMarketService<BoxTransport, Arc<P>>,
+    market: BoundlessMarketService<Arc<P>>,
     provider: Arc<P>,
 }
 
 impl<P> OrderMonitor<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider + WalletProvider,
 {
     pub fn new(
         db: DbObj,
@@ -73,6 +72,21 @@ where
         );
         if let Some(txn_timeout) = txn_timeout_opt {
             market = market.with_timeout(Duration::from_secs(txn_timeout));
+        }
+        {
+            let config = config.lock_all().context("Failed to lock config")?;
+            market = market.with_stake_balance_alert(
+                &config
+                    .market
+                    .stake_balance_warn_threshold
+                    .as_ref()
+                    .and_then(|s| parse_ether(s).ok()),
+                &config
+                    .market
+                    .stake_balance_error_threshold
+                    .as_ref()
+                    .and_then(|s| parse_ether(s).ok()),
+            );
         }
 
         Ok(Self { db, chain_monitor, block_time, config, market, provider })
@@ -238,7 +252,7 @@ where
 
 impl<P> RetryTask for OrderMonitor<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let monitor_clone = self.clone();
@@ -277,7 +291,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -352,7 +365,7 @@ mod tests {
         let request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
         assert_eq!(request_id, order_id);
 
-        provider.anvil_mine(Some(U256::from(2)), Some(U256::from(block_time))).await.unwrap();
+        provider.anvil_mine(Some(2), Some(block_time)).await.unwrap();
 
         db.add_order(order_id, order).await.unwrap();
         db.set_last_block(1).await.unwrap();
@@ -387,7 +400,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await

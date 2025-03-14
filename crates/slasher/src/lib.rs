@@ -16,11 +16,10 @@ use alloy::{
     },
     rpc::types::BlockTransactionsKind,
     signers::local::PrivateKeySigner,
-    transports::{http::Http, RpcError, Transport, TransportErrorKind},
+    transports::{RpcError, TransportErrorKind},
 };
 use boundless_market::contracts::boundless_market::{BoundlessMarketService, MarketError};
 use db::{DbError, DbObj, SqliteDb};
-use reqwest::Client as HttpClient;
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
@@ -35,9 +34,7 @@ type ProviderWallet = FillProvider<
         >,
         WalletFiller<EthereumWallet>,
     >,
-    RootProvider<Http<HttpClient>>,
-    Http<HttpClient>,
-    Ethereum,
+    RootProvider<Ethereum>,
 >;
 
 #[derive(Error, Debug)]
@@ -65,15 +62,15 @@ pub enum ServiceError {
 }
 
 #[derive(Clone)]
-pub struct SlashService<T, P> {
-    pub boundless_market: BoundlessMarketService<T, P>,
+pub struct SlashService<P> {
+    pub boundless_market: BoundlessMarketService<P>,
     pub db: DbObj,
     pub interval: Duration,
     pub retries: u32,
     pub skip_addresses: Vec<Address>,
 }
 
-impl SlashService<Http<HttpClient>, ProviderWallet> {
+impl SlashService<ProviderWallet> {
     pub async fn new(
         rpc_url: Url,
         private_key: &PrivateKeySigner,
@@ -85,10 +82,7 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .wallet(wallet.clone())
-            .on_http(rpc_url);
+        let provider = ProviderBuilder::new().wallet(wallet.clone()).on_http(rpc_url);
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
@@ -99,10 +93,9 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
     }
 }
 
-impl<T, P> SlashService<T, P>
+impl<P> SlashService<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
 {
     pub async fn run(self, starting_block: Option<u64>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.interval);
