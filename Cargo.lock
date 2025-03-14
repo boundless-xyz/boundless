@@ -2397,6 +2397,7 @@ dependencies = [
  "guest-set-builder",
  "guest-util",
  "hex",
+ "httpmock",
  "libc",
  "reqwest",
  "risc0-aggregation",

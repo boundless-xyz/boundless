@@ -117,7 +117,7 @@ jobs:
           RISC0_DEV_MODE: true
 
       - name: cargo test ignored
-        run: cargo test -- --ignored
+        run: cargo test --locked --workspace --all-targets -- --ignored
         env:
           BONSAI_API_KEY: ${{ secrets.BONSAI_API_KEY }}
           BONSAI_API_URL: ${{ secrets.BONSAI_API_URL }}
