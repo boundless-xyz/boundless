@@ -2,10 +2,7 @@
 //
 // All rights reserved.
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 
 use crate::{
     redis::{self},
@@ -53,9 +50,29 @@ async fn process_task(
     segment_index: Option<u32>,
     assumptions: &[String],
     compress_type: CompressType,
-    keccak_count: &Arc<AtomicU64>,
+    keccak_req: Option<KeccakReq>,
 ) -> Result<()> {
     match tree_task.command {
+        TaskCmd::Keccak => {
+            let keccak_req = keccak_req.context("keccak_req returned None")?;
+            let prereqs = serde_json::json!([]);
+            let task_id = format!("{}", tree_task.task_number);
+            let task_def = serde_json::to_value(TaskType::Keccak(keccak_req))
+                .expect("Failed to serialize coproc (keccak) task-type");
+
+            taskdb::create_task(
+                pool,
+                job_id,
+                &task_id,
+                prove_stream,
+                &task_def,
+                &prereqs,
+                args.prove_retries,
+                args.prove_timeout,
+            )
+            .await
+            .expect("create_task failure during keccak task creation");
+        }
         TaskCmd::Segment => {
             let task_def = serde_json::to_value(TaskType::Prove(ProveReq {
                 // Use segment index here instead of task_id to prevent overlapping
@@ -117,8 +134,7 @@ async fn process_task(
         }
         TaskCmd::Finalize => {
             // Optionally create the Resolve task ahead of the finalize
-            let keccak_counter = keccak_count.load(Ordering::Relaxed);
-            let assumption_count = (assumptions.len() + keccak_counter as usize) as i32;
+            let assumption_count = (assumptions.len() + tree_task.keccak_depends_on.len()) as i32;
 
             let dep_task = if assumption_count == 0 {
                 tree_task.depends_on[0].to_string()
@@ -130,11 +146,10 @@ async fn process_task(
 
                 let mut prereqs = vec![format!("{}", tree_task.depends_on[0])];
                 // If we have keccak / coproc work, include it into the prereq's
-                if keccak_counter > 0 {
-                    for i in 0..keccak_counter {
-                        prereqs.push(format!("keccak_{}", i));
-                    }
+                for task_id in &tree_task.keccak_depends_on {
+                    prereqs.push(format!("{task_id}"));
                 }
+
                 let prereqs = serde_json::json!(prereqs);
                 let task_id = "resolve";
 
@@ -208,29 +223,29 @@ struct SessionData {
 }
 
 struct Coprocessor {
-    tx: async_channel::Sender<ProveKeccakRequest>,
+    tx: tokio::sync::mpsc::Sender<SenderType>,
 }
 
 impl Coprocessor {
-    async fn new(tx: async_channel::Sender<ProveKeccakRequest>) -> Result<Self> {
-        Ok(Self { tx })
+    fn new(tx: tokio::sync::mpsc::Sender<SenderType>) -> Self {
+        Self { tx }
     }
 }
 
 impl CoprocessorCallback for Coprocessor {
     fn prove_keccak(&mut self, request: ProveKeccakRequest) -> Result<()> {
-        if request.input.is_empty() {
-            anyhow::bail!(
-                "Received empty keccak input with claim_digest: {}",
-                request.claim_digest
-            );
-        }
-        self.tx.send_blocking(request)?;
+        self.tx.blocking_send(SenderType::Keccak(request))?;
         Ok(())
     }
     fn prove_zkr(&mut self, _request: ProveZkrRequest) -> Result<()> {
         unreachable!()
     }
+}
+
+enum SenderType {
+    Segment(u32),
+    Keccak(ProveKeccakRequest),
+    Fault,
 }
 
 /// Run the executor emitting the segments and session to hot storage
@@ -328,16 +343,16 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
     let mut writer_tasks = JoinSet::new();
     // queue segments into a spmc queue
-    let (segment_tx, segment_rx) = async_channel::bounded::<Segment>(CONCURRENT_SEGMENTS);
-    let (task_tx, task_rx) = async_channel::bounded(TASK_QUEUE_SIZE);
-    let (keccak_tx, keccak_rx) = async_channel::bounded(TASK_QUEUE_SIZE);
+    let (segment_tx, mut segment_rx) = tokio::sync::mpsc::channel::<Segment>(CONCURRENT_SEGMENTS);
+    let (task_tx, mut task_rx) = tokio::sync::mpsc::channel::<SenderType>(TASK_QUEUE_SIZE);
+    let task_tx_clone = task_tx.clone();
 
     let mut writer_conn = redis::get_connection(&agent.redis_pool).await?;
     let segments_prefix_clone = segments_prefix.clone();
     let redis_ttl = agent.args.redis_ttl;
 
     writer_tasks.spawn(async move {
-        while let Ok(segment) = segment_rx.recv().await {
+        while let Some(segment) = segment_rx.recv().await {
             let index = segment.index;
             tracing::debug!("Starting write of index: {index}");
             let segment_key = format!("{segments_prefix_clone}:{index}");
@@ -352,11 +367,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .expect("Failed to set key with expiry");
             tracing::debug!("Completed write of {index}");
 
-            task_tx.send(index).await.expect("failed to push task into task_tx");
+            task_tx_clone
+                .send(SenderType::Segment(index))
+                .await
+                .expect("failed to push task into task_tx");
         }
         // Once the segments wraps up, close the task channel to signal completion to the follow up
         // task
-        task_tx.close();
+        task_tx_clone.closed().await;
     });
 
     let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, AUX_WORK_TYPE)
@@ -400,92 +418,90 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let compress_type = request.compress;
     let exec_only = request.execute_only;
 
-    let coproc = Coprocessor::new(keccak_tx).await.context("Failed to initialize exec coproc")?;
-
     // Write keccak data to redis + schedule proving
+    let coproc = Coprocessor::new(task_tx.clone());
     let mut coproc_redis = redis::get_connection(&agent.redis_pool).await?;
     let coproc_prefix = format!("{job_prefix}:{COPROC_CB_PATH}");
-    let coproc_pool = agent.db_pool.clone();
-    let prove_retires = args_copy.prove_retries;
-    let prove_timeout = args_copy.prove_timeout;
-    let job_id_ref = *job_id;
-    let keccak_count = Arc::new(AtomicU64::new(0));
-    let keccak_count_copy = keccak_count.clone();
 
-    writer_tasks.spawn(async move {
-        while let Ok(mut keccak_req) = keccak_rx.recv().await {
-            let keccak_count_tmp = keccak_count.load(Ordering::Relaxed);
-            let redis_key = format!("{coproc_prefix}:{}", keccak_req.claim_digest);
-            redis::set_key_with_expiry(
-                &mut coproc_redis,
-                &redis_key,
-                bytemuck::cast_slice::<_, u8>(&keccak_req.input).to_vec(),
-                Some(redis_ttl),
-            )
-            .await
-            .expect("Failed to set key with expiry");
-            tracing::debug!("Wrote keccak input to redis");
-
-            let task_name = format!("keccak_{keccak_count_tmp}");
-            let prereqs = serde_json::json!([]);
-
-            keccak_req.input = vec![];
-            let task_def = serde_json::to_value(TaskType::Keccak(KeccakReq {
-                claim_digest: keccak_req.claim_digest,
-                control_root: keccak_req.control_root,
-                po2: keccak_req.po2,
-            }))
-            .expect("Failed to serialize coproc (keccak) task-type");
-
-            taskdb::create_task(
-                &coproc_pool,
-                &job_id_ref,
-                &task_name,
-                &coproc_stream,
-                &task_def,
-                &prereqs,
-                prove_retires,
-                prove_timeout,
-            )
-            .await
-            .expect("create_task failure during coproc task creation");
-
-            keccak_count.store(keccak_count_tmp + 1, Ordering::Relaxed);
-        }
-    });
-
-    // Segment queuing
+    // Generate tasks
     writer_tasks.spawn(async move {
         let mut planner = Planner::default();
-
-        while let Ok(segment_index) = task_rx.recv().await {
+        let mut guest_fault = false;
+        while let Some(task_type) = task_rx.recv().await {
             if exec_only {
                 continue;
             }
-            planner.enqueue_segment().expect("Failed to enqueue segment");
 
-            while let Some(tree_task) = planner.next_task() {
-                process_task(
-                    &args_copy,
-                    &pool_copy,
-                    &prove_stream,
-                    &join_stream,
-                    &aux_stream,
-                    &snark_stream,
-                    &job_id_copy,
-                    tree_task,
-                    Some(segment_index),
-                    &assumptions,
-                    compress_type,
-                    &keccak_count_copy,
-                )
-                .await
-                .expect("Failed to process task and insert into taskdb");
+            match task_type {
+                SenderType::Segment(segment_index) => {
+                    planner.enqueue_segment().expect("Failed to enqueue segment");
+                    while let Some(tree_task) = planner.next_task() {
+                        process_task(
+                            &args_copy,
+                            &pool_copy,
+                            &prove_stream,
+                            &join_stream,
+                            &aux_stream,
+                            &snark_stream,
+                            &job_id_copy,
+                            tree_task,
+                            Some(segment_index),
+                            &assumptions,
+                            compress_type,
+                            None,
+                        )
+                        .await
+                        .expect("Failed to process task and insert into taskdb");
+                    }
+                }
+                SenderType::Keccak(mut keccak_req) => {
+                    let redis_key = format!("{coproc_prefix}:{}", keccak_req.claim_digest);
+                    redis::set_key_with_expiry(
+                        &mut coproc_redis,
+                        &redis_key,
+                        // input,
+                        bytemuck::cast_slice::<_, u8>(&keccak_req.input).to_vec(),
+                        Some(redis_ttl),
+                    )
+                    .await
+                    .expect("Failed to set key with expiry");
+                    keccak_req.input.clear();
+                    tracing::debug!("Wrote keccak input to redis");
+
+                    planner.enqueue_keccak().expect("Failed to enqueue keccak");
+                    while let Some(tree_task) = planner.next_task() {
+                        let req = KeccakReq {
+                            claim_digest: keccak_req.claim_digest,
+                            control_root: keccak_req.control_root,
+                            po2: keccak_req.po2,
+                        };
+
+                        process_task(
+                            &args_copy,
+                            &pool_copy,
+                            &coproc_stream,
+                            &join_stream,
+                            &aux_stream,
+                            &snark_stream,
+                            &job_id_copy,
+                            tree_task,
+                            None,
+                            &assumptions,
+                            compress_type,
+                            Some(req),
+                        )
+                        .await
+                        .expect("Failed to process task and insert into taskdb");
+                    }
+                }
+                SenderType::Fault => {
+                    guest_fault = true;
+                }
             }
         }
 
-        if !exec_only {
-            planner.finish().expect("Failed to finish planner");
+        if !exec_only && !guest_fault {
+            planner.finish().expect("Planner failed to finish()");
             while let Some(tree_task) = planner.next_task() {
                 process_task(
                     &args_copy,
@@ -499,7 +515,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     None,
                     &assumptions,
                     compress_type,
-                    &keccak_count_copy,
+                    None,
                 )
                 .await
                 .expect("Failed to process task and insert into taskdb");
@@ -534,27 +550,35 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             let mut exec = ExecutorImpl::from_elf(env, &elf_data)?;
 
             let mut segments = 0;
-            let session = exec
-                .run_with_callback(|segment| {
-                    segments += 1;
-                    // Send segments to write queue, blocking if the queue is full.
-                    if !exec_only {
-                        segment_tx.send_blocking(segment).unwrap();
-                    }
-                    Ok(Box::new(NullSegmentRef {}))
-                })
-                .context("Failed to run executor")?;
+            let res = match exec.run_with_callback(|segment| {
+                segments += 1;
+                // Send segments to write queue, blocking if the queue is full.
+                if !exec_only {
+                    segment_tx.blocking_send(segment).unwrap();
+                }
+                Ok(Box::new(NullSegmentRef {}))
+            }) {
+                Ok(session) => Ok(SessionData {
+                    segment_count: session.segments.len(),
+                    user_cycles: session.user_cycles,
+                    total_cycles: session.total_cycles,
+                    journal: session.journal,
+                }),
+                Err(err) => {
+                    tracing::error!("Failed to run executor");
+                    task_tx
+                        .blocking_send(SenderType::Fault)
+                        .context("Failed to send fault to planner")?;
+                    Err(err)
+                }
+            };
 
             // close the segment queue to trigger the workers to wrap up and exit
-            segment_tx.close();
+            drop(segment_tx);
 
-            Ok(SessionData {
-                segment_count: session.segments.len(),
-                user_cycles: session.user_cycles,
-                total_cycles: session.total_cycles,
-                journal: session.journal,
-            })
+            res
         });
+
     let session = exec_task
         .await
         .context("Failed to join executor run_with_callback task")?
