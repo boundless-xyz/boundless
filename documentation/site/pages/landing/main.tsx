@@ -1,6 +1,24 @@
+import { useEffect, useState } from "react";
 import Footer from "../../footer";
 
 export default function Main() {
+  const [render, setRender] = useState(false);
+
+  useEffect(() => {
+    const hasVisitedBefore = localStorage.getItem("hasVisitedDocs");
+
+    if (hasVisitedBefore) {
+      window.location.href = "/introduction/why-boundless";
+    } else {
+      localStorage.setItem("hasVisitedDocs", "true");
+      setRender(true);
+    }
+  }, []);
+
+  if (!render) {
+    return <></>;
+  }
+
   return (
     <div className="relative z-10 flex animate-fade-in flex-col items-center justify-center text-center">
       <div className="container pb-40">
