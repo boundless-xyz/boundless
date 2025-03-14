@@ -65,7 +65,7 @@ async fn test_basic_usage() {
         "--private-key",
         &hex::encode(ctx.customer_signer.clone().to_bytes()),
         "--boundless-market-address",
-        &ctx.boundless_market_addr.to_string(),
+        &ctx.boundless_market_address.to_string(),
         "--db",
         "sqlite::memory:",
         "--interval",
@@ -87,7 +87,7 @@ async fn test_basic_usage() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_addr,
+        ctx.boundless_market_address,
         anvil.chain_id(),
         ctx.customer_provider.get_block_number().await.unwrap(),
     )

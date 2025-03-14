@@ -60,8 +60,8 @@ async fn simple_e2e() {
     let args = Args {
         db_url: "sqlite::memory:".into(),
         config_file: config_file.path().to_path_buf(),
-        boundless_market_addr: ctx.boundless_market_addr,
-        set_verifier_addr: ctx.set_verifier_addr,
+        boundless_market_address: ctx.boundless_market_address,
+        set_verifier_address: ctx.set_verifier_address,
         rpc_url: anvil.endpoint_url(),
         order_stream_url: None,
         private_key: ctx.prover_signer,

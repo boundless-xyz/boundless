@@ -812,8 +812,8 @@ mod tests {
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.prover_signer.clone(),
-            boundless_market_address: ctx.boundless_market_addr,
-            set_verifier_address: ctx.set_verifier_addr,
+            boundless_market_address: ctx.boundless_market_address,
+            set_verifier_address: ctx.set_verifier_address,
             tx_timeout: None,
             command: Command::Deposit { amount: default_allowance() },
         };
@@ -845,8 +845,8 @@ mod tests {
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer.clone(),
-            boundless_market_address: ctx.boundless_market_addr,
-            set_verifier_address: ctx.set_verifier_addr,
+            boundless_market_address: ctx.boundless_market_address,
+            set_verifier_address: ctx.set_verifier_address,
             tx_timeout: None,
             command: Command::SubmitRequest {
                 storage_config: Some(StorageProviderConfig::dev_mode()),
