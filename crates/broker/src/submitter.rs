@@ -144,7 +144,7 @@ where
         let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
         let assessor_receipt = self
             .prover
-            .get_receipt(&assessor_proof_id)
+            .get_receipt(assessor_proof_id)
             .await
             .context("Failed to get assessor receipt")?
             .context("Assessor receipt missing")?;
