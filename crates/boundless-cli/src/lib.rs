@@ -336,22 +336,20 @@ mod tests {
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_set_builder::SET_BUILDER_ELF;
-    use guest_util::{ECHO_ELF, ECHO_ID};
-    use httpmock::prelude::*;
+    use guest_util::{ECHO_ID, ECHO_PATH};
     use risc0_ethereum_contracts::receipt::decode_seal;
     use risc0_zkvm::VerifierContext;
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
         selector: Option<Selector>,
-        image_url: String,
     ) -> (ProofRequest, PrimitiveSignature) {
         let request = ProofRequest::new(
             0,
             &signer.address(),
             Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
                 .with_selector(FixedBytes::from(selector.unwrap_or(Selector::FakeReceipt) as u32)),
-            image_url,
+            format!("file://{ECHO_PATH}"),
             Input::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
             Offer::default(),
         );
@@ -363,19 +361,9 @@ mod tests {
     #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     #[tokio::test]
     async fn test_fulfill_with_selector() {
-        // Stand up a local http server for image delivery
-        // TODO: move to TestCtx
-        let server = MockServer::start();
-        let get_mock = server.mock(|when, then| {
-            when.method(GET).path("/image");
-            then.status(200).body(ECHO_ELF);
-        });
-        let image_url = format!("http://{}/image", server.address());
-
         let signer = PrivateKeySigner::random();
         let (request, signature) =
-            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V1_2), image_url)
-                .await;
+            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V1_2)).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
@@ -401,24 +389,13 @@ mod tests {
 
         let order_receipt = decode_seal(fill.seal, ECHO_ID, fill.journal).unwrap();
         order_receipt.receipt().unwrap().verify(ECHO_ID).unwrap();
-        get_mock.assert();
     }
 
     #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     #[tokio::test]
     async fn test_fulfill() {
-        // Stand up a local http server for image delivery
-        // TODO: move to TestCtx
-        let server = MockServer::start();
-        let get_mock = server.mock(|when, then| {
-            when.method(GET).path("/image");
-            then.status(200).body(ECHO_ELF);
-        });
-        let image_url = format!("http://{}/image", server.address());
-
         let signer = PrivateKeySigner::random();
-        let (request, signature) =
-            setup_proving_request_and_signature(&signer, None, image_url).await;
+        let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
@@ -449,6 +426,5 @@ mod tests {
             .with_root(root_receipt.clone())
             .verify_integrity_with_context(&VerifierContext::default(), verifier_parameters, None)
             .unwrap();
-        get_mock.assert();
     }
 }
