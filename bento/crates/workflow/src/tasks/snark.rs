@@ -4,6 +4,7 @@
 
 use crate::Agent;
 use anyhow::{bail, Context, Result};
+use nix::{sys::stat, unistd};
 use risc0_zkvm::{
     seal_to_json, sha::Digestible, Groth16ProofJson, Groth16Receipt,
     Groth16ReceiptVerifierParameters, Groth16Seal, Receipt,
@@ -23,7 +24,6 @@ use workflow_common::{
 const APP_DIR: &str = "app";
 const WITNESS_FILE: &str = "output.wtns";
 const PROOF_FILE: &str = "proof.json";
-const PUBLIC_FILE: &str = "public.json";
 
 /// Converts a stark, stored in s3 to a snark
 pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<SnarkResp> {
@@ -58,29 +58,47 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
     }
 
     tracing::info!("Running stark_verify, {job_id}");
-    let verify_bin = app_path.join("stark_verify");
-    let witness_path = work_dir.path().join(WITNESS_FILE);
-    let child = Command::new(verify_bin).arg(&seal_path).arg(&witness_path).spawn()?;
+    let witness_file = work_dir.path().join(WITNESS_FILE);
 
-    let res = child.wait_with_output().await?;
-    if !res.status.success() {
-        bail!("Failed to run verify");
+    // Create a named pipe for the witness data so that the prover can start before
+    // the witness generation is complete.
+    unistd::mkfifo(&witness_file, stat::Mode::S_IRWXU).context("Failed to create fifo")?;
+
+    // Spawn stark_verify process
+    let mut wit_gen =
+        Command::new(app_path.join("stark_verify")).arg(&seal_path).arg(&witness_file).spawn()?;
+
+    tracing::info!("Running gnark, {job_id}");
+    let cs_file = app_path.join("stark_verify.cs");
+    let pk_file = app_path.join("stark_verify_final.pk.dmp");
+    let proof_file = work_dir.path().join(PROOF_FILE);
+
+    // Spawn prover process
+    let mut prover = Command::new(app_path.join("prover"))
+        .arg(cs_file)
+        .arg(pk_file)
+        .arg(witness_file)
+        .arg(&proof_file)
+        .spawn()?;
+
+    // Wait for stark_verify to complete
+    tracing::info!("Running prover, {job_id}");
+    match wit_gen.wait().await {
+        // Make sure the prover is always killed, otherwise it will wait forever
+        Err(err) => {
+            prover.kill().await.expect("Failed to kill prover process");
+            bail!(err);
+        }
+        Ok(status) if !status.success() => {
+            prover.kill().await.expect("Failed to kill prover process");
+            bail!("Failed to run stark_verify");
+        }
+        _ => {}
     }
 
-    tracing::info!("Running rapidsnark, {job_id}");
-    let zkey_file = app_path.join("stark_verify_final.zkey");
-    let proof_file = work_dir.path().join(PROOF_FILE);
-    let public_file = work_dir.path().join(PUBLIC_FILE);
-
-    let child = Command::new("rapidsnark")
-        .arg(zkey_file)
-        .arg(witness_path)
-        .arg(&proof_file)
-        .arg(&public_file)
-        .spawn()?;
-    let res = child.wait_with_output().await?;
-    if !res.status.success() {
-        bail!("Failed to run rapidsnark");
+    // stark_verify completed successfully, now wait for prover
+    if !prover.wait().await?.success() {
+        bail!("Failed to run gnark prover");
     }
 
     tracing::info!("Parsing proof, {job_id}");
