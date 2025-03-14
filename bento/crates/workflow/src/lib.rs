@@ -130,7 +130,7 @@ pub struct Args {
     finalize_timeout: i32,
 
     /// Snark timeout in seconds
-    #[clap(long, default_value_t = 60 * 2)]
+    #[clap(long, default_value_t = 60 * 4)]
     snark_timeout: i32,
 
     /// Snark retries
