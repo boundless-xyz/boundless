@@ -350,7 +350,7 @@ mod tests {
             Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
                 .with_selector(FixedBytes::from(selector.unwrap_or(Selector::FakeReceipt) as u32)),
             format!("file://{ECHO_PATH}"),
-            Input::inline(vec![1, 2, 3, 4]),
+            Input::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
             Offer::default(),
         );
 
