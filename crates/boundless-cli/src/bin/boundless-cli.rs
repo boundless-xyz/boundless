@@ -32,7 +32,7 @@ use alloy::{
     signers::{local::PrivateKeySigner, Signer},
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use boundless_cli::{DefaultProver, OrderFulfilled};
+use boundless_cli::{DefaultProver, OrderFulfilled, ProverMode};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
@@ -514,7 +514,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::debug!("Fetching SetBuilder ELF from {}", set_builder_url);
             let set_builder_elf = fetch_url(&set_builder_url).await?;
 
-            let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain, false)?;
+            let prover = DefaultProver::new(
+                set_builder_elf,
+                assessor_elf,
+                caller,
+                domain,
+                ProverMode::Prove,
+            )?;
 
             let client = ClientBuilder::default()
                 .with_private_key(args.private_key.clone())

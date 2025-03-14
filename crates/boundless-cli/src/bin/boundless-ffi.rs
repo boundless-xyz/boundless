@@ -25,7 +25,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{ensure, Context, Result};
-use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled};
+use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled, ProverMode};
 use boundless_market::{
     contracts::{eip712_domain, ProofRequest},
     order_stream_client::Order,
@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
         assessor_elf,
         args.prover_address,
         domain.clone(),
-        false,
+        ProverMode::Prove,
     )?;
     let request =
         <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?, true)

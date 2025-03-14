@@ -2388,6 +2388,8 @@ version = "0.6.0"
 dependencies = [
  "alloy 0.11.1",
  "anyhow",
+ "bincode",
+ "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
  "bytemuck",

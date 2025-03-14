@@ -21,6 +21,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{bail, Context, Result};
+use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
@@ -78,6 +79,15 @@ impl OrderFulfilled {
     }
 }
 
+/// Prover mode.
+#[derive(Debug, Clone)]
+pub enum ProverMode {
+    /// Execute only
+    Execute,
+    /// Prove with `default_prover`
+    Prove,
+}
+
 /// Fetches the content of a URL.
 /// Supported URL schemes are `http`, `https`, and `file`.
 pub async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
@@ -131,7 +141,7 @@ pub struct DefaultProver {
     assessor_elf: Vec<u8>,
     address: Address,
     domain: EIP721DomainSaltless,
-    execute_only: bool,
+    mode: ProverMode,
 }
 
 impl DefaultProver {
@@ -141,17 +151,10 @@ impl DefaultProver {
         assessor_elf: Vec<u8>,
         address: Address,
         domain: EIP721DomainSaltless,
-        execute_only: bool,
+        mode: ProverMode,
     ) -> Result<Self> {
         let set_builder_image_id = compute_image_id(&set_builder_elf)?;
-        Ok(Self {
-            set_builder_elf,
-            set_builder_image_id,
-            assessor_elf,
-            address,
-            domain,
-            execute_only,
-        })
+        Ok(Self { set_builder_elf, set_builder_image_id, assessor_elf, address, domain, mode })
     }
 
     pub(crate) async fn execute(
@@ -205,6 +208,19 @@ impl DefaultProver {
         Ok(receipt)
     }
 
+    pub(crate) async fn compress(&self, succinct_receipt: &Receipt) -> Result<Receipt> {
+        let prover = default_prover();
+        if prover.get_name() == "bonsai" {
+            return compress_with_bonsai(succinct_receipt).await;
+        }
+
+        let receipt = succinct_receipt.clone();
+        tokio::task::spawn_blocking(move || {
+            default_prover().compress(&ProverOpts::groth16(), &receipt)
+        })
+        .await?
+    }
+
     // Finalizes the set builder.
     pub(crate) async fn finalize(
         &self,
@@ -216,9 +232,11 @@ impl DefaultProver {
             .context("Failed to build set builder input")?;
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
 
-        match self.execute_only {
-            true => self.execute(self.set_builder_elf.clone(), encoded_input, assumptions).await,
-            false => {
+        match self.mode {
+            ProverMode::Execute => {
+                self.execute(self.set_builder_elf.clone(), encoded_input, assumptions).await
+            }
+            ProverMode::Prove => {
                 self.prove(
                     self.set_builder_elf.clone(),
                     encoded_input,
@@ -238,11 +256,11 @@ impl DefaultProver {
     ) -> Result<Receipt> {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
-        match self.execute_only {
-            true => {
+        match self.mode {
+            ProverMode::Execute => {
                 self.execute(self.assessor_elf.clone(), assessor_input.to_vec(), receipts).await
             }
-            false => {
+            ProverMode::Prove => {
                 self.prove(
                     self.assessor_elf.clone(),
                     assessor_input.to_vec(),
@@ -288,9 +306,11 @@ impl DefaultProver {
             _ => bail!("Unsupported selector {}", request.requirements.selector),
         };
 
-        let order_receipt = match self.execute_only {
-            true => self.execute(order_elf.clone(), order_input.clone(), vec![]).await?,
-            false => {
+        let order_receipt = match self.mode {
+            ProverMode::Execute => {
+                self.execute(order_elf.clone(), order_input.clone(), vec![]).await?
+            }
+            ProverMode::Prove => {
                 self.prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::succinct())
                     .await?
             }
@@ -334,20 +354,11 @@ impl DefaultProver {
             verifier_parameters.digest(),
         );
         let order_seal = if selector == Selector::Groth16V1_2 {
-            // We re-run the entire proof as the default prover with Bonsai does not support
-            // compressing with receipts uploaded by the client.
-            // TODO: refactor the prover trait to use the bonsai sdk instead.
-            let receipt = match self.execute_only {
-                true => self.execute(order_elf.clone(), order_input.clone(), vec![]).await?,
-                false => {
-                    self.prove(
-                        order_elf.clone(),
-                        order_input.clone(),
-                        vec![],
-                        ProverOpts::groth16(),
-                    )
-                    .await?
+            let receipt = match self.mode {
+                ProverMode::Execute => {
+                    self.execute(order_elf.clone(), order_input.clone(), vec![]).await?
                 }
+                ProverMode::Prove => self.compress(&order_receipt).await?,
             };
             encode_seal(&receipt)?
         } else {
@@ -376,6 +387,31 @@ impl DefaultProver {
         };
 
         Ok((fulfillment, root_receipt, assessor_receipt))
+    }
+}
+
+async fn compress_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
+    let client = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
+    let encoded_receipt = bincode::serialize(succinct_receipt)?;
+    let receipt_id = client.upload_receipt(encoded_receipt).await?;
+    let snark_id = client.create_snark(receipt_id).await?;
+    loop {
+        let status = snark_id.status(&client).await?;
+        match status.status.as_ref() {
+            "RUNNING" => {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                continue;
+            }
+            "SUCCEEDED" => {
+                let receipt_buf = client.download(&status.output.unwrap()).await?;
+                let snark_receipt: Receipt = bincode::deserialize(&receipt_buf)?;
+                return Ok(snark_receipt);
+            }
+            _ => {
+                let err_msg = status.error_msg.unwrap_or_default();
+                return Err(anyhow::anyhow!("snark proving failed: {err_msg}"));
+            }
+        }
     }
 }
 
@@ -419,13 +455,12 @@ mod tests {
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
-        let execute_only = true;
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
             domain,
-            execute_only,
+            ProverMode::Execute,
         )
         .expect("failed to create prover");
 
@@ -440,13 +475,12 @@ mod tests {
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
-        let execute_only = true;
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
             domain,
-            execute_only,
+            ProverMode::Execute,
         )
         .expect("failed to create prover");
 
