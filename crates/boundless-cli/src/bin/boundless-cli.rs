@@ -271,7 +271,7 @@ struct SubmitOfferRequirements {
     journal_prefix: Option<String>,
     /// Address of the callback to use in the requirements.
     #[clap(long, requires = "callback_gas_limit")]
-    callback_addr: Option<Address>,
+    callback_address: Option<Address>,
     /// Gas limit of the callback to use in the requirements.
     #[clap(long, requires = "callback_addr")]
     callback_gas_limit: Option<u64>,
@@ -632,7 +632,7 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
-    let callback = match (&args.reqs.callback_addr, &args.reqs.callback_gas_limit) {
+    let callback = match (&args.reqs.callback_address, &args.reqs.callback_gas_limit) {
         (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
         _ => Callback::default(),
     };
@@ -857,8 +857,8 @@ mod tests {
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.prover_signer.clone(),
-            boundless_market_address: ctx.boundless_market_addr,
-            set_verifier_address: ctx.set_verifier_addr,
+            boundless_market_address: ctx.boundless_market_address,
+            set_verifier_address: ctx.set_verifier_address,
             tx_timeout: None,
             command: Command::Deposit { amount: default_allowance() },
         };
@@ -890,8 +890,8 @@ mod tests {
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer.clone(),
-            boundless_market_address: ctx.boundless_market_addr,
-            set_verifier_address: ctx.set_verifier_addr,
+            boundless_market_address: ctx.boundless_market_address,
+            set_verifier_address: ctx.set_verifier_address,
             tx_timeout: None,
             command: Command::SubmitRequest {
                 storage_config: Some(StorageProviderConfig::dev_mode()),
