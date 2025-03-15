@@ -214,15 +214,24 @@ mod tests {
         let task = planner.next_task().unwrap();
         assert_eq!(task.command, task::Command::Segment);
         assert_eq!(task.task_number, 0);
+        assert_eq!(task.task_height, 0);
+        assert!(planner.next_task().is_none());
+
+        let numb = planner.enqueue_keccak().unwrap();
+        assert_eq!(numb, 1);
+        let task = planner.next_task().unwrap();
+        assert_eq!(task.command, task::Command::Keccak);
+        assert_eq!(task.task_number, 1);
+        assert_eq!(task.task_height, 0);
         assert!(planner.next_task().is_none());
 
         planner.finish().unwrap();
         let last_task = planner.next_task().unwrap();
-        assert_eq!(last_task.task_number, 1);
+        assert_eq!(last_task.task_number, 2);
         assert_eq!(last_task.command, task::Command::Finalize);
         assert_eq!(last_task.task_height, 1);
 
-        assert_eq!(planner.task_count(), 2);
+        assert_eq!(planner.task_count(), 3);
         assert_eq!(planner.get_task(0).task_number, 0);
     }
 
@@ -253,10 +262,19 @@ mod tests {
             assert_eq!(join.task_height, 1);
         }
 
+        planner.enqueue_keccak().unwrap();
+        {
+            let task = planner.next_task().unwrap();
+            assert_eq!(task.command, task::Command::Keccak);
+            assert_eq!(task.task_number, 3);
+            assert_eq!(task.task_height, 0);
+            assert!(planner.next_task().is_none());
+        }
+
         planner.finish().unwrap();
         let last_task = planner.next_task().unwrap();
         assert_eq!(last_task.command, task::Command::Finalize);
-        assert_eq!(last_task.task_number, 3);
+        assert_eq!(last_task.task_number, 4);
         assert_eq!(last_task.task_height, 2);
     }
 
@@ -266,6 +284,7 @@ mod tests {
         planner.enqueue_segment().unwrap();
         planner.enqueue_segment().unwrap();
         planner.enqueue_segment().unwrap();
+        planner.enqueue_keccak().unwrap();
 
         planner.finish().unwrap();
 
@@ -287,10 +306,14 @@ mod tests {
 
         let task = planner.next_task().unwrap();
         assert_eq!(task.task_number, 4);
-        assert_eq!(task.command, task::Command::Join);
+        assert_eq!(task.command, task::Command::Keccak);
 
         let task = planner.next_task().unwrap();
         assert_eq!(task.task_number, 5);
+        assert_eq!(task.command, task::Command::Join);
+
+        let task = planner.next_task().unwrap();
+        assert_eq!(task.task_number, 6);
         assert_eq!(task.command, task::Command::Finalize);
     }
 

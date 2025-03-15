@@ -341,7 +341,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     // set the segment prefix
     let segments_prefix = format!("{job_prefix}:{SEGMENTS_PATH}");
 
-    let mut writer_tasks = JoinSet::new();
     // queue segments into a spmc queue
     let (segment_tx, mut segment_rx) = tokio::sync::mpsc::channel::<Segment>(CONCURRENT_SEGMENTS);
     let (task_tx, mut task_rx) = tokio::sync::mpsc::channel::<SenderType>(TASK_QUEUE_SIZE);
@@ -351,6 +350,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let segments_prefix_clone = segments_prefix.clone();
     let redis_ttl = agent.args.redis_ttl;
 
+    let mut writer_tasks = JoinSet::new();
     writer_tasks.spawn(async move {
         while let Some(segment) = segment_rx.recv().await {
             let index = segment.index;
@@ -367,14 +367,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .expect("Failed to set key with expiry");
             tracing::debug!("Completed write of {index}");
 
-            task_tx_clone
+            task_tx
                 .send(SenderType::Segment(index))
                 .await
                 .expect("failed to push task into task_tx");
         }
         // Once the segments wraps up, close the task channel to signal completion to the follow up
         // task
-        task_tx_clone.closed().await;
+        drop(task_tx);
     });
 
     let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, AUX_WORK_TYPE)
@@ -419,14 +419,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let exec_only = request.execute_only;
 
     // Write keccak data to redis + schedule proving
-    let coproc = Coprocessor::new(task_tx.clone());
+    let coproc = Coprocessor::new(task_tx_clone.clone());
     let mut coproc_redis = redis::get_connection(&agent.redis_pool).await?;
     let coproc_prefix = format!("{job_prefix}:{COPROC_CB_PATH}");
+    let mut guest_fault = false;
 
     // Generate tasks
     writer_tasks.spawn(async move {
         let mut planner = Planner::default();
-        let mut guest_fault = false;
         while let Some(task_type) = task_rx.recv().await {
             if exec_only {
                 continue;
@@ -496,6 +496,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 }
                 SenderType::Fault => {
                     guest_fault = true;
+                    break;
                 }
             }
         }
@@ -566,7 +567,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 }),
                 Err(err) => {
                     tracing::error!("Failed to run executor");
-                    task_tx
+                    task_tx_clone
                         .blocking_send(SenderType::Fault)
                         .context("Failed to send fault to planner")?;
                     Err(err)
@@ -633,7 +634,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     // First join all tasks and collect results
     while let Some(res) = writer_tasks.join_next().await {
         match res {
-            Ok(()) => continue,
+            Ok(()) => {
+                if guest_fault {
+                    bail!("Ran into fault");
+                }
+                continue;
+            }
             Err(err) => {
                 tracing::error!("queue monitor sub task failed: {err:?}");
                 bail!(err);

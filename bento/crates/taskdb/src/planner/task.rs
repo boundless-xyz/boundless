@@ -26,7 +26,7 @@ impl Task {
         Task {
             task_number,
             task_height: 0,
-            command: Command::Segment,
+            command: Command::Keccak,
             depends_on: Vec::new(),
             keccak_depends_on: VecDeque::new(),
         }
