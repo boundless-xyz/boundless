@@ -6,10 +6,13 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use alloy::providers::fillers::{
+    BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+};
+use alloy::providers::Identity;
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
     providers::{Provider, ProviderBuilder, RootProvider},
-    transports::http::Http,
 };
 use anyhow::{Context, Error as AnyhowErr, Result};
 use axum::{
@@ -24,7 +27,7 @@ use boundless_market::order_stream_client::{
     ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
 };
 use clap::Parser;
-use reqwest::{Client, Url};
+use reqwest::Url;
 use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -176,6 +179,14 @@ impl From<&Args> for Config {
     }
 }
 
+type WalletProvider = FillProvider<
+    JoinFill<
+        Identity,
+        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+    >,
+    RootProvider,
+>;
+
 /// Application state struct
 pub struct AppState {
     /// Database backend
@@ -185,7 +196,7 @@ pub struct AppState {
     /// Map of pending connections by address with their timestamp
     pending_connections: Arc<Mutex<HashMap<Address, Instant>>>,
     /// Ethereum RPC provider
-    rpc_provider: RootProvider<Http<Client>>,
+    rpc_provider: WalletProvider,
     /// Configuration
     config: Config,
     /// chain_id
@@ -365,11 +376,13 @@ mod tests {
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
         primitives::U256,
+        providers::{Provider, WalletProvider},
     };
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
-            Requirements,
+            hit_points::default_allowance,
+            test_utils::{create_test_ctx, TestCtx},
+            Offer, Predicate, ProofRequest, Requirements,
         },
         input::InputBuilder,
         order_stream_client::{order_stream, Client},
@@ -388,12 +401,13 @@ mod tests {
         pool: PgPool,
         ping_time: u64,
         listener: Option<&tokio::net::TcpListener>, // Optional listener for domain configuration
-    ) -> (Arc<AppState>, TestCtx, AnvilInstance) {
+    ) -> (Arc<AppState>, TestCtx<impl Provider + WalletProvider + Clone + 'static>, AnvilInstance)
+    {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
         let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
+            create_test_ctx(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
                 .await
                 .unwrap();
 

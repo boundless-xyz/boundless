@@ -29,13 +29,11 @@ use alloy::{
         local::{LocalSigner, PrivateKeySigner},
         Signer,
     },
-    transports::{http::Http, Transport},
 };
 use alloy_primitives::{PrimitiveSignature, B256};
 use alloy_sol_types::SolStruct;
 use anyhow::{anyhow, Context, Result};
 use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider};
-use reqwest::Client as HttpClient;
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
@@ -65,9 +63,7 @@ type ProviderWallet = FillProvider<
         >,
         WalletFiller<EthereumWallet>,
     >,
-    BalanceAlertProvider<RootProvider<Http<HttpClient>>, Http<HttpClient>>,
-    Http<HttpClient>,
-    Ethereum,
+    BalanceAlertProvider<RootProvider>,
 >;
 
 #[derive(thiserror::Error, Debug)]
@@ -126,9 +122,7 @@ impl ClientBuilder {
     }
 
     /// Build the client
-    pub async fn build(
-        self,
-    ) -> Result<Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider>> {
+    pub async fn build(self) -> Result<Client<ProviderWallet, BuiltinStorageProvider>> {
         let mut client = Client::from_parts(
             self.wallet.context("Wallet not set")?,
             self.rpc_url.context("RPC URL not set")?,
@@ -215,11 +209,11 @@ impl ClientBuilder {
 
 #[derive(Clone)]
 /// Client for interacting with the boundless market.
-pub struct Client<T, P, S> {
+pub struct Client<P, S> {
     /// Boundless market service.
-    pub boundless_market: BoundlessMarketService<T, P>,
+    pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
-    pub set_verifier: SetVerifierService<T, P>,
+    pub set_verifier: SetVerifierService<P>,
     /// Storage provider to upload ELFs and inputs.
     pub storage_provider: Option<S>,
     /// Order stream client to submit requests off-chain.
@@ -230,16 +224,15 @@ pub struct Client<T, P, S> {
     pub bidding_start_delay: u64,
 }
 
-impl<T, P, S> Client<T, P, S>
+impl<P, S> Client<P, S>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     /// Create a new client
     pub fn new(
-        boundless_market: BoundlessMarketService<T, P>,
-        set_verifier: SetVerifierService<T, P>,
+        boundless_market: BoundlessMarketService<P>,
+        set_verifier: SetVerifierService<P>,
     ) -> Self {
         let boundless_market = boundless_market.clone();
         let set_verifier = set_verifier.clone();
@@ -264,12 +257,12 @@ where
     }
 
     /// Set the Boundless market service
-    pub fn with_boundless_market(self, boundless_market: BoundlessMarketService<T, P>) -> Self {
+    pub fn with_boundless_market(self, boundless_market: BoundlessMarketService<P>) -> Self {
         Self { boundless_market, ..self }
     }
 
     /// Set the set verifier service
-    pub fn with_set_verifier(self, set_verifier: SetVerifierService<T, P>) -> Self {
+    pub fn with_set_verifier(self, set_verifier: SetVerifierService<P>) -> Self {
         Self { set_verifier, ..self }
     }
 
@@ -509,7 +502,7 @@ where
     }
 }
 
-impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
+impl Client<ProviderWallet, BuiltinStorageProvider> {
     /// Create a new client from environment variables
     ///
     /// The following environment variables are required:
@@ -536,7 +529,6 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(wallet.clone())
             .layer(BalanceAlertLayer::default())
             .on_http(rpc_url);
@@ -585,7 +577,6 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let caller = wallet.default_signer().address();
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(wallet.clone())
             .layer(BalanceAlertLayer::new(balance_alerts.unwrap_or_default()))
             .on_http(rpc_url);

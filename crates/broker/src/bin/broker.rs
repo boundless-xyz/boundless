@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         args.rpc_retry_cu,
         CustomRetryPolicy,
     );
-    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone()).boxed();
+    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
 
     let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
         watch_address: wallet.default_signer().address(),
@@ -41,7 +41,6 @@ async fn main() -> Result<()> {
     });
 
     let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
         .layer(balance_alerts_layer)
         .wallet(wallet)
         .with_chain(NamedChain::Sepolia)
@@ -50,7 +49,7 @@ async fn main() -> Result<()> {
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
         let boundless_market = BoundlessMarketService::new(
-            args.boundless_market_addr,
+            args.boundless_market_address,
             provider.clone(),
             provider.default_signer_address(),
         );

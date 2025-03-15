@@ -12,7 +12,7 @@ use alloy::{
     signers::Signer,
 };
 use boundless_market::contracts::{
-    test_utils::TestCtx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+    test_utils::create_test_ctx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
 };
 use futures_util::StreamExt;
 use guest_assessor::ASSESSOR_GUEST_ID;
@@ -56,9 +56,7 @@ async fn create_order(
 async fn test_basic_usage() {
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-        .await
-        .unwrap();
+    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-slasher");
     let args = [
@@ -67,7 +65,7 @@ async fn test_basic_usage() {
         "--private-key",
         &hex::encode(ctx.customer_signer.clone().to_bytes()),
         "--boundless-market-address",
-        &ctx.boundless_market_addr.to_string(),
+        &ctx.boundless_market_address.to_string(),
         "--db",
         "sqlite::memory:",
         "--interval",
@@ -99,7 +97,7 @@ async fn test_basic_usage() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_addr,
+        ctx.boundless_market_address,
         anvil.chain_id(),
         now,
     )
@@ -115,7 +113,7 @@ async fn test_basic_usage() {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
             // Check that the stake recipient is the market treasury address
-            assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_addr);
+            assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_address);
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(20)) => {

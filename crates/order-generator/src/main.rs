@@ -266,10 +266,9 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::contracts::{test_utils::TestCtx, IBoundlessMarket};
+    use boundless_market::contracts::{test_utils::create_test_ctx, IBoundlessMarket};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
-    use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
     use super::*;
@@ -278,18 +277,15 @@ mod tests {
     #[traced_test]
     async fn test_main() {
         let anvil = Anvil::new().spawn();
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             order_stream_url: None,
             storage_config: Some(StorageProviderConfig::dev_mode()),
             private_key: ctx.customer_signer,
-            set_verifier_address: ctx.set_verifier_addr,
-            boundless_market_address: ctx.boundless_market_addr,
+            set_verifier_address: ctx.set_verifier_address,
+            boundless_market_address: ctx.boundless_market_address,
             interval: 1,
             count: Some(2),
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
@@ -312,7 +308,7 @@ mod tests {
         let filter = Filter::new()
             .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(0)
-            .address(ctx.boundless_market_addr);
+            .address(ctx.boundless_market_address);
         let logs = ctx.customer_provider.get_logs(&filter).await.unwrap();
         let decoded_logs = logs.iter().filter_map(|log| {
             match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {

@@ -140,7 +140,7 @@ An important concept to understand for testing is [RISC Zero's continuations](ht
 
 The CPU first runs the workload in a pre-flight stage where it doesn't engage in proving, while doing so it divides the program trace into a series of [segments](https://dev.risczero.com/terminology#segment). In Bento ,these segments are then dispatched to various workers for proving, and are combined back together in the final stage to produce the proof.
 
-The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env-compose` file. A proof is divided into `(2^SEGMENT_SIZE)` sized segments. The default value is 20, which means that a proof is composed of the number of required segments of approximately 1M cycles `(2^20 = 1048576)`.
+The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env.broker` file. A proof is divided into `(2^SEGMENT_SIZE)` sized segments. The default value is 20, which means that a proof is composed of the number of required segments of approximately 1M cycles `(2^20 = 1048576)`.
 
 `SEGMENT_SIZE has` some practical implications, related to GPU VRAM capacity. Below is a set of guidelines for setting `SEGMENT_SIZE` maximums:
 
@@ -223,7 +223,7 @@ gpu_agent0: &gpu
 
 #### Verify that No Other GPU Definitions Are Present in the Compose File
 
-#### Confirm the `SEGMENT_SIZE` Is Set to the Maximum as Determined Above in the `.env-compose` File
+#### Confirm the `SEGMENT_SIZE` Is Set to the Maximum as Determined Above in the `.env.broker` File
 
 #### Execute the Test Harness
 

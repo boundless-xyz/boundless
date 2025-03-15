@@ -2,12 +2,10 @@
 //
 // All rights reserved.
 
-use std::marker::PhantomData;
-
 use alloy::network::Ethereum;
 use alloy::primitives::{Address, U256};
 use alloy::providers::{PendingTransactionBuilder, Provider, ProviderLayer, RootProvider};
-use alloy::transports::{Transport, TransportResult};
+use alloy::transports::TransportResult;
 
 /// Configuration for the BalanceAlertLayer
 #[derive(Debug, Clone, Default)]
@@ -47,12 +45,11 @@ impl BalanceAlertLayer {
     }
 }
 
-impl<P, T> ProviderLayer<P, T, Ethereum> for BalanceAlertLayer
+impl<P> ProviderLayer<P> for BalanceAlertLayer
 where
-    P: Provider<T>,
-    T: Transport + Clone,
+    P: Provider,
 {
-    type Provider = BalanceAlertProvider<P, T>;
+    type Provider = BalanceAlertProvider<P>;
 
     fn layer(&self, inner: P) -> Self::Provider {
         BalanceAlertProvider::new(inner, self.config.clone())
@@ -60,31 +57,28 @@ where
 }
 
 #[derive(Clone, Debug)]
-pub struct BalanceAlertProvider<P, T> {
+pub struct BalanceAlertProvider<P> {
     inner: P,
     config: BalanceAlertConfig,
-    _pd: PhantomData<fn() -> T>,
 }
 
-impl<P, T> BalanceAlertProvider<P, T>
+impl<P> BalanceAlertProvider<P>
 where
-    P: Provider<T>,
-    T: Transport + Clone,
+    P: Provider,
 {
     #[allow(clippy::missing_const_for_fn)]
     fn new(inner: P, config: BalanceAlertConfig) -> Self {
-        Self { inner, config, _pd: PhantomData }
+        Self { inner, config }
     }
 }
 
 #[async_trait::async_trait]
-impl<P, T> Provider<T> for BalanceAlertProvider<P, T>
+impl<P> Provider for BalanceAlertProvider<P>
 where
-    P: Provider<T>,
-    T: Transport + Clone,
+    P: Provider,
 {
     #[inline(always)]
-    fn root(&self) -> &RootProvider<T> {
+    fn root(&self) -> &RootProvider {
         self.inner.root()
     }
 
@@ -97,7 +91,7 @@ where
     async fn send_raw_transaction(
         &self,
         encoded_tx: &[u8],
-    ) -> TransportResult<PendingTransactionBuilder<T, Ethereum>> {
+    ) -> TransportResult<PendingTransactionBuilder<Ethereum>> {
         let res = self.inner.send_raw_transaction(encoded_tx).await;
         let balance = self.inner.get_balance(self.config.watch_address).await?;
 
@@ -144,7 +138,7 @@ mod tests {
         // Initial wallet balance is 10 eth, set up to warn if < 9 and error if < 5
         let anvil = Anvil::default().args(["--balance", "10"]).spawn();
         let wallet = EthereumWallet::from(LocalSigner::from(anvil.keys()[0].clone()));
-        let client = RpcClient::builder().http(anvil.endpoint_url()).boxed();
+        let client = RpcClient::builder().http(anvil.endpoint_url());
 
         let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
             watch_address: wallet.default_signer().address(),
@@ -152,11 +146,8 @@ mod tests {
             error_threshold: Some(parse_ether("5").unwrap()),
         });
 
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .layer(balance_alerts_layer)
-            .wallet(wallet)
-            .on_client(client);
+        let provider =
+            ProviderBuilder::new().layer(balance_alerts_layer).wallet(wallet).on_client(client);
 
         burn_eth(&provider, parse_ether("0.5").unwrap()).await?;
         assert!(!logs_contain("< warning threshold")); // no log yet
@@ -176,7 +167,7 @@ mod tests {
         // Initial wallet balance is 10 eth, set up to warn if < 9 and error if < 5
         let anvil = Anvil::default().args(["--balance", "10"]).spawn();
         let wallet = EthereumWallet::from(LocalSigner::from(anvil.keys()[0].clone()));
-        let client = RpcClient::builder().http(anvil.endpoint_url()).boxed();
+        let client = RpcClient::builder().http(anvil.endpoint_url());
 
         let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
             watch_address: wallet.default_signer().address(),
@@ -184,11 +175,8 @@ mod tests {
             error_threshold: None,
         });
 
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .layer(balance_alerts_layer)
-            .wallet(wallet)
-            .on_client(client);
+        let provider =
+            ProviderBuilder::new().layer(balance_alerts_layer).wallet(wallet).on_client(client);
 
         // no warning or error logs should be emitted
         burn_eth(&provider, parse_ether("0.5").unwrap()).await?;
