@@ -28,6 +28,7 @@ alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types",
 async-stream = { workspace = true }
 async-trait = "0.1"
 aws-sdk-s3 = "1.34"
+balance-alerts-layer = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }

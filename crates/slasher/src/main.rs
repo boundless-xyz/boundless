@@ -4,9 +4,12 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use alloy::{
+    primitives::{utils::parse_ether, Address, U256},
+    signers::local::PrivateKeySigner,
+};
 use anyhow::{bail, Result};
-use boundless_slasher::SlashService;
+use boundless_slasher::{SlashService, SlashServiceConfig};
 use clap::{Args, Parser};
 use url::Url;
 
@@ -35,6 +38,12 @@ struct MainArgs {
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
+    /// Balance threshold at which to log a warning.
+    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    warn_balance_below: Option<U256>,
+    /// Balance threshold at which to log an error.
+    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    error_balance_below: Option<U256>,
     /// Comma-separated list of addresses to skip when processing locked events.
     #[clap(long, value_delimiter = ',', value_parser = parse_address)]
     skip_addresses: Vec<Address>,
@@ -74,9 +83,13 @@ async fn main() -> Result<()> {
         &args.private_key,
         args.boundless_market_address,
         &args.db,
-        Duration::from_secs(args.interval),
-        args.retries,
-        args.skip_addresses,
+        SlashServiceConfig {
+            interval: Duration::from_secs(args.interval),
+            retries: args.retries,
+            balance_warn_threshold: args.warn_balance_below,
+            balance_error_threshold: args.error_balance_below,
+            skip_addresses: args.skip_addresses,
+        },
     )
     .await?;
 

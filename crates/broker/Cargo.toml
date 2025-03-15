@@ -16,6 +16,7 @@ alloy-chains = "0.1"
 anyhow = { workspace = true }
 async-channel = "2.3"
 async-trait = { workspace = true }
+balance-alerts-layer = { workspace = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }

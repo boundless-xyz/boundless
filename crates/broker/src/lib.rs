@@ -18,6 +18,7 @@ use boundless_market::{
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
+pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
 use provers::ProverObj;
@@ -92,7 +93,7 @@ pub struct Args {
 
     /// Config file path
     #[clap(short, long, default_value = "broker.toml")]
-    config_file: PathBuf,
+    pub config_file: PathBuf,
 
     /// Pre deposit amount
     ///
