@@ -22,17 +22,6 @@ export default function RootLayout({ children }) {
     if (galleryElement) {
       lightGallery(galleryElement[0] as HTMLElement);
     }
-
-    // Check if we're on the homepage
-    if (window.location.pathname === "/") {
-      const hasVisitedBefore = localStorage.getItem("hasVisitedDocs");
-
-      if (hasVisitedBefore) {
-        window.location.href = "/build/build-a-program";
-      } else {
-        localStorage.setItem("hasVisitedDocs", "true");
-      }
-    }
   }, []);
 
   return (

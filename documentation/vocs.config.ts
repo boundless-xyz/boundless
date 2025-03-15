@@ -145,6 +145,7 @@ export function generateSitemap() {
 }
 
 export default defineConfig({
+  logoUrl: "/logo.svg",
   font: {
     mono: {
       google: "Ubuntu Mono",

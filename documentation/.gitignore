@@ -10,3 +10,4 @@ site/pages/smart-contracts
 site/pages/tmp
 
 site/public/link-previews.json
+vocs.config.tsx.timestamp-*.mjs
