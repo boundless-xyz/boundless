@@ -90,8 +90,29 @@ async fn process_task(pool: &PgPool, tree_task: &Task, db_task: &ReadyTask) -> R
     let cpu_stream = Uuid::from_str(cpu_stream).unwrap();
     let gpu_stream = db_task.task_def.get("gpu_stream").unwrap().as_str().unwrap();
     let gpu_stream = Uuid::from_str(gpu_stream).unwrap();
+    let keccak_stream = db_task.task_def.get("keccak_stream").unwrap().as_str().unwrap();
+    let keccak_stream = Uuid::from_str(keccak_stream).unwrap();
 
     match tree_task.command {
+        TaskCmd::Keccak => {
+            let task_def = serde_json::json!({"Keccak": { "segment": tree_task.task_number }, "user_id": user_id });
+            let prereqs = serde_json::json!([]);
+            let task_name = format!("{}", tree_task.task_number);
+
+            // tracing::debug!("inserting: segment {}", task_name);
+            taskdb::create_task(
+                pool,
+                &db_task.job_id,
+                &task_name,
+                &keccak_stream,
+                &task_def,
+                &prereqs,
+                2,
+                60,
+            )
+            .await
+            .context("Failed to create Prove task")?;
+        }
         TaskCmd::Segment => {
             let task_def = serde_json::json!({"Prove": { "segment": tree_task.task_number }, "user_id": user_id });
             let prereqs = serde_json::json!([]);

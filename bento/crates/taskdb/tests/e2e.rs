@@ -79,6 +79,25 @@ async fn e2e(pool: PgPool) -> Result<()> {
         aux_stream: &Uuid,
     ) -> Result<()> {
         match tree_task.command {
+            TaskCmd::Keccak => {
+                let task_def = serde_json::json!({"Keccak": { "segment": tree_task.task_number }});
+                let prereqs = serde_json::json!([]);
+                let task_name = format!("{}", tree_task.task_number);
+
+                // println!("inserting: segment {}", task_name);
+                taskdb::create_task(
+                    pool,
+                    &db_task.job_id,
+                    &task_name,
+                    gpu_stream,
+                    &task_def,
+                    &prereqs,
+                    0,
+                    10,
+                )
+                .await
+                .unwrap();
+            }
             TaskCmd::Segment => {
                 let task_def = serde_json::json!({"Prove": { "segment": tree_task.task_number }});
                 let prereqs = serde_json::json!([]);
