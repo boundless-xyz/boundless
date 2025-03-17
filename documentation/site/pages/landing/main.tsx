@@ -22,7 +22,7 @@ export default function Main() {
   return (
     <div className="relative z-10 flex animate-fade-in flex-col items-center justify-center text-center">
       <div className="container pb-40">
-        <h1 className="mb-4 font-bold text-5xl text-neutral-900">
+        <h1 className="mb-4 font-bold text-5xl">
           Build <span className="font-normal font-serif">where you are,</span> with the power of ZK.
         </h1>
 
@@ -34,7 +34,7 @@ export default function Main() {
           alt="cubes"
         />
 
-        <h2 className="mb-6 text-neutral-800 text-xl">
+        <h2 className="mb-6 text-xl">
           <strong className="font-bold">Boundless</strong> is a protocol that brings ZK to every chain, transforming
           blockchain's greatest constraint into its greatest strength. By moving from computational scarcity to
           abundance, we enable unlimited execution while preserving each chain's security. With Boundless, developers
@@ -42,7 +42,7 @@ export default function Main() {
           infrastructure, execution limits, or compute overhead.
         </h2>
 
-        <h2 className="mb-16 text-neutral-800 text-xl">
+        <h2 className="mb-16 text-xl">
           Our <strong className="font-bold">Core Services</strong> handle{" "}
           <a className="link underline" href="/introduction/proof-lifecycle">
             proof generation
@@ -62,7 +62,7 @@ export default function Main() {
           unlock unprecedented cost savings and speed—all using the tools and languages you already know.
         </h2>
 
-        <h2 className="mb-16 text-neutral-900 text-xl">Focus on building while Boundless handles the rest.</h2>
+        <h2 className="mb-16 text-xl">Focus on building while Boundless handles the rest.</h2>
 
         <div className="flex justify-center">
           <a

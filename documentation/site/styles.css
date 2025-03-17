@@ -120,7 +120,7 @@ body {
 }
 
 .vocs_Logo {
-  @apply object-contain;
+  @apply object-contain dark:invert;
 }
 
 .vocs_H1 {
