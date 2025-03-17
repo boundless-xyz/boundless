@@ -33,7 +33,6 @@ jobs:
       - rust-pkg-check
       - docs-rs
       - bento
-      - end-to-end
       - bento_run
 
     runs-on: ubuntu-latest
