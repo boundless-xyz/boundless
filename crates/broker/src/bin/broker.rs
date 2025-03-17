@@ -36,8 +36,16 @@ async fn main() -> Result<()> {
 
     let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
         watch_address: wallet.default_signer().address(),
-        warn_threshold: config.market.balance_warn_threshold.and_then(|s| parse_ether(&s).ok()),
-        error_threshold: config.market.balance_error_threshold.and_then(|s| parse_ether(&s).ok()),
+        warn_threshold: config
+            .market
+            .balance_warn_threshold
+            .map(|s| parse_ether(&s))
+            .transpose()?,
+        error_threshold: config
+            .market
+            .balance_error_threshold
+            .map(|s| parse_ether(&s))
+            .transpose()?,
     });
 
     let provider = ProviderBuilder::new()
