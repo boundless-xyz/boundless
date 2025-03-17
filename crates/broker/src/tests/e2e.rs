@@ -124,7 +124,7 @@ async fn simple_e2e() {
 
 #[tokio::test]
 // It gets too noisy with tracing enabled, uncomment when needed
-// #[traced_test]
+#[traced_test]
 #[ignore]
 async fn e2e_with_selector() {
     // Setup anvil
