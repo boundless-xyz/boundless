@@ -1069,10 +1069,8 @@ mod tests {
         let id = U256::ZERO;
         let order = create_order();
         db.add_order(id, order.clone()).await.unwrap();
-        let order2 = create_order();
-        db.add_order(id + U256::from(1), order2.clone()).await.unwrap();
-        let order3 = create_order();
-        db.add_order(id + U256::from(2), order3.clone()).await.unwrap();
+        db.add_order(id + U256::from(1), order.clone()).await.unwrap();
+        db.add_order(id + U256::from(2), order.clone()).await.unwrap();
 
         let price_order = db.update_orders_for_pricing(1).await.unwrap();
         assert_eq!(price_order.len(), 1);
