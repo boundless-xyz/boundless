@@ -14,7 +14,7 @@
 
 use std::{env, fs, path::Path};
 
-// Contracts to copy to the artificats folder for. If the contract is a directory, all .sol files in the directory.
+// Contracts to copy to the artifacts folder for. If the contract is a directory, all .sol files in the directory.
 const CONTRACTS_TO_COPY: [&str; 3] = ["IBoundlessMarket.sol", "IHitPoints.sol", "types"];
 
 // Contracts to exclude from generating types for automatically.
