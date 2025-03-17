@@ -16,6 +16,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
 use thiserror::Error;
+use tokio::task::JoinSet;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -413,7 +414,7 @@ where
     /// Estimate of gas for fulfilling any orders either pending lock or locked
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         let pending_fulfill_orders = self.db.get_orders_committed_to_fulfill_count().await?;
-        Ok((pending_fulfill_orders)
+        Ok((pending_fulfill_orders as u64)
             * self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
     }
 
@@ -454,6 +455,45 @@ where
         let pending_balance = self.pending_locked_stake().await?;
         Ok(balance - pending_balance)
     }
+
+    async fn get_pricing_order_capacity(&self) -> Result<Option<u32>> {
+        let max_concurrent_locks = {
+            let config = self.config.lock_all()?;
+            config.market.max_concurrent_locks
+        };
+
+        if let Some(max) = max_concurrent_locks {
+            let committed_orders_count = self.db.get_orders_committed_to_fulfill_count().await?;
+            let available_slots = max.saturating_sub(committed_orders_count);
+            Ok(Some(available_slots))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn spawn_pricing_tasks(
+        &self,
+        tasks: &mut JoinSet<Result<U256, (U256, PriceOrderErr)>>,
+        capacity: u32,
+    ) -> Result<()> {
+        if capacity == 0 {
+            return Ok(());
+        }
+
+        let order_res = self.db.update_orders_for_pricing(capacity).await?;
+
+        for (order_id, order) in order_res {
+            let picker_clone = self.clone();
+            tasks.spawn(async move {
+                match picker_clone.price_order(order_id, &order).await {
+                    Ok(()) => Ok(order_id),
+                    Err(err) => Err((order_id, err)),
+                }
+            });
+        }
+
+        Ok(())
+    }
 }
 
 impl<P> RetryTask for OrderPicker<P>
@@ -462,47 +502,77 @@ where
 {
     fn spawn(&self) -> RetryRes {
         let picker_copy = self.clone();
-        // Find existing Pricing orders and start processing them (resume)
 
         Box::pin(async move {
             tracing::info!("Starting order picking monitor");
 
             picker_copy.find_existing_orders().await.map_err(SupervisorErr::Fault)?;
 
-            loop {
-                let order_res = picker_copy
-                    .db
-                    .get_order_for_pricing()
-                    .await
-                    .map_err(|err| SupervisorErr::Recover(err.into()))?;
+            // Use JoinSet to track active pricing tasks
+            let mut pricing_tasks = JoinSet::new();
 
-                if let Some((order_id, order)) = order_res {
-                    let picker_clone = picker_copy.clone();
-                    // TODO: We should consider having handles for these inner tasks
-                    // but they are one-shots that self-clean up on the DB so maybe its fine?
-                    tokio::spawn(async move {
-                        if let Err(err) = picker_clone.price_order(order_id, &order).await {
-                            picker_clone
-                                .db
-                                .set_order_failure(order_id, err.to_string())
-                                .await
-                                .expect("Failed to set order failure");
-                            match err {
-                                PriceOrderErr::OtherErr(err) => {
-                                    tracing::error!("Pricing order failed: {order_id:x} {err:?}");
-                                }
-                                // Only warn on known / classified errors
-                                _ => {
-                                    tracing::warn!(
-                                        "Pricing order soft failed: {order_id:x} {err:?}"
-                                    );
+            // Set capacity at 0, to ensure the capacity is read before scheduling orders.
+            let mut capacity = Some(0u32);
+
+            // Check for config updates and current lock count periodically
+            let config_check_interval = tokio::time::Duration::from_secs(10);
+            let mut config_check_timer = tokio::time::interval(config_check_interval);
+
+            loop {
+                // Queue up orders that can be added to capacity.
+                let order_size = if let Some(capacity) = capacity {
+                    capacity.saturating_sub(
+                        u32::try_from(pricing_tasks.len()).expect("tasks u32 overflow"),
+                    )
+                } else {
+                    // If no maximum lock capacity, request a max of 10 orders at a time.
+                    10
+                };
+                picker_copy
+                    .spawn_pricing_tasks(&mut pricing_tasks, order_size)
+                    .await
+                    .map_err(SupervisorErr::Recover)?;
+
+                tokio::select! {
+                    _ = config_check_timer.tick() => {
+                        // Get updated max concurrent locks and calculate capacity based on orders
+                        // that are locked but not fulfilled yet.
+                        capacity = picker_copy.get_pricing_order_capacity().await.map_err(SupervisorErr::Fault)?;
+
+                    }
+
+                    // Process completed pricing tasks
+                    Some(result) = pricing_tasks.join_next() => {
+                        match result {
+                            Ok(Ok(order_id)) => {
+                                tracing::debug!("Successfully priced order {order_id:x}");
+                                if let Some(cap) = &mut capacity {
+                                    *cap = cap.saturating_sub(1);
                                 }
                             }
+                            Ok(Err((order_id, err))) => {
+                                picker_copy
+                                    .db
+                                    .set_order_failure(order_id, err.to_string())
+                                    .await
+                                    .map_err(|e| SupervisorErr::Recover(e.into()))?;
+
+                                match err {
+                                    PriceOrderErr::OtherErr(err) => {
+                                        tracing::error!("Pricing order failed: {order_id:x} {err:?}");
+                                    }
+                                    // Only warn on known / classified errors
+                                    _ => {
+                                        tracing::warn!("Pricing order soft failed: {order_id:x} {err:?}");
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                return Err(SupervisorErr::Recover(anyhow::anyhow!("Pricing task failed: {e}")));
+                            }
                         }
-                    });
+                    }
                 }
-                // TODO: Configuration
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
         })
     }
