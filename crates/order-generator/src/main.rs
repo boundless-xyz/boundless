@@ -268,8 +268,8 @@ mod tests {
             order_stream_url: None,
             storage_config: Some(StorageProviderConfig::dev_mode()),
             private_key: ctx.customer_signer,
-            set_verifier_address: ctx.set_verifier_addr,
-            boundless_market_address: ctx.boundless_market_addr,
+            set_verifier_address: ctx.set_verifier_address,
+            boundless_market_address: ctx.boundless_market_address,
             interval: 1,
             count: Some(2),
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
@@ -290,7 +290,7 @@ mod tests {
         let filter = Filter::new()
             .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(0)
-            .address(ctx.boundless_market_addr);
+            .address(ctx.boundless_market_address);
         let logs = ctx.customer_provider.get_logs(&filter).await.unwrap();
         let decoded_logs = logs.iter().filter_map(|log| {
             match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {

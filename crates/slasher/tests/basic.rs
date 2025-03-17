@@ -66,7 +66,7 @@ async fn test_basic_usage() {
         "--private-key",
         &hex::encode(ctx.customer_signer.clone().to_bytes()),
         "--boundless-market-address",
-        &ctx.boundless_market_addr.to_string(),
+        &ctx.boundless_market_address.to_string(),
         "--db",
         "sqlite::memory:",
         "--interval",
@@ -98,7 +98,7 @@ async fn test_basic_usage() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_addr,
+        ctx.boundless_market_address,
         anvil.chain_id(),
         now,
     )
@@ -114,7 +114,7 @@ async fn test_basic_usage() {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
             // Check that the stake recipient is the market treasury address
-            assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_addr);
+            assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_address);
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(20)) => {
