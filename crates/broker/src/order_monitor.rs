@@ -297,10 +297,10 @@ mod tests {
                 .unwrap(),
         );
 
-        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+        let hit_points = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
 
         let market_address = deploy_boundless_market(
-            &signer,
+            signer.address(),
             provider.clone(),
             Address::ZERO,
             hit_points,
@@ -407,10 +407,10 @@ mod tests {
                 .unwrap(),
         );
 
-        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+        let hit_points = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
 
         let market_address = deploy_boundless_market(
-            &signer,
+            signer.address(),
             provider.clone(),
             Address::ZERO,
             hit_points,

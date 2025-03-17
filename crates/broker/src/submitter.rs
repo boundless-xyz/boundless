@@ -507,9 +507,9 @@ mod tests {
             deploy_set_verifier(provider.clone(), verifier, Digest::from(SET_BUILDER_ID))
                 .await
                 .unwrap();
-        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+        let hit_points = deploy_hit_points(prover_addr, provider.clone()).await.unwrap();
         let market_address = deploy_boundless_market(
-            &signer,
+            prover_addr,
             provider.clone(),
             set_verifier,
             hit_points,

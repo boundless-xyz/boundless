@@ -650,9 +650,9 @@ mod tests {
 
             provider.anvil_mine(Some(4), Some(2)).await.unwrap();
 
-            let hp_contract = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+            let hp_contract = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
             let market_address = deploy_boundless_market(
-                &signer,
+                signer.address(),
                 provider.clone(),
                 Address::ZERO,
                 hp_contract,
