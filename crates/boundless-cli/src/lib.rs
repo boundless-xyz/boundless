@@ -37,7 +37,7 @@ use url::Url;
 use boundless_market::{
     contracts::{
         AssessorJournal, AssessorReceipt, EIP721DomainSaltless,
-        Fulfillment as BoundlessFulfillment, InputType,
+        Fulfillment as BoundlessFulfillment, InputType, UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     order_stream_client::Order,
@@ -302,7 +302,7 @@ impl DefaultProver {
             .context("Failed to parse selector")?;
         match selector {
             // Supported selectors
-            Selector::FakeReceipt | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
+            UNSPECIFIED_SELECTOR | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
             _ => bail!("Unsupported selector {}", request.requirements.selector),
         };
 
@@ -435,7 +435,7 @@ mod tests {
             0,
             &signer.address(),
             Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
-                .with_selector(FixedBytes::from(selector.unwrap_or(Selector::FakeReceipt) as u32)),
+                .with_selector(FixedBytes::from(selector.unwrap_or(UNSPECIFIED_SELECTOR) as u32)),
             format!("file://{ECHO_PATH}"),
             Input::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
             Offer::default(),

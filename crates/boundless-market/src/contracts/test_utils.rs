@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Interface to interact with the `HitPoints` contract used for staking on the market during the Boundless testnet.
-//!
-//! NOTE: This module will be removed in later phases of the testnet and before mainnet.
-
 use crate::contracts::{
     boundless_market::BoundlessMarketService,
     bytecode::*,
@@ -100,25 +96,23 @@ pub async fn deploy_set_verifier<P: Provider>(
 }
 
 pub async fn deploy_hit_points<P: Provider>(
-    deployer_signer: &PrivateKeySigner,
+    owner_address: Address,
     deployer_provider: P,
 ) -> Result<Address> {
-    let deployer_address = deployer_signer.address();
-    let instance = HitPoints::deploy(deployer_provider, deployer_address)
+    let instance = HitPoints::deploy(deployer_provider, owner_address)
         .await
         .context("failed to deploy HitPoints contract")?;
     Ok(*instance.address())
 }
 
 pub async fn deploy_boundless_market<P: Provider>(
-    deployer_signer: &PrivateKeySigner,
+    owner_address: Address,
     deployer_provider: P,
     verifier: Address,
     hit_points: Address,
     assessor_guest_id: Digest,
     allowed_prover: Option<Address>,
 ) -> Result<Address> {
-    let deployer_address = deployer_signer.address();
     let market_instance = BoundlessMarket::deploy(
         &deployer_provider,
         verifier,
@@ -131,12 +125,9 @@ pub async fn deploy_boundless_market<P: Provider>(
     let proxy_instance = ERC1967Proxy::deploy(
         &deployer_provider,
         *market_instance.address(),
-        BoundlessMarket::initializeCall {
-            initialOwner: deployer_address,
-            imageUrl: "".to_string(),
-        }
-        .abi_encode()
-        .into(),
+        BoundlessMarket::initializeCall { initialOwner: owner_address, imageUrl: "".to_string() }
+            .abi_encode()
+            .into(),
     )
     .await
     .context("failed to deploy BoundlessMarket proxy")?;
@@ -144,7 +135,7 @@ pub async fn deploy_boundless_market<P: Provider>(
 
     if hit_points != Address::ZERO {
         let hit_points_service =
-            HitPointsService::new(hit_points, &deployer_provider, deployer_signer.address());
+            HitPointsService::new(hit_points, &deployer_provider, owner_address);
         hit_points_service.grant_minter_role(hit_points_service.caller()).await?;
         hit_points_service.grant_authorized_transfer_role(proxy).await?;
         if let Some(prover) = allowed_prover {
@@ -162,14 +153,14 @@ async fn deploy_contracts(
     dev_mode: bool,
 ) -> Result<(Address, Address, Address, Address)> {
     let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+    let deployer_address = deployer_signer.address();
     let deployer_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(deployer_signer.clone()))
         .on_builtin(&anvil.endpoint())
         .await?;
 
     // Deploy contracts
-    let verifier_router =
-        deploy_verifier_router(&deployer_provider, deployer_signer.address()).await?;
+    let verifier_router = deploy_verifier_router(&deployer_provider, deployer_address).await?;
     let verifier = match dev_mode {
         true => deploy_mock_verifier(&deployer_provider).await?,
         false => {
@@ -206,9 +197,9 @@ async fn deploy_contracts(
         .from(deployer_signer.address());
     let _ = call.send().await?;
 
-    let hit_points = deploy_hit_points(&deployer_signer, &deployer_provider).await?;
+    let hit_points = deploy_hit_points(deployer_address, &deployer_provider).await?;
     let boundless_market = deploy_boundless_market(
-        &deployer_signer,
+        deployer_address,
         &deployer_provider,
         verifier_router,
         hit_points,

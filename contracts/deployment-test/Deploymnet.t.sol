@@ -188,6 +188,8 @@ contract DeploymentTest is Test {
         Client testProver = createClientContract("PROVER");
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
+        // 0xc101b42b is the selector for ZKVM_V1.2, update when necessary
+        // or refactor to read from the environment.
         request.requirements.selector = bytes4(0xc101b42b);
 
         ProofRequest[] memory requests = new ProofRequest[](1);
@@ -272,6 +274,7 @@ contract Client {
     }
 
     function request(uint32 idx) public view returns (ProofRequest memory) {
+        // create a request as used in `../../request.yaml`.
         return ProofRequest({
             id: RequestIdLibrary.from(wallet.addr, idx),
             requirements: defaultRequirements(),

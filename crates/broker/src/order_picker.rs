@@ -14,7 +14,9 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
+use boundless_market::contracts::{
+    boundless_market::BoundlessMarketService, RequestError, UNSPECIFIED_SELECTOR,
+};
 use risc0_ethereum_contracts::selector::Selector;
 use thiserror::Error;
 
@@ -91,11 +93,12 @@ where
             }
         }
 
+        // TODO(BM-40): When accounting for gas costs of orders, a groth16 selector has much higher cost.
         match Selector::from_bytes(order.request.requirements.selector.into())
             .context("Failed to parse selector")?
         {
             // Supported selectors
-            Selector::FakeReceipt | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
+            UNSPECIFIED_SELECTOR | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
             _ => {
                 tracing::warn!("Removing order {order_id:x} because it has an unsupported selector requirement");
                 self.db

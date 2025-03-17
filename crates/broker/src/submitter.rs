@@ -13,7 +13,7 @@ use alloy::{
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{
     boundless_market::BoundlessMarketService, encode_seal, AssessorJournal, AssessorReceipt,
-    Fulfillment,
+    Fulfillment, UNSPECIFIED_SELECTOR,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -185,7 +185,7 @@ where
                 let seal = match Selector::from_bytes(order_request.requirements.selector.into())
                     .context("Failed to parse selector")?
                 {
-                    Selector::FakeReceipt | Selector::SetVerifierV0_2 => {
+                    UNSPECIFIED_SELECTOR | Selector::SetVerifierV0_2 => {
                         // NOTE: We assume here that the order execution ended with exit code 0.
                         let order_claim = ReceiptClaim::ok(
                             order_img_id.0,

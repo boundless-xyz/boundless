@@ -41,7 +41,7 @@ use url::Url;
 use risc0_zkvm::sha::Digest;
 
 #[cfg(not(target_os = "zkvm"))]
-pub use risc0_ethereum_contracts::{encode_seal, IRiscZeroSetVerifier};
+pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
 
 #[cfg(not(target_os = "zkvm"))]
 use crate::input::InputBuilder;
@@ -785,6 +785,10 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
         verifying_contract: addr,
     }
 }
+
+#[cfg(not(target_os = "zkvm"))]
+/// Constant to specify when no selector is specified.
+pub const UNSPECIFIED_SELECTOR: Selector = Selector::FakeReceipt;
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
