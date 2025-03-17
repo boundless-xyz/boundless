@@ -520,6 +520,11 @@ where
             let mut config_check_timer = tokio::time::interval(config_check_interval);
 
             loop {
+                // TODO issue with this pattern is that for unbounded orders, this requeueing
+                // pricing tasks will only be called when pricing tasks complete, and may get in
+                // scenarios where either too many tasks are scheduled at once, or some orders will
+                // be delayed until the config timer tick to price orders, increasing latency.
+                
                 // Queue up orders that can be added to capacity.
                 let order_size = if let Some(capacity) = capacity {
                     capacity.saturating_sub(
