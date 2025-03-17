@@ -3,9 +3,10 @@ import biomePlugin from "vite-plugin-biome";
 import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
 
-const SIDEBAR_CONFIG = [
+// Protocol sidebar
+const PROTOCOL_SIDEBAR = [
   {
-    text: "✨ Introduction",
+    text: "Introduction",
     items: [
       {
         text: "Why Boundless?",
@@ -14,50 +15,15 @@ const SIDEBAR_CONFIG = [
       {
         text: "What is Boundless?",
         link: "/introduction/what-is-boundless",
-        collapsed: true,
-        items: [
-          {
-            text: "Extensions",
-            link: "/introduction/extensions",
-          },
-        ],
-      },
-      {
-        text: "Proof Lifecycle",
-        link: "/introduction/proof-lifecycle",
       },
     ],
   },
   {
-    text: "🏋️ Build",
-    items: [
-      {
-        text: "Build a Program",
-        link: "/build/build-a-program",
-      },
-      {
-        text: "Request a Proof",
-        link: "/build/request-a-proof",
-        collapsed: true,
-        items: [
-          {
-            text: "Pricing a Request",
-            link: "/build/pricing-a-request",
-          },
-          {
-            text: "Troubleshooting",
-            link: "/build/troubleshooting-a-request",
-          },
-        ],
-      },
-      {
-        text: "Use a Proof",
-        link: "/build/use-a-proof",
-      },
-    ],
+    text: "Proof Lifecycle",
+    link: "/introduction/proof-lifecycle",
   },
   {
-    text: "🧪 Prove",
+    text: "Prove",
     items: [
       {
         text: "Becoming a Prover",
@@ -74,48 +40,102 @@ const SIDEBAR_CONFIG = [
       {
         text: "Running a Boundless Prover",
         link: "/prove/proving-stack",
-        collapsed: true,
-        items: [
-          {
-            text: "The Boundless Proving Stack",
-            link: "/prove/proving-stack",
-          },
-          {
-            text: "Broker Configuration & Operation",
-            link: "/prove/broker",
-          },
-          {
-            text: "Monitoring",
-            link: "/prove/monitoring",
-          },
-          {
-            text: "Performance Optimization",
-            link: "/prove/performance-optimization",
-          },
-        ],
+      },
+      {
+        text: "Broker Configuration & Operation",
+        link: "/prove/broker",
+      },
+      {
+        text: "Monitoring",
+        link: "/prove/monitoring",
+      },
+      {
+        text: "Performance Optimization",
+        link: "/prove/performance-optimization",
+      },
+      {
+        text: "Troubleshooting",
+        link: "/build/troubleshooting-a-request",
       },
     ],
   },
   {
-    text: "🧠 Advanced & References",
+    text: "Pricing a Request",
+    link: "/build/pricing-a-request",
+  },
+  {
+    text: "Deployments",
+    link: "/deployments",
+  },
+  {
+    text: "Smart Contracts",
+    link: "/smart-contracts",
+  },
+  {
+    text: "Bento Technical Design",
+    link: "/bento-technical-design",
+  },
+  {
+    text: "Terminology",
+    link: "/terminology",
+  },
+];
+
+// zkVM sidebar
+const ZKVM_SIDEBAR = [
+  {
+    text: "Build",
     items: [
       {
-        text: "Deployments",
-        link: "/deployments",
+        text: "Build a Program",
+        link: "/build/build-a-program",
       },
       {
-        text: "Smart Contracts",
-        link: "/smart-contracts",
+        text: "Request a Proof",
+        link: "/build/request-a-proof",
       },
       {
-        text: "Terminology",
-        link: "/terminology",
-      },
-      {
-        text: "Bento Technical Design",
-        link: "/bento-technical-design",
+        text: "Use a Proof",
+        link: "/build/use-a-proof",
       },
     ],
+  },
+];
+
+// DeFi sidebar
+const DEFI_SIDEBAR = [
+  {
+    text: "Steel",
+    items: [
+      {
+        text: "Quick Start",
+        link: "/defi/steel/quick-start",
+      },
+      {
+        text: "Integrations",
+        link: "/defi/steel/integrations",
+      },
+      {
+        text: "Reference Contracts",
+        link: "/defi/steel/reference-contracts",
+      },
+      {
+        text: "Examples",
+        link: "/defi/steel/examples",
+      },
+    ],
+  },
+];
+
+// Rollups sidebar
+const ROLLUPS_SIDEBAR = [
+  {
+    text: "Bridging",
+    link: "/rollups/bridging",
+  },
+  {
+    text: "L2 Integration",
+    link: "/rollups/l2-integration",
   },
 ];
 
@@ -136,9 +156,12 @@ export function generateSitemap() {
     });
   }
 
+  const allSidebars = [PROTOCOL_SIDEBAR, ZKVM_SIDEBAR, DEFI_SIDEBAR, ROLLUPS_SIDEBAR];
+  const allRoutes = allSidebars.flatMap(sidebar => extractRoutes(sidebar));
+
   return VitePluginSitemap({
     hostname: "https://docs.beboundless.xyz",
-    dynamicRoutes: extractRoutes(SIDEBAR_CONFIG),
+    dynamicRoutes: allRoutes,
     changefreq: "weekly",
     outDir: "site/dist",
   });
@@ -164,25 +187,28 @@ export default defineConfig({
       },
     },
   },
-  sidebar: SIDEBAR_CONFIG,
+  // Configure conditional sidebars based on URL pattern
+  sidebar: {
+    "/introduction/": PROTOCOL_SIDEBAR,
+    "/prove/": PROTOCOL_SIDEBAR,
+    "/deployments": PROTOCOL_SIDEBAR,
+    "/smart-contracts": PROTOCOL_SIDEBAR,
+    "/terminology": PROTOCOL_SIDEBAR,
+    "/bento-technical-design": PROTOCOL_SIDEBAR,
+    "/build/": ZKVM_SIDEBAR,
+    "/defi/": DEFI_SIDEBAR,
+    "/rollups/": ROLLUPS_SIDEBAR,
+  },
+  // Add the four main sections to the top navigation
   topNav: [
+    { text: "Protocol", link: "/introduction/why-boundless" },
+    { text: "zkVM", link: "/build/build-a-program" },
+    { text: "DeFi", link: "/defi/steel/quick-start" },
+    { text: "Rollups", link: "/rollups/bridging" },
     { text: "Explorer", link: "https://explorer.beboundless.xyz" },
     { text: "Help", link: "https://t.me/+E9J7zgtyoTVlNzk1" },
-    /*{
-      text: process.env.LATEST_TAG || "Latest",
-      items: [
-        {
-          text: "Releases",
-          link: "https://github.com/boundless-xyz/boundless/releases",
-        },
-      ],
-    },*/
   ],
   socials: [
-    /*{
-      icon: "github",
-      link: "https://github.com/boundless-xyz",
-    },*/
     {
       icon: "x",
       link: "https://x.com/boundless_xyz",
@@ -190,10 +216,6 @@ export default defineConfig({
   ],
   rootDir: "site",
   title: "Boundless Docs",
-  /*logoUrl: {
-    light: "/logo.png",
-    dark: "/logo-dark.png",
-  },*/
   theme: {
     accentColor: {
       light: "#537263", // Forest - primary accent for light mode
