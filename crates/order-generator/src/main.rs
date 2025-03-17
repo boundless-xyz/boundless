@@ -8,6 +8,7 @@ use std::{
 };
 
 use alloy::{
+    network::EthereumWallet,
     primitives::{
         utils::{format_units, parse_ether},
         Address, U256,
@@ -15,6 +16,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
+use balance_alerts_layer::BalanceAlertConfig;
 use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
@@ -93,6 +95,12 @@ struct MainArgs {
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
+    /// Balance threshold at which to log a warning.
+    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    warn_balance_below: Option<U256>,
+    /// Balance threshold at which to log an error.
+    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    error_balance_below: Option<U256>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -127,6 +135,13 @@ async fn main() -> Result<()> {
 }
 
 async fn run(args: &MainArgs) -> Result<()> {
+    let wallet = EthereumWallet::from(args.private_key.clone());
+    let balance_alerts = BalanceAlertConfig {
+        watch_address: wallet.default_signer().address(),
+        warn_threshold: args.warn_balance_below,
+        error_threshold: args.error_balance_below,
+    };
+
     let boundless_client = ClientBuilder::default()
         .with_rpc_url(args.rpc_url.clone())
         .with_boundless_market_address(args.boundless_market_address)
@@ -135,6 +150,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_storage_provider_config(args.storage_config.clone())
         .with_private_key(args.private_key.clone())
         .with_bidding_start_delay(args.bidding_start_delay)
+        .with_balance_alerts(balance_alerts)
         .build()
         .await?;
 
@@ -282,6 +298,8 @@ mod tests {
             elf: None,
             input: OrderInput { input: None, input_file: None },
             encode_input: false,
+            warn_balance_below: None,
+            error_balance_below: None,
         };
 
         run(&args).await.unwrap();
