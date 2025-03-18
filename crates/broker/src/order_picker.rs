@@ -1139,4 +1139,82 @@ mod tests {
         assert_eq!(ctx.db.get_order(order_id).await.unwrap().unwrap().status, OrderStatus::Skipped);
         assert!(logs_contain("journal larger than set limit"));
     }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn respects_max_concurrent_locks() {
+        let max_concurrent_locks = 2;
+        let config = ConfigLock::default();
+        {
+            let mut config_write = config.load_write().unwrap();
+            config_write.market.mcycle_price = "0.0000001".into();
+            config_write.market.max_concurrent_locks = Some(max_concurrent_locks);
+        }
+
+        let ctx = TestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(U256::from(1000))
+            .build()
+            .await;
+
+        let mut orders = vec![
+            ctx.generate_next_order(
+                1,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::from(10),
+            )
+            .await,
+            ctx.generate_next_order(
+                2,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::from(10),
+            )
+            .await,
+            ctx.generate_next_order(
+                3,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::from(10),
+            )
+            .await,
+            ctx.generate_next_order(
+                4,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::from(10),
+            )
+            .await,
+        ];
+
+        for order in &mut orders {
+            let order_id = order.request.id;
+
+            // By default, testing infrastructure sets generated orders to `Pricing`
+            order.status = OrderStatus::New;
+            ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        }
+
+        let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
+        assert_eq!(capacity, Some(max_concurrent_locks));
+
+        let mut pricing_tasks = JoinSet::new();
+
+        ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, capacity.unwrap()).await.unwrap();
+
+        // Verify only up to max_concurrent_locks are being priced
+        assert_eq!(pricing_tasks.len(), 2);
+
+        // Finish pricing an order and mark it as complete to free up capacity
+        let order = pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
+        ctx.db.set_order_complete(order).await.unwrap();
+
+        let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
+        assert_eq!(capacity, Some(1));
+        assert_eq!(pricing_tasks.len(), 1);
+
+        ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, capacity.unwrap()).await.unwrap();
+        assert_eq!(pricing_tasks.len(), 2);
+    }
 }
