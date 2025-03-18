@@ -11,7 +11,7 @@ use crate::{
 };
 use alloy::primitives::U256;
 use anyhow::{Context, Result};
-use risc0_ethereum_contracts::selector::Selector;
+use boundless_market::selector::is_unaggregated_selector;
 
 #[derive(Clone)]
 pub struct ProvingService {
@@ -66,8 +66,7 @@ impl ProvingService {
 
         tracing::info!("Proving order {order_id:x}");
 
-        let selector = Selector::from_bytes(order.request.requirements.selector.into())
-            .context("Failed to parse selector")?;
+        let selector = order.request.requirements.selector;
 
         let proof_id = self
             .prover
@@ -80,8 +79,7 @@ impl ProvingService {
             .await
             .with_context(|| format!("Failed to set order {order_id:x} proof id: {}", proof_id))?;
 
-        // TODO: Read supported groth16 version from config.
-        if selector == Selector::Groth16V1_2 {
+        if is_unaggregated_selector(selector) {
             self.prover.wait_for_stark(&proof_id).await?;
             let groth16_proof_id = self
                 .prover

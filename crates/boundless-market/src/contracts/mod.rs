@@ -500,7 +500,7 @@ impl Requirements {
             imageId: <[u8; 32]>::from(image_id.into()).into(),
             predicate,
             callback: Callback::default(),
-            selector: FixedBytes::<4>([0; 4]),
+            selector: UNSPECIFIED_SELECTOR,
         }
     }
 
@@ -786,9 +786,8 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
     }
 }
 
-#[cfg(not(target_os = "zkvm"))]
 /// Constant to specify when no selector is specified.
-pub const UNSPECIFIED_SELECTOR: Selector = Selector::FakeReceipt;
+pub const UNSPECIFIED_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0xFF; 4]);
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]

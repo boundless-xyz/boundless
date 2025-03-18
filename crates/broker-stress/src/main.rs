@@ -162,7 +162,7 @@ async fn main() -> Result<()> {
 
     // Setup test context
     let ctx = Arc::new(
-        create_test_ctx_with_rpc_url(&anvil, &rpc_url, SET_BUILDER_ID, ASSESSOR_GUEST_ID, true)
+        create_test_ctx_with_rpc_url(&anvil, &rpc_url, SET_BUILDER_ID, ASSESSOR_GUEST_ID)
             .await
             .context("Failed to create test context")?,
     );

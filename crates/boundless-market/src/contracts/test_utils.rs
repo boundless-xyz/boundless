@@ -31,6 +31,7 @@ use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_circuit_recursion::control_id::{ALLOWED_CONTROL_ROOT, BN254_IDENTITY_CONTROL_ID};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
+    is_dev_mode,
     sha::{Digest, Digestible},
     Groth16ReceiptVerifierParameters,
 };
@@ -150,7 +151,6 @@ async fn deploy_contracts(
     anvil: &AnvilInstance,
     set_builder_id: Digest,
     assessor_guest_id: Digest,
-    dev_mode: bool,
 ) -> Result<(Address, Address, Address, Address)> {
     let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
     let deployer_address = deployer_signer.address();
@@ -161,7 +161,7 @@ async fn deploy_contracts(
 
     // Deploy contracts
     let verifier_router = deploy_verifier_router(&deployer_provider, deployer_address).await?;
-    let verifier = match dev_mode {
+    let verifier = match is_dev_mode() {
         true => deploy_mock_verifier(&deployer_provider).await?,
         false => {
             let control_root = ALLOWED_CONTROL_ROOT;
@@ -183,7 +183,10 @@ async fn deploy_contracts(
     );
 
     let verifier_parameters_digest = Groth16ReceiptVerifierParameters::default().digest();
-    let groth16_selector: [u8; 4] = verifier_parameters_digest.as_bytes()[..4].try_into()?;
+    let groth16_selector: [u8; 4] = match is_dev_mode() {
+        true => [0u8; 4],
+        false => verifier_parameters_digest.as_bytes()[..4].try_into()?,
+    };
     let call = &router_instance
         .addVerifier(groth16_selector.into(), verifier)
         .from(deployer_signer.address());
@@ -215,24 +218,14 @@ async fn deploy_contracts(
     Ok((verifier, set_verifier, hit_points, boundless_market))
 }
 
-// Spin up a test deployment in dev mode, with a RiscZeroMockVerifier.
-pub async fn create_test_ctx_mock(
+// Spin up a test deployment with a RiscZeroMockVerifier if in dev mode or
+// with a RiscZeroGroth16Verifier otherwise.
+pub async fn create_test_ctx(
     anvil: &AnvilInstance,
     set_builder_id: impl Into<Digest>,
     assessor_guest_id: impl Into<Digest>,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id, true)
-        .await
-}
-
-// Spin up a test deployment in production mode, with a RiscZeroGroth16Verifier.
-pub async fn create_test_ctx_prod(
-    anvil: &AnvilInstance,
-    set_builder_id: impl Into<Digest>,
-    assessor_guest_id: impl Into<Digest>,
-) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id, false)
-        .await
+    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id).await
 }
 
 pub async fn create_test_ctx_with_rpc_url(
@@ -240,12 +233,9 @@ pub async fn create_test_ctx_with_rpc_url(
     rpc_url: &str,
     set_builder_id: impl Into<Digest>,
     assessor_guest_id: impl Into<Digest>,
-    dev_mode: bool,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
     let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
-        deploy_contracts(anvil, set_builder_id.into(), assessor_guest_id.into(), dev_mode)
-            .await
-            .unwrap();
+        deploy_contracts(anvil, set_builder_id.into(), assessor_guest_id.into()).await.unwrap();
 
     let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
     let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();

@@ -119,8 +119,7 @@ jobs:
       - name: cargo test ignored
         run: cargo test -- --ignored
         env:
-          BONSAI_API_KEY: ${{ secrets.BONSAI_API_KEY }}
-          BONSAI_API_URL: ${{ secrets.BONSAI_API_URL }}
+          RISC0_DEV_MODE: true
 
       - name: sccache stats
         run: sccache --show-stats

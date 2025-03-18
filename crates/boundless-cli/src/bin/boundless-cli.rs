@@ -32,7 +32,7 @@ use alloy::{
     signers::{local::PrivateKeySigner, Signer},
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use boundless_cli::{DefaultProver, OrderFulfilled, ProverMode};
+use boundless_cli::{DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
@@ -514,13 +514,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::debug!("Fetching SetBuilder ELF from {}", set_builder_url);
             let set_builder_elf = fetch_url(&set_builder_url).await?;
 
-            let prover = DefaultProver::new(
-                set_builder_elf,
-                assessor_elf,
-                caller,
-                domain,
-                ProverMode::Prove,
-            )?;
+            let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
 
             let client = ClientBuilder::default()
                 .with_private_key(args.private_key.clone())
@@ -834,9 +828,7 @@ mod tests {
     use super::*;
 
     use alloy::node_bindings::Anvil;
-    use boundless_market::contracts::{
-        hit_points::default_allowance, test_utils::create_test_ctx_mock,
-    };
+    use boundless_market::contracts::{hit_points::default_allowance, test_utils::create_test_ctx};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use tokio::time::timeout;
@@ -847,7 +839,7 @@ mod tests {
     async fn test_deposit_withdraw() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx_mock(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -875,7 +867,7 @@ mod tests {
     async fn test_submit_request() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx_mock(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await

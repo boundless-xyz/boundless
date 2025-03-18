@@ -11,13 +11,16 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, encode_seal, AssessorJournal, AssessorReceipt,
-    Fulfillment, UNSPECIFIED_SELECTOR,
+use boundless_market::{
+    contracts::{
+        boundless_market::BoundlessMarketService, encode_seal, AssessorJournal, AssessorReceipt,
+        Fulfillment,
+    },
+    selector::is_unaggregated_selector,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
-use risc0_ethereum_contracts::{selector::Selector, set_verifier::SetVerifierService};
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
@@ -182,53 +185,41 @@ where
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
 
-                let seal = match Selector::from_bytes(order_request.requirements.selector.into())
-                    .context("Failed to parse selector")?
-                {
-                    UNSPECIFIED_SELECTOR | Selector::SetVerifierV0_2 => {
-                        // NOTE: We assume here that the order execution ended with exit code 0.
-                        let order_claim = ReceiptClaim::ok(
-                            order_img_id.0,
-                            MaybePruned::Pruned(order_journal.digest()),
-                        );
-                        let order_claim_index = aggregation_state
-                            .claim_digests
-                            .iter()
-                            .position(|claim| *claim == order_claim.digest())
-                            .ok_or(anyhow!(
-                                "Failed to find order claim {order_claim:x?} in aggregated claims"
-                            ))?;
-                        let order_path = risc0_aggregation::merkle_path(
-                            &aggregation_state.claim_digests,
-                            order_claim_index,
-                        );
-                        tracing::debug!(
-                            "Merkle path for order {order_id:x} : {:x?} : {order_path:x?}",
-                            order_claim.digest()
-                        );
-                        let set_inclusion_receipt =
-                            SetInclusionReceipt::from_path_with_verifier_params(
-                                order_claim,
-                                order_path,
-                                inclusion_params.digest(),
-                            );
-                        set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?
-                    }
-                    Selector::Groth16V1_2 => {
-                        let compressed_proof_id =
-                            self.db.get_order_compressed_proof_id(*order_id).await.context(
-                                "Failed to get order compressed proof ID from DB for submission",
-                            )?;
-                        self.fetch_encode_g16(&compressed_proof_id)
-                            .await
-                            .context("Failed to fetch and encode g16 proof")?
-                    }
-                    _ => {
-                        return Err(anyhow!(
-                            "Unsupported selector: {:x}",
-                            order_request.requirements.selector
-                        ))
-                    }
+                let seal = if is_unaggregated_selector(order_request.requirements.selector) {
+                    let compressed_proof_id =
+                        self.db.get_order_compressed_proof_id(*order_id).await.context(
+                            "Failed to get order compressed proof ID from DB for submission",
+                        )?;
+                    self.fetch_encode_g16(&compressed_proof_id)
+                        .await
+                        .context("Failed to fetch and encode g16 proof")?
+                } else {
+                    // NOTE: We assume here that the order execution ended with exit code 0.
+                    let order_claim = ReceiptClaim::ok(
+                        order_img_id.0,
+                        MaybePruned::Pruned(order_journal.digest()),
+                    );
+                    let order_claim_index = aggregation_state
+                        .claim_digests
+                        .iter()
+                        .position(|claim| *claim == order_claim.digest())
+                        .ok_or(anyhow!(
+                            "Failed to find order claim {order_claim:x?} in aggregated claims"
+                        ))?;
+                    let order_path = risc0_aggregation::merkle_path(
+                        &aggregation_state.claim_digests,
+                        order_claim_index,
+                    );
+                    tracing::debug!(
+                        "Merkle path for order {order_id:x} : {:x?} : {order_path:x?}",
+                        order_claim.digest()
+                    );
+                    let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+                        order_claim,
+                        order_path,
+                        inclusion_params.digest(),
+                    );
+                    set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?
                 };
 
                 tracing::debug!("Seal for order {order_id:x} : {}", hex::encode(seal.clone()));

@@ -14,10 +14,10 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, RequestError, UNSPECIFIED_SELECTOR,
+use boundless_market::{
+    contracts::{boundless_market::BoundlessMarketService, RequestError},
+    selector::SupportedSelectors,
 };
-use risc0_ethereum_contracts::selector::Selector;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -54,6 +54,7 @@ pub struct OrderPicker<P> {
     prover: ProverObj,
     provider: Arc<P>,
     market: BoundlessMarketService<Arc<P>>,
+    supported_selectors: SupportedSelectors,
 }
 
 impl<P> OrderPicker<P>
@@ -72,7 +73,8 @@ where
             provider.clone(),
             provider.default_signer_address(),
         );
-        Self { db, config, prover, provider, market }
+        let supported_selectors = SupportedSelectors::default();
+        Self { db, config, prover, provider, market, supported_selectors }
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<(), PriceOrderErr> {
@@ -94,19 +96,15 @@ where
         }
 
         // TODO(BM-40): When accounting for gas costs of orders, a groth16 selector has much higher cost.
-        match Selector::from_bytes(order.request.requirements.selector.into())
-            .context("Failed to parse selector")?
-        {
-            // Supported selectors
-            UNSPECIFIED_SELECTOR | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
-            _ => {
-                tracing::warn!("Removing order {order_id:x} because it has an unsupported selector requirement");
-                self.db
-                    .skip_order(order_id)
-                    .await
-                    .context("Order has an unsupported selector requirement")?;
-                return Ok(());
-            }
+        if !self.supported_selectors.is_supported(&order.request.requirements.selector) {
+            tracing::warn!(
+                "Removing order {order_id:x} because it has an unsupported selector requirement"
+            );
+            self.db
+                .skip_order(order_id)
+                .await
+                .context("Order has an unsupported selector requirement")?;
+            return Ok(());
         };
 
         // is the order expired already?
@@ -540,6 +538,7 @@ mod tests {
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_util::{ECHO_ELF, ECHO_ID};
     use httpmock::prelude::*;
+    use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 

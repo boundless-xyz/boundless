@@ -4,19 +4,18 @@
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, U256},
+    primitives::{utils, FixedBytes, U256},
 };
 use httpmock::prelude::*;
 use risc0_ethereum_contracts::selector::Selector;
-use risc0_zkvm::sha::Digest;
+use risc0_zkvm::{is_dev_mode, sha::Digest};
 use tempfile::NamedTempFile;
 use url::Url;
 // use broker::Broker;
 use crate::{config::Config, now_timestamp, Args, Broker};
 use boundless_market::contracts::{
-    hit_points::default_allowance,
-    test_utils::{create_test_ctx_mock, create_test_ctx_prod},
-    Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+    hit_points::default_allowance, test_utils::create_test_ctx, Input, Offer, Predicate,
+    PredicateType, ProofRequest, Requirements,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -31,7 +30,7 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx_mock(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -123,15 +122,14 @@ async fn simple_e2e() {
 }
 
 #[tokio::test]
-// It gets too noisy with tracing enabled, uncomment when needed
 #[traced_test]
-#[ignore]
+#[ignore = "runs a proof; requires BONSAI if RISC0_DEV_MODE=FALSE"]
 async fn e2e_with_selector() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx_prod(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -155,13 +153,26 @@ async fn e2e_with_selector() {
     // - modify config here
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
     config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-    config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
+    if !is_dev_mode() {
+        config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
+    }
     config.prover.status_poll_ms = 1000;
     config.prover.req_retry_count = 3;
     config.market.mcycle_price = "0.00001".into();
     config.market.min_deadline = 100;
     config.batcher.batch_size = Some(1);
     config.write(config_file.path()).await.unwrap();
+
+    let (bonsai_api_url, bonsai_api_key) = match is_dev_mode() {
+        true => (None, None),
+        false => (
+            Some(
+                Url::parse(&std::env::var("BONSAI_API_URL").expect("BONSAI_API_URL must be set"))
+                    .unwrap(),
+            ),
+            Some(std::env::var("BONSAI_API_KEY").expect("BONSAI_API_KEY must be set")),
+        ),
+    };
 
     let args = Args {
         db_url: "sqlite::memory:".into(),
@@ -172,11 +183,8 @@ async fn e2e_with_selector() {
         order_stream_url: None,
         private_key: ctx.prover_signer,
         bento_api_url: None,
-        bonsai_api_key: Some(std::env::var("BONSAI_API_KEY").expect("BONSAI_API_KEY must be set")),
-        bonsai_api_url: Some(
-            Url::parse(&std::env::var("BONSAI_API_URL").expect("BONSAI_API_URL must be set"))
-                .unwrap(),
-        ),
+        bonsai_api_key,
+        bonsai_api_url,
         deposit_amount: None,
         rpc_retry_max: 0,
         rpc_retry_backoff: 200,
@@ -188,7 +196,10 @@ async fn e2e_with_selector() {
     });
 
     // Submit an order
-    let selector = Selector::Groth16V1_2 as u32;
+    let selector = match is_dev_mode() {
+        true => Selector::FakeReceipt,
+        false => Selector::Groth16V1_2,
+    };
     let request = ProofRequest::new(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
@@ -196,7 +207,7 @@ async fn e2e_with_selector() {
             Digest::from(ECHO_ID),
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         )
-        .with_selector(selector.into()),
+        .with_selector(FixedBytes::from(selector as u32)),
         &image_uri,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         Offer {

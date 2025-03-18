@@ -26,21 +26,22 @@ use boundless_assessor::{AssessorInput, Fulfillment};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
-use risc0_ethereum_contracts::{encode_seal, selector::Selector};
+use risc0_ethereum_contracts::encode_seal;
 use risc0_zkvm::{
-    compute_image_id, default_executor, default_prover,
+    compute_image_id, default_prover, is_dev_mode,
     sha::{Digest, Digestible},
-    ExecutorEnv, FakeReceipt, InnerReceipt, MaybePruned, ProverOpts, Receipt, ReceiptClaim,
+    ExecutorEnv, ProverOpts, Receipt, ReceiptClaim,
 };
 use url::Url;
 
 use boundless_market::{
     contracts::{
         AssessorJournal, AssessorReceipt, EIP721DomainSaltless,
-        Fulfillment as BoundlessFulfillment, InputType, UNSPECIFIED_SELECTOR,
+        Fulfillment as BoundlessFulfillment, InputType,
     },
     input::GuestEnv,
     order_stream_client::Order,
+    selector::{is_unaggregated_selector, SupportedSelectors},
 };
 
 alloy::sol!(
@@ -77,15 +78,6 @@ impl OrderFulfilled {
             assessorReceipt: assessor_receipt,
         })
     }
-}
-
-/// Prover mode.
-#[derive(Debug, Clone)]
-pub enum ProverMode {
-    /// Execute only
-    Execute,
-    /// Prove with `default_prover`
-    Prove,
 }
 
 /// Fetches the content of a URL.
@@ -141,7 +133,7 @@ pub struct DefaultProver {
     assessor_elf: Vec<u8>,
     address: Address,
     domain: EIP721DomainSaltless,
-    mode: ProverMode,
+    supported_selectors: SupportedSelectors,
 }
 
 impl DefaultProver {
@@ -151,37 +143,18 @@ impl DefaultProver {
         assessor_elf: Vec<u8>,
         address: Address,
         domain: EIP721DomainSaltless,
-        mode: ProverMode,
     ) -> Result<Self> {
         let set_builder_image_id = compute_image_id(&set_builder_elf)?;
-        Ok(Self { set_builder_elf, set_builder_image_id, assessor_elf, address, domain, mode })
-    }
-
-    pub(crate) async fn execute(
-        &self,
-        elf: Vec<u8>,
-        input: Vec<u8>,
-        assumptions: Vec<Receipt>,
-    ) -> Result<Receipt> {
-        let image_id = compute_image_id(&elf)?;
-        let session_info = tokio::task::spawn_blocking(move || {
-            let mut env = ExecutorEnv::builder();
-            env.write_slice(&input);
-            for assumption_receipt in assumptions.iter() {
-                env.add_assumption(assumption_receipt.clone());
-            }
-            let env = env.build()?;
-
-            default_executor().execute(env, &elf)
+        let supported_selectors =
+            SupportedSelectors::default().with_set_builder_image_id(set_builder_image_id);
+        Ok(Self {
+            set_builder_elf,
+            set_builder_image_id,
+            assessor_elf,
+            address,
+            domain,
+            supported_selectors,
         })
-        .await??;
-        Ok(Receipt::new(
-            InnerReceipt::Fake(FakeReceipt::new(ReceiptClaim::ok(
-                image_id,
-                MaybePruned::Pruned(session_info.journal.digest()),
-            ))),
-            session_info.journal.bytes,
-        ))
     }
 
     // Proves the given [elf] with the given [input] and [assumptions].
@@ -213,6 +186,9 @@ impl DefaultProver {
         if prover.get_name() == "bonsai" {
             return compress_with_bonsai(succinct_receipt).await;
         }
+        if is_dev_mode() {
+            return Ok(succinct_receipt.clone());
+        }
 
         let receipt = succinct_receipt.clone();
         tokio::task::spawn_blocking(move || {
@@ -232,20 +208,8 @@ impl DefaultProver {
             .context("Failed to build set builder input")?;
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
 
-        match self.mode {
-            ProverMode::Execute => {
-                self.execute(self.set_builder_elf.clone(), encoded_input, assumptions).await
-            }
-            ProverMode::Prove => {
-                self.prove(
-                    self.set_builder_elf.clone(),
-                    encoded_input,
-                    assumptions,
-                    ProverOpts::groth16(),
-                )
-                .await
-            }
-        }
+        self.prove(self.set_builder_elf.clone(), encoded_input, assumptions, ProverOpts::groth16())
+            .await
     }
 
     // Proves the assessor.
@@ -256,20 +220,14 @@ impl DefaultProver {
     ) -> Result<Receipt> {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
-        match self.mode {
-            ProverMode::Execute => {
-                self.execute(self.assessor_elf.clone(), assessor_input.to_vec(), receipts).await
-            }
-            ProverMode::Prove => {
-                self.prove(
-                    self.assessor_elf.clone(),
-                    assessor_input.to_vec(),
-                    receipts,
-                    ProverOpts::succinct(),
-                )
-                .await
-            }
-        }
+
+        self.prove(
+            self.assessor_elf.clone(),
+            assessor_input.to_vec(),
+            receipts,
+            ProverOpts::succinct(),
+        )
+        .await
     }
 
     /// Fulfills an order as a singleton, returning the relevant data:
@@ -298,23 +256,14 @@ impl DefaultProver {
             _ => bail!("Unsupported input type"),
         };
 
-        let selector = Selector::from_bytes(request.requirements.selector.into())
-            .context("Failed to parse selector")?;
-        match selector {
-            // Supported selectors
-            UNSPECIFIED_SELECTOR | Selector::SetVerifierV0_2 | Selector::Groth16V1_2 => {}
-            _ => bail!("Unsupported selector {}", request.requirements.selector),
+        let selector = request.requirements.selector;
+        if !self.supported_selectors.is_supported(&selector) {
+            bail!("Unsupported selector {}", request.requirements.selector);
         };
 
-        let order_receipt = match self.mode {
-            ProverMode::Execute => {
-                self.execute(order_elf.clone(), order_input.clone(), vec![]).await?
-            }
-            ProverMode::Prove => {
-                self.prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::succinct())
-                    .await?
-            }
-        };
+        let order_receipt = self
+            .prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::succinct())
+            .await?;
 
         let order_journal = order_receipt.journal.bytes.clone();
         let order_image_id = compute_image_id(&order_elf)?;
@@ -353,11 +302,8 @@ impl DefaultProver {
             order_path,
             verifier_parameters.digest(),
         );
-        let order_seal = if selector == Selector::Groth16V1_2 {
-            let receipt = match self.mode {
-                ProverMode::Execute => order_receipt.clone(),
-                ProverMode::Prove => self.compress(&order_receipt).await?,
-            };
+        let order_seal = if is_unaggregated_selector(selector) {
+            let receipt = self.compress(&order_receipt).await?;
             encode_seal(&receipt)?
         } else {
             order_inclusion_receipt.abi_encode_seal()?
@@ -421,11 +367,12 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements,
+        eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements, UNSPECIFIED_SELECTOR,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_set_builder::SET_BUILDER_ELF;
     use guest_util::{ECHO_ID, ECHO_PATH};
+    use risc0_ethereum_contracts::selector::Selector;
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
@@ -435,7 +382,10 @@ mod tests {
             0,
             &signer.address(),
             Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
-                .with_selector(FixedBytes::from(selector.unwrap_or(UNSPECIFIED_SELECTOR) as u32)),
+                .with_selector(match selector {
+                    Some(selector) => FixedBytes::from(selector as u32),
+                    None => UNSPECIFIED_SELECTOR,
+                }),
             format!("file://{ECHO_PATH}"),
             Input::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
             Offer::default(),
@@ -446,6 +396,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     async fn test_fulfill_with_selector() {
         let signer = PrivateKeySigner::random();
         let (request, signature) =
@@ -458,7 +409,6 @@ mod tests {
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
             domain,
-            ProverMode::Execute,
         )
         .expect("failed to create prover");
 
@@ -467,6 +417,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     async fn test_fulfill() {
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
@@ -478,7 +429,6 @@ mod tests {
             ASSESSOR_GUEST_ELF.to_vec(),
             Address::ZERO,
             domain,
-            ProverMode::Execute,
         )
         .expect("failed to create prover");
 
