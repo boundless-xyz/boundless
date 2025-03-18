@@ -21,7 +21,6 @@ use boundless_market::contracts::{
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use guest_util::{ECHO_ELF, ECHO_ID};
-use hex::FromHex;
 use tokio::time::Duration;
 use tracing_test::traced_test;
 
@@ -141,8 +140,14 @@ async fn e2e_with_selector() {
         .unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    // same image as in `../../../../request.yaml`
-    let image_uri = "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy".to_string();
+    // Stand up a local http server for image delivery
+    // TODO: move to TestCtx
+    let server = MockServer::start();
+    let get_mock = server.mock(|when, then| {
+        when.method(GET).path("/image");
+        then.status(200).body(ECHO_ELF);
+    });
+    let image_uri = format!("http://{}/image", server.address());
 
     // Start broker
     let config_file = NamedTempFile::new().unwrap();
@@ -188,9 +193,7 @@ async fn e2e_with_selector() {
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         Requirements::new(
-            // same image ID as in `../../../../request.yaml`
-            Digest::from_hex("722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4")
-                .unwrap(),
+            Digest::from(ECHO_ID),
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         )
         .with_selector(selector.into()),
@@ -224,4 +227,5 @@ async fn e2e_with_selector() {
     } else {
         broker_task.abort();
     }
+    get_mock.assert();
 }
