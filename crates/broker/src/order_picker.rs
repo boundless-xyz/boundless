@@ -532,7 +532,10 @@ where
                     _ = config_check_timer.tick() => {
                         // Get updated max concurrent locks and calculate capacity based on orders
                         // that are locked but not fulfilled yet.
-                        capacity = picker_copy.get_pricing_order_capacity().await.map_err(SupervisorErr::Fault)?;
+                        capacity = picker_copy
+                            .get_pricing_order_capacity()
+                            .await
+                            .map_err(SupervisorErr::Recover)?;
                     }
 
                     _ = pricing_check_timer.tick() => {
