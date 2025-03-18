@@ -73,7 +73,7 @@ where
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<(), PriceOrderErr> {
-        tracing::debug!("Processing order {order_id:x}: {order:?}");
+        tracing::info!("Processing order {order_id:x}: {order:?}");
 
         let (min_deadline, allowed_addresses_opt) = {
             let config = self.config.lock_all().context("Failed to read config")?;
@@ -512,7 +512,10 @@ where
 mod tests {
     use super::*;
     use crate::{
-        chain_monitor::ChainMonitorService, db::SqliteDb, provers::MockProver, OrderStatus,
+        chain_monitor::ChainMonitorService,
+        db::{DBPoolManager, SqliteDb},
+        provers::MockProver,
+        OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,

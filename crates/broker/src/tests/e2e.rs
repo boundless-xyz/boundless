@@ -18,14 +18,19 @@ use boundless_market::contracts::{
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use guest_util::{ECHO_ELF, ECHO_ID};
+use std::env;
 use tokio::time::Duration;
 use tracing_test::traced_test;
 
-#[tokio::test]
-#[traced_test]
-async fn simple_e2e() {
+async fn run_e2e_test(db_url: String) {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
     // Setup anvil
     let anvil = Anvil::new().spawn();
+
+    tracing::debug!("Running e2e test with db_url: {}", db_url);
 
     // Setup signers / providers
     let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
@@ -38,7 +43,6 @@ async fn simple_e2e() {
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     // Stand up a local http server for image delivery
-    // TODO: move to TestCtx
     let server = MockServer::start();
     let get_mock = server.mock(|when, then| {
         when.method(GET).path("/image");
@@ -49,7 +53,6 @@ async fn simple_e2e() {
     // Start broker
     let config_file = NamedTempFile::new().unwrap();
     let mut config = Config::default();
-    // - modify config here
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
     config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
     config.market.mcycle_price = "0.00001".into();
@@ -57,7 +60,7 @@ async fn simple_e2e() {
     config.write(config_file.path()).await.unwrap();
 
     let args = Args {
-        db_url: "sqlite::memory:".into(),
+        db_url,
         config_file: config_file.path().to_path_buf(),
         boundless_market_address: ctx.boundless_market_address,
         set_verifier_address: ctx.set_verifier_address,
@@ -72,15 +75,15 @@ async fn simple_e2e() {
         rpc_retry_backoff: 200,
         rpc_retry_cu: 1000,
     };
+
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
     let broker_task = tokio::spawn(async move {
         broker.start_service().await.unwrap();
     });
 
     // Submit a order
-
     let request = ProofRequest::new(
-        ctx.customer_market.index_from_nonce().await.unwrap(),
+        ctx.customer_market.index_from_rand().await.unwrap(),
         &ctx.customer_signer.address(),
         Requirements::new(
             Digest::from(ECHO_ID),
@@ -117,4 +120,23 @@ async fn simple_e2e() {
         broker_task.abort();
     }
     get_mock.assert();
+}
+
+#[tokio::test]
+#[traced_test]
+async fn simple_e2e_sqlite() {
+    run_e2e_test("sqlite::memory:".into()).await;
+}
+
+#[tokio::test]
+async fn simple_e2e_postgres() {
+    let database_url = match env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("Skipping postgres_e2e test: DATABASE_URL not set");
+            return;
+        }
+    };
+
+    run_e2e_test(database_url).await;
 }
