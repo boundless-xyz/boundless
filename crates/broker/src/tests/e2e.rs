@@ -196,10 +196,6 @@ async fn e2e_with_selector() {
     });
 
     // Submit an order
-    let selector = match is_dev_mode() {
-        true => Selector::FakeReceipt,
-        false => Selector::Groth16V1_2,
-    };
     let request = ProofRequest::new(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
@@ -207,7 +203,7 @@ async fn e2e_with_selector() {
             Digest::from(ECHO_ID),
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         )
-        .with_selector(FixedBytes::from(selector as u32)),
+        .with_unaggregated_proof(),
         &image_uri,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         Offer {

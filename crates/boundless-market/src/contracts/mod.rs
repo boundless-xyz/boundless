@@ -38,7 +38,7 @@ use thiserror::Error;
 use token::IHitPoints::{self, IHitPointsErrors};
 use url::Url;
 
-use risc0_zkvm::sha::Digest;
+use risc0_zkvm::{is_dev_mode, sha::Digest};
 
 #[cfg(not(target_os = "zkvm"))]
 pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
@@ -522,6 +522,18 @@ impl Requirements {
     /// Sets the selector.
     pub fn with_selector(self, selector: FixedBytes<4>) -> Self {
         Self { selector, ..self }
+    }
+
+    /// Set the selector for an unaggregated proof.
+    ///
+    /// This will set the selector to the appropriate value based on the current environment.
+    /// In dev mode, the selector will be set to `FakeReceipt`, otherwise it will be set
+    /// to `Groth16V1_2`.
+    pub fn with_unaggregated_proof(self) -> Self {
+        match is_dev_mode() {
+            true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
+            false => Self { selector: FixedBytes::from(Selector::Groth16V1_2 as u32), ..self },
+        }
     }
 }
 

@@ -49,7 +49,7 @@ use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
         boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements,
+        PredicateType, ProofRequest, Requirements, UNSPECIFIED_SELECTOR,
     },
     input::{GuestEnv, InputBuilder},
     storage::{StorageProvider, StorageProviderConfig},
@@ -645,7 +645,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate, callback, selector: FixedBytes::<4>([0; 4]) },
+        Requirements { imageId: image_id, predicate, callback, selector: UNSPECIFIED_SELECTOR },
         elf_url,
         requirements_input,
         offer.clone(),
