@@ -3,124 +3,287 @@ import biomePlugin from "vite-plugin-biome";
 import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
 
-const SIDEBAR_CONFIG = [
-  {
-    text: "✨ Introduction",
-    items: [
-      {
-        text: "Why Boundless?",
-        link: "/introduction/why-boundless",
+const SIDEBAR_CONFIG = {
+  '/protocol/': [
+    {
+      text: "Main Navigation",
+      items: [
+        {
+          text: "Protocol",
+          link: "/protocol",
       },
       {
-        text: "What is Boundless?",
-        link: "/introduction/what-is-boundless",
-        collapsed: true,
-        items: [
-          {
-            text: "Extensions",
-            link: "/introduction/extensions",
-          },
-        ],
+        text: "zkVM",
+        link: "/protocol/high-level",
       },
       {
-        text: "Proof Lifecycle",
-        link: "/introduction/proof-lifecycle",
-      },
-    ],
-  },
-  {
-    text: "🏋️ Build",
-    items: [
-      {
-        text: "Build a Program",
-        link: "/build/build-a-program",
+        text: "Apps",
+        link: "/protocol/why-boundless",
       },
       {
-        text: "Request a Proof",
-        link: "/build/request-a-proof",
-        collapsed: true,
-        items: [
-          {
-            text: "Pricing a Request",
-            link: "/build/pricing-a-request",
-          },
-          {
-            text: "Troubleshooting",
-            link: "/build/troubleshooting-a-request",
-          },
-        ],
+        text: "Rollups",
+        link: "/protocol/what-is-boundless",
+        }
+      ]
+    },
+    {
+      text: "App Developers",
+      items: [
+        {
+          text: "Request a Proof",
+          link: "/protocol/app-developers/request-a-proof",
+        },
+        {
+          text: "Pricing a Proof",
+          link: "/protocol/app-developers/pricing-a-proof",
+        },
+        {
+          text: "Consuming (Use) a Proof",
+          link: "/protocol/app-developers/consuming-a-proof",
+        },
+        {
+          text: "Market Contract Addresses",
+          link: "/protocol/app-developers/market-contract-addresses",
+        }
+      ]
+    },
+    {
+      text: "Provers",
+      items: [
+        {
+          text: "Becoming a Prover",
+          link: "/protocol/provers/becoming-a-prover",
+        },
+        {
+          text: "Requirements",
+          link: "/protocol/provers/requirements",
+        },
+        {
+          text: "Quick Start",
+          link: "/protocol/provers/quick-start",
+        },
+        {
+          text: "Running a Prover",
+          link: "/protocol/provers/running-a-prover",
+        },
+        {
+          text: "Broker Config",
+          link: "/protocol/provers/broker-config",
+        },
+        {
+          text: "Monitoring",
+          link: "/protocol/provers/monitoring",
+        },
+        {
+          text: "Performance",
+          link: "/protocol/provers/performance",
+        },
+        {
+          text: "Troubleshooting",
+          link: "/protocol/provers/troubleshooting",
+        }
+      ]
+    },
+    {
+      text: "References",
+      items: [
+        {
+          text: "Bento Technical Design",
+          link: "/protocol/references/bento-technical-design",
+        },
+        {
+          text: "Market Contract Addresses",
+          link: "/protocol/references/market-contract-addresses",
+        }
+      ]
+    }
+  ],
+  '/zkvm/': [
+    {
+      text: "Main Navigation",
+      items: [
+        {
+          text: "Protocol",
+          link: "/protocol",
       },
       {
-        text: "Use a Proof",
-        link: "/build/use-a-proof",
-      },
-    ],
-  },
-  {
-    text: "🧪 Prove",
-    items: [
-      {
-        text: "Becoming a Prover",
-        link: "/prove/becoming-a-prover",
+        text: "zkVM",
+        link: "/protocol/high-level",
       },
       {
-        text: "Requirements",
-        link: "/prove/requirements",
+        text: "Apps",
+        link: "/protocol/why-boundless",
       },
       {
-        text: "Quick Start",
-        link: "/prove/quick-start",
+        text: "Rollups",
+        link: "/protocol/what-is-boundless",
+        }
+      ]
+    },
+    {
+      text: "zkVM",
+      link: "/zkvm",
+    },
+    {
+      text: "Hello World R0VM",
+      link: "/zkvm/hello-world",
+    },
+    {
+      text: "Build A Program",
+      link: "/zkvm/build-a-program",
+    },
+    {
+      text: "RISC0 Documentation",
+      items: [
+        {
+          text: "RISC Zero Docs",
+          link: "https://dev.risczero.com/documentation",
+        },
+        {
+          text: "Getting Started",
+          link: "https://dev.risczero.com/getting-started",
+        },
+        {
+          text: "zkVM",
+          link: "https://dev.risczero.com/zkvm",
+        }
+      ]
+    }
+  ],
+  '/apps/': [
+    {
+      text: "Main Navigation",
+      items: [
+        {
+          text: "Protocol",
+          link: "/protocol",
       },
       {
-        text: "Running a Boundless Prover",
-        link: "/prove/proving-stack",
-        collapsed: true,
-        items: [
-          {
-            text: "The Boundless Proving Stack",
-            link: "/prove/proving-stack",
-          },
-          {
-            text: "Broker Configuration & Operation",
-            link: "/prove/broker",
-          },
-          {
-            text: "Monitoring",
-            link: "/prove/monitoring",
-          },
-          {
-            text: "Performance Optimization",
-            link: "/prove/performance-optimization",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    text: "🧠 Advanced & References",
-    items: [
-      {
-        text: "Deployments",
-        link: "/deployments",
+        text: "zkVM",
+        link: "/protocol/high-level",
       },
       {
-        text: "Smart Contracts",
-        link: "/smart-contracts",
+        text: "Apps",
+        link: "/protocol/why-boundless",
       },
       {
-        text: "Terminology",
-        link: "/terminology",
+        text: "Rollups",
+        link: "/protocol/what-is-boundless",
+        }
+      ]
+    },
+    {
+      text: "Steel DeFi",
+      items: [
+        {
+          text: "Introduction to Steel",
+          link: "/apps/steel/introduction",
+        },
+        {
+          text: "Getting Started with Steel in 10 minutes",
+          link: "/apps/steel/getting-started",
+        },
+        {
+          text: "Steel API Reference",
+          link: "/apps/steel/api-reference",
+        }
+      ]
+    },
+    {
+      text: "Tutorials",
+      items: [
+        {
+          text: "Building a DeFi Application",
+          link: "/apps/tutorials/defi-application",
+        },
+        {
+          text: "Private Voting System",
+          link: "/apps/tutorials/private-voting",
+        },
+        {
+          text: "Zero-Knowledge Authentication",
+          link: "/apps/tutorials/zk-authentication",
+        }
+      ]
+    }
+  ],
+  '/rollups/': [
+    {
+      text: "Main Navigation",
+      items: [
+        {
+          text: "Protocol",
+          link: "/protocol",
       },
       {
-        text: "Bento Technical Design",
-        link: "/bento-technical-design",
+        text: "zkVM",
+        link: "/protocol/high-level",
       },
-    ],
-  },
-];
+      {
+        text: "Apps",
+        link: "/protocol/why-boundless",
+      },
+      {
+        text: "Rollups",
+        link: "/protocol/what-is-boundless",
+        }
+      ]
+    },
+    {
+      text: "Rollups",
+      link: "/rollups",
+    },
+    {
+      text: "Getting Started",
+      link: "/rollups/getting-started",
+    },
+    {
+      text: "Bridging",
+      items: [
+        {
+          text: "Bridging Overview",
+          link: "/rollups/bridging/overview",
+        },
+        {
+          text: "Deposit Assets",
+          link: "/rollups/bridging/deposit",
+        },
+        {
+          text: "Withdraw Assets",
+          link: "/rollups/bridging/withdraw",
+        }
+      ]
+    },
+    {
+      text: "Tutorials",
+      items: [
+        {
+          text: "Deploy a Smart Contract",
+          link: "/rollups/tutorials/deploy-contract",
+        },
+        {
+          text: "Build a dApp on Boundless Rollup",
+          link: "/rollups/tutorials/build-dapp",
+        },
+        {
+          text: "Integrating with Existing Applications",
+          link: "/rollups/tutorials/integration",
+        }
+      ]
+    }
+  ]
+};
 
 export function generateSitemap() {
   function extractRoutes(items): string[] {
+    if (!Array.isArray(items)) {
+      let routes: string[] = [];
+      for (const key in items) {
+        routes = routes.concat(extractRoutes(items[key]));
+      }
+      return routes;
+    }
+
     return items.flatMap((item) => {
       const routes: string[] = [];
 
@@ -168,7 +331,7 @@ export default defineConfig({
   sidebar: SIDEBAR_CONFIG,
   topNav: [
     { text: "Explorer", link: "https://explorer.beboundless.xyz" },
-    { text: "Help", link: "https://t.me/+E9J7zgtyoTVlNzk1" },
+    // { text: "Help", link: "https://t.me/+E9J7zgtyoTVlNzk1" },
     /*{
       text: process.env.LATEST_TAG || "Latest",
       items: [
@@ -180,10 +343,10 @@ export default defineConfig({
     },*/
   ],
   socials: [
-    /*{
+    {
       icon: "github",
       link: "https://github.com/boundless-xyz",
-    },*/
+    },
     {
       icon: "x",
       link: "https://x.com/boundless_xyz",
@@ -191,10 +354,6 @@ export default defineConfig({
   ],
   rootDir: "site",
   title: "Boundless Docs",
-  /*logoUrl: {
-    light: "/logo.png",
-    dark: "/logo-dark.png",
-  },*/
   theme: {
     accentColor: {
       light: "#537263", // Forest - primary accent for light mode
