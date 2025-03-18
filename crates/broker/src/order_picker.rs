@@ -518,33 +518,38 @@ where
             // Check for config updates and current lock count periodically
             let config_check_interval = tokio::time::Duration::from_secs(10);
             let mut config_check_timer = tokio::time::interval(config_check_interval);
+            
+            // 5 second interval with a 2.5 second delay so config is checked first,
+            // and that the requests are interleaved between config checks.
+            let pricing_check_interval = tokio::time::Duration::from_secs(5);
+            let mut pricing_check_timer = tokio::time::interval_at(
+                tokio::time::Instant::now() + tokio::time::Duration::from_millis(2500),
+                pricing_check_interval,
+            );
 
             loop {
-                // TODO issue with this pattern is that for unbounded orders, this requeueing
-                // pricing tasks will only be called when pricing tasks complete, and may get in
-                // scenarios where either too many tasks are scheduled at once, or some orders will
-                // be delayed until the config timer tick to price orders, increasing latency.
-                
-                // Queue up orders that can be added to capacity.
-                let order_size = if let Some(capacity) = capacity {
-                    capacity.saturating_sub(
-                        u32::try_from(pricing_tasks.len()).expect("tasks u32 overflow"),
-                    )
-                } else {
-                    // If no maximum lock capacity, request a max of 10 orders at a time.
-                    10
-                };
-                picker_copy
-                    .spawn_pricing_tasks(&mut pricing_tasks, order_size)
-                    .await
-                    .map_err(SupervisorErr::Recover)?;
-
                 tokio::select! {
                     _ = config_check_timer.tick() => {
                         // Get updated max concurrent locks and calculate capacity based on orders
                         // that are locked but not fulfilled yet.
                         capacity = picker_copy.get_pricing_order_capacity().await.map_err(SupervisorErr::Fault)?;
+                    }
 
+                    _ = pricing_check_timer.tick() => {
+                        // Queue up orders that can be added to capacity.
+                        let order_size = if let Some(capacity) = capacity {
+                            capacity.saturating_sub(
+                                u32::try_from(pricing_tasks.len()).expect("tasks u32 overflow"),
+                            )
+                        } else {
+                            // If no maximum lock capacity, request a max of 10 orders at a time.
+                            10
+                        };
+                        
+                        picker_copy
+                            .spawn_pricing_tasks(&mut pricing_tasks, order_size)
+                            .await
+                            .map_err(SupervisorErr::Recover)?;
                     }
 
                     // Process completed pricing tasks
