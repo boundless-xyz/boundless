@@ -626,74 +626,68 @@ mod tests {
 
     /// Reusable context for testing the order picker
     struct TestCtx<P> {
-        pub anvil: AnvilInstance,
-        pub picker: OrderPicker<P>,
-        pub boundless_market: BoundlessMarketService<Arc<P>>,
-        pub image_server: MockServer,
-        pub db: DbObj,
-        pub provider: Arc<P>,
+        anvil: AnvilInstance,
+        picker: OrderPicker<P>,
+        boundless_market: BoundlessMarketService<Arc<P>>,
+        image_server: MockServer,
+        db: DbObj,
+        provider: Arc<P>,
     }
 
     impl<P> TestCtx<P>
     where
         P: Provider + WalletProvider,
     {
-        pub fn image_uri(&self) -> String {
+        fn image_uri(&self) -> String {
             format!("http://{}/image", self.image_server.address())
         }
 
-        pub fn signer(&self, index: usize) -> PrivateKeySigner {
+        fn signer(&self, index: usize) -> PrivateKeySigner {
             self.anvil.keys()[index].clone().into()
         }
 
-        pub async fn next_order(
+        async fn generate_next_order(
             &self,
+            order_index: u32,
             min_price: U256,
             max_price: U256,
             lock_stake: U256,
-        ) -> (U256, Order) {
+        ) -> Order {
             let image_id = Digest::from(ECHO_ID);
-            let order_index = self.boundless_market.index_from_nonce().await.unwrap();
-            (
-                U256::from(order_index),
-                Order {
-                    status: OrderStatus::Pricing,
-                    updated_at: Utc::now(),
-                    request: ProofRequest::new(
-                        order_index,
-                        &self.provider.default_signer_address(),
-                        Requirements::new(
-                            image_id,
-                            Predicate {
-                                predicateType: PredicateType::PrefixMatch,
-                                data: Default::default(),
-                            },
-                        ),
-                        self.image_uri(),
-                        Input::builder()
-                            .write_slice(&[0x41, 0x41, 0x41, 0x41])
-                            .build_inline()
-                            .unwrap(),
-                        Offer {
-                            minPrice: min_price,
-                            maxPrice: max_price,
-                            biddingStart: now_timestamp(),
-                            timeout: 1200,
-                            lockTimeout: 900,
-                            rampUpPeriod: 1,
-                            lockStake: lock_stake,
+            Order {
+                status: OrderStatus::Pricing,
+                updated_at: Utc::now(),
+                request: ProofRequest::new(
+                    order_index,
+                    &self.provider.default_signer_address(),
+                    Requirements::new(
+                        image_id,
+                        Predicate {
+                            predicateType: PredicateType::PrefixMatch,
+                            data: Default::default(),
                         },
                     ),
-                    target_timestamp: None,
-                    image_id: None,
-                    input_id: None,
-                    proof_id: None,
-                    expire_timestamp: None,
-                    client_sig: Bytes::new(),
-                    lock_price: None,
-                    error_msg: None,
-                },
-            )
+                    self.image_uri(),
+                    Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+                    Offer {
+                        minPrice: min_price,
+                        maxPrice: max_price,
+                        biddingStart: now_timestamp(),
+                        timeout: 1200,
+                        lockTimeout: 900,
+                        rampUpPeriod: 1,
+                        lockStake: lock_stake,
+                    },
+                ),
+                target_timestamp: None,
+                image_id: None,
+                input_id: None,
+                proof_id: None,
+                expire_timestamp: None,
+                client_sig: Bytes::new(),
+                lock_price: None,
+                error_msg: None,
+            }
         }
     }
 
@@ -705,17 +699,17 @@ mod tests {
     }
 
     impl TestCtxBuilder {
-        pub fn with_initial_signer_eth(self, eth: i32) -> Self {
+        fn with_initial_signer_eth(self, eth: i32) -> Self {
             Self { initial_signer_eth: Some(eth), ..self }
         }
-        pub fn with_initial_hp(self, hp: U256) -> Self {
+        fn with_initial_hp(self, hp: U256) -> Self {
             assert!(hp < U256::from(U96::MAX), "Cannot have more than 2^96 hit points");
             Self { initial_hp: Some(hp), ..self }
         }
-        pub fn with_config(self, config: ConfigLock) -> Self {
+        fn with_config(self, config: ConfigLock) -> Self {
             Self { config: Some(config), ..self }
         }
-        pub async fn build(self) -> TestCtx<impl Provider + WalletProvider + Clone + 'static> {
+        async fn build(self) -> TestCtx<impl Provider + WalletProvider + Clone + 'static> {
             let anvil = Anvil::new()
                 .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
                 .spawn();
@@ -791,12 +785,14 @@ mod tests {
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let (order_id, order) =
-            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
+        let order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        let order_id = order.request.id;
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
         ctx.picker.price_order(order_id, &order).await.unwrap();
 
@@ -817,8 +813,10 @@ mod tests {
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let (order_id, mut order) =
-            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
+        let mut order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
+        let order_id = order.request.id;
 
         // set a bad predicate
         order.request.requirements.predicate =
@@ -849,8 +847,10 @@ mod tests {
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let (order_id, order) =
-            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
+        let order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
+        let order_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -876,8 +876,10 @@ mod tests {
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let (order_id, order) =
-            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
+        let order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
+        let order_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -924,9 +926,15 @@ mod tests {
             .await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
-        let (order_id, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake)
+        let order = ctx
+            .generate_next_order(
+                1,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                lockin_stake,
+            )
             .await;
+        let order_id = order.request.id;
 
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
         ctx.picker.price_order(order_id, &order).await.unwrap();
@@ -951,9 +959,15 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
-        let (order_id, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::ZERO)
+        let order = ctx
+            .generate_next_order(
+                1,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::ZERO,
+            )
             .await;
+        let order_id = order.request.id;
         assert_eq!(ctx.picker.estimate_gas_to_lock(&order).await.unwrap(), lockin_gas);
 
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
@@ -975,20 +989,32 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
-        let (_, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::ZERO)
+        let order = ctx
+            .generate_next_order(
+                1,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::ZERO,
+            )
             .await;
-        ctx.db.add_order(U256::from(0), order.clone()).await.unwrap();
-        ctx.picker.price_order(U256::from(0), &order).await.unwrap();
+        let order_id = order.request.id;
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
 
         assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), fulfill_gas);
 
         // add another order
-        let (_, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::ZERO)
+        let order = ctx
+            .generate_next_order(
+                2,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::ZERO,
+            )
             .await;
-        ctx.db.add_order(U256::from(1), order.clone()).await.unwrap();
-        ctx.picker.price_order(U256::from(1), &order).await.unwrap();
+        let order_id = order.request.id;
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
 
         // gas estimate stacks (until estimates factor in bundling)
         assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), 2 * fulfill_gas);
@@ -1009,9 +1035,15 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
-        let (order_id, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::ZERO)
+        let order = ctx
+            .generate_next_order(
+                1,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::ZERO,
+            )
             .await;
+        let order_id = order.request.id;
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
         ctx.picker.price_order(order_id, &order).await.unwrap();
 
@@ -1047,15 +1079,20 @@ mod tests {
             .with_config(config)
             .build()
             .await;
-        let (_, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), U256::from(100))
+        let order = ctx
+            .generate_next_order(
+                1,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::from(100),
+            )
             .await;
+        let orders = std::iter::repeat(order).take(2);
 
-        let orders = std::iter::repeat(order).take(2).collect::<Vec<_>>();
-
-        for (order_id, order) in orders.iter().enumerate() {
-            ctx.db.add_order(U256::from(order_id), order.clone()).await.unwrap();
-            ctx.picker.price_order(U256::from(order_id), order).await.unwrap();
+        for (order_id, order) in orders.into_iter().enumerate() {
+            let order_id = U256::from(order_id);
+            ctx.db.add_order(order_id, order.clone()).await.unwrap();
+            ctx.picker.price_order(order_id, &order).await.unwrap();
         }
 
         // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient stake
@@ -1086,13 +1123,18 @@ mod tests {
             .with_initial_hp(lockin_stake)
             .build()
             .await;
-        let (_, order) = ctx
-            .next_order(U256::from(200000000000u64), U256::from(400000000000u64), lockin_stake)
+        let order = ctx
+            .generate_next_order(
+                1,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                lockin_stake,
+            )
             .await;
 
-        let order_id = U256::from(0);
-        ctx.db.add_order(U256::from(order_id), order.clone()).await.unwrap();
-        ctx.picker.price_order(U256::from(order_id), &order).await.unwrap();
+        let order_id = order.request.id;
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
 
         assert_eq!(ctx.db.get_order(order_id).await.unwrap().unwrap().status, OrderStatus::Skipped);
         assert!(logs_contain("journal larger than set limit"));
