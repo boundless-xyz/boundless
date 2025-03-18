@@ -541,8 +541,13 @@ where
                     _ = pricing_check_timer.tick() => {
                         // Queue up orders that can be added to capacity.
                         let order_size = if let Some(capacity) = capacity {
-                            capacity.saturating_sub(
-                                u32::try_from(pricing_tasks.len()).expect("tasks u32 overflow"),
+                            // Calculcate the amount of orders that can be filled, with a maximum
+                            // of 10 orders at a time to avoid pricing using too much resources.
+                            std::cmp::min(
+                                capacity.saturating_sub(
+                                    u32::try_from(pricing_tasks.len()).expect("tasks u32 overflow"),
+                                ),
+                                10
                             )
                         } else {
                             // If no maximum lock capacity, request a max of 10 orders at a time.
