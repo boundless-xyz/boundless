@@ -4,10 +4,9 @@
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, FixedBytes, U256},
+    primitives::{utils, U256},
 };
 use httpmock::prelude::*;
-use risc0_ethereum_contracts::selector::Selector;
 use risc0_zkvm::{is_dev_mode, sha::Digest};
 use tempfile::NamedTempFile;
 use url::Url;

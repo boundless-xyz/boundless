@@ -26,7 +26,7 @@ use alloy::{
     primitives::{
         aliases::U96,
         utils::{format_ether, parse_ether},
-        Address, Bytes, FixedBytes, B256, U256,
+        Address, Bytes, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
