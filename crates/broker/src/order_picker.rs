@@ -518,7 +518,7 @@ where
             // Check for config updates and current lock count periodically
             let config_check_interval = tokio::time::Duration::from_secs(10);
             let mut config_check_timer = tokio::time::interval(config_check_interval);
-            
+
             // 5 second interval with a 2.5 second delay so config is checked first,
             // and that the requests are interleaved between config checks.
             let pricing_check_interval = tokio::time::Duration::from_secs(5);
@@ -548,7 +548,7 @@ where
                             // If no maximum lock capacity, request a max of 10 orders at a time.
                             10
                         };
-                        
+
                         picker_copy
                             .spawn_pricing_tasks(&mut pricing_tasks, order_size)
                             .await
