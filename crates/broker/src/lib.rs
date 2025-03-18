@@ -636,7 +636,7 @@ async fn upload_input_uri(
     })
 }
 
-/// A very small utility function to get the current unix timestamp.
+/// A very small utility function to get the current unix timestamp in seconds.
 // TODO(#379): Avoid drift relative to the chain's timestamps.
 pub(crate) fn now_timestamp() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()

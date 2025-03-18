@@ -52,6 +52,8 @@ pub struct OrderPicker<P> {
     prover: ProverObj,
     provider: Arc<P>,
     market: BoundlessMarketService<Arc<P>>,
+    // Tracks the timestamp when the prover estimates it will complete the locked orders.
+    prover_available_at: Arc<tokio::sync::Mutex<u64>>,
 }
 
 impl<P> OrderPicker<P>
@@ -70,7 +72,14 @@ where
             provider.clone(),
             provider.default_signer_address(),
         );
-        Self { db, config, prover, provider, market }
+        Self { 
+            db, 
+            config, 
+            prover, 
+            provider, 
+            market,
+            prover_available_at: Arc::new(tokio::sync::Mutex::new(now_timestamp())),
+        }
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<bool, PriceOrderErr> {
@@ -251,17 +260,39 @@ where
             }
         }
 
-        // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently
-        // can absorb that proving load, we need to cordinate this check with parallel
-        // proofs and the current state of Bento
-        if let Some(prove_khz) = peak_prove_khz {
-            let required_khz = (proof_res.stats.total_cycles / 1_000) / seconds_left;
-            tracing::debug!("peak_prove_khz checking: {prove_khz} required: {required_khz}");
-            if required_khz >= prove_khz {
-                tracing::warn!("Order {order_id:x} peak_prove_khz check failed req: {required_khz} | config: {prove_khz}");
+        // Check if the order can be completed before its deadline
+        if let Some(peak_prove_khz) = peak_prove_khz {
+            // TODO: this is a naive solution for the following reasons:
+            // 1. Time estimate based on `peak_prove_khz`, which may not be the actual proving time
+            // 2. This doesn't take into account the aggregation proving time
+            // 3. Doesn't account for non-proving slop
+            // 4. Assumes proofs are prioritized by order of scheduling, and may be cases where a
+            //    previously locked order cannot complete within the deadline if more orders locked.
+            // So if using, a conservative peak_prove_khz should be used.
+
+            // Calculate how long this proof will take to complete
+            let proof_time_seconds = (proof_res.stats.total_cycles / 1_000) / peak_prove_khz;
+            
+            // Get the current prover availability time
+            let mut prover_available = self.prover_available_at.lock().await;
+            let start_time = std::cmp::max(*prover_available, now);
+            let completion_time = start_time + proof_time_seconds;
+            
+            if completion_time >= expiration {
+                drop(prover_available);
+                // Proof estimated that it cannot complete before the expiration
+                tracing::warn!(
+                    "Order {order_id:x} cannot be completed in time. Would finish at {completion_time}, but expires at {expiration}"
+                );
                 self.db.skip_order(order_id).await.context("Failed to delete order")?;
                 return Ok(false);
             }
+            
+            *prover_available = completion_time;
+            drop(prover_available);
+            tracing::debug!(
+                "Order {order_id:x} estimated to take {proof_time_seconds}s to prove"
+            );
         }
 
         let journal = self
