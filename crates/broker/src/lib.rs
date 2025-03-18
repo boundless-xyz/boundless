@@ -119,15 +119,14 @@ pub struct Args {
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
 
-    /// Flag indicating if images should be cached locally
+    /// Set to skip caching of images
     ///
-    /// If set, images will be downloaded and stored for reuse.
-    /// Currently this only caches the assessor and set-builder images
+    /// By default images are cached locally in cache_dir. Set this flag to redownload them every time
     #[arg(long, action = ArgAction::SetTrue)]
-    pub cache_images: bool,
+    pub nocache: bool,
 
     /// Cache directory for storing downloaded images and inputs
-    #[clap(long, default_value = "/tmp/broker_cache", requires = "cache_images")]
+    #[clap(long, default_value = "/tmp/broker_cache", conflicts_with = "nocache")]
     pub cache_dir: Option<PathBuf>,
 }
 
@@ -725,7 +724,7 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
-                cache_images: false,
+                nocache: true,
                 cache_dir: None,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
