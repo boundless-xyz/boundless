@@ -33,7 +33,6 @@ async fn main() -> Result<()> {
         CustomRetryPolicy,
     );
     let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
-
     let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
         watch_address: wallet.default_signer().address(),
         warn_threshold: config
