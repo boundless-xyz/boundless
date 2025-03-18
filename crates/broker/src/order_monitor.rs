@@ -80,12 +80,14 @@ where
                     .market
                     .stake_balance_warn_threshold
                     .as_ref()
-                    .and_then(|s| parse_ether(s).ok()),
+                    .map(|s| parse_ether(s))
+                    .transpose()?,
                 &config
                     .market
                     .stake_balance_error_threshold
                     .as_ref()
-                    .and_then(|s| parse_ether(s).ok()),
+                    .map(|s| parse_ether(s))
+                    .transpose()?,
             );
         }
 

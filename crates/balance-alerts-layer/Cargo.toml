@@ -4,6 +4,8 @@ version = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
+description = "an alloy provider layer warn on low balance"
+license = "Apache-2.0"
 
 [dependencies]
 alloy = { workspace = true, features = ["network", "providers", "transports"] }
