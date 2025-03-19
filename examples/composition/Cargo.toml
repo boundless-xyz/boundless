@@ -18,7 +18,7 @@ broker = { path = "../../crates/broker" }
 risc0-zkvm = { version = "1.2", default-features = false }
 
 # risc0-ethereum dependencies.
-guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", tag = "aggregation-v0.3.0" }
+guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", tag = "aggregation-v0.3.2" }
 risc0-ethereum-contracts = { version = "1.4.2" }
 
 alloy = { version = "0.11" }

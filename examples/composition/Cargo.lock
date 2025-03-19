@@ -1667,7 +1667,7 @@ dependencies = [
  "futures",
  "futures-util",
  "guest-assessor",
- "guest-set-builder",
+ "guest-set-builder 0.3.0",
  "hex",
  "http 1.3.1",
  "notify",
@@ -2546,7 +2546,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "guest-assessor",
- "guest-set-builder",
+ "guest-set-builder 0.3.2",
  "guest-util",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
@@ -2936,7 +2936,7 @@ version = "0.6.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum 1.4.2",
+ "risc0-build-ethereum 1.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2949,12 +2949,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "guest-set-builder"
+version = "0.3.2"
+source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.3.2#7cf3661a1d1d5cf8b3573e2ac574374562972331"
+dependencies = [
+ "risc0-build",
+ "risc0-build-ethereum 1.4.2 (git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.3.2)",
+]
+
+[[package]]
 name = "guest-util"
 version = "0.6.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum 1.4.2",
+ "risc0-build-ethereum 1.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -4968,6 +4977,19 @@ name = "risc0-build-ethereum"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c5cc11fb9912b1416b7880cc9f96d07da54cc7eb80afaad07664bf6292a51c7"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "bytemuck_derive",
+ "hex",
+ "risc0-build",
+ "risc0-zkp",
+]
+
+[[package]]
+name = "risc0-build-ethereum"
+version = "1.4.2"
+source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.3.2#7cf3661a1d1d5cf8b3573e2ac574374562972331"
 dependencies = [
  "anyhow",
  "bytemuck",
