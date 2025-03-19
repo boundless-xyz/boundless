@@ -162,8 +162,14 @@ verify_prerequisites() {
 # Function to handle cleanup on interruption (for "start" command)
 cleanup() {
     log_info "Interrupt received. Stopping and removing Docker Compose services..."
-    docker compose --env-file "$ENV_FILE" down
-    log_success "Docker Compose services have been stopped and removed."
+    
+    if docker compose ps &> /dev/null; then
+        docker compose down
+        log_success "Docker Compose services have been stopped and removed."
+    else
+        log_warn "No running Docker Compose services to stop."
+    fi
+
     exit 0
 }
 
