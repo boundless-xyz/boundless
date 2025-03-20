@@ -1,0 +1,207 @@
+---
+title: Proof Lifecycle
+description: The lifecycle of a proof on Boundless.
+---
+
+import { StripRustCodeComments } from "../../components/strip-rust-code-comments";
+
+# Proof Lifecycle
+
+> Prerequisite Reading: [Why Boundless?](/introduction/why-boundless), [What is Boundless?](/introduction/what-is-boundless)
+
+:::note[Note]
+Please refer to the [Boundless Terminology](/terminology) page, and the [zkVM Terminology](https://dev.risczero.com/terminology) page for any unfamiliar terms.
+:::
+
+On this page, the entirety of a proof's lifetime in the Boundless Market is covered; starting from a proof request to bid submission and lock in by a prover, through to proof submission and finally to proof verification.
+
+This overview is aimed at app developers i.e., requestors, and therefore for simplicity, it will abstract some complexity away from the specifics of provers. This will be covered in its entirety at a later stage for public access testnet.
+
+<a href="/proof-lifecycle.png" class="lightgallery">
+  <img src="/proof-lifecycle.png" alt="Proof Lifecycle" />
+</a>
+
+> Figure 1: A process diagram following the lifecycle of a proof chronologically in the Boundless Market.
+
+## Overview of Proof Lifecycle
+
+1. [Program development: Create a program with the RISC Zero zkVM.](#1-the-app-developer-writes-a-program-for-the-zkvm)
+2. [Request Submission: Submit a request with your program, input and offer.](#2-the-app-developer-requestor-broadcasts-a-proof-request-to-the-boundless-market)
+3. [Prover Bidding: Provers evaluate and bid on the request.](#3-provers-bid-on-the-request)
+4. [Proof Generation: Prover generates the proof.](#4-the-prover-submits-an-aggregated-proof-and-upon-successful-verification-the-reward-is-released-to-the-prover)
+5. [Proof Settlement: Market verifies the proof, ensuring it fulfills the request, and releases funds upon success.](#5-the-app-developer-retrieves-their-proof-to-use-in-their-application)
+6. [Proof Utilization: Application retrieves and uses the proof in their application.](#6-proof-utilization)
+
+## Detailed View of Proof Lifecycle
+
+### 1. The App Developer Writes a Program for the zkVM
+
+> see [Build A Program](/build/build-a-program), and [Getting Started with the zkVM](https://dev.risczero.com/api/zkvm/quickstart).
+
+The app developer begins their Boundless journey by writing an application for the zkVM in Rust. The zkVM provides a zero-knowledge proof of the correct execution of this program. A proof of execution is a receipt; it contains the output― the journal and the cryptographic proof - the seal. The seal is the cryptographic proof. In [zkVM terminology](https://dev.risczero.com/terminology#seal), the seal usually refers to a zk-STARK or SNARK. In Boundless, the seal is a Merkle inclusion proof into an aggregated proof.
+
+With a zkVM program ready, the app developer will require some way to carry out proving. This can be done [locally](https://dev.risczero.com/api/generating-proofs/local-proving), but requires significant hardware investment and maintenance long-term, especially to enable parallelized GPU proving The Boundless Market allows for anyone to request a proof, regardless of their hardware, they are known as requestors. Boundless handles the connection between requestors and provers i.e., people with dedicated and significant proving hardware, to facilitate proving in a decentralized and permissionless manner.
+
+> To read more about the specifics of the proofs returned from the Boundless market, please see [Use a Proof](/build/use-a-proof).
+
+> For more zkVM documentation, please see [Getting Started with the zkVM](https://dev.risczero.com/api/zkvm/quickstart).
+
+### 2. The App Developer (Requestor) Broadcasts a Proof Request to the Boundless Market
+
+The app developer will start the proving process by requesting a proof from the Boundless Market.
+
+Requests can be sent on-chain, in a transaction to the market contract, or off-chain through the order-stream server depending on the user's censorship-resistance requirements. When submitting a request off-chain, they should first deposit funds to the market to cover the maximum price in their offer.
+
+The bid matching mechanism used by the market is a [reverse Dutch auction](https://en.wikipedia.org/wiki/Reverse_auction#Dutch_reverse_auctions). An application submits a proof request that contains parameters specifying the program to be proven, the input, and an offer.
+
+#### Offer Details
+
+An offer contains the following:
+
+| Parameter                    | Description                                                |
+| ---------------------------- | ---------------------------------------------------------- |
+| **Minimum price**            | The lowest price the requestor is willing to pay.          |
+| **Maximum price**            | The highest price the requestor is willing to pay.         |
+| **Bidding start**            | Defined as a block number.                                 |
+| **Length of ramp-up period** | Measured in blocks since the start of the bid.             |
+| **Timeout**                  | Measured in blocks since the start of the bid.             |
+| **Lock-in stake**            | The slashable amount if a prover fails to deliver a proof. |
+
+For example, an offer might specify:
+
+| Parameter                | Example Value           |
+| ------------------------ | ----------------------- |
+| Minimum price            | 0.001 Ether             |
+| Maximum price            | 0.002 Ether             |
+| Bidding start            | Latest block number + 3 |
+| Length of ramp-up period | 10 blocks               |
+| Timeout                  | 100 blocks              |
+| Lock-in stake            | 5 HP                    |
+
+For more details, please see [Pricing a Request](/build/request-a-proof#pricing-a-request).
+
+#### BoundlessMarket.sol - `submitRequest`
+
+The BoundlessMarket contract has a `submitRequest` function:
+
+```solidity [BoundlessMarket.sol]
+function submitRequest(ProofRequest calldata request, bytes calldata clientSignature);
+```
+
+The request parameters are passed through in the `ProofRequest` struct:
+
+```solidity
+struct ProofRequest {
+  /// @notice Unique ID for this request, constructed from the client address and a 32-bit index.
+  /// Constructed as (address(client) << 32) | index.
+  /// @dev Note that the high-order 64 bits of this ID are currently unused and must set to zero.
+  /// In the future it may be used to encode a version number and/or other flags.
+  uint256 id;
+  /// Requirements of the delivered proof. Specifies the program that must be run, and constrains
+  /// value of the journal, specifying the statement that is requesting to be proven.
+  Requirements requirements;
+  /// A public URI where the program (image) can be downloaded. This URI will be accessed by
+  /// provers that are evaluating whether to bid on the request.
+  string imageUrl;
+  /// Input to be provided to the zkVM guest execution.
+  Input input;
+  /// Offer specifying how much the client is willing to pay to have this request fulfilled.
+  Offer offer;
+}
+```
+
+With Requirements:
+
+```solidity
+struct Requirements {
+    bytes32 imageId;
+    Predicate predicate;
+}
+```
+
+The requirements of the proof specify the exact program that must be run (identified by the [Image ID](https://dev.risczero.com/terminology#image-id)). The predicate refers to a specific constraint on the value of the journal, the public outputs. During proof verification, the image ID and the journal are checked to make sure that the proof fulfills the request.
+
+### 3. Provers Bid on the Request
+
+After a proof request is broadcast, a reverse Dutch auction runs according to the parameters specified by the offer.
+
+From the moment the request is broadcast to the start of bidding, the auction price is the minimum specified in the offer. During the ramp-up period, the price is increased linearly up to the maximum price. After the ramp-up period the price stays at the max price until the request expires. At any time, a prover can submit a bid, accepting the current price and winning the auction. Because the price only increases, the first bid is the best price for the requestor.
+
+When the prover submits their bid, the auction ends and they "lock-in" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
+
+However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g., higher than the total supply of the staking token).
+
+An unlocked request can be directly fulfilled, without first being locked. When this happens, the prover will be paid according to the auction price at that moment.
+
+Provers will calculate the minimum price at which they are willing to prove a request based on a number of factors. These can include:
+
+- Cycle-count of the program execution, determining the proving cost.
+- Lock-in stake required
+- Timeout length, determining how long they have to complete the proof.
+- Input and program size, determining bandwidth costs to download the request.
+
+It is also worth noting that the prover's software will download the ELF binary, from the request's image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.
+
+_If the program fails to execute (e.g., the guest panics) the prover will not bid._
+
+### 4. The Prover Submits an Aggregated Proof, and Upon Successful Verification, the Reward Is Released to the Prover
+
+To be paid the request reward, and for their lock-in stake to be returned, the prover must submit the proof prior to the offer's expiration.
+
+#### Provers Batch Proof Requests
+
+The proof submitted by the prover is an aggregated proof, which proves a batch of program executions. Why is Boundless designed like this? The direct goal of aggregation is to amortize the cost of expensive proof verification on-chain, both for the requestor and the prover.
+
+Let's start with an assumption: the prover has locked themselves into a number of individual proof requests. A naive implementation would be to have the prover generate a proof for each proof request, send each proof on-chain and pay gas for each verification. This would work, but it would cause a lot of needless expense; the prover has to send each individual proof on-chain to the market contract. This will rack up expensive gas costs, affecting the efficiency of the market.
+
+Starting with the provers, a clear solution is to batch the proof requests together. Instead of proving one request, sending that proof on-chain, and moving onto the next request, the prover can work on multiple proof requests and prove each one without interruption, submitting one aggregated proof for the whole batch.
+
+#### Prover Submits the Requested Proof On-Chain
+
+In order to fulfill a batch of requests, and receive payment, the prover provides an aggregated proof. This aggregated proof is constructed as a Merkle tree, where the leaves are the proofs for the individual requests in the batch. At the root is a single Groth16 proof that attests to the validity of all proofs in the batch. Each individual request has a Merkle inclusion proof linking it to the root. Once the root is verified, the result is cached and the Merkle inclusion proofs are cheap to verify on-chain.
+
+When the prover submits the aggregated proof, the Market contract verifies it and pays the prover if all conditions are met. At the same time, the contract emits an event that signals to the requestor that their request is fulfilled, and provides the Merkle inclusion proof.
+
+:::note[Note]
+The requestor can use this Merkle inclusion proof as an effective representation of a verified execution, and use it as such in their application.
+:::
+
+### 5. The App Developer Retrieves Their Proof, to Use in Their Application
+
+When the prover fulfills their request, the requestor will (the app developer) will receive their proof.
+
+<StripRustCodeComments>
+```rust
+# use std::time::Duration;
+# use boundless_market::client::ClientBuilder;
+# use boundless_market::contracts::ProofRequest;
+# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::default().build().await?;
+# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+let (_journal, seal) = boundless_client
+  .wait_for_request_fulfillment(
+    request_id,
+    Duration::from_secs(5),
+    expires_at,
+  )
+  .await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+The journal is the public output of the program, and the seal is the cryptographic proof. Since Boundless uses aggregated proofs, the seal will be a Merkle inclusion proof, but verification works the same as for Groth16: the application contract sends the seal to the verifier contract. We recommend using the [RiscZeroVerifierRouter](https://dev.risczero.com/api/blockchain-integration/contracts/verifier), which will allow your application to seamlessly use both Groth16 and Merkle inclusion proofs. Below is an example from the Boundless Foundry Template:
+
+```solidity
+/// @notice Set the even number stored on the contract. Requires a RISC Zero proof that the number is even.
+function set(uint256 x, bytes calldata seal) public {
+    // Construct the expected journal data. Verify will fail if journal does not match.
+    bytes memory journal = abi.encode(x);
+    verifier.verify(seal, imageId, sha256(journal));
+    number = x;
+}
+```
+
+### 6. Proof Utilization
+
+Now that the request has been fulfilled the application is ready to grab the proof and use it in an application. Details about how to use a proof can be found in the [Use a Proof](/build/use-a-proof) section.

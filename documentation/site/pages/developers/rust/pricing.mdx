@@ -1,0 +1,53 @@
+import PricingCalculator from "../../components/pricing-calculator";
+
+# Pricing A Request
+
+Each request needs to specify how much the requestor is willing to pay to receive a proof.
+Each prover on the decentralized market will decide whether that price is acceptable to them, and compete to fulfill those requests.
+
+The offer section of a request specifies the parameters of the [reverse Dutch auction](https://en.wikipedia.org/wiki/Reverse_auction#Dutch_reverse_auctions), part of the [proof lifecycle](/introduction/proof-lifecycle).
+This is the mechanism by which the requestor and prover can aggree upon a price, and ensures the requestor will get the best price available from any prover on the market.
+
+### Contents of an Offer
+
+An offer contains the following:
+
+- Pricing parameters
+- Minimum price
+- Maximum price
+- Bidding start (defined as a block number)
+- Length of ramp-up period (measured in blocks since the start of the bid)
+- Timeout (measured in blocks since the start of the bid)
+- Lock-in stake
+
+For example, an offer might specify:
+
+- Pricing parameters
+  - Minimum price: 0.001 Ether
+  - Maximum price: 0.002 Ether
+- Bidding start: Block number 1000
+- Length of ramp-up period: 5 blocks
+- Timeout: 100 blocks
+- Lock-in stake: 2 HP
+
+The pricing parameters are used to determine the reward that gets paid-out when the request is fulfilled (ie, the proof has been verified). The reward is governed by the price function. Its inputs are:
+
+- The offer.
+- The number of blocks that have passed since the bidding started.
+
+The function works like so:
+
+- During the discovery period (the initial phase of the auction before bidding start), the price is just the minimum price.
+- During the ramp-up period (which immediately follows the discovery period), the price grows linearly up-to the maximum price.
+- After the ramp-up period, the price is just the maximum price.
+
+Continuing with the example offer given above, the price is constant (0.001 Ether, its minimum) for the first 10 blocks;
+on block 11 it jumps to 0.0012 Ether; on 12 it jumps to 0.0014 Ether; on 15 it reaches 0.002 Ether (its maximum), and remains at that value until the offer expires.
+
+When a prover locks-in a request, they are agreeing to be paid the reward offered by this function at the time of their bid.
+
+## 📟 Pricing Calculator
+
+Use this interactive calculator to get suggested request parameters based on your program's complexity and desired proof time:
+
+<PricingCalculator />

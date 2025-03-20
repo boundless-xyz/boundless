@@ -1,0 +1,212 @@
+---
+title: Build a Program
+description: This page covers the Boundless Foundry Template program as a quick start.
+---
+
+import { StripRustCodeComments } from "../../components/strip-rust-code-comments";
+
+# Build a Program
+
+At its core, Boundless allows app developers to receive zero-knowledge (ZK) proofs for their programs.
+Before [requesting a proof](/build/request-a-proof), developers should have a program that compiles and executes successfully.
+
+:::note
+This page covers the [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template/) as a quick start.
+:::
+
+If you want to read more about the zkVM, it is highly recommended to read the following pages on the [zkVM dev docs](https://dev.risczero.com/api):
+
+- [Introduction](https://dev.risczero.com/api)
+- [What is a zkVM Program?](https://dev.risczero.com/api/zkvm)
+- zkVM
+  - [Installation](https://dev.risczero.com/api/zkvm/install)
+  - [Quick Start](https://dev.risczero.com/api/zkvm/quickstart)
+  - [Hello World](https://dev.risczero.com/api/zkvm/tutorials/hello-world)
+
+For some more intermediate and advanced reading on the zkVM, please refer to:
+
+- [Optimizing your zkVM Program](https://dev.risczero.com/api/zkvm/profiling)
+- [zkVM Technical Specification](https://dev.risczero.com/api/zkvm/zkvm-specification)
+- [The RISC Zero STARK Protocol](https://dev.risczero.com/proof-system/proof-system-sequence-diagram)
+
+:::tip[Tip]
+If you have any technical questions about the zkVM, please join [RISC Zero's Discord](https://discord.com/invite/risczero) and ask away. 👋
+:::
+
+## Boundless Foundry Template
+
+The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) builds on RISC Zero's Foundry Template to incorporate Boundless with a simple example app.
+It consists of three main parts:
+
+- the zkVM program, [`is-even`](#is-even)
+- the application smart contract, [`EvenNumber.sol`](#evennumbersol)
+- the application backend, [`app`](#appssrcmainrs)
+
+The example app executes the following steps:
+
+1. Uploads the guest program and creates the proof request.
+2. Sends the proof request to Boundless.
+3. Retrieves the proof from Boundless.
+4. Sends the proof to the application contract.
+
+<a href="/boundless-foundry-template.png" class="lightgallery">
+  <img src="/boundless-foundry-template.png" alt="Boundless Foundry Template" />
+</a>
+
+The zkVM program for this example app is a simple program that takes an input number, checks if it is even and if so, outputs the number to the public outputs of the computation (known as the [journal](https://dev.risczero.com/terminology#journal)).
+
+The entire program is only \~20 lines, so let's run through it:
+
+### [`is-even`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
+
+```rust
+use std::io::Read;
+
+use alloy_primitives::U256;
+use alloy_sol_types::SolValue;
+use risc0_zkvm::guest::env;
+
+fn main() {
+    // Read the input data for this application.
+    let mut input_bytes = Vec::<u8>::new();
+    env::stdin().read_to_end(&mut input_bytes).unwrap();
+
+    // Decode and parse the input
+    let number = <U256>::abi_decode(&input_bytes, true).unwrap();
+
+    // Run the computation.
+    // In this case, asserting that the provided number is even.
+    assert!(!number.bit(0), "number is not even");
+
+    // Commit the journal that will be received by the application contract.
+    // Journal is encoded using Solidity ABI for easy decoding in the app contract.
+    env::commit_slice(number.abi_encode().as_slice());
+}
+```
+
+First, the guest receive inputs from the host program, and then these input bytes are decoded and parsed:
+
+<StripRustCodeComments>
+```rust
+# use std::io::Read;
+# use alloy_primitives::U256;
+# use alloy_sol_types::SolValue;
+# use risc0_zkvm::guest::env;
+
+fn main() {
+    // Read the input data for this application. // [!code focus]
+    let mut input_bytes = Vec::<u8>::new(); // [!code focus]
+    env::stdin().read_to_end(&mut input_bytes).unwrap(); // [!code focus]
+
+    // Decode and parse the input // [!code focus]
+    let number = <U256>::abi_decode(&input_bytes, true).unwrap(); // [!code focus]
+    ....
+}
+```
+</StripRustCodeComments>
+
+To check if the number is even:
+
+<StripRustCodeComments>
+```rust
+# use std::io::Read;
+# use alloy_primitives::U256;
+# use alloy_sol_types::SolValue;
+# use risc0_zkvm::guest::env;
+
+fn main() {
+#   let mut input_bytes = Vec::<u8>::new();
+#   env::stdin().read_to_end(&mut input_bytes).unwrap();
+#   let number = <U256>::abi_decode(&input_bytes, true).unwrap();
+    ....
+    // Run the computation. // [!code focus]
+    // In this case, asserting that the provided number is even. // [!code focus]
+    assert!(!number.bit(0), "number is not even"); // [!code focus]
+    ....
+}
+```
+</StripRustCodeComments>
+
+Finally, if the number is even, the assert will pass and the number can be committed to the [journal](https://dev.risczero.com/terminology#journal).
+
+<StripRustCodeComments>
+```rust
+# use std::io::Read;
+# use alloy_primitives::U256;
+# use alloy_sol_types::SolValue;
+# use risc0_zkvm::guest::env;
+
+fn main() {
+#   let mut input_bytes = Vec::<u8>::new();
+#   env::stdin().read_to_end(&mut input_bytes).unwrap();
+#   let number = <U256>::abi_decode(&input_bytes, true).unwrap();
+    ....
+    // Commit the journal that will be received by the application contract. [!code focus]
+    // Journal is encoded using Solidity ABI for easy decoding in the app contract. [!code focus]
+    env::commit_slice(number.abi_encode().as_slice()); // [!code focus]
+    ....
+}
+```
+</StripRustCodeComments>
+
+### [`EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
+
+The `EvenNumber` smart contract holds a `uint256` variable called `number`. This number is guaranteed to be even,
+however the smart contract itself never checks the number's parity directly.
+It verifies a ZK proof of a program that has checked if the number is even. This is done in the `set` function:
+
+```solidity
+/// @notice Set the even number stored on the contract. Requires a RISC Zero proof that the number is even.
+function set(uint256 x, bytes calldata seal) public {
+    // Construct the expected journal data. Verify will fail if journal does not match.
+    bytes memory journal = abi.encode(x);
+    verifier.verify(seal, imageId, sha256(journal));
+    number = x;
+}
+```
+
+This `set` function is called with two arguments, a number `x`, and the `seal`.
+The number `x` is the number that the ZK proof has proven is even, and it is used to reconstruct the journal (the [journal](https://dev.risczero.com/terminology#journal) refers to the public outputs of the program).
+The `seal` is the proof. In [zkVM terminology](https://dev.risczero.com/terminology#seal), the seal usually refers to a zk-STARK or SNARK directly.
+In Boundless, the seal is actually a Merkle inclusion proof that the program's proof verification has been included in the Batch Verification Tree. See [Proof Lifecycle](/introduction/proof-lifecycle) to read more about this.
+
+#### Proof Verification Using the VerifierRouter Contract
+
+The main logic of this function is carried out with `verifier.verify`:
+
+```solidity
+/// @notice Set the even number stored on the contract. Requires a RISC Zero proof that the number is even.
+function set(uint256 x, bytes calldata seal) public {
+    // Construct the expected journal data. Verify will fail if journal does not match.
+    bytes memory journal = abi.encode(x); // [!code focus]
+    verifier.verify(seal, imageId, sha256(journal)); // [!code focus]
+    number = x;
+}
+```
+
+- Verifier
+  - The `verifier` variable points to the [RISC Zero Verifier Router contract](https://dev.risczero.com/api/blockchain-integration/contracts/verifier). This contract supports verification of seals that are either proofs returned from Boundless or zkSNARKs directly from the zkVM.
+- [ImageID](https://dev.risczero.com/terminology#image-id)
+  - The image ID is a unique identifier for a program in the zkVM. It is checked during proof verification to ensure proof integrity. Concretely, by saving the image ID to an immutable variable in the smart contract on deployment, this makes sure that only proofs from the correct program (in this case, `is-even`) are valid.
+- [Journal](https://dev.risczero.com/terminology#journal)
+  - The journal refers to the public outputs of the program. Similar to the image ID, the journal ensures proof consistency by verifying that the journal in the [receipt claim](https://dev.risczero.com/terminology#receipt-claim) (the seal cryptographically attests to the receipt claim) matches the expected journal.
+
+:::note[Summary]
+The `EvenNumber.sol` smart contract has one main function: `set`. This function will update the state `number` _if and only if_ a valid ZK proof is verified from the correct zkVM program (identified via the image ID).
+:::
+
+### [`apps/src/main.rs`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/apps/src/main.rs)
+
+As an example of how to request and publish a proof an example app is provided.
+It is a CLI that takes a `--number` argument, and does all the work required to set a new even number on the contract.
+
+The example app executes the following steps:
+
+1. Uploads the guest program and creates the proof request.
+2. Sends the proof request to Boundless.
+3. Retrieves the proof from Boundless.
+4. Sends the proof to the application contract.
+
+Instructions for running this example can be found in the [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template).
+
+For a detailed walkthrough of this app file, please refer to [Request A Proof](/build/request-a-proof), where this program is explained in detail.
