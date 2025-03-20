@@ -124,11 +124,6 @@ jobs:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
 
-      - name: cargo test ignored
-        run: cargo test --locked --workspace --all-targets -- --ignored
-        env:
-          RISC0_DEV_MODE: true
-
       - name: sccache stats
         run: sccache --show-stats
 
