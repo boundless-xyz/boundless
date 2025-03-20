@@ -800,7 +800,7 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
 }
 
 /// Constant to specify when no selector is specified.
-pub const UNSPECIFIED_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0xFF; 4]);
+pub const UNSPECIFIED_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0; 4]);
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]

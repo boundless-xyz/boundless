@@ -54,9 +54,9 @@ reqwest = "0.12"
 risc0-aggregation = { version = "0.3.2" }
 risc0-binfmt = "~1.2"
 risc0-build = { version = "~1.2", features = ["docker"] }
-risc0-build-ethereum = { version = "~1.4" }
+risc0-build-ethereum = { version = "1.4.3" }
 risc0-circuit-recursion = { version = "~1.2" }
-risc0-ethereum-contracts = { version = "~1.4" }
+risc0-ethereum-contracts = { version = "1.4.3" }
 risc0-zkvm = { version = "~1.2", default-features = false }
 risc0-zkp = { version = "~1.2" }
 serde = { version = "1.0", features = ["derive"] }

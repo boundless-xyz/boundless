@@ -105,7 +105,7 @@ where
                 .skip_order(order_id)
                 .await
                 .context("Order has an unsupported selector requirement")?;
-            return Ok(());
+            return Ok(false);
         };
 
         // is the order expired already?
@@ -857,8 +857,10 @@ mod tests {
         let min_price = 200000000000u64;
         let max_price = 400000000000u64;
 
-        let (order_id, mut order) =
-            ctx.next_order(U256::from(min_price), U256::from(max_price), U256::from(0)).await;
+        let mut order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
+        let order_id = order.request.id;
 
         // set an unsupported selector
         order.request.requirements.selector = FixedBytes::from(Selector::Groth16V1_1 as u32);

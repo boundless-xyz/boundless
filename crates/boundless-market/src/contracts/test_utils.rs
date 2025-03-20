@@ -74,7 +74,7 @@ pub async fn deploy_groth16_verifier<P: Provider>(
 }
 
 pub async fn deploy_mock_verifier<P: Provider>(deployer_provider: P) -> Result<Address> {
-    let instance = RiscZeroMockVerifier::deploy(deployer_provider, FixedBytes::ZERO)
+    let instance = RiscZeroMockVerifier::deploy(deployer_provider, FixedBytes([0xFFu8; 4]))
         .await
         .context("failed to deploy RiscZeroMockVerifier")?;
     Ok(*instance.address())
@@ -161,18 +161,22 @@ async fn deploy_contracts(
 
     // Deploy contracts
     let verifier_router = deploy_verifier_router(&deployer_provider, deployer_address).await?;
-    let verifier = match is_dev_mode() {
-        true => deploy_mock_verifier(&deployer_provider).await?,
+    let (verifier, groth16_selector) = match is_dev_mode() {
+        true => (deploy_mock_verifier(&deployer_provider).await?, [0xFFu8; 4]),
         false => {
             let control_root = ALLOWED_CONTROL_ROOT;
             let mut bn254_control_id = BN254_IDENTITY_CONTROL_ID;
             bn254_control_id.as_mut_bytes().reverse();
-            deploy_groth16_verifier(
-                &deployer_provider,
-                <[u8; 32]>::from(control_root).into(),
-                <[u8; 32]>::from(bn254_control_id).into(),
+            let verifier_parameters_digest = Groth16ReceiptVerifierParameters::default().digest();
+            (
+                deploy_groth16_verifier(
+                    &deployer_provider,
+                    <[u8; 32]>::from(control_root).into(),
+                    <[u8; 32]>::from(bn254_control_id).into(),
+                )
+                .await?,
+                verifier_parameters_digest.as_bytes()[..4].try_into()?,
             )
-            .await?
         }
     };
     let set_verifier = deploy_set_verifier(&deployer_provider, verifier, set_builder_id).await?;
@@ -182,11 +186,6 @@ async fn deploy_contracts(
         deployer_provider.clone(),
     );
 
-    let verifier_parameters_digest = Groth16ReceiptVerifierParameters::default().digest();
-    let groth16_selector: [u8; 4] = match is_dev_mode() {
-        true => [0u8; 4],
-        false => verifier_parameters_digest.as_bytes()[..4].try_into()?,
-    };
     let call = &router_instance
         .addVerifier(groth16_selector.into(), verifier)
         .from(deployer_signer.address());
