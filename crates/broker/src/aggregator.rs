@@ -386,11 +386,17 @@ impl AggregatorService {
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
+        unaggregated_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<String> {
         let assessor_proof_id = if finalize {
-            let assessor_order_ids: Vec<U256> =
-                batch.orders.iter().copied().chain(new_proofs.iter().map(|p| p.order_id)).collect();
+            let assessor_order_ids: Vec<U256> = batch
+                .orders
+                .iter()
+                .copied()
+                .chain(new_proofs.iter().map(|p| p.order_id))
+                .chain(unaggregated_proofs.iter().map(|p| p.order_id))
+                .collect();
 
             tracing::debug!(
                 "Running assessor for batch {batch_id} with orders {:x?}",
@@ -423,7 +429,12 @@ impl AggregatorService {
         tracing::info!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
 
         self.db
-            .update_batch(batch_id, &aggregation_state, new_proofs, assessor_proof_id)
+            .update_batch(
+                batch_id,
+                &aggregation_state,
+                &[new_proofs, unaggregated_proofs].concat(),
+                assessor_proof_id,
+            )
             .await
             .with_context(|| format!("Failed to update batch {batch_id} in the DB"))?;
 
@@ -445,10 +456,22 @@ impl AggregatorService {
                     .get_aggregation_proofs()
                     .await
                     .context("Failed to get pending agg proofs from DB")?;
+                // Fetch all unaggregated proofs that are ready to be submitted from the DB.
+                let new_unaggregated_proofs = self
+                    .db
+                    .get_unaggregated_proofs()
+                    .await
+                    .context("Failed to get unaggregated proofs from DB")?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.
-                let finalize = self.check_finalize(batch_id, &batch, &new_proofs).await?;
+                let finalize = self
+                    .check_finalize(
+                        batch_id,
+                        &batch,
+                        &[new_proofs.clone(), new_unaggregated_proofs.clone()].concat(),
+                    )
+                    .await?;
 
                 // If we don't need to finalize, and there are no new proofs, there is no work to do.
                 if !finalize && new_proofs.is_empty() {
@@ -456,8 +479,15 @@ impl AggregatorService {
                     return Ok(());
                 }
 
-                let aggregation_proof_id =
-                    self.aggregate_proofs(batch_id, &batch, &new_proofs, finalize).await?;
+                let aggregation_proof_id = self
+                    .aggregate_proofs(
+                        batch_id,
+                        &batch,
+                        &new_proofs,
+                        &new_unaggregated_proofs,
+                        finalize,
+                    )
+                    .await?;
                 (aggregation_proof_id, finalize)
             }
             BatchStatus::PendingCompression => {

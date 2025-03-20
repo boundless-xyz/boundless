@@ -7,11 +7,10 @@ use crate::{
     db::DbObj,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
-    Order,
+    Order, OrderStatus,
 };
 use alloy::primitives::U256;
 use anyhow::{Context, Result};
-use boundless_market::selector::is_unaggregated_selector;
 
 #[derive(Clone)]
 pub struct ProvingService {
@@ -25,12 +24,39 @@ impl ProvingService {
         Ok(Self { db, prover, config })
     }
 
-    pub async fn monitor_proof(&self, order_id: U256, proof_id: String) -> Result<()> {
-        let proof_res =
-            self.prover.wait_for_stark(&proof_id).await.context("Monitoring proof failed")?;
+    pub async fn monitor_proof(
+        &self,
+        order_id: U256,
+        stark_proof_id: &str,
+        is_unaggregated: bool,
+        snark_proof_id: Option<String>,
+    ) -> Result<()> {
+        let proof_res = self
+            .prover
+            .wait_for_stark(stark_proof_id)
+            .await
+            .context("Monitoring proof (stark) failed")?;
+
+        if is_unaggregated && snark_proof_id.is_none() {
+            let compressed_proof_id =
+                self.prover.compress(stark_proof_id).await.context("Failed to compress proof")?;
+            self.db
+                .set_order_compressed_proof_id(order_id, &compressed_proof_id)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to set order {order_id:x} compressed proof id: {compressed_proof_id}"
+                    )
+                })?;
+        };
+
+        let status = match is_unaggregated {
+            false => OrderStatus::PendingAgg,
+            true => OrderStatus::SkipAggregation,
+        };
 
         self.db
-            .set_aggregation_status(order_id)
+            .set_aggregation_status(order_id, status)
             .await
             .with_context(|| format!("Failed to set the DB record to aggregation {order_id:x}"))?;
 
@@ -66,8 +92,6 @@ impl ProvingService {
 
         tracing::info!("Proving order {order_id:x}");
 
-        let selector = order.request.requirements.selector;
-
         let proof_id = self
             .prover
             .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
@@ -79,24 +103,7 @@ impl ProvingService {
             .await
             .with_context(|| format!("Failed to set order {order_id:x} proof id: {}", proof_id))?;
 
-        if is_unaggregated_selector(selector) {
-            self.prover.wait_for_stark(&proof_id).await?;
-            let groth16_proof_id = self
-                .prover
-                .compress(&proof_id)
-                .await
-                .context("Failed to prove customer proof Groth16 order")?;
-            self.db.set_order_compressed_proof_id(order_id, &groth16_proof_id).await.with_context(
-                || {
-                    format!(
-                        "Failed to set order {order_id:x} Groth16 proof id: {}",
-                        groth16_proof_id
-                    )
-                },
-            )?;
-        }
-
-        self.monitor_proof(order_id, proof_id).await?;
+        self.monitor_proof(order_id, &proof_id, order.is_unaggregated(), None).await?;
 
         Ok(())
     }
@@ -112,7 +119,7 @@ impl ProvingService {
         tracing::info!("Found {} proofs currently proving", current_proofs.len());
         for (order_id, order) in current_proofs {
             let prove_serv = self.clone();
-            let Some(proof_id) = order.proof_id else {
+            let Some(proof_id) = order.proof_id.clone() else {
                 tracing::error!("Order in status Proving missing proof_id: {order_id:x}");
                 if let Err(inner_err) = prove_serv
                     .db
@@ -123,11 +130,16 @@ impl ProvingService {
                 }
                 continue;
             };
+            let is_unaggregated = order.is_unaggregated();
+            let compressed_proof_id = order.compressed_proof_id;
             // TODO: Manage these tasks in a joinset?
             // They should all be fail-able without triggering a larger failure so it should be
             // fine.
             tokio::spawn(async move {
-                match prove_serv.monitor_proof(order_id, proof_id).await {
+                match prove_serv
+                    .monitor_proof(order_id, &proof_id, is_unaggregated, compressed_proof_id)
+                    .await
+                {
                     Ok(_) => tracing::info!("Successfully complete order proof {order_id:x}"),
                     Err(err) => {
                         tracing::error!("FATAL: Order failed to prove: {err:?}");

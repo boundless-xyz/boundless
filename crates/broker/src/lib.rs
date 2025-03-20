@@ -15,6 +15,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
+    selector::is_unaggregated_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
@@ -137,6 +138,8 @@ enum OrderStatus {
     PendingAgg,
     /// Order is in the process of Aggregation
     Aggregating,
+    /// Unaggregated order is ready for submission
+    SkipAggregation,
     /// Pending on chain finalization
     PendingSubmission,
     /// Order has been completed
@@ -202,6 +205,9 @@ impl Order {
             lock_price: None,
             error_msg: None,
         }
+    }
+    pub fn is_unaggregated(&self) -> bool {
+        is_unaggregated_selector(self.request.requirements.selector)
     }
 }
 

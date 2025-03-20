@@ -212,7 +212,7 @@ proptest! {
                                         db.set_image_input_ids(U256::from(id), &image_id, &input_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_aggregation_status(U256::from(id)).await.unwrap();
+                                        db.set_aggregation_status(U256::from(id), OrderStatus::PendingAgg).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(U256::from(id)).await.unwrap();
