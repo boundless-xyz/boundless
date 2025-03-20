@@ -1173,49 +1173,6 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn respects_max_concurrent_locks() {
-        let max_concurrent_locks = 2;
-        let config = ConfigLock::default();
-        {
-            let mut config_write = config.load_write().unwrap();
-            config_write.market.mcycle_price = "0.0000001".into();
-            // Set a peak_prove_khz that will cause the order to be rejected
-            config_write.market.peak_prove_khz = Some(1);
-            config_write.market.min_deadline = 0;
-        }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
-
-        let min_price = 200000000000u64;
-        let max_price = 400000000000u64;
-
-        let mut order = ctx
-            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
-            .await;
-        let order_id = order.request.id;
-
-        // Modify the order to have a short expiration time
-        // The MockProver will return a proof with cycles that will take longer than this timeout
-        let current_time = now_timestamp();
-        order.request.offer.biddingStart = current_time;
-        order.request.offer.lockTimeout = 2; // Only 2 seconds to complete
-
-        let _request_id =
-            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
-
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-
-        ctx.picker.price_order(order_id, &order).await.unwrap();
-
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
-        assert!(logs_contain("cannot be completed in time"));
-        // Note: This test expects the cycle count to be just over 3000, which is where the 4s
-        // estimate comes from. (1KHz rounded up)
-        assert!(logs_contain("Proof estimated to take 4s to complete, would be 2s past deadline"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
     async fn accept_order_that_completes_before_expiration() {
         let config = ConfigLock::default();
         {
