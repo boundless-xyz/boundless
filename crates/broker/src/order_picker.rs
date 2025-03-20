@@ -644,7 +644,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        chain_monitor::ChainMonitorService, db::SqliteDb, provers::MockProver, OrderStatus,
+        chain_monitor::ChainMonitorService, db::SqliteDb, provers::DefaultProver, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
@@ -804,7 +804,7 @@ mod tests {
 
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
-            let prover: ProverObj = Arc::new(MockProver::default());
+            let prover: ProverObj = Arc::new(DefaultProver::default());
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn());
 
