@@ -4,7 +4,7 @@
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, U256},
+    primitives::{utils, Address, U256},
 };
 use risc0_zkvm::{is_dev_mode, sha::Digest};
 use tempfile::NamedTempFile;
@@ -21,6 +21,32 @@ use guest_util::{ECHO_ID, ECHO_PATH};
 use tokio::time::Duration;
 use tracing_test::traced_test;
 
+fn generate_request(id: u32, addr: &Address, unaggregated: bool) -> ProofRequest {
+    let mut requirements = Requirements::new(
+        Digest::from(ECHO_ID),
+        Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+    );
+    if unaggregated {
+        requirements = requirements.with_unaggregated_proof();
+    }
+    ProofRequest::new(
+        id,
+        addr,
+        requirements,
+        format!("file://{ECHO_PATH}"),
+        Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+        Offer {
+            minPrice: U256::from(20000000000000u64),
+            maxPrice: U256::from(40000000000000u64),
+            biddingStart: now_timestamp(),
+            timeout: 420,
+            lockTimeout: 420,
+            rampUpPeriod: 1,
+            lockStake: U256::from(10),
+        },
+    )
+}
+
 #[tokio::test]
 #[traced_test]
 async fn simple_e2e() {
@@ -36,8 +62,6 @@ async fn simple_e2e() {
         .await
         .unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
-
-    let image_uri = format!("file://{ECHO_PATH}");
 
     // Start broker
     let config_file = NamedTempFile::new().unwrap();
@@ -71,25 +95,10 @@ async fn simple_e2e() {
     });
 
     // Submit an order
-
-    let request = ProofRequest::new(
+    let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        Requirements::new(
-            Digest::from(ECHO_ID),
-            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-        ),
-        &image_uri,
-        Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
-        Offer {
-            minPrice: U256::from(20000000000000u64),
-            maxPrice: U256::from(40000000000000u64),
-            biddingStart: now_timestamp(),
-            timeout: 1200,
-            lockTimeout: 1200,
-            rampUpPeriod: 1,
-            lockStake: U256::from(10),
-        },
+        false,
     );
 
     ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -127,8 +136,6 @@ async fn e2e_with_selector() {
         .await
         .unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
-
-    let image_uri = format!("file://{ECHO_PATH}");
 
     // Start broker
     let config_file = NamedTempFile::new().unwrap();
@@ -179,25 +186,10 @@ async fn e2e_with_selector() {
     });
 
     // Submit an order
-    let request = ProofRequest::new(
+    let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        Requirements::new(
-            Digest::from(ECHO_ID),
-            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-        )
-        .with_unaggregated_proof(),
-        &image_uri,
-        Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
-        Offer {
-            minPrice: U256::from(20000000000000u64),
-            maxPrice: U256::from(40000000000000u64),
-            biddingStart: now_timestamp(),
-            timeout: 420,
-            lockTimeout: 420,
-            rampUpPeriod: 1,
-            lockStake: U256::from(10),
-        },
+        true,
     );
 
     ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -235,8 +227,6 @@ async fn e2e_with_multiple_requests() {
         .await
         .unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
-
-    let image_uri = format!("file://{ECHO_PATH}");
 
     // Start broker
     let config_file = NamedTempFile::new().unwrap();
@@ -287,48 +277,19 @@ async fn e2e_with_multiple_requests() {
     });
 
     // Submit the first order
-    let request = ProofRequest::new(
+    let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        Requirements::new(
-            Digest::from(ECHO_ID),
-            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-        ),
-        &image_uri,
-        Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
-        Offer {
-            minPrice: U256::from(20000000000000u64),
-            maxPrice: U256::from(40000000000000u64),
-            biddingStart: now_timestamp(),
-            timeout: 420,
-            lockTimeout: 420,
-            rampUpPeriod: 1,
-            lockStake: U256::from(10),
-        },
+        false,
     );
 
     ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
     // Submit the second (unaggregated) order
-    let request_unaggregated = ProofRequest::new(
+    let request_unaggregated = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        Requirements::new(
-            Digest::from(ECHO_ID),
-            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-        )
-        .with_unaggregated_proof(),
-        &image_uri,
-        Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
-        Offer {
-            minPrice: U256::from(20000000000000u64),
-            maxPrice: U256::from(40000000000000u64),
-            biddingStart: now_timestamp(),
-            timeout: 420,
-            lockTimeout: 420,
-            rampUpPeriod: 1,
-            lockStake: U256::from(10),
-        },
+        true,
     );
 
     ctx.customer_market.submit_request(&request_unaggregated, &ctx.customer_signer).await.unwrap();
