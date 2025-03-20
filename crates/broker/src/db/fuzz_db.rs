@@ -293,7 +293,7 @@ proptest! {
                                 }
                             },
                             DbOperation::GetOrderForPricing => {
-                                db.get_order_for_pricing().await.unwrap();
+                                db.update_orders_for_pricing(1).await.unwrap();
                             },
                             DbOperation::GetActivePricingOrders => {
                                 db.get_active_pricing_orders().await.unwrap();
