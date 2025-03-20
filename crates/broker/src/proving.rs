@@ -5,6 +5,7 @@
 use crate::{
     config::ConfigLock,
     db::DbObj,
+    futures_retry::retry,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Order,
@@ -154,23 +155,40 @@ impl RetryTask for ProvingService {
                 if let Some((order_id, order)) = order_res {
                     let prov_serv = proving_service_copy.clone();
                     tokio::spawn(async move {
-                        match prov_serv.prove_order(order_id, order).await {
+                        let (proof_retry_count, proof_retry_sleep_ms) = {
+                            let config = prov_serv.config.lock_all().unwrap();
+                            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+                        };
+
+                        match retry(
+                            proof_retry_count,
+                            proof_retry_sleep_ms,
+                            || async { prov_serv.prove_order(order_id, order.clone()).await },
+                            "prove_order",
+                        )
+                        .await
+                        {
                             Ok(_) => {
-                                tracing::info!("Successfully complete order proof {order_id:x}")
+                                tracing::info!("Successfully complete order proof {order_id:x}");
                             }
                             Err(err) => {
-                                tracing::error!("FATAL: Order failed to prove: {err:?}");
+                                tracing::error!(
+                                    "FATAL: Order {} failed to prove after {} retries: {err:?}",
+                                    order_id,
+                                    proof_retry_count
+                                );
                                 if let Err(inner_err) = prov_serv
                                     .db
                                     .set_order_failure(order_id, format!("{err:?}"))
                                     .await
                                 {
                                     tracing::error!(
-                                        "Failed to set order {order_id:x} failure: {inner_err:?}"
+                                        "Failed to set order {} failure: {inner_err:?}",
+                                        order_id
                                     );
                                 }
                             }
-                        };
+                        }
                     });
                 }
 
