@@ -1,7 +1,7 @@
 # Counter Example
 
 > This example should be run against a deployment of the Boundless market.
-> Environment variables for connecting to and interacting with the network are defined in a [.env file](../../.env).
+> Environment variables for connecting to and interacting with the network are defined in a `.env` file. See [.env.testnet](../../.env.testnet) for testnet environment variables or [.env.localnet-template](../../.env.localnet-template) for local network config.
 
 ## Build
 
@@ -17,7 +17,7 @@ forge build
 To deploy the Counter contract run:
 
 ```bash
-forge script contracts/scripts/Deploy.s.sol --rpc-url ${L1_RPC_URL:?} --broadcast -vv
+forge script contracts/scripts/Deploy.s.sol --rpc-url ${RPC_URL:?} --broadcast -vv
 ```
 
 eat

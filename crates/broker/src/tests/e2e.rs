@@ -12,8 +12,8 @@ use tempfile::NamedTempFile;
 // use broker::Broker;
 use crate::{config::Config, now_timestamp, Args, Broker};
 use boundless_market::contracts::{
-    hit_points::default_allowance, test_utils::TestCtx, Input, Offer, Predicate, PredicateType,
-    ProofRequest, Requirements,
+    hit_points::default_allowance, test_utils::create_test_ctx, Input, Offer, Predicate,
+    PredicateType, ProofRequest, Requirements,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -28,9 +28,7 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-        .await
-        .unwrap();
+    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -61,8 +59,8 @@ async fn simple_e2e() {
     let args = Args {
         db_url: "sqlite::memory:".into(),
         config_file: config_file.path().to_path_buf(),
-        boundless_market_addr: ctx.boundless_market_addr,
-        set_verifier_addr: ctx.set_verifier_addr,
+        boundless_market_address: ctx.boundless_market_address,
+        set_verifier_address: ctx.set_verifier_address,
         rpc_url: anvil.endpoint_url(),
         order_stream_url: None,
         private_key: ctx.prover_signer,

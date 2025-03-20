@@ -16,11 +16,11 @@ use alloy::{
     },
     rpc::types::BlockTransactionsKind,
     signers::local::PrivateKeySigner,
-    transports::{http::Http, RpcError, Transport, TransportErrorKind},
+    transports::{RpcError, TransportErrorKind},
 };
+use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider};
 use boundless_market::contracts::boundless_market::{BoundlessMarketService, MarketError};
 use db::{DbError, DbObj, SqliteDb};
-use reqwest::Client as HttpClient;
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
@@ -35,9 +35,7 @@ type ProviderWallet = FillProvider<
         >,
         WalletFiller<EthereumWallet>,
     >,
-    RootProvider<Http<HttpClient>>,
-    Http<HttpClient>,
-    Ethereum,
+    BalanceAlertProvider<RootProvider>,
 >;
 
 #[derive(Error, Debug)]
@@ -65,28 +63,40 @@ pub enum ServiceError {
 }
 
 #[derive(Clone)]
-pub struct SlashService<T, P> {
-    pub boundless_market: BoundlessMarketService<T, P>,
+pub struct SlashService<P> {
+    pub boundless_market: BoundlessMarketService<P>,
     pub db: DbObj,
+    pub config: SlashServiceConfig,
+}
+
+#[derive(Clone)]
+pub struct SlashServiceConfig {
     pub interval: Duration,
     pub retries: u32,
+    pub balance_warn_threshold: Option<U256>,
+    pub balance_error_threshold: Option<U256>,
     pub skip_addresses: Vec<Address>,
 }
 
-impl SlashService<Http<HttpClient>, ProviderWallet> {
+impl SlashService<ProviderWallet> {
     pub async fn new(
         rpc_url: Url,
         private_key: &PrivateKeySigner,
         boundless_market_address: Address,
         db_conn: &str,
-        interval: Duration,
-        retries: u32,
-        skip_addresses: Vec<Address>,
+        config: SlashServiceConfig,
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
+
+        let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: config.balance_warn_threshold,
+            error_threshold: config.balance_error_threshold,
+        });
+
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
+            .layer(balance_alerts_layer)
             .wallet(wallet.clone())
             .on_http(rpc_url);
 
@@ -95,17 +105,16 @@ impl SlashService<Http<HttpClient>, ProviderWallet> {
 
         let db: DbObj = Arc::new(SqliteDb::new(db_conn).await.unwrap());
 
-        Ok(Self { boundless_market, db, interval, retries, skip_addresses })
+        Ok(Self { boundless_market, db, config })
     }
 }
 
-impl<T, P> SlashService<T, P>
+impl<P> SlashService<P>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
 {
     pub async fn run(self, starting_block: Option<u64>) -> Result<(), ServiceError> {
-        let mut interval = tokio::time::interval(self.interval);
+        let mut interval = tokio::time::interval(self.config.interval);
         let current_block = self.current_block().await?;
         let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
         let mut from_block = min(starting_block.unwrap_or(last_processed_block), current_block);
@@ -166,7 +175,7 @@ where
                     );
                 }
             }
-            if attempt > self.retries {
+            if attempt > self.config.retries {
                 tracing::error!("Aborting after {} consecutive attempts", attempt);
                 return Err(ServiceError::MaxRetries);
             }
@@ -236,7 +245,7 @@ where
             let sender = tx.from;
 
             // Skip if sender is in the skip list
-            if self.skip_addresses.contains(&sender) {
+            if self.config.skip_addresses.contains(&sender) {
                 tracing::info!(
                     "Skipping locked event from sender: {:?} for request: 0x{:x}",
                     sender,

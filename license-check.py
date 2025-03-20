@@ -40,12 +40,14 @@ SKIP_PATHS = [
     str(Path.cwd()) + "/contracts/src/libraries/AssessorImageID.sol",
     str(Path.cwd()) + "/contracts/src/libraries/UtilImageID.sol",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/artifacts",
+    str(Path.cwd()) + "/crates/boundless-market/src/contracts/bytecode.rs",
 ]
 
 APACHE_PATHS = [
     str(Path.cwd()) + "/crates/boundless-market",
     str(Path.cwd()) + "/crates/boundless-cli",
     str(Path.cwd()) + "/crates/assessor",
+    str(Path.cwd()) + "/crates/balance-alerts-layer",
     str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
     str(Path.cwd()) + "/contracts/src/HitPoints.sol",
     str(Path.cwd()) + "/contracts/src/IHitPoints.sol"

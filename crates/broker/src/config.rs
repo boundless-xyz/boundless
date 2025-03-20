@@ -41,6 +41,7 @@ mod defaults {
 }
 /// All configuration related to markets mechanics
 #[derive(Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct MarketConf {
     /// Mega Cycle price (in native token)
     pub mcycle_price: String,
@@ -93,12 +94,22 @@ pub struct MarketConf {
     /// Gas estimate for fulfill call to use if it cannot be estimated using the node RPC
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Balance warning threshold (in native token)
+    /// if the submitter balance drops below this the broker will issue warning logs
+    pub balance_warn_threshold: Option<String>,
+    /// Balance warning threshold (in native token)
+    /// if the submitter balance drops below this the broker will issue error logs
+    pub balance_error_threshold: Option<String>,
     /// Stake balance warning threshold (in stake tokens)
     /// if the stake balance drops below this the broker will issue warning logs
     pub stake_balance_warn_threshold: Option<String>,
     /// Stake balance error threshold (in stake tokens)
     /// if the stake balance drops below this the broker will issue error logs
     pub stake_balance_error_threshold: Option<String>,
+    /// Max concurrent locks
+    ///
+    /// Maximum number of concurrent lockin requests that can be processed at once
+    pub max_concurrent_locks: Option<u32>,
 }
 
 impl Default for MarketConf {
@@ -119,8 +130,11 @@ impl Default for MarketConf {
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            balance_warn_threshold: None,
+            balance_error_threshold: None,
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
+            max_concurrent_locks: None,
         }
     }
 }
