@@ -11,6 +11,7 @@ use std::{
 use async_trait::async_trait;
 use bonsai_sdk::{
     non_blocking::{Client as BonsaiClient, SessionId, SnarkId},
+    responses::SnarkStatusRes,
     SdkErr,
 };
 use boundless_market::input::InputBuilder;
@@ -21,6 +22,8 @@ use risc0_zkvm::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
+
+use crate::futures_retry::retry;
 
 /// Executor output
 #[derive(Clone, Deserialize, Serialize)]
@@ -108,60 +111,71 @@ pub type ProverObj = Arc<dyn Prover + Send + Sync>;
 
 pub struct Bonsai {
     client: BonsaiClient,
-    config: ConfigLock,
+    req_retry_sleep_ms: u64,
+    req_retry_count: u64,
+    status_poll_ms: u64,
+    status_poll_retry_count: u64,
 }
 
 impl Bonsai {
     pub fn new(config: ConfigLock, api_url: &str, api_key: &str) -> Result<Self, ProverError> {
-        let risc0_ver = {
-            let config = config.lock_all()?;
-            config.prover.bonsai_r0_zkvm_ver.as_ref().ok_or(ConfigErr::InvalidConfig)?.clone()
+        let (
+            risc0_ver,
+            req_retry_count,
+            req_retry_sleep_ms,
+            status_poll_ms,
+            status_poll_retry_count,
+        ) = {
+            let config = config.lock_all().unwrap();
+            (
+                config.prover.bonsai_r0_zkvm_ver.as_ref().ok_or(ConfigErr::InvalidConfig)?.clone(),
+                config.prover.req_retry_count,
+                config.prover.req_retry_sleep_ms,
+                config.prover.status_poll_ms,
+                config.prover.status_poll_retry_count,
+            )
         };
 
         Ok(Self {
             client: BonsaiClient::from_parts(api_url.into(), api_key.into(), &risc0_ver)?,
-            config,
+            req_retry_sleep_ms,
+            req_retry_count,
+            status_poll_ms,
+            status_poll_retry_count,
         })
     }
 }
 
 struct StatusPoller {
-    poll_sleep: u64,
+    poll_sleep_ms: u64,
     retry_counts: u64,
 }
 
 impl StatusPoller {
-    async fn poll_with_retries(
+    async fn poll_with_retries_session_id(
         &self,
         proof_id: &SessionId,
         client: &BonsaiClient,
     ) -> Result<ProofResult, ProverError> {
         loop {
-            let mut status = None;
-            for retry_count in 0..self.retry_counts {
-                match proof_id.status(client).await {
-                    Ok(res) => {
-                        status = Some(res);
-                        break;
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            "Failed to get status: {err:?}, retrying {retry_count} / {}",
-                            self.retry_counts
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(self.poll_sleep)).await;
-                        continue;
-                    }
-                }
+            let status = retry::<_, SdkErr, _, _>(
+                self.retry_counts,
+                self.poll_sleep_ms,
+                || async { proof_id.status(client).await },
+                "get session status",
+            )
+            .await;
+
+            if let Err(_err) = status {
+                return Err(ProverError::StatusFailure);
             }
 
-            let Some(status) = status else {
-                return Err(ProverError::StatusFailure);
-            };
+            let status = status.unwrap();
 
             match status.status.as_ref() {
                 "RUNNING" => {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
+                        .await;
                     continue;
                 }
                 "SUCCEEDED" => {
@@ -188,16 +202,65 @@ impl StatusPoller {
             }
         }
     }
+
+    async fn poll_with_retries_snark_id(
+        &self,
+        proof_id: &SnarkId,
+        client: &BonsaiClient,
+    ) -> Result<String, ProverError> {
+        loop {
+            let status = retry::<_, SdkErr, _, _>(
+                self.retry_counts,
+                self.poll_sleep_ms,
+                || async { proof_id.status(client).await },
+                "get snark status",
+            )
+            .await;
+
+            if let Err(_err) = status {
+                return Err(ProverError::StatusFailure);
+            }
+
+            let status = status.unwrap();
+
+            match status.status.as_ref() {
+                "RUNNING" => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
+                        .await;
+                    continue;
+                }
+                "SUCCEEDED" => return Ok(proof_id.uuid.clone()),
+                _ => {
+                    let err_msg = status.error_msg.unwrap_or_default();
+                    return Err(ProverError::ProvingFailed(format!(
+                        "snark proving failed: {err_msg}"
+                    )));
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl Prover for Bonsai {
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
-        Ok(self.client.upload_input(input).await?)
+        retry::<String, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { Ok(self.client.upload_input(input.clone()).await?) },
+            "upload input",
+        )
+        .await
     }
 
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
-        Ok(self.client.upload_img(image_id, image).await.map(|_| ())?)
+        retry::<(), ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { Ok(self.client.upload_img(image_id, image.clone()).await.map(|_| ())?) },
+            "upload image",
+        )
+        .await
     }
 
     async fn preflight(
@@ -207,24 +270,30 @@ impl Prover for Bonsai {
         assumptions: Vec<String>,
         executor_limit: Option<u64>,
     ) -> Result<ProofResult, ProverError> {
-        let preflight_id = self
-            .client
-            .create_session_with_limit(
-                image_id.into(),
-                input_id.into(),
-                assumptions,
-                true,
-                executor_limit,
-            )
-            .await?;
+        let preflight_id: SessionId = retry::<SessionId, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async {
+                Ok(self
+                    .client
+                    .create_session_with_limit(
+                        image_id.into(),
+                        input_id.into(),
+                        assumptions.clone(),
+                        true,
+                        executor_limit,
+                    )
+                    .await?)
+            },
+            "create session for preflight",
+        )
+        .await?;
 
-        let (poll_sleep, retry_counts) = {
-            let config = self.config.lock_all()?;
-            (config.prover.status_poll_ms, config.prover.req_retry_count)
+        let poller = StatusPoller {
+            poll_sleep_ms: self.status_poll_ms,
+            retry_counts: self.status_poll_retry_count,
         };
-        StatusPoller { poll_sleep, retry_counts }
-            .poll_with_retries(&preflight_id, &self.client)
-            .await
+        poller.poll_with_retries_session_id(&preflight_id, &self.client).await
     }
 
     async fn prove_stark(
@@ -233,11 +302,19 @@ impl Prover for Bonsai {
         input_id: &str,
         assumptions: Vec<String>,
     ) -> Result<String, ProverError> {
-        Ok(self
-            .client
-            .create_session(image_id.into(), input_id.into(), assumptions, false)
-            .await?
-            .uuid)
+        retry::<_, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async {
+                Ok(self
+                    .client
+                    .create_session(image_id.into(), input_id.into(), assumptions.clone(), false)
+                    .await?
+                    .uuid)
+            },
+            "create session for prove stark",
+        )
+        .await
     }
 
     async fn prove_and_monitor_stark(
@@ -253,24 +330,35 @@ impl Prover for Bonsai {
     async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
         let proof_id = SessionId::new(proof_id.into());
 
-        let (poll_sleep, retry_counts) = {
-            let config = self.config.lock_all()?;
-            (config.prover.status_poll_ms, config.prover.req_retry_count)
+        let poller = StatusPoller {
+            poll_sleep_ms: self.status_poll_ms,
+            retry_counts: self.status_poll_retry_count,
         };
-        let poller = StatusPoller { poll_sleep, retry_counts };
 
-        poller.poll_with_retries(&proof_id, &self.client).await
+        poller.poll_with_retries_session_id(&proof_id, &self.client).await
     }
 
     async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
         let session_id = SessionId { uuid: proof_id.into() };
-        let receipt = self.client.receipt_download(&session_id).await?;
+        let receipt = retry::<Vec<u8>, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { Ok(self.client.receipt_download(&session_id).await?) },
+            "get receipt",
+        )
+        .await?;
         Ok(Some(bincode::deserialize(&receipt)?))
     }
 
     async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
         let session_id = SessionId { uuid: proof_id.into() };
-        let journal = session_id.exec_only_journal(&self.client).await?;
+        let journal = retry::<Vec<u8>, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { Ok(session_id.exec_only_journal(&self.client).await?) },
+            "get preflight journal",
+        )
+        .await?;
         Ok(Some(journal))
     }
 
@@ -284,37 +372,42 @@ impl Prover for Bonsai {
     }
 
     async fn compress(&self, proof_id: &str) -> Result<String, ProverError> {
-        let proof_id = self.client.create_snark(proof_id.into()).await?;
+        let proof_id = retry::<SnarkId, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { Ok(self.client.create_snark(proof_id.into()).await?) },
+            "create snark",
+        )
+        .await?;
 
-        let poll_sleep = {
-            let config = self.config.lock_all()?;
-            config.prover.status_poll_ms
+        let poller = StatusPoller {
+            poll_sleep_ms: self.status_poll_ms,
+            retry_counts: self.status_poll_retry_count,
         };
 
-        loop {
-            let status = proof_id.status(&self.client).await?;
-            match status.status.as_ref() {
-                "RUNNING" => {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(poll_sleep)).await;
-                    continue;
-                }
-                "SUCCEEDED" => return Ok(proof_id.uuid),
-                _ => {
-                    let err_msg = status.error_msg.unwrap_or_default();
-                    return Err(ProverError::ProvingFailed(format!(
-                        "snark proving failed: {err_msg}"
-                    )));
-                }
-            }
-        }
+        poller.poll_with_retries_snark_id(&proof_id, &self.client).await?;
+
+        Ok(proof_id.uuid)
     }
 
     async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
         let snark_id = SnarkId { uuid: proof_id.into() };
-        let status = snark_id.status(&self.client).await?;
+        let status = retry::<SnarkStatusRes, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { Ok(snark_id.status(&self.client).await?) },
+            "get status of snark",
+        )
+        .await?;
 
         let Some(output) = status.output else { return Ok(None) };
-        let receipt_buf = self.client.download(&output).await?;
+        let receipt_buf = retry::<Vec<u8>, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { Ok(self.client.download(&output).await?) },
+            "download snark output",
+        )
+        .await?;
 
         Ok(Some(receipt_buf))
     }
