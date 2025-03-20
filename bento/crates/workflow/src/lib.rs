@@ -130,7 +130,7 @@ pub struct Args {
     finalize_timeout: i32,
 
     /// Snark timeout in seconds
-    #[clap(long, default_value_t = 60 * 2)]
+    #[clap(long, default_value_t = 60 * 4)]
     snark_timeout: i32,
 
     /// Snark retries
@@ -248,11 +248,14 @@ impl Agent {
                         tracing::info!("update_task_retried failed: {}", task.job_id);
                     }
                 } else {
+                    // Prevent massive errors from being reported to the DB
+                    let mut err_str = format!("{err:?}");
+                    err_str.truncate(1024);
                     taskdb::update_task_failed(
                         &self.db_pool,
                         &task.job_id,
                         &task.task_id,
-                        &format!("{err:?}"),
+                        &err_str,
                     )
                     .await
                     .context("Failed to report task failure")?;

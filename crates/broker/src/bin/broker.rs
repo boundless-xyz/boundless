@@ -3,14 +3,16 @@
 // All rights reserved.
 
 use alloy::{
+    primitives::utils::parse_ether,
     providers::{network::EthereumWallet, ProviderBuilder, WalletProvider},
     rpc::client::RpcClient,
     transports::layers::RetryBackoffLayer,
 };
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
+use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
-use broker::{Args, Broker, CustomRetryPolicy};
+use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
 
 #[tokio::main]
@@ -20,6 +22,7 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+    let config = Config::load(&args.config_file).await?;
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 
@@ -30,14 +33,30 @@ async fn main() -> Result<()> {
         CustomRetryPolicy,
     );
     let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
+    let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
+        watch_address: wallet.default_signer().address(),
+        warn_threshold: config
+            .market
+            .balance_warn_threshold
+            .map(|s| parse_ether(&s))
+            .transpose()?,
+        error_threshold: config
+            .market
+            .balance_error_threshold
+            .map(|s| parse_ether(&s))
+            .transpose()?,
+    });
 
-    let provider =
-        ProviderBuilder::new().wallet(wallet).with_chain(NamedChain::Sepolia).on_client(client);
+    let provider = ProviderBuilder::new()
+        .layer(balance_alerts_layer)
+        .wallet(wallet)
+        .with_chain(NamedChain::Sepolia)
+        .on_client(client);
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
         let boundless_market = BoundlessMarketService::new(
-            args.boundless_market_addr,
+            args.boundless_market_address,
             provider.clone(),
             provider.default_signer_address(),
         );

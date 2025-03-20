@@ -120,7 +120,7 @@ body {
 }
 
 .vocs_Logo {
-  @apply object-contain;
+  @apply object-contain dark:invert;
 }
 
 .vocs_H1 {
@@ -145,6 +145,10 @@ body {
 
 .vocs_Sidebar_sectionTitle {
   @apply font-bold;
+}
+
+.vocs_Sidebar_logo {
+  @apply max-w-40;
 }
 
 .vocs_ExternalLink {

@@ -93,6 +93,12 @@ pub struct MarketConf {
     /// Gas estimate for fulfill call to use if it cannot be estimated using the node RPC
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Balance warning threshold (in native token)
+    /// if the submitter balance drops below this the broker will issue warning logs
+    pub balance_warn_threshold: Option<String>,
+    /// Balance warning threshold (in native token)
+    /// if the submitter balance drops below this the broker will issue error logs
+    pub balance_error_threshold: Option<String>,
     /// Stake balance warning threshold (in stake tokens)
     /// if the stake balance drops below this the broker will issue warning logs
     pub stake_balance_warn_threshold: Option<String>,
@@ -119,6 +125,8 @@ impl Default for MarketConf {
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            balance_warn_threshold: None,
+            balance_error_threshold: None,
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
         }
@@ -128,14 +136,28 @@ impl Default for MarketConf {
 /// All configuration related to prover (bonsai / Bento) mechanics
 #[derive(Deserialize, Serialize)]
 pub struct ProverConf {
+    /// Number of retries to poll for proving status. Provides a little durability
+    /// for transient failures.
+    pub status_poll_retry_count: u64,
     /// Polling interval to monitor proving status (in millisecs)
     pub status_poll_ms: u64,
     /// Optional config, if using bonsai set the zkvm version here
     pub bonsai_r0_zkvm_ver: Option<String>,
-    /// Number of retries to query a prover backend for on failures
-    ///
-    /// Provides a little durability for transient failures during proof status requests
+    /// Number of retries to query a prover backend for on failures.
+    /// Used for API requests to a prover backend, creating sessions,
+    /// preflighting, uploading images, etc.
+    /// Provides a little durability for transient failures.
     pub req_retry_count: u64,
+    /// Number of milliseconds to sleep between retries.
+    pub req_retry_sleep_ms: u64,
+    /// Number of retries to for running the entire proof generation process
+    ///
+    /// This is separate from the request retry count, as the proving process
+    /// is a multi-step process involving multiple API calls to create a proof
+    /// job and then polling for the proof job to complete.
+    pub proof_retry_count: u64,
+    /// Number of milliseconds to sleep between proof retries.
+    pub proof_retry_sleep_ms: u64,
     /// Set builder guest ELF path
     ///
     /// When using a durable deploy, set this to the published current SOT guest ELF path on the
@@ -148,9 +170,13 @@ pub struct ProverConf {
 impl Default for ProverConf {
     fn default() -> Self {
         Self {
+            status_poll_retry_count: 0,
             status_poll_ms: 1000,
             bonsai_r0_zkvm_ver: None,
             req_retry_count: 0,
+            req_retry_sleep_ms: 1000,
+            proof_retry_count: 0,
+            proof_retry_sleep_ms: 1000,
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
         }
@@ -377,9 +403,13 @@ skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000
 max_file_size = 50_000_000
 
 [prover]
-status_poll_ms = 1000
 bonsai_r0_zkvm_ver = "1.0.1"
-req_retry_count = 0
+status_poll_retry_count = 3
+status_poll_ms = 1000
+req_retry_count = 3
+req_retry_sleep_ms = 500
+proof_retry_count = 1
+proof_retry_sleep_ms = 500
 
 [batcher]
 batch_max_time = 300
@@ -403,8 +433,13 @@ lockin_priority_gas = 100
 max_mcycle_limit = 10
 
 [prover]
+status_poll_retry_count = 2
 status_poll_ms = 1000
-req_retry_count = 0
+req_retry_count = 1
+req_retry_sleep_ms = 200
+proof_retry_count = 1
+proof_retry_sleep_ms = 500
+
 
 [batcher]
 batch_max_time = 300
@@ -445,8 +480,12 @@ error = ?"#;
         assert_eq!(config.market.lockin_priority_gas, None);
 
         assert_eq!(config.prover.status_poll_ms, 1000);
+        assert_eq!(config.prover.status_poll_retry_count, 3);
         assert_eq!(config.prover.bonsai_r0_zkvm_ver.unwrap(), "1.0.1");
-        assert_eq!(config.prover.req_retry_count, 0);
+        assert_eq!(config.prover.req_retry_count, 3);
+        assert_eq!(config.prover.req_retry_sleep_ms, 500);
+        assert_eq!(config.prover.proof_retry_count, 1);
+        assert_eq!(config.prover.proof_retry_sleep_ms, 500);
         assert_eq!(config.prover.set_builder_guest_path, None);
         assert_eq!(config.prover.assessor_set_guest_path, None);
 
@@ -500,6 +539,11 @@ error = ?"#;
             assert_eq!(config.market.max_fetch_retries, Some(10));
             assert_eq!(config.market.max_mcycle_limit, Some(10));
             assert_eq!(config.prover.status_poll_ms, 1000);
+            assert_eq!(config.prover.status_poll_retry_count, 2);
+            assert_eq!(config.prover.req_retry_count, 1);
+            assert_eq!(config.prover.req_retry_sleep_ms, 200);
+            assert_eq!(config.prover.proof_retry_count, 1);
+            assert_eq!(config.prover.proof_retry_sleep_ms, 500);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
             assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));

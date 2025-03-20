@@ -15,6 +15,7 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{anyhow, bail, Result};
+use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
@@ -95,6 +96,12 @@ struct Args {
     offchain: bool,
     #[clap(long, default_value = "3")]
     max_retries: u32,
+    /// Balance threshold at which to log a warning.
+    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    warn_balance_below: Option<U256>,
+    /// Balance threshold at which to log an error.
+    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    error_balance_below: Option<U256>,
 }
 
 #[tokio::main]
@@ -115,6 +122,13 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let wallet = EthereumWallet::from(args.private_key.clone());
+
+    let balance_alerts = BalanceAlertConfig {
+        watch_address: wallet.default_signer().address(),
+        warn_threshold: args.warn_balance_below,
+        error_threshold: args.error_balance_below,
+    };
+
     let provider = ProviderBuilder::new()
         .with_recommended_fillers()
         .wallet(wallet)
@@ -130,6 +144,7 @@ async fn main() -> Result<()> {
         .with_order_stream_url(args.order_stream_url)
         .with_storage_provider_config(args.storage_config.clone())
         .with_private_key(args.private_key)
+        .with_balance_alerts(balance_alerts)
         .build()
         .await?;
 

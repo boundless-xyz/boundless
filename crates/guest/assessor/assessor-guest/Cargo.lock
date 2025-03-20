@@ -1316,6 +1316,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "balance-alerts-layer"
+version = "0.6.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "tracing",
+]
+
+[[package]]
 name = "base16ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1486,6 +1496,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
+ "balance-alerts-layer",
  "bytemuck",
  "chrono",
  "clap",
@@ -1535,9 +1546,9 @@ dependencies = [
 
 [[package]]
 name = "bytemuck_derive"
-version = "1.8.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcfcc3cd946cb52f0bbfdbbcfa2f4e24f75ebb6c0e1002f7c25904fada18b9ec"
+checksum = "3fa76293b4f7bb636ab88fd78228235b5248b4d05cc589aed610f954af5d7c7a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3863,13 +3874,14 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.3.0"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "970968eeca7b192dd09fd6d708c4118e5b46df6dd7c680ed9812ec8c5de4b223"
+checksum = "1557f965285fa476a06e2e6d9b274164e02185d9da62c4b6df3dfa372114da29"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "bytemuck",
+ "bytemuck_derive",
  "hex",
  "risc0-binfmt",
  "risc0-zkp",
