@@ -3,7 +3,7 @@ import biomePlugin from "vite-plugin-biome";
 import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
 
-const SIDEBAR_CONFIG = [
+const SIDEBAR_CONFIG_OLD = [
   {
     text: "✨ Introduction",
     items: [
@@ -118,6 +118,171 @@ const SIDEBAR_CONFIG = [
     ],
   },
 ];
+
+
+const SIDEBAR_CONFIG = [
+  {
+    text: "Introduction",
+    items: [
+      {
+        text: "Why use Boundless?",
+        link: "/developers/why",
+      },
+      {
+        text: "What is Boundless?",
+        link: "/developers/what",
+      },
+      {
+        text: "Proof Lifecycle",
+        link: "/developers/proof-lifecycle",
+      },
+      {
+        text: "Terminology",
+        link: "/developers/terminology",
+      },
+    ],
+  },
+  {
+    text: "For Rust Devs",
+    items: [
+      {
+        text: "Quick Start",
+        link: "/developers/rust/quick-start",
+      },
+      {
+        text: "Tutorials",
+        collapsed: false,
+        items: [
+          {
+            text: "Build a Program",
+            link: "/developers/rust/tutorials/build",
+          },
+          {
+            text: "Request a Proof",
+            link: "/developers/rust/tutorials/request",
+          },
+          {
+            text: "Pricing a Request",
+            link: "/developers/rust/tutorials/pricing",
+          },
+          {
+            text: "Troubleshooting",
+            link: "/developers/rust/tutorials/troubleshooting",
+          },
+        ],
+      },
+      {
+        text: "Dev Tooling",
+        collapsed: false,
+        items: [
+          {
+            text: "Boundless SDK",
+            link: "/developers/rust/tooling/sdk",
+          },
+          {
+            text: "Boundless CLI",
+            link: "/developers/rust/tooling/cli",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    text: "For Solidity Devs",
+    items: [
+      {
+        text: "Smart Contracts",
+        collapsed: false,
+        items: [
+          {
+            text: "Verify a Boundless Proof",
+            link: "/developers/solidity/verify-a-proof",
+          },
+          {
+            text: "Boundless Smart Contracts",
+            link: "/developers/solidity/smart-contract-docs",
+          },
+          {
+            text: "RISC Zero Verifier Contracts",
+            link: "/developers/solidity/verifier-contracts",
+          },
+          {
+            text: "Chains & Deployments",
+            link: "/developers/solidity/deployments",
+          },
+        ],
+      },
+      {
+        text: "ZK Coprocessing",
+        collapsed: false,
+        items: [
+          {
+            text: "Scale Ethereum now with ZK",
+            link: "/developers/solidity/zk-coprocessing",
+          },
+          {
+            text: "Steel: Boundless Coprocessing for EVM apps",
+            collapsed: true,
+            items: [
+              {
+                text: "Quick Start",
+                link: "/developers/solidity/steel/quick-start",
+              },
+              {
+                text: "What is Steel?",
+                link: "/developers/solidity/steel/what-is-steel",
+              },
+              {
+                text: "How does Steel work?",
+                link: "/developers/solidity/steel/how-it-works",
+              },
+              {
+                text: "Steel Commitments",
+                link: "/developers/solidity/steel/commitments",
+              },
+              {
+                text: "Steel History",
+                link: "/developers/solidity/steel/history",
+              },
+              {
+                text: "Proving Events",
+                link: "/developers/solidity/steel/events",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    text: "For Rollup Devs",
+    items: [
+      {
+        text: "Why Kailua?",
+        link: "/developers/rollups/why",
+      },
+      {
+        text: "Quick Start Guide",
+        link: "/developers/rollups/quick-start",
+      },
+      {
+        text: "Kailua Book",
+        link: "#",
+      },
+    ],
+  },
+];
+
+// const SIDEBAR_TOPNAV = [
+//   {
+//     text: "For Developers"
+//     link: "/developers/why",
+//   },
+//   {
+//     text: "For Provers"
+//     link: "/provers/becoming-a-prover",
+//   }
+// ];
 
 export function generateSitemap() {
   function extractRoutes(items): string[] {
