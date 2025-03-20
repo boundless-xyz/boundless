@@ -12,8 +12,8 @@ use alloy::providers::fillers::{
 use alloy::providers::Identity;
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
-    rpc::client::RpcClient,
     providers::{Provider, ProviderBuilder, RootProvider},
+    rpc::client::RpcClient,
     transports::layers::RetryBackoffLayer,
 };
 use anyhow::{Context, Error as AnyhowErr, Result};
