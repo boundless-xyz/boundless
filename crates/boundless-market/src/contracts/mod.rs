@@ -827,7 +827,7 @@ pub mod test_utils {
     }
 
     pub async fn deploy_mock_verifier<P: Provider>(deployer_provider: P) -> Result<Address> {
-        let instance = RiscZeroMockVerifier::deploy(deployer_provider, FixedBytes::ZERO)
+        let instance = RiscZeroMockVerifier::deploy(deployer_provider, FixedBytes([0xFFu8; 4]))
             .await
             .context("failed to deploy RiscZeroMockVerifier")?;
         Ok(*instance.address())
