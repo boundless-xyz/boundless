@@ -80,7 +80,7 @@ pub trait BrokerDb {
         &self,
         id: U256,
     ) -> Result<(ProofRequest, String, B256, U256), DbError>;
-    async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError>;
+    async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
         &self,
@@ -95,7 +95,7 @@ pub trait BrokerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
     async fn get_pending_lock_orders(&self, end_block: u64) -> Result<Vec<(U256, Order)>, DbError>;
-    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError>;
+    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u32, DbError>;
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_proof_id(&self, order_id: U256, proof_id: &str) -> Result<(), DbError>;
@@ -243,30 +243,34 @@ impl BrokerDb for SqliteDb {
         }
     }
 
-    async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError> {
-        let elm: Option<DbOrder> = sqlx::query_as(
+    async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
-            UPDATE orders
-            SET data = json_set(json_set(data, '$.status', $1), '$.update_at', $2)
-            WHERE id =
-                (SELECT id
+            WITH orders_to_update AS (
+                SELECT id
                 FROM orders
-                WHERE data->>'status' = $3
-                LIMIT 1)
+                WHERE data->>'status' = $1
+                LIMIT $2
+            )
+            UPDATE orders
+            SET data = json_set(json_set(data, '$.status', $3), '$.updated_at', $4)
+            WHERE id IN (SELECT id FROM orders_to_update)
             RETURNING *
             "#,
         )
+        .bind(OrderStatus::New)
+        .bind(i64::from(limit))
         .bind(OrderStatus::Pricing)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::New)
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
-        let Some(order) = elm else {
-            return Ok(None);
-        };
+        let result: Result<Vec<_>, _> = orders
+            .into_iter()
+            .map(|order| Ok((U256::from_str_radix(&order.id, 16)?, order.data)))
+            .collect();
 
-        Ok(Some((U256::from_str_radix(&order.id, 16)?, order.data)))
+        result
     }
 
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError> {
@@ -475,16 +479,20 @@ impl BrokerDb for SqliteDb {
         orders
     }
 
-    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError> {
+    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u32, DbError> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM orders WHERE data->>'status' >= $1 AND data->>'status' <= $2",
+            "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6)",
         )
         .bind(OrderStatus::Locking)
+        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::Proving)
+        .bind(OrderStatus::PendingAgg)
+        .bind(OrderStatus::Aggregating)
         .bind(OrderStatus::PendingSubmission)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(count as u64)
+        Ok(u32::try_from(count).expect("count should never be negative"))
     }
 
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError> {
@@ -1046,17 +1054,27 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn get_order_for_pricing(pool: SqlitePool) {
+    async fn update_orders_for_pricing(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
         let order = create_order();
         db.add_order(id, order.clone()).await.unwrap();
+        db.add_order(id + U256::from(1), order.clone()).await.unwrap();
+        db.add_order(id + U256::from(2), order.clone()).await.unwrap();
 
-        let price_order = db.get_order_for_pricing().await.unwrap();
-        let price_order = price_order.unwrap();
-        assert_eq!(price_order.0, id);
-        assert_eq!(price_order.1.status, OrderStatus::Pricing);
-        assert_ne!(price_order.1.updated_at, order.updated_at);
+        let price_order = db.update_orders_for_pricing(1).await.unwrap();
+        assert_eq!(price_order.len(), 1);
+        assert_eq!(price_order[0].0, id);
+        assert_eq!(price_order[0].1.status, OrderStatus::Pricing);
+        assert_ne!(price_order[0].1.updated_at, order.updated_at);
+
+        // Request the next two orders, which should skip the first
+        let price_order = db.update_orders_for_pricing(2).await.unwrap();
+        assert_eq!(price_order.len(), 2);
+        assert_eq!(price_order[0].0, id + U256::from(1));
+        assert_eq!(price_order[0].1.status, OrderStatus::Pricing);
+        assert_eq!(price_order[1].0, id + U256::from(2));
+        assert_eq!(price_order[1].1.status, OrderStatus::Pricing);
     }
 
     #[sqlx::test]
