@@ -72,6 +72,8 @@ async fn simple_e2e() {
         rpc_retry_max: 0,
         rpc_retry_backoff: 200,
         rpc_retry_cu: 1000,
+        nocache: true,
+        cache_dir: None,
     };
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
     let broker_task = tokio::spawn(async move {
