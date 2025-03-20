@@ -35,6 +35,7 @@ pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
+pub mod futures_retry;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
