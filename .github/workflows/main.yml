@@ -45,6 +45,13 @@ jobs:
 
   rust:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
+    services:
+      postgres:
+        image: postgres:latest
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: password
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -112,8 +119,9 @@ jobs:
         run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
 
       - name: cargo test
-        run: cargo test --locked --workspace --all-targets -- ignored
+        run: cargo test --locked --workspace --all-targets -- --include-ignored
         env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
 
       - name: sccache stats
@@ -180,7 +188,7 @@ jobs:
         run: sqlx migrate run --source ./crates/taskdb/migrations/
 
       - name: cargo test
-        run: cargo test --locked --workspace --all-targets -- ignored
+        run: cargo test --locked --workspace --all-targets -- --ignored
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
