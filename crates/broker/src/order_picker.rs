@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::chain_monitor::ChainMonitorService;
+use crate::{chain_monitor::ChainMonitorService, now_timestamp};
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -54,6 +54,8 @@ pub struct OrderPicker<P> {
     chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     market: BoundlessMarketService<Arc<P>>,
+    // Tracks the timestamp when the prover estimates it will complete the locked orders.
+    prover_available_at: Arc<tokio::sync::Mutex<u64>>,
 }
 
 impl<P> OrderPicker<P>
@@ -74,7 +76,16 @@ where
             provider.clone(),
             provider.default_signer_address(),
         );
-        Self { db, config, prover, chain_monitor, block_time, provider, market }
+        Self {
+            db,
+            config,
+            prover,
+            chain_monitor,
+            block_time,
+            provider,
+            market,
+            prover_available_at: Arc::new(tokio::sync::Mutex::new(now_timestamp())),
+        }
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<bool, PriceOrderErr> {
@@ -85,6 +96,7 @@ where
             (config.market.min_deadline, config.market.allow_client_addresses.clone())
         };
 
+        let now = now_timestamp();
         let current_block = self.chain_monitor.current_block_number().await?;
 
         // Initial sanity checks:
@@ -247,17 +259,40 @@ where
             }
         }
 
-        // TODO: this only checks that we could prove this at peak_khz, not if the cluster currently
-        // can absorb that proving load, we need to cordinate this check with parallel
-        // proofs and the current state of Bento
-        if let Some(prove_khz) = peak_prove_khz {
-            let required_khz = (proof_res.stats.total_cycles / 1_000) / seconds_left;
-            tracing::debug!("peak_prove_khz checking: {prove_khz} required: {required_khz}");
-            if required_khz >= prove_khz {
-                tracing::warn!("Order {order_id:x} peak_prove_khz check failed req: {required_khz} | config: {prove_khz}");
+        // Check if the order can be completed before its deadline
+        if let Some(peak_prove_khz) = peak_prove_khz {
+            // TODO: this is a naive solution for the following reasons:
+            // 1. Time estimate based on `peak_prove_khz`, which may not be the actual proving time
+            // 2. This doesn't take into account the aggregation proving time
+            // 3. Doesn't account for non-proving slop
+            // 4. Assumes proofs are prioritized by order of scheduling, and may be cases where a
+            //    previously locked order cannot complete within the deadline if more orders locked.
+            // So if using, a conservative peak_prove_khz should be used.
+
+            // Calculate how long this proof will take to complete in seconds, rounded up.
+            let proof_time_seconds =
+                (proof_res.stats.total_cycles.div_ceil(1_000)).div_ceil(peak_prove_khz);
+
+            // Get the current prover availability time
+            let mut prover_available = self.prover_available_at.lock().await;
+            let start_time = std::cmp::max(*prover_available, now);
+            let completion_time = start_time + proof_time_seconds;
+            let expiration = now + seconds_left;
+
+            if completion_time >= expiration {
+                drop(prover_available);
+                // Proof estimated that it cannot complete before the expiration
+                tracing::warn!(
+                    "Order {order_id:x} cannot be completed in time. Proof estimated to take {proof_time_seconds}s to complete, would be {}s past deadline",
+                    completion_time.saturating_sub(expiration)
+                );
                 self.db.skip_order(order_id).await.context("Failed to delete order")?;
                 return Ok(false);
             }
+
+            *prover_available = completion_time;
+            drop(prover_available);
+            tracing::debug!("Order {order_id:x} estimated to take {proof_time_seconds}s to prove");
         }
 
         let journal = self
@@ -1138,6 +1173,106 @@ mod tests {
 
         assert_eq!(ctx.db.get_order(order_id).await.unwrap().unwrap().status, OrderStatus::Skipped);
         assert!(logs_contain("journal larger than set limit"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn accept_order_that_completes_before_expiration() {
+        let config = ConfigLock::default();
+        {
+            let mut config_write = config.load_write().unwrap();
+            config_write.market.mcycle_price = "0.0000001".into();
+            config_write.market.peak_prove_khz = Some(1);
+            config_write.market.min_deadline = 0;
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
+
+        let mut order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
+        let order_id = order.request.id;
+
+        // Modify the order to have a longer expiration block
+        let current_block = ctx.provider.get_block_number().await.unwrap();
+        order.request.offer.biddingStart = current_block;
+        order.request.offer.timeout = 60;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Locking);
+
+        // Verify that the debug log contains the estimated proving time
+        assert!(logs_contain("estimated to take 4s to prove"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn orders_queue_up_completion_times() {
+        let config = ConfigLock::default();
+        {
+            let mut config_write = config.load_write().unwrap();
+            config_write.market.mcycle_price = "0.0000001".into();
+            config_write.market.peak_prove_khz = Some(1);
+            config_write.market.min_deadline = 0;
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        // First order
+        let mut order1 = ctx
+            .generate_next_order(
+                1,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::from(0),
+            )
+            .await;
+        let order_id1 = order1.request.id;
+
+        let current_block = ctx.provider.get_block_number().await.unwrap();
+        order1.request.offer.biddingStart = current_block;
+        order1.request.offer.timeout = 3;
+
+        ctx.db.add_order(order_id1, order1.clone()).await.unwrap();
+        ctx.picker.price_order(order_id1, &order1).await.unwrap();
+
+        // Second order will be rejected because it would finish after its deadline with first order
+        let mut order2 = ctx
+            .generate_next_order(
+                2,
+                U256::from(200000000000u64),
+                U256::from(400000000000u64),
+                U256::from(0),
+            )
+            .await;
+        let order_id2 = order2.request.id;
+
+        order2.request.offer.biddingStart = current_block;
+        order2.request.offer.timeout = 3;
+
+        ctx.db.add_order(order_id2, order2.clone()).await.unwrap();
+        ctx.picker.price_order(order_id2, &order2).await.unwrap();
+
+        // Check results
+        assert_eq!(
+            ctx.db.get_order(order_id1).await.unwrap().unwrap().status,
+            OrderStatus::Locking
+        );
+        assert_eq!(
+            ctx.db.get_order(order_id2).await.unwrap().unwrap().status,
+            OrderStatus::Skipped
+        );
+
+        assert!(logs_contain("cannot be completed in time"));
+        assert!(logs_contain("Proof estimated to take 4s to complete, would be 2s past deadline"));
     }
 
     #[tokio::test]

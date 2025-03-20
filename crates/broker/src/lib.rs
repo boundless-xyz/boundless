@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
 use alloy::{
     network::Ethereum,
@@ -639,6 +639,12 @@ async fn upload_input_uri(
         //???
         _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
     })
+}
+
+/// A very small utility function to get the current unix timestamp in seconds.
+// TODO(#379): Avoid drift relative to the chain's timestamps.
+pub(crate) fn now_timestamp() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
 }
 
 #[cfg(feature = "test-utils")]
