@@ -45,13 +45,16 @@ SKIP_PATHS = [
 ]
 
 APACHE_PATHS = [
-    str(Path.cwd()) + "/crates/boundless-market",
-    str(Path.cwd()) + "/crates/boundless-cli",
+    str(Path.cwd()) + "/contracts/src/HitPoints.sol",
+    str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
+    str(Path.cwd()) + "/contracts/src/IHitPoints.sol",
     str(Path.cwd()) + "/crates/assessor",
     str(Path.cwd()) + "/crates/balance-alerts-layer",
-    str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
-    str(Path.cwd()) + "/contracts/src/HitPoints.sol",
-    str(Path.cwd()) + "/contracts/src/IHitPoints.sol"
+    str(Path.cwd()) + "/crates/boundless-cli",
+    str(Path.cwd()) + "/crates/boundless-market",
+    str(Path.cwd()) + "/crates/slasher",
+    str(Path.cwd()) + "/documentation",
+    str(Path.cwd()) + "/examples",
 ]
 
 def check_header(file, expected_year, lines_actual):
