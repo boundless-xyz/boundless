@@ -448,6 +448,11 @@ impl MockProver {
         env.write_slice(&input);
         env.session_limit(executor_limit);
 
+        if risc0_zkvm::is_dev_mode() {
+            // enable dev mode also in the guest
+            env.env_var("RISC0_DEV_MODE", "true");
+        }
+
         for assumption_id in assumptions.iter() {
             let assumption_receipt = self
                 .starks

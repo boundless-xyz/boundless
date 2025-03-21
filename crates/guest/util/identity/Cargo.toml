@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 risc0-zkvm = { version = "1.2", default-features = false, features = ["std"] }
+risc0-zkvm-platform = { version = "1.2", features = ["sys-getenv"] }

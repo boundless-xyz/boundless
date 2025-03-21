@@ -1,0 +1,375 @@
+// Copyright (c) 2025 RISC Zero, Inc.
+//
+// All rights reserved.
+
+use std::time::{Duration, SystemTime};
+
+use crate::ICounter::ICounterInstance;
+use alloy::{
+    network::Ethereum,
+    primitives::{utils::parse_ether, Address, Bytes, FixedBytes, B256},
+    providers::Provider,
+    signers::local::PrivateKeySigner,
+    sol_types::SolCall,
+};
+use anyhow::{bail, Context, Result};
+use boundless_market::{
+    client::{Client, ClientBuilder},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    input::GuestEnv,
+    storage::{StorageProvider, StorageProviderConfig},
+};
+use clap::Parser;
+use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
+use risc0_ethereum_contracts::{
+    receipt::Receipt as ContractReceipt, selector::Selector as ContractSelector,
+};
+use risc0_zkvm::{
+    compute_image_id, default_executor, serde as risc0_serde,
+    sha::{Digest, Digestible},
+    ExecutorEnv, Journal,
+};
+use url::Url;
+
+/// Timeout for the transaction to be confirmed.
+pub const TX_TIMEOUT: Duration = Duration::from_secs(30);
+
+alloy::sol!(
+    #![sol(rpc, all_derives)]
+    "../contracts/src/ICounter.sol"
+);
+
+/// CLI arguments.
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// URL of the Ethereum RPC endpoint.
+    #[clap(short, long, env)]
+    rpc_url: Url,
+    /// URL of the offchain order stream endpoint.
+    #[clap(short, long, env)]
+    order_stream_url: Option<Url>,
+    /// Storage provider configuration
+    #[clap(flatten)]
+    storage_config: Option<StorageProviderConfig>,
+    /// Private key used to interact with the Counter contract.
+    #[clap(long, env)]
+    private_key: PrivateKeySigner,
+    /// Address of the Counter contract.
+    #[clap(short, long, env)]
+    counter_address: Address,
+    /// Address of the SetVerifier contract.
+    #[clap(short, long, env)]
+    set_verifier_address: Address,
+    /// Address of the BoundlessMarket contract.
+    #[clap(short, long, env)]
+    boundless_market_address: Address,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
+    load_dotenv()?;
+    let args = Args::parse();
+
+    // NOTE: Using a separate `run` function to facilitate testing.
+    run(
+        args.private_key,
+        args.rpc_url,
+        args.order_stream_url,
+        args.storage_config,
+        args.boundless_market_address,
+        args.set_verifier_address,
+        args.counter_address,
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Load environment variables from a `.env` file if available.
+fn load_dotenv() -> Result<()> {
+    match dotenvy::dotenv() {
+        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
+        Err(e) if e.not_found() => {
+            tracing::debug!("No .env file found");
+        }
+        Err(e) => bail!("Failed to load .env file: {}", e),
+    }
+    Ok(())
+}
+
+/// Main logic which creates the Boundless client, executes the proofs and submits the tx.
+async fn run(
+    private_key: PrivateKeySigner,
+    rpc_url: Url,
+    order_stream_url: Option<Url>,
+    storage_config: Option<StorageProviderConfig>,
+    boundless_market_address: Address,
+    set_verifier_address: Address,
+    counter_address: Address,
+) -> Result<()> {
+    // Create a Boundless client from the provided parameters.
+    let boundless_client = ClientBuilder::default()
+        .with_rpc_url(rpc_url)
+        .with_boundless_market_address(boundless_market_address)
+        .with_set_verifier_address(set_verifier_address)
+        .with_order_stream_url(order_stream_url)
+        .with_storage_provider_config(storage_config.clone())
+        .with_private_key(private_key)
+        .build()
+        .await
+        .context("failed to build boundless client")?;
+
+    // We use a timestamp as input to the ECHO guest code so that the proof is unique.
+    let echo_message = Vec::from(format!("{:?}", SystemTime::now()));
+    let echo_input = Input::builder().write_slice(&echo_message).build_env()?;
+
+    // Request an un-aggregated proof from the Boundless market using the ECHO guest.
+    let selector = if risc0_zkvm::is_dev_mode() {
+        // NOTE: Do not use in production.
+        ContractSelector::FakeReceipt // in dev mode request a fake receipt
+    } else {
+        ContractSelector::Groth16V1_2 // otherwise a proper Groth16 proof
+    };
+    let (echo_journal, echo_seal) =
+        boundless_proof(&boundless_client, ECHO_ELF, echo_input, Some(selector))
+            .await
+            .context("failed to prove ECHO")?;
+
+    // Decode the resulting RISC0-ZKVM receipt.
+    let Ok(ContractReceipt::Base(echo_receipt)) = risc0_ethereum_contracts::receipt::decode_seal(
+        echo_seal,
+        ECHO_ID,
+        echo_journal.bytes.clone(),
+    ) else {
+        bail!("did not receive requested unaggregated receipt");
+    };
+    let echo_claim_digest = echo_receipt.claim().unwrap().digest();
+
+    // Build the IDENTITY input with from the ECHO receipt.
+    let identity_input = Input::builder()
+        .write_slice(&risc0_serde::to_vec(&Digest::from(ECHO_ID))?)
+        .write_slice(&risc0_serde::to_vec(&echo_receipt)?)
+        .build_env()?;
+
+    // Request a proof from the Boundless market using the IDENTITY guest.
+    let (identity_journal, identity_seal) =
+        boundless_proof(&boundless_client, IDENTITY_ELF, identity_input, None)
+            .await
+            .context("failed to prove IDENTITY")?;
+    debug_assert_eq!(&identity_journal.bytes, echo_claim_digest.as_bytes());
+
+    // Interact with the Counter contract by calling the increment function.
+    let counter = ICounterInstance::new(counter_address, boundless_client.provider());
+    let journal_digest = B256::from_slice(identity_journal.digest().as_bytes());
+    let image_id = B256::from_slice(Digest::from(IDENTITY_ID).as_bytes());
+    let call_increment =
+        counter.increment(identity_seal, image_id, journal_digest).from(boundless_client.caller());
+
+    tracing::info!("Calling Counter increment function");
+    let pending_tx = call_increment.send().await.context("failed to broadcast transaction")?;
+    tracing::info!("Broadcasting tx {}", pending_tx.tx_hash());
+    let tx_hash = pending_tx
+        .with_timeout(Some(TX_TIMEOUT))
+        .watch()
+        .await
+        .context("failed to confirm transaction")?;
+    tracing::info!("Tx {:?} confirmed", tx_hash);
+
+    // Query the counter value for the caller address.
+    let count = counter
+        .getCount(boundless_client.caller())
+        .call()
+        .await
+        .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?
+        ._0;
+    tracing::info!("Counter value for address {:?} is {:?}", boundless_client.caller(), count);
+
+    Ok(())
+}
+
+/// Execute the Boundless market prove process.
+/// This function uploads the elf and input, runs the guest executor, builds the request,
+/// submits it, and waits for the fulfillment.
+async fn boundless_proof<P, S>(
+    client: &Client<P, S>,
+    elf: impl AsRef<[u8]>,
+    input: GuestEnv,
+    selector: Option<ContractSelector>,
+) -> Result<(Journal, Bytes)>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    S: StorageProvider + Clone,
+{
+    // Compute the image ID of the ELF
+    let elf = elf.as_ref();
+    let image_id = compute_image_id(elf).context("failed to compute image ID from provided ELF")?;
+
+    // Upload the ELF binary and input data
+    let image_url = client.upload_image(elf).await.context("failed to upload image")?;
+    tracing::info!("Uploaded image to {}", image_url);
+
+    let input_encoded = input.encode().context("failed to encode input")?;
+    let input_url = client.upload_input(&input_encoded).await.context("failed to upload input")?;
+    tracing::info!("Uploaded input to {}", input_url);
+
+    // Execute the guest binary with the input
+    let mut env_builder = ExecutorEnv::builder();
+    if risc0_zkvm::is_dev_mode() {
+        // Enable and allow dev mode also in the guest.
+        // NOTE: Do not use in production.
+        env_builder.env_var("RISC0_DEV_MODE", "true");
+    }
+    env_builder.write_slice(&input.stdin);
+
+    let session_info =
+        default_executor().execute(env_builder.build()?, elf).context("failed to execute ELF")?;
+    // Calculate the cycles (in millions) required.
+    let mcycles_count = session_info
+        .segments
+        .iter()
+        .map(|segment| 1 << segment.po2)
+        .sum::<u64>()
+        .div_ceil(1_000_000);
+    let journal = session_info.journal;
+
+    // Build the proof requirements with the specified selector
+    let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
+    if let Some(selector) = selector {
+        requirements = requirements.with_selector(FixedBytes::from(selector as u32));
+    }
+
+    // Build the proof request offer
+    let offer = Offer::default()
+        // The market uses a reverse Dutch auction mechanism. Set min and max prices per million cycles.
+        .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
+        // NOTE: If your offer is not being accepted, try increasing the max price.
+        .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
+        // Timeouts for the request and lock.
+        .with_timeout(1000)
+        .with_lock_timeout(1000);
+
+    // Build and submit the request
+    let request = ProofRequest::builder()
+        .with_image_url(image_url)
+        .with_input(input_url)
+        .with_requirements(requirements)
+        .with_offer(offer)
+        .build()?;
+    let (request_id, expires_at) = client.submit_request(&request).await?;
+    tracing::info!("Request {} submitted", request_id);
+
+    // Wait for the request to be fulfilled (check periodically)
+    tracing::info!("Waiting for request {} to be fulfilled", request_id);
+    let (_, seal) = client
+        .wait_for_request_fulfillment(
+            request_id,
+            Duration::from_secs(5), // periodic check every 5 seconds
+            expires_at,
+        )
+        .await?;
+    tracing::info!("Request {} fulfilled", request_id);
+
+    Ok((journal, seal))
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::{
+        network::EthereumWallet,
+        node_bindings::{Anvil, AnvilInstance},
+        providers::{ProviderBuilder, WalletProvider},
+    };
+    use boundless_market::contracts::{
+        hit_points::default_allowance,
+        test_utils::{create_test_ctx, TestCtx},
+    };
+    use broker::test_utils::BrokerBuilder;
+    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_set_builder::SET_BUILDER_ID;
+    use test_log::test;
+    use tokio::time::timeout;
+
+    use super::*;
+
+    alloy::sol!(
+        #![sol(rpc)]
+        Counter,
+        "../contracts/out/Counter.sol/Counter.json"
+    );
+
+    async fn deploy_counter<P: Provider + 'static + Clone + WalletProvider>(
+        anvil: &AnvilInstance,
+        test_ctx: &TestCtx<P>,
+    ) -> Result<Address> {
+        let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let deployer_provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(deployer_signer))
+            .on_builtin(&anvil.endpoint())
+            .await
+            .unwrap();
+        let counter = Counter::deploy(&deployer_provider, test_ctx.set_verifier_address).await?;
+        Ok(*counter.address())
+    }
+
+    #[test(tokio::test)]
+    // This test should run in dev mode. Set the RISC0_DEV_MODE environment variable to true, e.g.:
+    // RISC0_DEV_MODE=true cargo test
+    async fn test_main() -> anyhow::Result<()> {
+        // Setup anvil and deploy contracts.
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        ctx.prover_market
+            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .await
+            .unwrap();
+        let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
+
+        // Start a broker.
+        let (broker, _) = BrokerBuilder::new_test(&ctx, anvil.endpoint_url())
+            .await
+            //.with_bonsai(bonsai_api_key, bonsai_api_url)
+            .build()
+            .await?;
+        let broker_task = tokio::spawn(async move { broker.start_service().await.unwrap() });
+
+        // Run the main function with a timeout of 60 seconds.
+        let result = timeout(
+            Duration::from_secs(60),
+            run(
+                ctx.customer_signer,
+                anvil.endpoint_url(),
+                None,
+                Some(StorageProviderConfig::dev_mode()),
+                ctx.boundless_market_address,
+                ctx.set_verifier_address,
+                counter_address,
+            ),
+        )
+        .await;
+
+        // Check the result of the timeout.
+        match result {
+            Ok(run_result) => {
+                run_result?;
+            }
+            Err(_) => {
+                broker_task.abort();
+                panic!("The run function did not complete within 60 seconds.");
+            }
+        }
+
+        // Ensure the broker task finishes.
+        if broker_task.is_finished() {
+            broker_task.await?;
+        } else {
+            broker_task.abort();
+        }
+
+        Ok(())
+    }
+}
