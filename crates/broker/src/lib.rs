@@ -18,7 +18,7 @@ use boundless_market::{
     selector::is_unaggregated_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use clap::Parser;
+use clap::{ArgAction, Parser};
 pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
@@ -120,6 +120,16 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
+
+    /// Set to skip caching of images
+    ///
+    /// By default images are cached locally in cache_dir. Set this flag to redownload them every time
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub nocache: bool,
+
+    /// Cache directory for storing downloaded images and inputs
+    #[clap(long, default_value = "/tmp/broker_cache", conflicts_with = "nocache")]
+    pub cache_dir: Option<PathBuf>,
 }
 
 /// Status of a order as it moves through the lifecycle
@@ -301,6 +311,7 @@ where
             let (image_id, image_url_str) =
                 boundless_market.image_info().await.context("Failed to get contract image_info")?;
             let image_uri = UriHandlerBuilder::new(&image_url_str)
+                .set_cache_dir(&self.args.cache_dir)
                 .set_max_size(max_file_size)
                 .build()
                 .context("Failed to parse image URI")?;
@@ -335,6 +346,7 @@ where
                 .await
                 .context("Failed to get contract image_info")?;
             let image_uri = UriHandlerBuilder::new(&image_url_str)
+                .set_cache_dir(&self.args.cache_dir)
                 .set_max_size(max_file_size)
                 .build()
                 .context("Failed to parse image URI")?;
@@ -648,7 +660,7 @@ async fn upload_input_uri(
     })
 }
 
-/// A very small utility function to get the current unix timestamp.
+/// A very small utility function to get the current unix timestamp in seconds.
 // TODO(#379): Avoid drift relative to the chain's timestamps.
 pub(crate) fn now_timestamp() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
@@ -701,6 +713,8 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
+                nocache: true,
+                cache_dir: None,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }
