@@ -16,7 +16,7 @@ requirements:
 
 # A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.
-imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreigldbsuito6wdklu7vdzwexm3dnhh6vkk55xvjyup7mxol3vkwxr4"
+imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu"
 
 # Input to be provided to the zkVM guest execution.
 # The input data is a encoded guest environment.

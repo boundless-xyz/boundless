@@ -2519,6 +2519,8 @@ version = "0.6.0"
 dependencies = [
  "alloy 0.11.1",
  "anyhow",
+ "bincode",
+ "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
  "bytemuck",
@@ -2567,6 +2569,7 @@ dependencies = [
  "rand 0.9.0",
  "reqwest",
  "risc0-aggregation",
+ "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
  "rmp-serde",
