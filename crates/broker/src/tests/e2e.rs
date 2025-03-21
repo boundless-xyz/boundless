@@ -7,12 +7,15 @@ use std::path::PathBuf;
 use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, Address, U256},
+    primitives::{utils, Address, FixedBytes, U256},
     signers::local::PrivateKeySigner,
 };
-use boundless_market::contracts::{
-    hit_points::default_allowance, test_utils::create_test_ctx, Input, Offer, Predicate,
-    PredicateType, ProofRequest, Requirements,
+use boundless_market::{
+    contracts::{
+        hit_points::default_allowance, test_utils::create_test_ctx, Input, Offer, Predicate,
+        PredicateType, ProofRequest, Requirements,
+    },
+    selector::is_unaggregated_selector,
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -200,7 +203,8 @@ async fn e2e_with_selector() {
 
     ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
-    ctx.customer_market
+    let (_journal, seal) = ctx
+        .customer_market
         .wait_for_request_fulfillment(
             U256::from(request.id),
             Duration::from_secs(1),
@@ -208,6 +212,9 @@ async fn e2e_with_selector() {
         )
         .await
         .unwrap();
+
+    let selector = FixedBytes(seal[0..4].try_into().unwrap());
+    assert!(is_unaggregated_selector(selector));
 
     // Check for a broker panic
     if broker_task.is_finished() {
@@ -266,7 +273,8 @@ async fn e2e_with_multiple_requests() {
 
     ctx.customer_market.submit_request(&request_unaggregated, &ctx.customer_signer).await.unwrap();
 
-    ctx.customer_market
+    let (_journal, seal) = ctx
+        .customer_market
         .wait_for_request_fulfillment(
             U256::from(request.id),
             Duration::from_secs(1),
@@ -275,7 +283,11 @@ async fn e2e_with_multiple_requests() {
         .await
         .unwrap();
 
-    ctx.customer_market
+    let selector = FixedBytes(seal[0..4].try_into().unwrap());
+    assert!(!is_unaggregated_selector(selector));
+
+    let (_journal, seal) = ctx
+        .customer_market
         .wait_for_request_fulfillment(
             U256::from(request_unaggregated.id),
             Duration::from_secs(1),
@@ -283,6 +295,9 @@ async fn e2e_with_multiple_requests() {
         )
         .await
         .unwrap();
+
+    let selector = FixedBytes(seal[0..4].try_into().unwrap());
+    assert!(is_unaggregated_selector(selector));
 
     // Check for a broker panic
     if broker_task.is_finished() {
