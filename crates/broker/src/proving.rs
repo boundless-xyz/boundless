@@ -255,7 +255,7 @@ mod tests {
     async fn prove_order() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let prover: ProverObj = Arc::new(DefaultProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
@@ -320,7 +320,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
 
-        let prover: ProverObj = Arc::new(DefaultProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();

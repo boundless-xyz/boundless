@@ -804,7 +804,7 @@ mod tests {
 
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
-            let prover: ProverObj = Arc::new(DefaultProver::default());
+            let prover: ProverObj = Arc::new(DefaultProver::new());
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn());
 

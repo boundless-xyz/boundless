@@ -518,7 +518,7 @@ mod tests {
         market_customer.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let prover: ProverObj = Arc::new(DefaultProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         let echo_id = Digest::from(ECHO_ID);
         let echo_id_str = echo_id.to_string();
