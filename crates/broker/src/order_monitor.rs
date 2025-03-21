@@ -299,10 +299,10 @@ mod tests {
                 .unwrap(),
         );
 
-        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+        let hit_points = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
 
         let market_address = deploy_boundless_market(
-            &signer,
+            signer.address(),
             provider.clone(),
             Address::ZERO,
             hit_points,
@@ -359,6 +359,7 @@ mod tests {
             image_id: None,
             input_id: None,
             proof_id: None,
+            compressed_proof_id: None,
             expire_timestamp: None,
             client_sig: client_sig.into(),
             lock_price: None,
@@ -408,10 +409,10 @@ mod tests {
                 .unwrap(),
         );
 
-        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+        let hit_points = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
 
         let market_address = deploy_boundless_market(
-            &signer,
+            signer.address(),
             provider.clone(),
             Address::ZERO,
             hit_points,
@@ -470,6 +471,7 @@ mod tests {
             image_id: None,
             input_id: None,
             proof_id: None,
+            compressed_proof_id: None,
             expire_timestamp: None,
             client_sig,
             lock_price: None,

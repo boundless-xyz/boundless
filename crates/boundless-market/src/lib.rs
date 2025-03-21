@@ -35,6 +35,9 @@ pub mod input;
 /// Order stream client module for submitting requests off-chain.
 pub mod order_stream_client;
 #[cfg(not(target_os = "zkvm"))]
+/// Selector module implementing utility functions for supported selectors.
+pub mod selector;
+#[cfg(not(target_os = "zkvm"))]
 /// Storage module for interacting with the storage provider.
 pub mod storage;
 

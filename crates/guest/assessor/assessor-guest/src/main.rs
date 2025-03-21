@@ -8,11 +8,13 @@
 extern crate alloc;
 
 use alloc::{vec, vec::Vec};
-use alloy_primitives::{Address, FixedBytes, B256};
+use alloy_primitives::{Address, B256};
 use alloy_sol_types::SolStruct;
 use alloy_sol_types::SolValue;
 use boundless_assessor::AssessorInput;
-use boundless_market::contracts::{AssessorCallback, AssessorJournal, RequestId, Selector};
+use boundless_market::contracts::{
+    AssessorCallback, AssessorJournal, RequestId, Selector, UNSPECIFIED_SELECTOR,
+};
 use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
@@ -75,7 +77,7 @@ fn main() {
                 gasLimit: fill.request.requirements.callback.gasLimit,
             });
         }
-        if fill.request.requirements.selector != FixedBytes::<4>([0; 4]) {
+        if fill.request.requirements.selector != UNSPECIFIED_SELECTOR {
             selectors.push(Selector {
                 index: index.try_into().expect("selector index overflow"),
                 value: fill.request.requirements.selector,

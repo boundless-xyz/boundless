@@ -9,12 +9,15 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
-        Address, FixedBytes, U256,
+        Address, U256,
     },
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::{boundless_market::BoundlessMarketService, RequestError};
+use boundless_market::{
+    contracts::{boundless_market::BoundlessMarketService, RequestError},
+    selector::SupportedSelectors,
+};
 use thiserror::Error;
 use tokio::task::JoinSet;
 
@@ -52,6 +55,7 @@ pub struct OrderPicker<P> {
     prover: ProverObj,
     provider: Arc<P>,
     market: BoundlessMarketService<Arc<P>>,
+    supported_selectors: SupportedSelectors,
     // Tracks the timestamp when the prover estimates it will complete the locked orders.
     prover_available_at: Arc<tokio::sync::Mutex<u64>>,
 }
@@ -78,6 +82,7 @@ where
             prover,
             provider,
             market,
+            supported_selectors: SupportedSelectors::default(),
             prover_available_at: Arc::new(tokio::sync::Mutex::new(now_timestamp())),
         }
     }
@@ -100,13 +105,17 @@ where
             }
         }
 
-        // TODO(#BM-536): Filter based on supported selectors
-        // Drop orders that specify a selector
-        if order.request.requirements.selector != FixedBytes::<4>([0; 4]) {
-            tracing::warn!("Removing order {order_id:x} because it has a selector requirement");
-            self.db.skip_order(order_id).await.context("Order has a selector requirement")?;
+        // TODO(BM-40): When accounting for gas costs of orders, a groth16 selector has much higher cost.
+        if !self.supported_selectors.is_supported(&order.request.requirements.selector) {
+            tracing::warn!(
+                "Removing order {order_id:x} because it has an unsupported selector requirement"
+            );
+            self.db
+                .skip_order(order_id)
+                .await
+                .context("Order has an unsupported selector requirement")?;
             return Ok(false);
-        }
+        };
 
         // is the order expired already?
         // TODO: Handle lockTimeout separately from timeout.
@@ -640,7 +649,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{aliases::U96, Address, Bytes, B256},
+        primitives::{aliases::U96, Address, Bytes, FixedBytes, B256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
@@ -652,6 +661,7 @@ mod tests {
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_util::{ECHO_ELF, ECHO_ID};
     use httpmock::prelude::*;
+    use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
@@ -714,6 +724,7 @@ mod tests {
                 image_id: None,
                 input_id: None,
                 proof_id: None,
+                compressed_proof_id: None,
                 expire_timestamp: None,
                 client_sig: Bytes::new(),
                 lock_price: None,
@@ -755,9 +766,9 @@ mod tests {
 
             provider.anvil_mine(Some(4), Some(2)).await.unwrap();
 
-            let hp_contract = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+            let hp_contract = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
             let market_address = deploy_boundless_market(
-                &signer,
+                signer.address(),
                 provider.clone(),
                 Address::ZERO,
                 hp_contract,
@@ -863,6 +874,38 @@ mod tests {
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("predicate check failed, skipping"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_unsupported_selector() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
+
+        let mut order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
+        let order_id = order.request.id;
+
+        // set an unsupported selector
+        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V1_1 as u32);
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain("has an unsupported selector requirement"));
     }
 
     #[tokio::test]
