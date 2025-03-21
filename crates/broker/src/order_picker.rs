@@ -99,21 +99,16 @@ where
         if let Some(allow_addresses) = allowed_addresses_opt {
             let client_addr = order.request.client_address()?;
             if !allow_addresses.contains(&client_addr) {
-                tracing::warn!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
-                self.db.skip_order(order_id).await.context("Order not in allowed addr list")?;
+                tracing::info!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
                 return Ok(false);
             }
         }
 
         // TODO(BM-40): When accounting for gas costs of orders, a groth16 selector has much higher cost.
         if !self.supported_selectors.is_supported(&order.request.requirements.selector) {
-            tracing::warn!(
+            tracing::info!(
                 "Removing order {order_id:x} because it has an unsupported selector requirement"
             );
-            self.db
-                .skip_order(order_id)
-                .await
-                .context("Order has an unsupported selector requirement")?;
             return Ok(false);
         };
 
@@ -124,16 +119,14 @@ where
 
         let now = now_timestamp();
         if expiration <= now {
-            tracing::warn!("Removing order {order_id:x} because it has expired");
-            self.db.skip_order(order_id).await.context("Failed to delete expired order")?;
+            tracing::info!("Removing order {order_id:x} because it has expired");
             return Ok(false);
         };
 
         // Does the order expire within the min deadline
         let seconds_left = expiration - now;
         if seconds_left <= min_deadline {
-            tracing::warn!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
-            self.db.skip_order(order_id).await.context("Failed to delete short deadline order")?;
+            tracing::info!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             return Ok(false);
         }
 
@@ -145,8 +138,7 @@ where
 
         let lockin_stake = U256::from(order.request.offer.lockStake);
         if lockin_stake > max_stake {
-            tracing::warn!("Removing high stake order {order_id:x}");
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            tracing::info!("Removing high stake order {order_id:x}");
             return Ok(false);
         }
 
@@ -159,14 +151,12 @@ where
 
         if gas_to_lock_order > available_gas {
             tracing::warn!("Estimated there will be insufficient gas to lock this order after locking and fulfilling pending orders");
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(false);
         }
         if lockin_stake > available_stake {
             tracing::warn!(
                 "Insufficient available stake to lock order {order_id:x}. Requires {lockin_stake}, has {available_stake}"
             );
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(false);
         }
 
@@ -223,13 +213,9 @@ where
             .context("Failed to convert U256 exec limit to u64")?;
 
         if exec_limit == 0 {
-            tracing::warn!(
+            tracing::info!(
                 "Removing order {order_id:x} because it's mcycle price limit is below 0 mcycles"
             );
-            self.db
-                .skip_order(order_id)
-                .await
-                .context("Order max price below min mcycle price, limit 0")?;
             return Ok(false);
         }
 
@@ -263,8 +249,7 @@ where
         if let Some(mcycle_limit) = max_mcycle_limit {
             let mcycles = proof_res.stats.total_cycles / 1_000_000;
             if mcycles >= mcycle_limit {
-                tracing::warn!("Order {order_id:x} max_mcycle_limit check failed req: {mcycle_limit} | config: {mcycles}");
-                self.db.skip_order(order_id).await.context("Failed to delete order")?;
+                tracing::info!("Order {order_id:x} max_mcycle_limit check failed req: {mcycle_limit} | config: {mcycles}");
                 return Ok(false);
             }
         }
@@ -291,11 +276,10 @@ where
             if completion_time >= expiration {
                 drop(prover_available);
                 // Proof estimated that it cannot complete before the expiration
-                tracing::warn!(
+                tracing::info!(
                     "Order {order_id:x} cannot be completed in time. Proof estimated to take {proof_time_seconds}s to complete, would be {}s past deadline",
                     completion_time.saturating_sub(expiration)
                 );
-                self.db.skip_order(order_id).await.context("Failed to delete order")?;
                 return Ok(false);
             }
 
@@ -315,19 +299,17 @@ where
         let max_journal_bytes =
             self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
         if journal.len() > max_journal_bytes {
-            tracing::warn!(
+            tracing::info!(
                 "Order {order_id:x} journal larger than set limit ({} > {}), skipping",
                 journal.len(),
                 max_journal_bytes
             );
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(false);
         }
 
         // Validate the predicates:
         if !order.request.requirements.predicate.eval(journal.clone()) {
-            tracing::warn!("Order {order_id:x} predicate check failed, skipping");
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            tracing::info!("Order {order_id:x} predicate check failed, skipping");
             return Ok(false);
         }
 
@@ -352,8 +334,7 @@ where
 
         // Skip the order if it will never be worth it
         if mcycle_price_max < config_min_mcycle_price {
-            tracing::warn!("Removing under priced order {order_id:x}");
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            tracing::info!("Removing under priced order {order_id:x}");
             return Ok(false);
         }
 
@@ -513,7 +494,7 @@ where
 
     async fn spawn_pricing_tasks(
         &self,
-        tasks: &mut JoinSet<Result<Option<U256>, (U256, PriceOrderErr)>>,
+        tasks: &mut JoinSet<(U256, Result<bool, PriceOrderErr>)>,
         capacity: u32,
     ) -> Result<()> {
         if capacity == 0 {
@@ -526,9 +507,8 @@ where
             let picker_clone = self.clone();
             tasks.spawn(async move {
                 match picker_clone.price_order(order_id, &order).await {
-                    Ok(true) => Ok(Some(order_id)),
-                    Ok(false) => Ok(None),
-                    Err(err) => Err((order_id, err)),
+                    Ok(priced) => (order_id, Ok(priced)),
+                    Err(err) => (order_id, Err(err)),
                 }
             });
         }
@@ -603,16 +583,22 @@ where
                     // Process completed pricing tasks
                     Some(result) = pricing_tasks.join_next() => {
                         match result {
-                            Ok(Ok(Some(order_id))) => {
-                                tracing::debug!("Successfully priced order {order_id:x}");
-                                if let Some(cap) = &mut capacity {
-                                    *cap = cap.saturating_sub(1);
+                            Ok((order_id, Ok(priced))) => {
+                                if priced {
+                                    tracing::debug!("Successfully priced order {order_id:x}");
+                                    if let Some(cap) = &mut capacity {
+                                        *cap = cap.saturating_sub(1);
+                                    }
+                                } else {
+                                    tracing::debug!("Setting order {order_id:x} to skipped");
+                                    picker_copy
+                                        .db
+                                        .skip_order(order_id)
+                                        .await
+                                        .map_err(|e| SupervisorErr::Recover(e.into()))?;
                                 }
                             }
-                            Ok(Ok(None)) => {
-                                tracing::debug!("Skipping order it was not priced");
-                            }
-                            Ok(Err((order_id, err))) => {
+                            Ok((order_id, Err(err))) => {
                                 picker_copy
                                     .db
                                     .set_order_failure(order_id, err.to_string())
@@ -1380,7 +1366,8 @@ mod tests {
         assert_eq!(pricing_tasks.len(), 2);
 
         // Finish pricing an order and mark it as complete to free up capacity
-        let order = pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
+        let (order, priced) = pricing_tasks.join_next().await.unwrap().unwrap().unwrap();
+        assert!(priced);
         ctx.db.set_order_complete(order).await.unwrap();
 
         let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
