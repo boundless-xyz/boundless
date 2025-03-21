@@ -4,17 +4,16 @@
 
 use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
+use crate::config::ProverConf;
+use crate::provers::{ExecutorResp, ProofResult, Prover, ProverError};
 use anyhow::{Context, Result as AnyhowResult};
 use async_trait::async_trait;
 use risc0_zkvm::{
     default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
     VERSION,
 };
-
 use tokio::sync::Mutex;
 use uuid::Uuid;
-
-use crate::provers::{ExecutorResp, ProofResult, Prover, ProverError};
 
 #[derive(Debug, Default)]
 pub struct DefaultProver {
@@ -329,7 +328,7 @@ impl Prover for DefaultProver {
         // TODO: remove this workaround when default_prover().compress works for Bonsai
         let compress_result = if default_prover().get_name() == "bonsai" {
             let client = bonsai_sdk::non_blocking::Client::from_env(VERSION)?;
-            super::Bonsai::compress(&client, &receipt).await
+            super::Bonsai::compress(&client, &receipt, &ProverConf::default()).await
         } else {
             tokio::task::spawn_blocking(move || {
                 default_prover().compress(&ProverOpts::groth16(), &receipt)

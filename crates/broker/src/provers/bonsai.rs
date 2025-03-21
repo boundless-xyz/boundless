@@ -11,6 +11,7 @@ use bonsai_sdk::{
 use risc0_zkvm::Receipt;
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
+use crate::config::ProverConf;
 use crate::{
     config::{ConfigErr, ConfigLock},
     futures_retry::retry,
@@ -55,15 +56,37 @@ impl Bonsai {
     pub async fn compress(
         client: &BonsaiClient,
         receipt: &Receipt,
+        cfg: &ProverConf,
     ) -> Result<Receipt, ProverError> {
-        let session_id = client.upload_receipt(bincode::serialize(receipt).unwrap()).await?;
-        let proof_id = client.create_snark(session_id).await?;
+        let receipt_bytes = bincode::serialize(receipt).unwrap();
+        let session_id = retry::<String, ProverError, _, _>(
+            cfg.req_retry_count,
+            cfg.req_retry_sleep_ms,
+            || async { Ok(client.upload_receipt(receipt_bytes.clone()).await?) },
+            "upload input",
+        )
+        .await?;
+        let proof_id = retry::<SnarkId, ProverError, _, _>(
+            cfg.req_retry_count,
+            cfg.req_retry_sleep_ms,
+            || async { Ok(client.create_snark(session_id.clone()).await?) },
+            "create snark",
+        )
+        .await?;
 
         loop {
-            let status = proof_id.status(&client).await?;
+            let status = retry::<_, SdkErr, _, _>(
+                cfg.status_poll_retry_count,
+                cfg.status_poll_ms,
+                || async { proof_id.status(client).await },
+                "get snark status",
+            )
+            .await?;
+
             match status.status.as_ref() {
                 "RUNNING" => {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(cfg.status_poll_ms))
+                        .await;
                     continue;
                 }
                 "SUCCEEDED" => {
