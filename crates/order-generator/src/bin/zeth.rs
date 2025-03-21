@@ -12,10 +12,9 @@ use alloy::{
     },
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
-    transports::Transport,
 };
 use anyhow::{anyhow, bail, Result};
-use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
+use balance_alerts_layer::BalanceAlertConfig;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
@@ -128,10 +127,7 @@ async fn main() -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(wallet)
-        .on_http(args.zeth_rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.zeth_rpc_url.clone());
     let rpc = Some(args.zeth_rpc_url.to_string());
     let chain_id = provider.get_chain_id().await?;
     let chain = Some(NamedChain::try_from(chain_id).map_err(|_| anyhow!("Unknown chain"))?);
@@ -261,15 +257,14 @@ struct RequestParams {
     offchain: bool,
 }
 
-async fn submit_request<T, P, S>(
+async fn submit_request<P, S>(
     build_args: BuildArgs,
     chain_id: u64,
-    boundless_client: Client<T, P, S>,
+    boundless_client: Client<P, S>,
     params: RequestParams,
 ) -> Result<U256>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     // preflight the block building process
@@ -296,16 +291,10 @@ where
         default_executor().execute(guest_env.try_into()?, ZETH_GUESTS_RETH_ETHEREUM_ELF)?;
 
     let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
-    let min_price = args
-        .min_price_per_mcycle
-        .checked_mul(U256::from(cycles_count))
-        .unwrap()
-        .div_ceil(U256::from(1_000_000));
-    let max_price = args
-        .max_price_per_mcycle
-        .checked_mul(U256::from(cycles_count))
-        .unwrap()
-        .div_ceil(U256::from(1_000_000));
+    let min_price =
+        params.min.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
+    let max_price =
+        params.max.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
 
     tracing::info!(
         "{} cycles count {} mcycles count {} min_price in ether {} max_price in ether",

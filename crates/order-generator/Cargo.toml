@@ -40,6 +40,7 @@ zeth-preflight = { git = "https://github.com/risc0/zeth", optional = true }
 zeth-preflight-ethereum = { git = "https://github.com/risc0/zeth", optional = true }
 
 [dev-dependencies]
+boundless-market = { workspace = true, features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
@@ -52,4 +53,4 @@ zeth = [
     "dep:zeth-guests", 
     "dep:zeth-preflight", 
     "dep:zeth-preflight-ethereum"
-    ]
+]
