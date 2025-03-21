@@ -5,10 +5,11 @@ import os
 from pathlib import Path
 import subprocess
 
-ALL_RIGHT_RESERVED_HEADER = """
-// Copyright (c) {YEAR} RISC Zero, Inc.
+BSL_HEADER = """
+// Copyright (c) 2025 RISC Zero Inc,
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 """.strip().splitlines()
 
 APACHE_HEADER = """
@@ -57,7 +58,7 @@ def check_header(file, expected_year, lines_actual):
     if any(map(lambda path: file.is_relative_to(path), APACHE_PATHS)):
         header = APACHE_HEADER
     else:
-        header = ALL_RIGHT_RESERVED_HEADER
+        header = BSL_HEADER
 
     for expected, actual in zip(header, lines_actual):
         expected = expected.replace("{YEAR}", expected_year)
