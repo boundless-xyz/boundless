@@ -2,15 +2,14 @@
 //
 // All rights reserved.
 
+use std::path::PathBuf;
+
+use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
     primitives::{utils, Address, U256},
+    signers::local::PrivateKeySigner,
 };
-use risc0_zkvm::{is_dev_mode, sha::Digest};
-use tempfile::NamedTempFile;
-use url::Url;
-// use broker::Broker;
-use crate::{config::Config, now_timestamp, Args, Broker};
 use boundless_market::contracts::{
     hit_points::default_allowance, test_utils::create_test_ctx, Input, Offer, Predicate,
     PredicateType, ProofRequest, Requirements,
@@ -18,8 +17,11 @@ use boundless_market::contracts::{
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use guest_util::{ECHO_ID, ECHO_PATH};
+use risc0_zkvm::{is_dev_mode, sha::Digest};
+use tempfile::NamedTempFile;
 use tokio::time::Duration;
 use tracing_test::traced_test;
+use url::Url;
 
 fn generate_request(id: u32, addr: &Address, unaggregated: bool) -> ProofRequest {
     let mut requirements = Requirements::new(
@@ -47,6 +49,61 @@ fn generate_request(id: u32, addr: &Address, unaggregated: bool) -> ProofRequest
     )
 }
 
+async fn new_config(batch_size: u64) -> NamedTempFile {
+    let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
+    let mut config = Config::default();
+    config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
+    config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+    if !is_dev_mode() {
+        config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
+    }
+    config.prover.status_poll_ms = 1000;
+    config.prover.req_retry_count = 3;
+    config.market.mcycle_price = "0.00001".into();
+    config.market.min_deadline = 100;
+    config.batcher.batch_size = Some(batch_size);
+    config.write(config_file.path()).await.unwrap();
+    config_file
+}
+
+fn broker_args(
+    config_file: PathBuf,
+    boundless_market_address: Address,
+    set_verifier_address: Address,
+    rpc_url: Url,
+    private_key: PrivateKeySigner,
+) -> Args {
+    let (bonsai_api_url, bonsai_api_key) = match is_dev_mode() {
+        true => (None, None),
+        false => (
+            Some(
+                Url::parse(&std::env::var("BONSAI_API_URL").expect("BONSAI_API_URL must be set"))
+                    .unwrap(),
+            ),
+            Some(std::env::var("BONSAI_API_KEY").expect("BONSAI_API_KEY must be set")),
+        ),
+    };
+
+    Args {
+        db_url: "sqlite::memory:".into(),
+        config_file,
+        boundless_market_address,
+        set_verifier_address,
+        rpc_url,
+        order_stream_url: None,
+        private_key,
+        bento_api_url: None,
+        bonsai_api_key,
+        bonsai_api_url,
+        deposit_amount: None,
+        rpc_retry_max: 0,
+        rpc_retry_backoff: 200,
+        rpc_retry_cu: 1000,
+        nocache: true,
+        cache_dir: None,
+    }
+}
+
 #[tokio::test]
 #[traced_test]
 async fn simple_e2e() {
@@ -64,33 +121,14 @@ async fn simple_e2e() {
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     // Start broker
-    let config_file = NamedTempFile::new().unwrap();
-    let mut config = Config::default();
-    // - modify config here
-    config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
-    config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-    config.market.mcycle_price = "0.00001".into();
-    config.batcher.batch_size = Some(1);
-    config.write(config_file.path()).await.unwrap();
-
-    let args = Args {
-        db_url: "sqlite::memory:".into(),
-        config_file: config_file.path().to_path_buf(),
-        boundless_market_address: ctx.boundless_market_address,
-        set_verifier_address: ctx.set_verifier_address,
-        rpc_url: anvil.endpoint_url(),
-        order_stream_url: None,
-        private_key: ctx.prover_signer,
-        bento_api_url: None,
-        bonsai_api_key: None,
-        bonsai_api_url: None,
-        deposit_amount: None,
-        rpc_retry_max: 0,
-        rpc_retry_backoff: 200,
-        rpc_retry_cu: 1000,
-        nocache: true,
-        cache_dir: None,
-    };
+    let config = new_config(1).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.boundless_market_address,
+        ctx.set_verifier_address,
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
     let broker_task = tokio::spawn(async move {
         broker.start_service().await.unwrap();
@@ -140,48 +178,14 @@ async fn e2e_with_selector() {
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     // Start broker
-    let config_file = NamedTempFile::new().unwrap();
-    let mut config = Config::default();
-    // - modify config here
-    config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
-    config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-    if !is_dev_mode() {
-        config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
-    }
-    config.prover.status_poll_ms = 1000;
-    config.prover.req_retry_count = 3;
-    config.market.mcycle_price = "0.00001".into();
-    config.market.min_deadline = 100;
-    config.batcher.batch_size = Some(1);
-    config.write(config_file.path()).await.unwrap();
-
-    let (bonsai_api_url, bonsai_api_key) = match is_dev_mode() {
-        true => (None, None),
-        false => (
-            Some(
-                Url::parse(&std::env::var("BONSAI_API_URL").expect("BONSAI_API_URL must be set"))
-                    .unwrap(),
-            ),
-            Some(std::env::var("BONSAI_API_KEY").expect("BONSAI_API_KEY must be set")),
-        ),
-    };
-
-    let args = Args {
-        db_url: "sqlite::memory:".into(),
-        config_file: config_file.path().to_path_buf(),
-        boundless_market_address: ctx.boundless_market_address,
-        set_verifier_address: ctx.set_verifier_address,
-        rpc_url: anvil.endpoint_url(),
-        order_stream_url: None,
-        private_key: ctx.prover_signer,
-        bento_api_url: None,
-        bonsai_api_key,
-        bonsai_api_url,
-        deposit_amount: None,
-        rpc_retry_max: 0,
-        rpc_retry_backoff: 200,
-        rpc_retry_cu: 1000,
-    };
+    let config = new_config(1).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.boundless_market_address,
+        ctx.set_verifier_address,
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
     let broker_task = tokio::spawn(async move {
         broker.start_service().await.unwrap();
@@ -231,48 +235,14 @@ async fn e2e_with_multiple_requests() {
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     // Start broker
-    let config_file = NamedTempFile::new().unwrap();
-    let mut config = Config::default();
-    // - modify config here
-    config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
-    config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-    if !is_dev_mode() {
-        config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
-    }
-    config.prover.status_poll_ms = 1000;
-    config.prover.req_retry_count = 3;
-    config.market.mcycle_price = "0.00001".into();
-    config.market.min_deadline = 100;
-    config.batcher.batch_size = Some(2);
-    config.write(config_file.path()).await.unwrap();
-
-    let (bonsai_api_url, bonsai_api_key) = match is_dev_mode() {
-        true => (None, None),
-        false => (
-            Some(
-                Url::parse(&std::env::var("BONSAI_API_URL").expect("BONSAI_API_URL must be set"))
-                    .unwrap(),
-            ),
-            Some(std::env::var("BONSAI_API_KEY").expect("BONSAI_API_KEY must be set")),
-        ),
-    };
-
-    let args = Args {
-        db_url: "sqlite::memory:".into(),
-        config_file: config_file.path().to_path_buf(),
-        boundless_market_address: ctx.boundless_market_address,
-        set_verifier_address: ctx.set_verifier_address,
-        rpc_url: anvil.endpoint_url(),
-        order_stream_url: None,
-        private_key: ctx.prover_signer,
-        bento_api_url: None,
-        bonsai_api_key,
-        bonsai_api_url,
-        deposit_amount: None,
-        rpc_retry_max: 0,
-        rpc_retry_backoff: 200,
-        rpc_retry_cu: 1000,
-    };
+    let config = new_config(2).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.boundless_market_address,
+        ctx.set_verifier_address,
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
     let broker_task = tokio::spawn(async move {
         broker.start_service().await.unwrap();
