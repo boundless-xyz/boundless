@@ -44,7 +44,7 @@ jobs:
         uses: ./.github/actions/bininstall-risc0
         with:
           risczero-version: '2.0.0-rc.3'
-          toolchain-version: 'r0.1.81.0'
+          toolchain-version: '1.81.0'
 
       - name: forge build
         run: forge build
@@ -89,7 +89,7 @@ jobs:
         uses: ./.github/actions/bininstall-risc0
         with:
           risczero-version: '2.0.0-rc.3'
-          toolchain-version: 'r0.1.81.0'
+          toolchain-version: '1.81.0'
 
       - name: forge build
         run: forge build
