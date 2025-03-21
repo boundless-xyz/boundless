@@ -11,7 +11,7 @@ inputs:
   toolchain-version:
     description: 'Version of the RISC Zero toolchains to install'
     required: false
-    default: 'r0.1.81.0'
+    default: '1.81.0'
     type: string
 
 runs:
@@ -29,7 +29,16 @@ runs:
     - run: cargo binstall -y --force cargo-risczero@${{ inputs.risczero-version }}
       shell: bash
 
-    - run: cargo risczero install --version "${{ inputs.toolchain-version }}"
+    - name: install rzup
+      run: |
+        curl -L https://risczero.com/install | bash
+        echo "$HOME/.risc0/bin" >> $GITHUB_PATH
+      shell: bash
+
+    - name: install toolchains
+      run: |
+        rzup install --verbose --force rust ${{ inputs.toolchain-version }}
+        rzup install --verbose cpp
       shell: bash
 
     - name: test risczero
