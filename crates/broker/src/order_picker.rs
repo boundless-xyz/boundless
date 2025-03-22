@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::now_timestamp;
+use crate::{now_timestamp, provers::ProofResult};
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -85,6 +85,93 @@ where
             supported_selectors: SupportedSelectors::default(),
             prover_available_at: Arc::new(tokio::sync::Mutex::new(now_timestamp())),
         }
+    }
+
+    async fn evaluate_and_lock_order(
+        &self,
+        order_id: U256,
+        order: &Order,
+        proof_res: &ProofResult,
+        config_min_mcycle_price: U256,
+    ) -> Result<(), PriceOrderErr> {
+        let journal = self
+            .prover
+            .get_preflight_journal(&proof_res.id)
+            .await
+            .context("Failed to fetch preflight journal")?
+            .context("Failed to find preflight journal")?;
+
+        // ensure the journal is a size we are willing to submit on-chain
+        let max_journal_bytes =
+            self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
+        if journal.len() > max_journal_bytes {
+            tracing::warn!(
+                "Order {order_id:x} journal larger than set limit ({} > {}), skipping",
+                journal.len(),
+                max_journal_bytes
+            );
+            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            return Err(PriceOrderErr::OtherErr(anyhow::anyhow!("Journal size exceeds limit")));
+        }
+
+        // Validate the predicates:
+        if !order.request.requirements.predicate.eval(journal.clone()) {
+            tracing::warn!("Order {order_id:x} predicate check failed, skipping");
+            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            return Err(PriceOrderErr::OtherErr(anyhow::anyhow!("Predicate check failed")));
+        }
+
+        let one_mill = U256::from(1_000_000);
+
+        let mcycle_price_min = (U256::from(order.request.offer.minPrice)
+            / U256::from(proof_res.stats.total_cycles))
+            * one_mill;
+        let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
+            / U256::from(proof_res.stats.total_cycles))
+            * one_mill;
+
+        tracing::info!(
+            "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
+            format_ether(U256::from(order.request.offer.minPrice)),
+            format_ether(U256::from(order.request.offer.maxPrice)),
+            proof_res.stats.total_cycles,
+            format_ether(mcycle_price_min),
+            format_ether(mcycle_price_max),
+            order.request.offer.lockStake,
+        );
+
+        // Skip the order if it will never be worth it
+        if mcycle_price_max < config_min_mcycle_price {
+            tracing::warn!("Removing under priced order {order_id:x}");
+            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            return Err(PriceOrderErr::OtherErr(anyhow::anyhow!("Order underpriced")));
+        }
+
+        let target_timestamp = if mcycle_price_min >= config_min_mcycle_price {
+            tracing::info!(
+                "Selecting order {order_id:x} at price {} - ASAP",
+                format_ether(U256::from(order.request.offer.minPrice))
+            );
+            0 // Schedule the lock ASAP
+        } else {
+            let target_min_price =
+                config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill;
+            tracing::debug!("Target price: {target_min_price}");
+
+            order
+                .request
+                .offer
+                .time_at_price(target_min_price)
+                .context("Failed to get target price timestamp")?
+        };
+
+        let expiration = order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
+        self.db
+            .set_order_lock(order_id, target_timestamp, expiration)
+            .await
+            .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
+
+        Ok(())
     }
 
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<bool, PriceOrderErr> {
@@ -302,94 +389,19 @@ where
             *prover_available = completion_time;
             drop(prover_available);
             tracing::debug!("Order {order_id:x} estimated to take {proof_time_seconds}s to prove");
-        }
 
-        let journal = self
-            .prover
-            .get_preflight_journal(&proof_res.id)
-            .await
-            .context("Failed to fetch preflight journal")?
-            .context("Failed to find preflight journal")?;
-
-        // ensure the journal is a size we are willing to submit on-chain
-        let max_journal_bytes =
-            self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
-        if journal.len() > max_journal_bytes {
-            tracing::warn!(
-                "Order {order_id:x} journal larger than set limit ({} > {}), skipping",
-                journal.len(),
-                max_journal_bytes
-            );
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
-            return Ok(false);
-        }
-
-        // Validate the predicates:
-        if !order.request.requirements.predicate.eval(journal.clone()) {
-            tracing::warn!("Order {order_id:x} predicate check failed, skipping");
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
-            return Ok(false);
-        }
-
-        let one_mill = U256::from(1_000_000);
-
-        let mcycle_price_min = (U256::from(order.request.offer.minPrice)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
-        let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
-
-        tracing::info!(
-            "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
-            format_ether(U256::from(order.request.offer.minPrice)),
-            format_ether(U256::from(order.request.offer.maxPrice)),
-            proof_res.stats.total_cycles,
-            format_ether(mcycle_price_min),
-            format_ether(mcycle_price_max),
-            order.request.offer.lockStake,
-        );
-
-        // Skip the order if it will never be worth it
-        if mcycle_price_max < config_min_mcycle_price {
-            tracing::warn!("Removing under priced order {order_id:x}");
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
-            return Ok(false);
-        }
-
-        if mcycle_price_min >= config_min_mcycle_price {
-            tracing::info!(
-                "Selecting order {order_id:x} at price {} - ASAP",
-                format_ether(U256::from(order.request.offer.minPrice))
-            );
-            // set the target timestamp to 0 so we schedule the lock ASAP.
-            self.db
-                .set_order_lock(order_id, 0, expiration)
+            if let Err(e) = self
+                .evaluate_and_lock_order(order_id, order, &proof_res, config_min_mcycle_price)
                 .await
-                .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
-        }
-        // Here we have to pick a target timestamp that the price would be at our target price
-        // TODO: Clean up and do more testing on this since its just a rough shot first draft
-        else {
-            let target_min_price =
-                config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill;
-            tracing::debug!("Target price: {target_min_price}");
-
-            let target_timestamp: u64 = order
-                .request
-                .offer
-                .time_at_price(target_min_price)
-                .context("Failed to get target price timestamp")?;
-            tracing::info!(
-                "Selecting order {order_id:x} at price {} - at time {}",
-                format_ether(target_min_price),
-                target_timestamp,
-            );
-
-            self.db
-                .set_order_lock(order_id, target_timestamp, expiration)
-                .await
-                .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
+            {
+                // Failed to select order, decrement the reserved capacity.
+                let mut prover_available = self.prover_available_at.lock().await;
+                *prover_available = prover_available.saturating_sub(proof_time_seconds);
+                return Err(e);
+            }
+        } else {
+            self.evaluate_and_lock_order(order_id, order, &proof_res, config_min_mcycle_price)
+                .await?;
         }
 
         Ok(true)
@@ -496,7 +508,7 @@ where
         Ok(balance - pending_balance)
     }
 
-    async fn get_pricing_order_capacity(&self) -> Result<Option<u32>> {
+    async fn get_pricing_order_capacity(&self) -> Result<Capacity> {
         let max_concurrent_locks = {
             let config = self.config.lock_all()?;
             config.market.max_concurrent_locks
@@ -504,10 +516,14 @@ where
 
         if let Some(max) = max_concurrent_locks {
             let committed_orders_count = self.db.get_orders_committed_to_fulfill_count().await?;
-            let available_slots = max.saturating_sub(committed_orders_count);
-            Ok(Some(available_slots))
+            let available_slots = dbg!(max).saturating_sub(dbg!(committed_orders_count));
+            if committed_orders_count == 0 {
+                Ok(Capacity::Idle(available_slots))
+            } else {
+                Ok(Capacity::PartiallyLocked(available_slots))
+            }
         } else {
-            Ok(None)
+            Ok(Capacity::Unlimited)
         }
     }
 
@@ -537,6 +553,36 @@ where
     }
 }
 
+/// The capacity of the order picker, if there is a limit on the number of concurrent locks.
+#[derive(Debug, PartialEq)]
+enum Capacity {
+    /// There are no pending or currently locked orders.
+    Idle(u32),
+    /// There are orders that are picked to be locked but not fulfilled yet.
+    PartiallyLocked(u32),
+    /// There is no concurrent lock limit.
+    Unlimited,
+}
+
+impl Capacity {
+    fn request_size(&self, pricing_tasks: usize) -> u32 {
+        match self {
+            Capacity::Idle(capacity) | Capacity::PartiallyLocked(capacity) => std::cmp::min(
+                capacity.saturating_sub(u32::try_from(pricing_tasks).expect("tasks u32 overflow")),
+                10,
+            ),
+            Capacity::Unlimited => 10,
+        }
+    }
+    fn increment_locked_order(&mut self) {
+        match self {
+            Capacity::Idle(capacity) | Capacity::PartiallyLocked(capacity) => {
+                *capacity = capacity.saturating_sub(1)
+            }
+            Capacity::Unlimited => (),
+        }
+    }
+}
 impl<P> RetryTask for OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -553,7 +599,8 @@ where
             let mut pricing_tasks = JoinSet::new();
 
             // Set capacity at 0, to ensure the capacity is read before scheduling orders.
-            let mut capacity = Some(0u32);
+            // Assume orders are partially locked until read from DB.
+            let mut capacity = Capacity::PartiallyLocked(0u32);
 
             // Check for config updates and current lock count periodically
             let config_check_interval = tokio::time::Duration::from_secs(10);
@@ -568,6 +615,15 @@ where
             );
 
             loop {
+                if matches!(capacity, Capacity::Idle(_)) && pricing_tasks.is_empty() {
+                    // All orders complete and no pricing tasks in flight, set the
+                    // prover available estimate to current time to ensure that the
+                    // broker does not wait idle.
+                    tracing::debug!(
+                        "No in progress orders, setting prover available to current time"
+                    );
+                    *picker_copy.prover_available_at.lock().await = now_timestamp();
+                }
                 tokio::select! {
                     _ = config_check_timer.tick() => {
                         // Get updated max concurrent locks and calculate capacity based on orders
@@ -580,19 +636,7 @@ where
 
                     _ = pricing_check_timer.tick() => {
                         // Queue up orders that can be added to capacity.
-                        let order_size = if let Some(capacity) = capacity {
-                            // Calculcate the amount of orders that can be filled, with a maximum
-                            // of 10 orders at a time to avoid pricing using too much resources.
-                            std::cmp::min(
-                                capacity.saturating_sub(
-                                    u32::try_from(pricing_tasks.len()).expect("tasks u32 overflow"),
-                                ),
-                                10
-                            )
-                        } else {
-                            // If no maximum lock capacity, request a max of 10 orders at a time.
-                            10
-                        };
+                        let order_size = capacity.request_size(pricing_tasks.len());
 
                         picker_copy
                             .spawn_pricing_tasks(&mut pricing_tasks, order_size)
@@ -605,9 +649,7 @@ where
                         match result {
                             Ok(Ok(Some(order_id))) => {
                                 tracing::debug!("Successfully priced order {order_id:x}");
-                                if let Some(cap) = &mut capacity {
-                                    *cap = cap.saturating_sub(1);
-                                }
+                                capacity.increment_locked_order();
                             }
                             Ok(Ok(None)) => {
                                 tracing::debug!("Skipping order it was not priced");
@@ -1370,11 +1412,13 @@ mod tests {
         }
 
         let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
-        assert_eq!(capacity, Some(max_concurrent_locks));
+        assert_eq!(capacity, Capacity::Idle(max_concurrent_locks));
 
         let mut pricing_tasks = JoinSet::new();
 
-        ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, capacity.unwrap()).await.unwrap();
+        let request_size = capacity.request_size(pricing_tasks.len());
+        assert_eq!(request_size, 2);
+        ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, request_size).await.unwrap();
 
         // Verify only up to max_concurrent_locks are being priced
         assert_eq!(pricing_tasks.len(), 2);
@@ -1382,12 +1426,20 @@ mod tests {
         // Finish pricing an order and mark it as complete to free up capacity
         let order = pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
         ctx.db.set_order_complete(order).await.unwrap();
+        // Complete pricing other order, to ensure no race conditions in the test where db updated
+        // while task still exists in joinset
+        pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
 
         let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
-        assert_eq!(capacity, Some(1));
+        assert_eq!(capacity, Capacity::PartiallyLocked(1));
+        assert_eq!(pricing_tasks.len(), 0);
+
+        let request_size = capacity.request_size(pricing_tasks.len());
+        assert_eq!(request_size, 1);
+        ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, request_size).await.unwrap();
         assert_eq!(pricing_tasks.len(), 1);
 
-        ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, capacity.unwrap()).await.unwrap();
-        assert_eq!(pricing_tasks.len(), 2);
+        let order = ctx.db.get_order(orders[3].request.id).await.unwrap().unwrap();
+        assert!(order.status == OrderStatus::New);
     }
 }
