@@ -106,61 +106,61 @@ impl IntoResponse for AppError {
 
 /// Command line arguments
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 #[non_exhaustive]
 pub struct Args {
     /// Bind address for REST api
-    #[clap(long, env, default_value = "0.0.0.0:8585")]
+    #[arg(long, env, default_value = "0.0.0.0:8585")]
     bind_addr: String,
 
     /// RPC URL for the Ethereum node
-    #[clap(long, env, default_value = "http://localhost:8545")]
+    #[arg(long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
 
     /// Address of the BoundlessMarket contract
-    #[clap(long, env)]
+    #[arg(long, env)]
     boundless_market_address: Address,
 
     /// Minimum stake balance required to connect to the WebSocket
-    #[clap(long, value_parser = parse_ether)]
+    #[arg(long, value_parser = parse_ether)]
     min_balance: U256,
 
     /// Maximum number of WebSocket connections
-    #[clap(long, default_value = "100")]
+    #[arg(long, default_value = "100")]
     max_connections: usize,
 
     /// Maximum size of the queue for each WebSocket connection
-    #[clap(long, default_value = "100")]
+    #[arg(long, default_value = "100")]
     queue_size: usize,
 
     /// Domain for SIWE checks
-    #[clap(long, default_value = "localhost:8585")]
+    #[arg(long, default_value = "localhost:8585")]
     domain: String,
 
     /// List of addresses to skip balance checks when connecting them as brokers
-    #[clap(long, value_delimiter = ',')]
+    #[arg(long, value_delimiter = ',')]
     bypass_addrs: Vec<Address>,
 
     /// Time between sending websocket pings (in seconds)
-    #[clap(long, default_value_t = 120)]
+    #[arg(long, default_value_t = 120)]
     ping_time: u64,
 
     /// RPC HTTP retry rate limit max retry
     ///
     /// From the `RetryBackoffLayer` of Alloy
-    #[clap(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 10)]
     pub rpc_retry_max: u32,
 
     /// RPC HTTP retry backoff (in ms)
     ///
     /// From the `RetryBackoffLayer` of Alloy
-    #[clap(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 1000)]
     pub rpc_retry_backoff: u64,
 
     /// RPC HTTP retry compute-unit per second
     ///
     /// From the `RetryBackoffLayer` of Alloy
-    #[clap(long, default_value_t = 100)]
+    #[arg(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
 }
 

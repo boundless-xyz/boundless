@@ -33,32 +33,32 @@ use boundless_market::{
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about)]
+#[command(author, version, about)]
 struct MainArgs {
     /// URL of the SetBuilder ELF
-    #[clap(long)]
+    #[arg(long)]
     set_builder_url: String,
     /// URL of the Assessor ELF
-    #[clap(long)]
+    #[arg(long)]
     assessor_url: String,
     /// Address of the prover
-    #[clap(long)]
+    #[arg(long)]
     prover_address: Address,
     /// Address of the Boundless market contract
-    #[clap(long)]
+    #[arg(long)]
     boundless_market_address: Address,
     /// Chain ID of the network where Boundless market contract is deployed
-    #[clap(long)]
+    #[arg(long)]
     chain_id: U256,
     /// Hex encoded proof request
-    #[clap(long)]
+    #[arg(long)]
     request: String,
     /// Hex encoded request' signature
-    #[clap(long)]
+    #[arg(long)]
     signature: String,
     /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
     /// request is locked to another prover).
-    #[clap(long, default_value = "false")]
+    #[arg(long, default_value = "false")]
     require_payment: bool,
 }
 

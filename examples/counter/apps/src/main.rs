@@ -36,28 +36,28 @@ mod counter {
 
 /// Arguments of the publisher CLI.
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[arg(author, version, about, long_about = None)]
 struct Args {
     /// URL of the Ethereum RPC endpoint.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     rpc_url: Url,
     /// URL of the offchain order stream endpoint.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     order_stream_url: Option<Url>,
     /// Storage provider to use
-    #[clap(flatten)]
+    #[arg(flatten)]
     storage_config: Option<StorageProviderConfig>,
     /// Private key used to interact with the Counter contract.
-    #[clap(long, env)]
+    #[arg(long, env)]
     private_key: PrivateKeySigner,
     /// Address of the Counter contract.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     counter_address: Address,
     /// Address of the SetVerifier contract.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     set_verifier_address: Address,
     /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     boundless_market_address: Address,
 }
 

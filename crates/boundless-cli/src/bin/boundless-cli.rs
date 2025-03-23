@@ -62,13 +62,13 @@ enum Command {
     /// Deposit funds into the market
     Deposit {
         /// Amount in ether to deposit
-        #[clap(value_parser = parse_ether)]
+        #[arg(value_parser = parse_ether)]
         amount: U256,
     },
     /// Withdraw funds from the market
     Withdraw {
         /// Amount in ether to withdraw
-        #[clap(value_parser = parse_ether)]
+        #[arg(value_parser = parse_ether)]
         amount: U256,
     },
     /// Check the balance of an account in the market
@@ -82,7 +82,7 @@ enum Command {
         /// Amount in HP to deposit.
         ///
         /// e.g. 10 is uint256(10 * 10**18).
-        #[clap(value_parser = parse_ether)]
+        #[arg(value_parser = parse_ether)]
         amount: U256,
     },
     /// Withdraw stake funds from the market
@@ -90,7 +90,7 @@ enum Command {
         /// Amount in HP to withdraw.
         ///
         /// e.g. 10 is uint256(10 * 10**18).
-        #[clap(value_parser = parse_ether)]
+        #[arg(value_parser = parse_ether)]
         amount: U256,
     },
     /// Check the stake balance of an account in the market
@@ -104,24 +104,24 @@ enum Command {
     /// Submit a fully specified proof request
     SubmitRequest {
         /// Storage provider to use
-        #[clap(flatten)]
+        #[command(flatten)]
         storage_config: Option<StorageProviderConfig>,
         /// Path to a YAML file containing the request
         yaml_request: PathBuf,
         /// Optional identifier for the request
         id: Option<u32>,
         /// Wait until the request is fulfilled
-        #[clap(short, long, default_value = "false")]
+        #[arg(short, long, default_value = "false")]
         wait: bool,
         /// Submit the request offchain via the provided order stream service url.
-        #[clap(short, long, requires = "order_stream_url")]
+        #[arg(short, long, requires = "order_stream_url")]
         offchain: bool,
         /// Offchain order stream service URL to submit offchain requests to.
-        #[clap(long, env)]
+        #[arg(long, env)]
         order_stream_url: Option<Url>,
         /// Preflight uses the RISC Zero zkvm executor to run the program
         /// before submitting the request. Set no-preflight to skip.
-        #[clap(long, default_value = "false")]
+        #[arg(long, default_value = "false")]
         no_preflight: bool,
     },
     /// Slash a prover for a given request
@@ -209,33 +209,33 @@ enum Command {
 #[derive(Args, Clone, Debug)]
 struct SubmitOfferArgs {
     /// Storage provider to use
-    #[clap(flatten)]
+    #[command(flatten)]
     storage_config: Option<StorageProviderConfig>,
     /// Path to a YAML file containing the offer
     yaml_offer: PathBuf,
     /// Optional identifier for the request
     id: Option<u32>,
     /// Wait until the request is fulfilled
-    #[clap(short, long, default_value = "false")]
+    #[arg(short, long, default_value = "false")]
     wait: bool,
     /// Submit the request offchain via the provided order stream service url.
-    #[clap(short, long, requires = "order_stream_url")]
+    #[arg(short, long, requires = "order_stream_url")]
     offchain: bool,
     /// Offchain order stream service URL to submit offchain requests to.
-    #[clap(long, env, default_value = "https://order-stream.beboundless.xyz")]
+    #[arg(long, env, default_value = "https://order-stream.beboundless.xyz")]
     order_stream_url: Option<Url>,
     /// Preflight uses the RISC Zero zkvm executor to run the program
     /// before submitting the request. Set no-preflight to skip.
-    #[clap(long, default_value = "false")]
+    #[arg(long, default_value = "false")]
     no_preflight: bool,
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
-    #[clap(short, long)]
+    #[arg(short, long)]
     encode_input: bool,
     /// Send the input inline (i.e. in the transaction calldata) rather than uploading it.
-    #[clap(long)]
+    #[arg(long)]
     inline_input: bool,
     /// Elf file to use as the guest image, given as a path.
-    #[clap(long)]
+    #[arg(long)]
     elf: PathBuf,
 
     #[command(flatten)]
@@ -249,10 +249,10 @@ struct SubmitOfferArgs {
 #[group(required = true, multiple = false)]
 struct SubmitOfferInput {
     /// Input for the guest, given as a string.
-    #[clap(short, long)]
+    #[arg(short, long)]
     input: Option<String>,
     /// Input for the guest, given as a path to a file.
-    #[clap(long)]
+    #[arg(long)]
     input_file: Option<PathBuf>,
 }
 
@@ -260,36 +260,36 @@ struct SubmitOfferInput {
 #[group(required = true, multiple = false)]
 struct SubmitOfferRequirements {
     /// Hex encoded journal digest to use as the predicate in the requirements.
-    #[clap(short, long)]
+    #[arg(short, long)]
     journal_digest: Option<String>,
     /// Journal prefix to use as the predicate in the requirements.
-    #[clap(long)]
+    #[arg(long)]
     journal_prefix: Option<String>,
     /// Address of the callback to use in the requirements.
-    #[clap(long, requires = "callback_gas_limit")]
+    #[arg(long, requires = "callback_gas_limit")]
     callback_address: Option<Address>,
     /// Gas limit of the callback to use in the requirements.
-    #[clap(long, requires = "callback_addr")]
+    #[arg(long, requires = "callback_addr")]
     callback_gas_limit: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about)]
+#[command(author, version, about)]
 struct MainArgs {
     /// URL of the Ethereum RPC endpoint
-    #[clap(short, long, env, default_value = "http://localhost:8545")]
+    #[arg(short, long, env, default_value = "http://localhost:8545")]
     rpc_url: Url,
     /// Private key of the wallet
-    #[clap(long, env)]
+    #[arg(long, env)]
     private_key: PrivateKeySigner,
     /// Address of the market contract
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     boundless_market_address: Address,
     /// Address of the SetVerifier contract
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     set_verifier_address: Address,
     /// Tx timeout in seconds
-    #[clap(long, env, value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
+    #[arg(long, env, value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
     tx_timeout: Option<Duration>,
     /// Subcommand to run
     #[command(subcommand)]

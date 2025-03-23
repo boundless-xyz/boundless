@@ -29,63 +29,63 @@ use url::Url;
 
 /// Arguments of the order generator.
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct MainArgs {
     /// URL of the Ethereum RPC endpoint.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     rpc_url: Url,
     /// Optional URL of the offchain order stream endpoint.
     ///
     /// If set, the order-generator will submit requests off-chain.
-    #[clap(short, long)]
+    #[arg(short, long)]
     order_stream_url: Option<Url>,
     // Storage provider to use.
-    #[clap(flatten)]
+    #[command(flatten)]
     storage_config: Option<StorageProviderConfig>,
     /// Private key used to sign and submit requests.
-    #[clap(long, env)]
+    #[arg(long, env)]
     private_key: PrivateKeySigner,
     /// Address of the SetVerifier contract.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     set_verifier_address: Address,
     /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     boundless_market_address: Address,
     /// Interval in seconds between requests.
-    #[clap(short, long, default_value = "60")]
+    #[arg(short, long, default_value = "60")]
     interval: u64,
     /// Optional number of requests to submit.
     ///
     /// If unspecified, the loop will run indefinitely.
-    #[clap(short, long)]
+    #[arg(short, long)]
     count: Option<u64>,
     /// Minimum price per mcycle in ether.
-    #[clap(long = "min", value_parser = parse_ether, default_value = "0.001")]
+    #[arg(long = "min", value_parser = parse_ether, default_value = "0.001")]
     min_price_per_mcycle: U256,
     /// Maximum price per mcycle in ether.
-    #[clap(long = "max", value_parser = parse_ether, default_value = "0.002")]
+    #[arg(long = "max", value_parser = parse_ether, default_value = "0.002")]
     max_price_per_mcycle: U256,
     /// Lockin stake amount in ether.
-    #[clap(short, long, value_parser = parse_ether, default_value = "0.0")]
+    #[arg(short, long, value_parser = parse_ether, default_value = "0.0")]
     lockin_stake: U256,
     /// Number of seconds, from the current time, before the auction period starts.
-    #[clap(long, default_value = "30")]
+    #[arg(long, default_value = "30")]
     bidding_start_delay: u64,
     /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
-    #[clap(long, default_value = "0")]
+    #[arg(long, default_value = "0")]
     ramp_up: u32,
     /// Number of seconds before the request lock-in expires.
-    #[clap(long, default_value = "1200")]
+    #[arg(long, default_value = "1200")]
     lock_timeout: u32,
     /// Number of seconds before the request expires.
-    #[clap(long, default_value = "1800")]
+    #[arg(long, default_value = "1800")]
     timeout: u32,
     /// Elf file to use as the guest image, given as a path.
     ///
     /// If unspecified, defaults to the included echo guest.
-    #[clap(long)]
+    #[arg(long)]
     elf: Option<PathBuf>,
     /// Input for the guest, given as a string or a path to a file.
     ///
@@ -93,13 +93,13 @@ struct MainArgs {
     #[command(flatten)]
     input: OrderInput,
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
-    #[clap(short, long)]
+    #[arg(short, long)]
     encode_input: bool,
     /// Balance threshold at which to log a warning.
-    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    #[arg(long, value_parser = parse_ether, default_value = "1")]
     warn_balance_below: Option<U256>,
     /// Balance threshold at which to log an error.
-    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    #[arg(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
 }
 
@@ -107,10 +107,10 @@ struct MainArgs {
 #[group(required = false, multiple = false)]
 struct OrderInput {
     /// Input for the guest, given as a hex-encoded string.
-    #[clap(long, value_parser = |s: &str| hex::decode(s))]
+    #[arg(long, value_parser = |s: &str| hex::decode(s))]
     input: Option<Vec<u8>>,
     /// Input for the guest, given as a path to a file.
-    #[clap(long)]
+    #[arg(long)]
     input_file: Option<PathBuf>,
 }
 

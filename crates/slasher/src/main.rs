@@ -15,37 +15,37 @@ use url::Url;
 
 /// Arguments of the order generator.
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct MainArgs {
     /// URL of the Ethereum RPC endpoint.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     rpc_url: Url,
     /// Private key used to sign and submit slash requests.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     private_key: PrivateKeySigner,
     /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     boundless_market_address: Address,
     /// DB connection string.
-    #[clap(long, default_value = "sqlite::memory:")]
+    #[arg(long, default_value = "sqlite::memory:")]
     db: String,
     /// Starting block number.
-    #[clap(long)]
+    #[arg(long)]
     start_block: Option<u64>,
     /// Interval in seconds between checking for expired requests.
-    #[clap(long, default_value = "5")]
+    #[arg(long, default_value = "5")]
     interval: u64,
     /// Number of retries before quitting after an error.
-    #[clap(long, default_value = "10")]
+    #[arg(long, default_value = "10")]
     retries: u32,
     /// Balance threshold at which to log a warning.
-    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    #[arg(long, value_parser = parse_ether, default_value = "1")]
     warn_balance_below: Option<U256>,
     /// Balance threshold at which to log an error.
-    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    #[arg(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
     /// Comma-separated list of addresses to skip when processing locked events.
-    #[clap(long, value_delimiter = ',', value_parser = parse_address)]
+    #[arg(long, value_delimiter = ',', value_parser = parse_address)]
     skip_addresses: Vec<Address>,
 }
 
@@ -57,10 +57,10 @@ fn parse_address(s: &str) -> Result<Address, String> {
 #[group(required = false, multiple = false)]
 struct OrderInput {
     /// Input for the guest, given as a hex-encoded string.
-    #[clap(long, value_parser = |s: &str| hex::decode(s))]
+    #[arg(long, value_parser = |s: &str| hex::decode(s))]
     input: Option<Vec<u8>>,
     /// Input for the guest, given as a path to a file.
-    #[clap(long)]
+    #[arg(long)]
     input_file: Option<PathBuf>,
 }
 

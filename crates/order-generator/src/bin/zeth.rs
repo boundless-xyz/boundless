@@ -37,70 +37,70 @@ const RETRY_DELAY_SECS: u64 = 5;
 
 /// Arguments of order-generator-zeth CLI.
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[arg(author, version, about, long_about = None)]
 struct Args {
     /// URL of the Ethereum RPC endpoint.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     rpc_url: Url,
     /// URL of the offchain order stream endpoint.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     order_stream_url: Option<Url>,
     /// Storage provider to use
-    #[clap(flatten)]
+    #[arg(flatten)]
     storage_config: Option<StorageProviderConfig>,
     /// Private key used to interact with the BoundlessMarket contract.
-    #[clap(long, env)]
+    #[arg(long, env)]
     private_key: PrivateKeySigner,
     /// Address of the SetVerifier contract.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     set_verifier_address: Address,
     /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     boundless_market_address: Address,
     /// URL of the Ethereum RPC endpoint for Zeth.
-    #[clap(short, long, env)]
+    #[arg(short, long, env)]
     zeth_rpc_url: Url,
     /// Block number to start from.
     ///
     /// If not provided, the current block number will be used.
-    #[clap(long)]
+    #[arg(long)]
     start_block: Option<u64>,
     /// Number of blocks to build.
-    #[clap(long, default_value = "1")]
+    #[arg(long, default_value = "1")]
     block_count: u64,
     /// Interval in seconds between requests.
-    #[clap(long, default_value = "1800")] // 30 minutes
+    #[arg(long, default_value = "1800")] // 30 minutes
     interval: u64,
     /// One shot request for a specific block number.
-    #[clap(long)]
+    #[arg(long)]
     one_shot: bool,
     /// Minimum price per mcycle in ether.
-    #[clap(long = "min", value_parser = parse_ether, default_value = "0.00001")]
+    #[arg(long = "min", value_parser = parse_ether, default_value = "0.00001")]
     min_price_per_mcycle: U256,
     /// Maximum price per mcycle in ether.
-    #[clap(long = "max", value_parser = parse_ether, default_value = "0.000011")]
+    #[arg(long = "max", value_parser = parse_ether, default_value = "0.000011")]
     max_price_per_mcycle: U256,
     /// Number of seconds, from the bidding start, before the bid expires.
-    #[clap(long, default_value = "12000")]
+    #[arg(long, default_value = "12000")]
     timeout: u32,
     /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
-    #[clap(long, default_value = "0")]
+    #[arg(long, default_value = "0")]
     ramp_up: u32,
     /// Amount of stake tokens required, in HP.
-    #[clap(long, value_parser = parse_ether, default_value = "5")]
+    #[arg(long, value_parser = parse_ether, default_value = "5")]
     stake: U256,
     /// Submit the request offchain.
-    #[clap(long)]
+    #[arg(long)]
     offchain: bool,
-    #[clap(long, default_value = "3")]
+    #[arg(long, default_value = "3")]
     max_retries: u32,
     /// Balance threshold at which to log a warning.
-    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    #[arg(long, value_parser = parse_ether, default_value = "1")]
     warn_balance_below: Option<U256>,
     /// Balance threshold at which to log an error.
-    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    #[arg(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
 }
 

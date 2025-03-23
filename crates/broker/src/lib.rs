@@ -51,74 +51,74 @@ pub(crate) mod task;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// sqlite database connection url
-    #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
+    #[arg(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
 
     /// RPC URL
-    #[clap(long, env, default_value = "http://localhost:8545")]
+    #[arg(long, env, default_value = "http://localhost:8545")]
     pub rpc_url: Url,
 
     /// Order stream server URL
-    #[clap(long, env)]
+    #[arg(long, env)]
     pub order_stream_url: Option<Url>,
 
     /// wallet key
-    #[clap(long, env)]
+    #[arg(long, env)]
     pub private_key: PrivateKeySigner,
 
     /// Boundless market address
-    #[clap(long, env)]
+    #[arg(long, env)]
     pub boundless_market_address: Address,
 
     /// Risc zero Set verifier address
     // TODO: Get this from the market contract via view call
-    #[clap(long, env)]
+    #[arg(long, env)]
     set_verifier_address: Address,
 
     /// local prover API (Bento)
     ///
     /// Setting this value toggles using Bento for proving and disables Bonsai
-    #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"])]
+    #[arg(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"])]
     bento_api_url: Option<Url>,
 
     /// Bonsai API URL
     ///
     /// Toggling this disables Bento proving and uses Bonsai as a backend
-    #[clap(long, env, conflicts_with = "bento_api_url")]
+    #[arg(long, env, conflicts_with = "bento_api_url")]
     bonsai_api_url: Option<Url>,
 
     /// Bonsai API Key
     ///
     /// Required if using BONSAI_API_URL
-    #[clap(long, env, conflicts_with = "bento_api_url")]
+    #[arg(long, env, conflicts_with = "bento_api_url")]
     bonsai_api_key: Option<String>,
 
     /// Config file path
-    #[clap(short, long, default_value = "broker.toml")]
+    #[arg(short, long, default_value = "broker.toml")]
     pub config_file: PathBuf,
 
     /// Pre deposit amount
     ///
     /// Amount of HP tokens to pre-deposit into the contract for staking eg: 100
-    #[clap(short, long)]
+    #[arg(short, long)]
     pub deposit_amount: Option<U256>,
 
     /// RPC HTTP retry rate limit max retry
     ///
     /// From the `RetryBackoffLayer` of Alloy
-    #[clap(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 10)]
     pub rpc_retry_max: u32,
 
     /// RPC HTTP retry backoff (in ms)
     ///
     /// From the `RetryBackoffLayer` of Alloy
-    #[clap(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 1000)]
     pub rpc_retry_backoff: u64,
 
     /// RPC HTTP retry compute-unit per second
     ///
     /// From the `RetryBackoffLayer` of Alloy
-    #[clap(long, default_value_t = 100)]
+    #[arg(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
 
     /// Set to skip caching of images
@@ -128,7 +128,7 @@ pub struct Args {
     pub nocache: bool,
 
     /// Cache directory for storing downloaded images and inputs
-    #[clap(long, default_value = "/tmp/broker_cache", conflicts_with = "nocache")]
+    #[arg(long, default_value = "/tmp/broker_cache", conflicts_with = "nocache")]
     pub cache_dir: Option<PathBuf>,
 }
 
