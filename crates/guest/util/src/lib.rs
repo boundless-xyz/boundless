@@ -1,5 +1,6 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero Inc,
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 include!(concat!(env!("OUT_DIR"), "/methods.rs"));

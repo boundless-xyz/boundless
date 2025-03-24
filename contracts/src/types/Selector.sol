@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero Inc,
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 pragma solidity ^0.8.20;
 
 /// @title Selector - A representation of the bytes4 selector and its index within a batch.
