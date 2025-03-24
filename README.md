@@ -79,5 +79,5 @@ Then open your browser and navigate to `http://localhost:5173`.
 Rust SDK including the `boundless-market` crate is licensed under the Apache-2.0 license.
 See [LICENSE-Apache-2.0][./LICENSE-Apache-2.0] for a copy of the license.
 
-Other source code in this repository is licensed under the Bussiness Source License, with conversion to Apache-2.0 at a future date.
+Other source code in this repository is licensed under the Business Source License, with conversion to Apache-2.0 at a future date.
 See [LICENSE-BSL](./LICENSE-BSL) for a copy of the license.
