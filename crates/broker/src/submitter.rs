@@ -8,12 +8,15 @@ use alloy::{
     network::Ethereum,
     primitives::{utils::format_ether, Address, B256, U256},
     providers::{Provider, WalletProvider},
-    sol_types::SolStruct,
-    transports::BoxTransport,
+    sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, encode_seal, AssessorReceipt, Fulfillment,
+use boundless_market::{
+    contracts::{
+        boundless_market::BoundlessMarketService, encode_seal, AssessorJournal, AssessorReceipt,
+        Fulfillment,
+    },
+    selector::is_unaggregated_selector,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -35,8 +38,8 @@ use crate::{
 pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
-    market: BoundlessMarketService<BoxTransport, Arc<P>>,
-    set_verifier: SetVerifierService<BoxTransport, Arc<P>>,
+    market: BoundlessMarketService<Arc<P>>,
+    set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
     set_builder_img_id: Digest,
     prover_address: Address,
@@ -45,7 +48,7 @@ pub struct Submitter<P> {
 
 impl<P> Submitter<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -124,10 +127,7 @@ where
             !aggregation_state.claim_digests.is_empty(),
             "Cannot submit batch with no claim digests"
         );
-        ensure!(
-            batch.assessor_claim_digest.is_some(),
-            "Cannot submit batch with no assessor claim digest"
-        );
+        ensure!(batch.assessor_proof_id.is_some(), "Cannot submit batch with no assessor receipt");
         ensure!(
             aggregation_state.guest_state.mmr.is_finalized(),
             "Cannot submit guest state that is not finalized"
@@ -144,6 +144,23 @@ where
         );
 
         // Collect the needed parts for the fulfillBatch:
+        let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
+        let assessor_receipt = self
+            .prover
+            .get_receipt(assessor_proof_id)
+            .await
+            .context("Failed to get assessor receipt")?
+            .context("Assessor receipt missing")?;
+        let assessor_claim_digest = assessor_receipt
+            .claim()
+            .with_context(|| format!("Receipt for assessor {assessor_proof_id} missing claim"))?
+            .value()
+            .with_context(|| format!("Receipt for assessor {assessor_proof_id} claims pruned"))?
+            .digest();
+        let assessor_journal =
+            AssessorJournal::abi_decode(&assessor_receipt.journal.bytes, true)
+                .context("Failed to decode assessor journal for {assessor_proof_id}")?;
+
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
 
@@ -168,31 +185,44 @@ where
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
 
-                // NOTE: We assume here that the order execution ended with exit code 0.
-                let order_claim =
-                    ReceiptClaim::ok(order_img_id.0, MaybePruned::Pruned(order_journal.digest()));
-                let order_claim_index = aggregation_state
-                    .claim_digests
-                    .iter()
-                    .position(|claim| *claim == order_claim.digest())
-                    .ok_or(anyhow!(
-                        "Failed to find order claim {order_claim:x?} in aggregated claims"
-                    ))?;
-                let order_path = risc0_aggregation::merkle_path(
-                    &aggregation_state.claim_digests,
-                    order_claim_index,
-                );
-                tracing::debug!(
-                    "Merkle path for order {order_id:x} : {:x?} : {order_path:x?}",
-                    order_claim.digest()
-                );
-                let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
-                    order_claim,
-                    order_path,
-                    inclusion_params.digest(),
-                );
-                let seal =
-                    set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?;
+                let seal = if is_unaggregated_selector(order_request.requirements.selector) {
+                    let compressed_proof_id =
+                        self.db.get_order_compressed_proof_id(*order_id).await.context(
+                            "Failed to get order compressed proof ID from DB for submission",
+                        )?;
+                    self.fetch_encode_g16(&compressed_proof_id)
+                        .await
+                        .context("Failed to fetch and encode g16 proof")?
+                } else {
+                    // NOTE: We assume here that the order execution ended with exit code 0.
+                    let order_claim = ReceiptClaim::ok(
+                        order_img_id.0,
+                        MaybePruned::Pruned(order_journal.digest()),
+                    );
+                    let order_claim_index = aggregation_state
+                        .claim_digests
+                        .iter()
+                        .position(|claim| *claim == order_claim.digest())
+                        .ok_or(anyhow!(
+                            "Failed to find order claim {order_claim:x?} in aggregated claims"
+                        ))?;
+                    let order_path = risc0_aggregation::merkle_path(
+                        &aggregation_state.claim_digests,
+                        order_claim_index,
+                    );
+                    tracing::debug!(
+                        "Merkle path for order {order_id:x} : {:x?} : {order_path:x?}",
+                        order_claim.digest()
+                    );
+                    let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+                        order_claim,
+                        order_path,
+                        inclusion_params.digest(),
+                    );
+                    set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?
+                };
+
+                tracing::debug!("Seal for order {order_id:x} : {}", hex::encode(seal.clone()));
 
                 let request_digest = order_request
                     .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
@@ -217,13 +247,13 @@ where
         let assessor_claim_index = aggregation_state
             .claim_digests
             .iter()
-            .position(|claim| *claim == batch.assessor_claim_digest.unwrap())
+            .position(|claim| *claim == assessor_claim_digest)
             .ok_or(anyhow!("Failed to find order claim assessor claim in aggregated claims"))?;
         let assessor_path =
             risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
         tracing::debug!(
             "Merkle path for assessor : {:x?} : {assessor_path:x?}",
-            batch.assessor_claim_digest
+            assessor_claim_digest
         );
 
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
@@ -242,11 +272,11 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             config.batcher.single_txn_fulfill
         };
-        let assessor_fill = AssessorReceipt {
+        let assessor_receipt = AssessorReceipt {
             seal: assessor_seal.into(),
-            selectors: vec![],
+            selectors: assessor_journal.selectors,
             prover: self.prover_address,
-            callbacks: vec![],
+            callbacks: assessor_journal.callbacks,
         };
         if single_txn_fulfill {
             if let Err(err) = self
@@ -256,7 +286,7 @@ where
                     root,
                     batch_seal.into(),
                     fulfillments.clone(),
-                    assessor_fill,
+                    assessor_receipt,
                 )
                 .await
             {
@@ -294,7 +324,9 @@ where
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
 
-            if let Err(err) = self.market.fulfill_batch(fulfillments.clone(), assessor_fill).await {
+            if let Err(err) =
+                self.market.fulfill_batch(fulfillments.clone(), assessor_receipt).await
+            {
                 tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
                 for fulfillment in fulfillments.iter() {
                     if let Err(db_err) = self
@@ -385,7 +417,7 @@ where
 
 impl<P> RetryTask for Submitter<P>
 where
-    P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let obj_clone = self.clone();
@@ -415,13 +447,7 @@ mod tests {
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
         primitives::U256,
-        providers::{
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, ProviderBuilder, RootProvider,
-        },
+        providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
@@ -440,22 +466,10 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
-    type TestProvider = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
-    >;
-
     async fn build_submitter_and_batch(
         config: ConfigLock,
-    ) -> (AnvilInstance, Submitter<TestProvider>, DbObj, usize) {
+    ) -> (AnvilInstance, Submitter<impl Provider + WalletProvider + Clone + 'static>, DbObj, usize)
+    {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
@@ -465,7 +479,6 @@ mod tests {
 
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -474,7 +487,6 @@ mod tests {
 
         let customer_provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -486,9 +498,9 @@ mod tests {
             deploy_set_verifier(provider.clone(), verifier, Digest::from(SET_BUILDER_ID))
                 .await
                 .unwrap();
-        let hit_points = deploy_hit_points(&signer, provider.clone()).await.unwrap();
+        let hit_points = deploy_hit_points(prover_addr, provider.clone()).await.unwrap();
         let market_address = deploy_boundless_market(
-            &signer,
+            prover_addr,
             provider.clone(),
             set_verifier,
             hit_points,
@@ -563,7 +575,6 @@ mod tests {
                         request: order_request.clone(),
                         signature: client_sig.into(),
                         journal: echo_receipt.journal.bytes.clone(),
-                        require_payment: true,
                     }],
                     prover_address: prover_addr,
                 }
@@ -626,6 +637,7 @@ mod tests {
             image_id: Some(echo_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(echo_proof.id.clone()),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),
@@ -637,7 +649,7 @@ mod tests {
         let batch_id = 0;
         let batch = Batch {
             status: BatchStatus::Complete,
-            assessor_claim_digest: Some(assessor_receipt.claim().unwrap().digest()),
+            assessor_proof_id: Some(assessor_proof.id),
             orders: vec![order_id],
             fees: U256::ZERO,
             start_time: Utc::now(),
@@ -673,7 +685,7 @@ mod tests {
 
     async fn process_next_batch<P>(submitter: Submitter<P>, db: DbObj, batch_id: usize)
     where
-        P: Provider<BoxTransport, Ethereum> + WalletProvider + 'static + Clone,
+        P: Provider<Ethereum> + WalletProvider + 'static + Clone,
     {
         assert!(submitter.process_next_batch().await.unwrap());
         let batch = db.get_batch(batch_id).await.unwrap();

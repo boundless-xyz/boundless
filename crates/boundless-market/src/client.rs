@@ -29,12 +29,11 @@ use alloy::{
         local::{LocalSigner, PrivateKeySigner},
         Signer,
     },
-    transports::{http::Http, Transport},
 };
 use alloy_primitives::{PrimitiveSignature, B256};
 use alloy_sol_types::SolStruct;
 use anyhow::{anyhow, Context, Result};
-use reqwest::Client as HttpClient;
+use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
@@ -64,9 +63,7 @@ type ProviderWallet = FillProvider<
         >,
         WalletFiller<EthereumWallet>,
     >,
-    RootProvider<Http<HttpClient>>,
-    Http<HttpClient>,
-    Ethereum,
+    BalanceAlertProvider<RootProvider>,
 >;
 
 #[derive(thiserror::Error, Debug)]
@@ -98,6 +95,7 @@ pub struct ClientBuilder {
     storage_config: Option<StorageProviderConfig>,
     tx_timeout: Option<std::time::Duration>,
     bidding_start_delay: u64,
+    balance_alerts: Option<BalanceAlertConfig>,
 }
 
 impl Default for ClientBuilder {
@@ -112,6 +110,7 @@ impl Default for ClientBuilder {
             storage_config: None,
             tx_timeout: None,
             bidding_start_delay: BIDDING_START_DELAY,
+            balance_alerts: None,
         }
     }
 }
@@ -123,9 +122,7 @@ impl ClientBuilder {
     }
 
     /// Build the client
-    pub async fn build(
-        self,
-    ) -> Result<Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider>> {
+    pub async fn build(self) -> Result<Client<ProviderWallet, BuiltinStorageProvider>> {
         let mut client = Client::from_parts(
             self.wallet.context("Wallet not set")?,
             self.rpc_url.context("RPC URL not set")?,
@@ -137,6 +134,7 @@ impl ClientBuilder {
             } else {
                 None
             },
+            self.balance_alerts,
         )
         .await?;
         if let Some(timeout) = self.tx_timeout {
@@ -202,15 +200,20 @@ impl ClientBuilder {
     pub fn with_bidding_start_delay(self, bidding_start_delay: u64) -> Self {
         Self { bidding_start_delay, ..self }
     }
+
+    /// Set the balance alerts configuration
+    pub fn with_balance_alerts(self, config: BalanceAlertConfig) -> Self {
+        Self { balance_alerts: Some(config), ..self }
+    }
 }
 
 #[derive(Clone)]
 /// Client for interacting with the boundless market.
-pub struct Client<T, P, S> {
+pub struct Client<P, S> {
     /// Boundless market service.
-    pub boundless_market: BoundlessMarketService<T, P>,
+    pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
-    pub set_verifier: SetVerifierService<T, P>,
+    pub set_verifier: SetVerifierService<P>,
     /// Storage provider to upload ELFs and inputs.
     pub storage_provider: Option<S>,
     /// Order stream client to submit requests off-chain.
@@ -221,16 +224,15 @@ pub struct Client<T, P, S> {
     pub bidding_start_delay: u64,
 }
 
-impl<T, P, S> Client<T, P, S>
+impl<P, S> Client<P, S>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     /// Create a new client
     pub fn new(
-        boundless_market: BoundlessMarketService<T, P>,
-        set_verifier: SetVerifierService<T, P>,
+        boundless_market: BoundlessMarketService<P>,
+        set_verifier: SetVerifierService<P>,
     ) -> Self {
         let boundless_market = boundless_market.clone();
         let set_verifier = set_verifier.clone();
@@ -255,12 +257,12 @@ where
     }
 
     /// Set the Boundless market service
-    pub fn with_boundless_market(self, boundless_market: BoundlessMarketService<T, P>) -> Self {
+    pub fn with_boundless_market(self, boundless_market: BoundlessMarketService<P>) -> Self {
         Self { boundless_market, ..self }
     }
 
     /// Set the set verifier service
-    pub fn with_set_verifier(self, set_verifier: SetVerifierService<T, P>) -> Self {
+    pub fn with_set_verifier(self, set_verifier: SetVerifierService<P>) -> Self {
         Self { set_verifier, ..self }
     }
 
@@ -500,7 +502,7 @@ where
     }
 }
 
-impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
+impl Client<ProviderWallet, BuiltinStorageProvider> {
     /// Create a new client from environment variables
     ///
     /// The following environment variables are required:
@@ -527,8 +529,8 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(wallet.clone())
+            .layer(BalanceAlertLayer::default())
             .on_http(rpc_url);
 
         let boundless_market =
@@ -570,12 +572,13 @@ impl Client<Http<HttpClient>, ProviderWallet, BuiltinStorageProvider> {
         set_verifier_address: Address,
         order_stream_url: Option<Url>,
         storage_provider: Option<BuiltinStorageProvider>,
+        balance_alerts: Option<BalanceAlertConfig>,
     ) -> Result<Self, ClientError> {
         let caller = wallet.default_signer().address();
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(wallet.clone())
+            .layer(BalanceAlertLayer::new(balance_alerts.unwrap_or_default()))
             .on_http(rpc_url);
 
         let boundless_market =

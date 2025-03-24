@@ -33,6 +33,7 @@ jobs:
       - rust-pkg-check
       - docs-rs
       - bento
+      - bento_run
 
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +45,13 @@ jobs:
 
   rust:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
+    services:
+      postgres:
+        image: postgres:latest
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: password
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -111,8 +119,9 @@ jobs:
         run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
 
       - name: cargo test
-        run: cargo test --locked --workspace --all-targets -- ignored
+        run: cargo test --locked --workspace --all-targets -- --include-ignored
         env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
 
       - name: sccache stats
@@ -179,13 +188,58 @@ jobs:
         run: sqlx migrate run --source ./crates/taskdb/migrations/
 
       - name: cargo test
-        run: cargo test --locked --workspace --all-targets -- ignored
+        run: cargo test --locked --workspace --all-targets -- --ignored
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
 
       - name: sccache stats
         run: sccache --show-stats
+
+
+  bento_run:
+    runs-on: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+    needs: files-changed
+    if: needs.files-changed.outputs.bento == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-1.2
+        with:
+          toolchain: '1.81'
+
+      - name: Fetch CI AWS Creds
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: 'us-west-2'
+          role-to-assume: 'arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access'
+          output-credentials: true
+
+      - name: create ci creds file
+        run: |
+          echo "[default]" > ./dockerfiles/ci-cache-creds.txt
+          echo "aws_access_key_id=${{ steps.aws-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt && \
+          echo "aws_secret_access_key=${{ steps.aws-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt && \
+          echo "aws_session_token=${{ steps.aws-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start bento cluster
+        run: docker compose --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml up -d
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - name: Run a sample proof through
+        # TODO: snark, multi-segments, bigint, keccak, composition guest to express all functionality
+        working-directory: bento
+        run: RUST_LOG=info cargo run --bin bento_cli -- -c 32 -s
 
   rust-pkg-check:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
@@ -209,7 +263,7 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '1.2.0'
+          risczero-version: '~1.2.0'
           toolchain-version: 'r0.1.81.0'
 
       - name: check order-stream
@@ -406,6 +460,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       docker: ${{ steps.changes.outputs.docker }}
+      bento: ${{ steps.changes.outputs.bento }}
+
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -414,10 +470,12 @@ jobs:
         id: changes
         with:
           filters: |
-            src:
+            docker:
               - 'dockerfiles/**'
               - 'compose.yml'
-              - '.env-compose'
+              - '.env.broker-template'
+            bento:
+              - 'bento/**'
 
   docker:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
@@ -430,7 +488,7 @@ jobs:
           submodules: recursive
 
       - name: docker-compose lint
-        run: docker compose --profile broker --env-file ./.env-compose config
+        run: docker compose --profile broker --env-file ./.env.broker-template config
 
       - name: Fetch CI AWS Creds
         id: aws-creds
@@ -451,4 +509,4 @@ jobs:
         run: docker buildx create --driver docker-container --use
 
       - name: docker compose build
-        run: docker compose --profile broker --env-file ./.env-compose -f compose.yml -f ./dockerfiles/compose.ci.yml build
+        run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build

@@ -183,6 +183,56 @@ contract DeploymentTest is Test {
         Fulfillment memory fill = result.fills[0];
         assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
     }
+
+    function testPriceAndFulfillBatchWithSelector() external {
+        Client testProver = createClientContract("PROVER");
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        // 0xc101b42b is the selector for ZKVM_V1.2, update when necessary
+        // or refactor to read from the environment.
+        request.requirements.selector = bytes4(0xc101b42b);
+
+        ProofRequest[] memory requests = new ProofRequest[](1);
+        requests[0] = request;
+        bytes[] memory clientSignatures = new bytes[](1);
+        clientSignatures[0] = client.sign(request);
+
+        (, string memory setBuilderUrl) = setVerifier.imageInfo();
+        (, string memory assessorUrl) = boundlessMarket.imageInfo();
+
+        string[] memory argv = new string[](15);
+        uint256 i = 0;
+        argv[i++] = "boundless-ffi";
+        argv[i++] = "--set-builder-url";
+        argv[i++] = setBuilderUrl;
+        argv[i++] = "--assessor-url";
+        argv[i++] = assessorUrl;
+        argv[i++] = "--boundless-market-address";
+        argv[i++] = vm.toString(address(boundlessMarket));
+        argv[i++] = "--chain-id";
+        argv[i++] = vm.toString(block.chainid);
+        argv[i++] = "--prover-address";
+        argv[i++] = vm.toString(address(testProver));
+        argv[i++] = "--request";
+        argv[i++] = vm.toString(abi.encode(request));
+        argv[i++] = "--signature";
+        argv[i++] = vm.toString(clientSignatures[0]);
+
+        OrderFulfilled memory result = abi.decode(vm.ffi(argv), (OrderFulfilled));
+
+        setVerifier.submitMerkleRoot(result.root, result.seal);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id);
+
+        boundlessMarket.priceAndFulfillBatch(
+            requests, clientSignatures, result.fills, result.assessorReceipt
+        );
+        Fulfillment memory fill = result.fills[0];
+        assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+    }
 }
 
 contract Client {
@@ -224,6 +274,7 @@ contract Client {
     }
 
     function request(uint32 idx) public view returns (ProofRequest memory) {
+        // create a request as used in `../../request.yaml`.
         return ProofRequest({
             id: RequestIdLibrary.from(wallet.addr, idx),
             requirements: defaultRequirements(),

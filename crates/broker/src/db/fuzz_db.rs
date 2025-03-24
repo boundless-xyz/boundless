@@ -108,6 +108,7 @@ fn generate_test_order(id: u32) -> Order {
         image_id: None,
         input_id: None,
         proof_id: Some(format!("proof_{}", id)),
+        compressed_proof_id: Some(format!("compressed_proof_{}", id)),
         expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
@@ -211,7 +212,7 @@ proptest! {
                                         db.set_image_input_ids(U256::from(id), &image_id, &input_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_aggregation_status(U256::from(id)).await.unwrap();
+                                        db.set_aggregation_status(U256::from(id), OrderStatus::PendingAgg).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(U256::from(id)).await.unwrap();
@@ -285,14 +286,14 @@ proptest! {
                                                 batch_id,
                                                 &agg_state,
                                                 &orders,
-                                                Some(Digest::from([2u32; 8])),
+                                                Some("proof_id".to_string()),
                                             ).await.unwrap();
                                         }
                                     },
                                 }
                             },
                             DbOperation::GetOrderForPricing => {
-                                db.get_order_for_pricing().await.unwrap();
+                                db.update_orders_for_pricing(1).await.unwrap();
                             },
                             DbOperation::GetActivePricingOrders => {
                                 db.get_active_pricing_orders().await.unwrap();

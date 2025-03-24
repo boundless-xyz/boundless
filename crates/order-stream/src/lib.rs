@@ -6,10 +6,15 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use alloy::providers::fillers::{
+    BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+};
+use alloy::providers::Identity;
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
     providers::{Provider, ProviderBuilder, RootProvider},
-    transports::http::Http,
+    rpc::client::RpcClient,
+    transports::layers::RetryBackoffLayer,
 };
 use anyhow::{Context, Error as AnyhowErr, Result};
 use axum::{
@@ -24,7 +29,7 @@ use boundless_market::order_stream_client::{
     ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
 };
 use clap::Parser;
-use reqwest::{Client, Url};
+use reqwest::Url;
 use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -102,6 +107,7 @@ impl IntoResponse for AppError {
 /// Command line arguments
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
+#[non_exhaustive]
 pub struct Args {
     /// Bind address for REST api
     #[clap(long, env, default_value = "0.0.0.0:8585")]
@@ -138,10 +144,29 @@ pub struct Args {
     /// Time between sending websocket pings (in seconds)
     #[clap(long, default_value_t = 120)]
     ping_time: u64,
+
+    /// RPC HTTP retry rate limit max retry
+    ///
+    /// From the `RetryBackoffLayer` of Alloy
+    #[clap(long, default_value_t = 10)]
+    pub rpc_retry_max: u32,
+
+    /// RPC HTTP retry backoff (in ms)
+    ///
+    /// From the `RetryBackoffLayer` of Alloy
+    #[clap(long, default_value_t = 1000)]
+    pub rpc_retry_backoff: u64,
+
+    /// RPC HTTP retry compute-unit per second
+    ///
+    /// From the `RetryBackoffLayer` of Alloy
+    #[clap(long, default_value_t = 100)]
+    pub rpc_retry_cu: u64,
 }
 
 /// Configuration struct
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Config {
     /// RPC URL for the Ethereum node
     pub rpc_url: Url,
@@ -159,6 +184,12 @@ pub struct Config {
     pub bypass_addrs: Vec<Address>,
     /// Time between sending WS Ping's (in seconds)
     pub ping_time: u64,
+    /// RPC HTTP retry rate limit max retry
+    pub rpc_retry_max: u32,
+    /// RPC HTTP retry backoff (in ms)
+    pub rpc_retry_backoff: u64,
+    /// RPC HTTP retry compute-unit per second
+    pub rpc_retry_cu: u64,
 }
 
 impl From<&Args> for Config {
@@ -172,9 +203,20 @@ impl From<&Args> for Config {
             domain: args.domain.clone(),
             bypass_addrs: args.bypass_addrs.clone(),
             ping_time: args.ping_time,
+            rpc_retry_max: args.rpc_retry_max,
+            rpc_retry_backoff: args.rpc_retry_backoff,
+            rpc_retry_cu: args.rpc_retry_cu,
         }
     }
 }
+
+type WalletProvider = FillProvider<
+    JoinFill<
+        Identity,
+        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+    >,
+    RootProvider,
+>;
 
 /// Application state struct
 pub struct AppState {
@@ -185,7 +227,7 @@ pub struct AppState {
     /// Map of pending connections by address with their timestamp
     pending_connections: Arc<Mutex<HashMap<Address, Instant>>>,
     /// Ethereum RPC provider
-    rpc_provider: RootProvider<Http<Client>>,
+    rpc_provider: WalletProvider,
     /// Configuration
     config: Config,
     /// chain_id
@@ -197,19 +239,28 @@ pub struct AppState {
 impl AppState {
     /// Create a new AppState
     pub async fn new(config: &Config, db_pool_opt: Option<PgPool>) -> Result<Arc<Self>> {
-        let provider = ProviderBuilder::new().on_http(config.rpc_url.clone());
+        // Build the RPC provider.
+        let retry_layer = RetryBackoffLayer::new(
+            config.rpc_retry_max,
+            config.rpc_retry_backoff,
+            config.rpc_retry_cu,
+        );
+        let client = RpcClient::builder().layer(retry_layer).http(config.rpc_url.clone());
+        let rpc_provider = ProviderBuilder::new().on_client(client);
+
         let db = if let Some(db_pool) = db_pool_opt {
             OrderDb::from_pool(db_pool).await?
         } else {
             OrderDb::from_env().await.context("Failed to connect to DB")?
         };
         let chain_id =
-            provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
+            rpc_provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
+
         Ok(Arc::new(Self {
             db,
             connections: Arc::new(RwLock::new(HashMap::new())),
             pending_connections: Arc::new(Mutex::new(HashMap::new())),
-            rpc_provider: ProviderBuilder::new().on_http(config.rpc_url.clone()),
+            rpc_provider,
             config: config.clone(),
             chain_id,
             shutdown: CancellationToken::new(),
@@ -365,11 +416,13 @@ mod tests {
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
         primitives::U256,
+        providers::{Provider, WalletProvider},
     };
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, Offer, Predicate, ProofRequest,
-            Requirements,
+            hit_points::default_allowance,
+            test_utils::{create_test_ctx, TestCtx},
+            Offer, Predicate, ProofRequest, Requirements,
         },
         input::InputBuilder,
         order_stream_client::{order_stream, Client},
@@ -388,14 +441,12 @@ mod tests {
         pool: PgPool,
         ping_time: u64,
         listener: Option<&tokio::net::TcpListener>, // Optional listener for domain configuration
-    ) -> (Arc<AppState>, TestCtx, AnvilInstance) {
+    ) -> (Arc<AppState>, TestCtx<impl Provider + WalletProvider + Clone + 'static>, AnvilInstance)
+    {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
@@ -418,6 +469,9 @@ mod tests {
             domain,
             bypass_addrs: vec![ctx.prover_signer.address(), ctx.customer_signer.address()],
             ping_time,
+            rpc_retry_max: 10,
+            rpc_retry_backoff: 1000,
+            rpc_retry_cu: 100,
         };
 
         let app_state = AppState::new(&config, Some(pool)).await.unwrap();

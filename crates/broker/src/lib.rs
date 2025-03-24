@@ -9,16 +9,17 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
-    transports::BoxTransport,
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
+    selector::is_unaggregated_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use clap::Parser;
+use clap::{ArgAction, Parser};
+pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
 use provers::ProverObj;
@@ -34,6 +35,7 @@ pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
+pub mod futures_retry;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
@@ -66,12 +68,12 @@ pub struct Args {
 
     /// Boundless market address
     #[clap(long, env)]
-    pub boundless_market_addr: Address,
+    pub boundless_market_address: Address,
 
     /// Risc zero Set verifier address
     // TODO: Get this from the market contract via view call
     #[clap(long, env)]
-    set_verifier_addr: Address,
+    set_verifier_address: Address,
 
     /// local prover API (Bento)
     ///
@@ -93,7 +95,7 @@ pub struct Args {
 
     /// Config file path
     #[clap(short, long, default_value = "broker.toml")]
-    config_file: PathBuf,
+    pub config_file: PathBuf,
 
     /// Pre deposit amount
     ///
@@ -118,6 +120,16 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
+
+    /// Set to skip caching of images
+    ///
+    /// By default images are cached locally in cache_dir. Set this flag to redownload them every time
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub nocache: bool,
+
+    /// Cache directory for storing downloaded images and inputs
+    #[clap(long, default_value = "/tmp/broker_cache", conflicts_with = "nocache")]
+    pub cache_dir: Option<PathBuf>,
 }
 
 /// Status of a order as it moves through the lifecycle
@@ -137,6 +149,8 @@ enum OrderStatus {
     PendingAgg,
     /// Order is in the process of Aggregation
     Aggregating,
+    /// Unaggregated order is ready for submission
+    SkipAggregation,
     /// Pending on chain finalization
     PendingSubmission,
     /// Order has been completed
@@ -170,6 +184,10 @@ struct Order {
     ///
     /// Populated after proof completion
     proof_id: Option<String>,
+    /// Compressed proof Id
+    ///
+    /// Populated after proof completion. if the proof is compressed
+    compressed_proof_id: Option<String>,
     /// UNIX timestamp the order expires at
     ///
     /// Populated during order picking
@@ -192,11 +210,15 @@ impl Order {
             image_id: None,
             input_id: None,
             proof_id: None,
+            compressed_proof_id: None,
             expire_timestamp: None,
             client_sig,
             lock_price: None,
             error_msg: None,
         }
+    }
+    pub fn is_unaggregated(&self) -> bool {
+        is_unaggregated_selector(self.request.requirements.selector)
     }
 }
 
@@ -230,7 +252,7 @@ struct Batch {
     /// Orders from the market that are included in this batch.
     pub orders: Vec<U256>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub assessor_claim_digest: Option<Digest>,
+    pub assessor_proof_id: Option<String>,
     /// Tuple of the current aggregation state, as committed by the set builder guest, and the
     /// proof ID for the receipt that attests to the correctness of this state.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -255,7 +277,7 @@ pub struct Broker<P> {
 
 impl<P> Broker<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
     pub async fn new(args: Args, provider: P) -> Result<Self> {
         let config_watcher =
@@ -281,7 +303,7 @@ where
             Ok((img_id, elf_buf))
         } else {
             let boundless_market = BoundlessMarketService::new(
-                self.args.boundless_market_addr,
+                self.args.boundless_market_address,
                 self.provider.clone(),
                 Address::ZERO,
             );
@@ -289,6 +311,7 @@ where
             let (image_id, image_url_str) =
                 boundless_market.image_info().await.context("Failed to get contract image_info")?;
             let image_uri = UriHandlerBuilder::new(&image_url_str)
+                .set_cache_dir(&self.args.cache_dir)
                 .set_max_size(max_file_size)
                 .build()
                 .context("Failed to parse image URI")?;
@@ -313,7 +336,7 @@ where
             Ok((img_id, elf_buf))
         } else {
             let set_verifier_contract = SetVerifierService::new(
-                self.args.set_verifier_addr,
+                self.args.set_verifier_address,
                 self.provider.clone(),
                 Address::ZERO,
             );
@@ -323,6 +346,7 @@ where
                 .await
                 .context("Failed to get contract image_info")?;
             let image_uri = UriHandlerBuilder::new(&image_url_str)
+                .set_cache_dir(&self.args.cache_dir)
                 .set_max_size(max_file_size)
                 .build()
                 .context("Failed to parse image URI")?;
@@ -361,7 +385,7 @@ where
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
-            self.args.boundless_market_addr,
+            self.args.boundless_market_address,
             self.provider.clone(),
             self.db.clone(),
             chain_monitor.clone(),
@@ -378,11 +402,10 @@ where
         });
 
         let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client = self
-            .args
-            .order_stream_url
-            .clone()
-            .map(|url| OrderStreamClient::new(url, self.args.boundless_market_addr, chain_id));
+        let client =
+            self.args.order_stream_url.clone().map(|url| {
+                OrderStreamClient::new(url, self.args.boundless_market_address, chain_id)
+            });
         // spin up a supervisor for the offchain market monitor
         if let Some(client) = client {
             let offchain_market_monitor =
@@ -438,7 +461,7 @@ where
             self.db.clone(),
             self.config_watcher.config.clone(),
             prover.clone(),
-            self.args.boundless_market_addr,
+            self.args.boundless_market_address,
             self.provider.clone(),
         ));
         supervisor_tasks.spawn(async move {
@@ -452,7 +475,7 @@ where
             chain_monitor.clone(),
             self.config_watcher.config.clone(),
             block_times,
-            self.args.boundless_market_addr,
+            self.args.boundless_market_address,
         )?);
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_monitor).await.context("Failed to start order monitor")?;
@@ -488,7 +511,7 @@ where
                 set_builder_img_data.1,
                 assessor_img_data.0,
                 assessor_img_data.1,
-                self.args.boundless_market_addr,
+                self.args.boundless_market_address,
                 prover_addr,
                 self.config_watcher.config.clone(),
                 prover.clone(),
@@ -507,8 +530,8 @@ where
             self.config_watcher.config.clone(),
             prover.clone(),
             self.provider.clone(),
-            self.args.set_verifier_addr,
-            self.args.boundless_market_addr,
+            self.args.set_verifier_address,
+            self.args.boundless_market_address,
             set_builder_img_data.0,
         )?);
         supervisor_tasks.spawn(async move {
@@ -637,7 +660,7 @@ async fn upload_input_uri(
     })
 }
 
-/// A very small utility function to get the current unix timestamp.
+/// A very small utility function to get the current unix timestamp in seconds.
 // TODO(#379): Avoid drift relative to the chain's timestamps.
 pub(crate) fn now_timestamp() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
@@ -645,50 +668,28 @@ pub(crate) fn now_timestamp() -> u64 {
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
-
-    use alloy::{
-        network::{Ethereum, EthereumWallet},
-        providers::{
-            fillers::{
-                BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-                WalletFiller,
-            },
-            Identity, RootProvider,
-        },
-        transports::BoxTransport,
-    };
+    use alloy::network::Ethereum;
+    use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
     use boundless_market::contracts::test_utils::TestCtx;
     use guest_assessor::ASSESSOR_GUEST_PATH;
     use guest_set_builder::SET_BUILDER_PATH;
-
     use tempfile::NamedTempFile;
-
     use url::Url;
 
     use crate::{config::Config, Args, Broker};
 
-    type TestProvider = FillProvider<
-        JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            WalletFiller<EthereumWallet>,
-        >,
-        RootProvider<BoxTransport>,
-        BoxTransport,
-        Ethereum,
-    >;
-
-    pub struct BrokerBuilder {
+    pub struct BrokerBuilder<P> {
         args: Args,
-        provider: TestProvider,
+        provider: P,
         config_file: NamedTempFile,
     }
 
-    impl BrokerBuilder {
-        pub async fn new_test(ctx: &TestCtx, rpc_url: Url) -> Self {
+    impl<P> BrokerBuilder<P>
+    where
+        P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+    {
+        pub async fn new_test(ctx: &TestCtx<P>, rpc_url: Url) -> Self {
             let config_file = NamedTempFile::new().unwrap();
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -700,8 +701,8 @@ pub mod test_utils {
             let args = Args {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
-                boundless_market_addr: ctx.boundless_market_addr,
-                set_verifier_addr: ctx.set_verifier_addr,
+                boundless_market_address: ctx.boundless_market_address,
+                set_verifier_address: ctx.set_verifier_address,
                 rpc_url,
                 order_stream_url: None,
                 private_key: ctx.prover_signer.clone(),
@@ -712,18 +713,18 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
+                nocache: true,
+                cache_dir: None,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }
-    }
 
-    impl BrokerBuilder {
         pub fn with_db_url(mut self, db_url: String) -> Self {
             self.args.db_url = db_url;
             self
         }
 
-        pub async fn build(self) -> Result<(Broker<TestProvider>, NamedTempFile)> {
+        pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
             Ok((Broker::new(self.args, self.provider).await?, self.config_file))
         }
     }

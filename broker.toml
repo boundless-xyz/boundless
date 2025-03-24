@@ -7,14 +7,19 @@ lookback_blocks = 100
 max_stake = "5" # HP
 skip_preflight_ids = []
 max_file_size = 50_000_000
+max_concurrent_locks = 2
 # max_fetch_retries = 2
 # allow_client_addresses = []
 # lockin_priority_gas = 100
 
 [prover]
-status_poll_ms = 1000
 bonsai_r0_zkvm_ver = "1.2.1"
+status_poll_retry_count = 3
+status_poll_ms = 1000
 req_retry_count = 3
+req_retry_sleep_ms = 500
+proof_retry_count = 1
+proof_retry_sleep_ms = 500
 # set_builder_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
 # assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
 

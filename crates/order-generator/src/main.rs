@@ -8,6 +8,7 @@ use std::{
 };
 
 use alloy::{
+    network::EthereumWallet,
     primitives::{
         utils::{format_units, parse_ether},
         Address, U256,
@@ -15,6 +16,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
+use balance_alerts_layer::BalanceAlertConfig;
 use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
@@ -93,6 +95,12 @@ struct MainArgs {
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(short, long)]
     encode_input: bool,
+    /// Balance threshold at which to log a warning.
+    #[clap(long, value_parser = parse_ether, default_value = "1")]
+    warn_balance_below: Option<U256>,
+    /// Balance threshold at which to log an error.
+    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    error_balance_below: Option<U256>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -127,6 +135,13 @@ async fn main() -> Result<()> {
 }
 
 async fn run(args: &MainArgs) -> Result<()> {
+    let wallet = EthereumWallet::from(args.private_key.clone());
+    let balance_alerts = BalanceAlertConfig {
+        watch_address: wallet.default_signer().address(),
+        warn_threshold: args.warn_balance_below,
+        error_threshold: args.error_balance_below,
+    };
+
     let boundless_client = ClientBuilder::default()
         .with_rpc_url(args.rpc_url.clone())
         .with_boundless_market_address(args.boundless_market_address)
@@ -135,6 +150,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_storage_provider_config(args.storage_config.clone())
         .with_private_key(args.private_key.clone())
         .with_bidding_start_delay(args.bidding_start_delay)
+        .with_balance_alerts(balance_alerts)
         .build()
         .await?;
 
@@ -250,10 +266,9 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::contracts::{test_utils::TestCtx, IBoundlessMarket};
+    use boundless_market::contracts::{test_utils::create_test_ctx, IBoundlessMarket};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
-    use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
     use super::*;
@@ -262,18 +277,15 @@ mod tests {
     #[traced_test]
     async fn test_main() {
         let anvil = Anvil::new().spawn();
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             order_stream_url: None,
             storage_config: Some(StorageProviderConfig::dev_mode()),
             private_key: ctx.customer_signer,
-            set_verifier_address: ctx.set_verifier_addr,
-            boundless_market_address: ctx.boundless_market_addr,
+            set_verifier_address: ctx.set_verifier_address,
+            boundless_market_address: ctx.boundless_market_address,
             interval: 1,
             count: Some(2),
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
@@ -286,6 +298,8 @@ mod tests {
             elf: None,
             input: OrderInput { input: None, input_file: None },
             encode_input: false,
+            warn_balance_below: None,
+            error_balance_below: None,
         };
 
         run(&args).await.unwrap();
@@ -294,7 +308,7 @@ mod tests {
         let filter = Filter::new()
             .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(0)
-            .address(ctx.boundless_market_addr);
+            .address(ctx.boundless_market_address);
         let logs = ctx.customer_provider.get_logs(&filter).await.unwrap();
         let decoded_logs = logs.iter().filter_map(|log| {
             match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {

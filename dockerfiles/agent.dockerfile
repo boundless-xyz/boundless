@@ -56,21 +56,21 @@ RUN \
     cp /src/bento/target/release/agent /src/agent && \
     sccache --show-stats
 
-FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
+# Use risczero/risc0-groth16-prover:v2025-01-31.1 as the basis for the prover and witness generator
+FROM risczero/risc0-groth16-prover@sha256:2829419e1bee4b87a2ade42569d9dffb4a304bf593c531caa99c6a395e2558da AS binaries
 
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
-RUN mkdir /app/ && \
-    apt-get -qq update && \
-    apt-get install -y -q openssl libssl-dev \
-    libsodium23 nodejs npm && \
-    npm install -g snarkjs@0.7.3
+RUN apt-get update -q -y && apt-get install -q -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
 
-# Stark2snark
-COPY --from=binaries /usr/local/sbin/rapidsnark /usr/local/sbin/rapidsnark
-COPY --from=binaries /app/stark_verify /app/stark_verify
+# Copy the witness generator and data files from the binary stage
+COPY --from=binaries /usr/local/bin/stark_verify /app/stark_verify
 COPY --from=binaries /app/stark_verify.dat /app/stark_verify.dat
-COPY --from=binaries /app/stark_verify_final.zkey /app/stark_verify_final.zkey
+
+# Copy the prover binary and related files from previous stages
+COPY --from=binaries /usr/local/bin/prover /app/prover
+COPY --from=binaries /app/stark_verify.cs /app/stark_verify.cs
+COPY --from=binaries /app/stark_verify_final.pk.dmp /app/stark_verify_final.pk.dmp
 
 # Main prover
 COPY --from=builder /src/agent /app/agent

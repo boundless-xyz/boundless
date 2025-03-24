@@ -188,7 +188,6 @@ impl AggregatorService {
                 request: order.request.clone(),
                 signature: order.client_sig.clone().to_vec(),
                 journal,
-                require_payment: true,
             })
         }
 
@@ -387,11 +386,17 @@ impl AggregatorService {
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
+        unaggregated_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<String> {
         let assessor_proof_id = if finalize {
-            let assessor_order_ids: Vec<U256> =
-                batch.orders.iter().copied().chain(new_proofs.iter().map(|p| p.order_id)).collect();
+            let assessor_order_ids: Vec<U256> = batch
+                .orders
+                .iter()
+                .copied()
+                .chain(new_proofs.iter().map(|p| p.order_id))
+                .chain(unaggregated_proofs.iter().map(|p| p.order_id))
+                .collect();
 
             tracing::debug!(
                 "Running assessor for batch {batch_id} with orders {:x?}",
@@ -423,25 +428,13 @@ impl AggregatorService {
 
         tracing::info!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
 
-        let assessor_claim_digest = if let Some(proof_id) = assessor_proof_id {
-            let receipt = self
-                .prover
-                .get_receipt(&proof_id)
-                .await
-                .with_context(|| format!("Failed to get proof receipt for proof {proof_id}"))?
-                .with_context(|| format!("Proof receipt not found for proof {proof_id}"))?;
-            let claim = receipt
-                .claim()
-                .with_context(|| format!("Receipt for proof {proof_id} missing claim"))?
-                .value()
-                .with_context(|| format!("Receipt for proof {proof_id} claims pruned"))?;
-            Some(claim.digest())
-        } else {
-            None
-        };
-
         self.db
-            .update_batch(batch_id, &aggregation_state, new_proofs, assessor_claim_digest)
+            .update_batch(
+                batch_id,
+                &aggregation_state,
+                &[new_proofs, unaggregated_proofs].concat(),
+                assessor_proof_id,
+            )
             .await
             .with_context(|| format!("Failed to update batch {batch_id} in the DB"))?;
 
@@ -463,10 +456,22 @@ impl AggregatorService {
                     .get_aggregation_proofs()
                     .await
                     .context("Failed to get pending agg proofs from DB")?;
+                // Fetch all unaggregated proofs that are ready to be submitted from the DB.
+                let new_unaggregated_proofs = self
+                    .db
+                    .get_unaggregated_proofs()
+                    .await
+                    .context("Failed to get unaggregated proofs from DB")?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.
-                let finalize = self.check_finalize(batch_id, &batch, &new_proofs).await?;
+                let finalize = self
+                    .check_finalize(
+                        batch_id,
+                        &batch,
+                        &[new_proofs.clone(), new_unaggregated_proofs.clone()].concat(),
+                    )
+                    .await?;
 
                 // If we don't need to finalize, and there are no new proofs, there is no work to do.
                 if !finalize && new_proofs.is_empty() {
@@ -474,8 +479,15 @@ impl AggregatorService {
                     return Ok(());
                 }
 
-                let aggregation_proof_id =
-                    self.aggregate_proofs(batch_id, &batch, &new_proofs, finalize).await?;
+                let aggregation_proof_id = self
+                    .aggregate_proofs(
+                        batch_id,
+                        &batch,
+                        &new_proofs,
+                        &new_unaggregated_proofs,
+                        finalize,
+                    )
+                    .await?;
                 (aggregation_proof_id, finalize)
             }
             BatchStatus::PendingCompression => {
@@ -564,7 +576,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -648,6 +659,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -691,6 +703,7 @@ mod tests {
             image_id: Some(image_id_str),
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
             lock_price: Some(U256::from(min_price)),
@@ -717,7 +730,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -800,6 +812,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -858,6 +871,7 @@ mod tests {
             image_id: Some(image_id_str),
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
@@ -885,7 +899,6 @@ mod tests {
         let prover_addr = signer.address();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -965,6 +978,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -990,7 +1004,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -1074,6 +1087,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1082,7 +1096,7 @@ mod tests {
         let order_id = U256::from(order.request.id);
         db.add_order(order_id, order.clone()).await.unwrap();
 
-        provider.anvil_mine(Some(U256::from(51)), Some(U256::from(2))).await.unwrap();
+        provider.anvil_mine(Some(51), Some(2)).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
@@ -1102,7 +1116,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -1191,6 +1204,7 @@ mod tests {
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
+            compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),

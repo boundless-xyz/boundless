@@ -26,7 +26,6 @@ use alloy::{
     providers::Provider,
     rpc::types::{BlockTransactionsKind, Log, TransactionReceipt},
     signers::Signer,
-    transports::Transport,
 };
 use alloy_sol_types::{SolCall, SolEvent};
 use anyhow::{anyhow, Context, Result};
@@ -93,18 +92,27 @@ impl From<alloy::contract::Error> for MarketError {
 }
 
 /// Proof market service.
-pub struct BoundlessMarketService<T, P> {
-    instance: IBoundlessMarketInstance<T, P, Ethereum>,
+pub struct BoundlessMarketService<P> {
+    instance: IBoundlessMarketInstance<(), P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
     chain_id: AtomicU64,
     caller: Address,
     timeout: Duration,
     event_query_config: EventQueryConfig,
+    balance_alert_config: StakeBalanceAlertConfig,
 }
 
-impl<T, P> Clone for BoundlessMarketService<T, P>
+#[derive(Clone, Debug, Default)]
+struct StakeBalanceAlertConfig {
+    /// Threshold at which to log a warning
+    warn_threshold: Option<U256>,
+    /// Threshold at which to log an error
+    error_threshold: Option<U256>,
+}
+
+impl<P> Clone for BoundlessMarketService<P>
 where
-    IBoundlessMarketInstance<T, P, Ethereum>: Clone,
+    IBoundlessMarketInstance<(), P, Ethereum>: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -113,6 +121,7 @@ where
             caller: self.caller,
             timeout: self.timeout,
             event_query_config: self.event_query_config.clone(),
+            balance_alert_config: self.balance_alert_config.clone(),
         }
     }
 }
@@ -151,11 +160,7 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
     }
 }
 
-impl<T, P> BoundlessMarketService<T, P>
-where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
-{
+impl<P: Provider> BoundlessMarketService<P> {
     /// Creates a new Boundless market service.
     pub fn new(address: Address, provider: P, caller: Address) -> Self {
         let instance = IBoundlessMarket::new(address, provider);
@@ -166,6 +171,7 @@ where
             caller,
             timeout: TXN_CONFIRM_TIMEOUT,
             event_query_config: EventQueryConfig::default(),
+            balance_alert_config: StakeBalanceAlertConfig::default(),
         }
     }
 
@@ -179,8 +185,23 @@ where
         Self { event_query_config: config, ..self }
     }
 
+    /// Set stake balance thresholds to warn or error alert on
+    pub fn with_stake_balance_alert(
+        self,
+        warn_threshold: &Option<U256>,
+        error_threshold: &Option<U256>,
+    ) -> Self {
+        Self {
+            balance_alert_config: StakeBalanceAlertConfig {
+                warn_threshold: *warn_threshold,
+                error_threshold: *error_threshold,
+            },
+            ..self
+        }
+    }
+
     /// Returns the market contract instance.
-    pub fn instance(&self) -> &IBoundlessMarketInstance<T, P, Ethereum> {
+    pub fn instance(&self) -> &IBoundlessMarketInstance<(), P, Ethereum> {
         &self.instance
     }
 
@@ -345,6 +366,8 @@ where
         }
 
         tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
+
+        self.check_stake_balance().await?;
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -1182,6 +1205,7 @@ where
             .await
             .context("failed to confirm tx")?;
         tracing::debug!("Submitted stake withdraw {}", tx_hash);
+        self.check_stake_balance().await?;
         Ok(())
     }
 
@@ -1190,6 +1214,28 @@ where
         tracing::debug!("Calling balanceOfStake({})", account);
         let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?._0;
         Ok(balance)
+    }
+
+    /// Check the current stake balance against the alert config
+    /// and log a warning or error or below the thresholds.
+    async fn check_stake_balance(&self) -> Result<(), MarketError> {
+        let stake_balance = self.balance_of_stake(self.caller()).await?;
+        if stake_balance < self.balance_alert_config.error_threshold.unwrap_or(U256::ZERO) {
+            tracing::error!(
+                "stake balance {} for {} < error threshold",
+                stake_balance,
+                self.caller(),
+            );
+        } else if stake_balance < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO) {
+            tracing::warn!(
+                "stake balance {} for {} < warning threshold",
+                stake_balance,
+                self.caller(),
+            );
+        } else {
+            tracing::trace!("stake balance for {} is: {}", self.caller(), stake_balance);
+        }
+        Ok(())
     }
 }
 
@@ -1302,9 +1348,10 @@ mod tests {
     use super::decode_calldata;
     use crate::{
         contracts::{
-            hit_points::default_allowance, test_utils::TestCtx, AssessorJournal, AssessorReceipt,
-            Fulfillment, IBoundlessMarket, Input, InputType, Offer, Predicate, PredicateType,
-            ProofRequest, ProofStatus, Requirements,
+            hit_points::default_allowance,
+            test_utils::{create_test_ctx, TestCtx},
+            AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType,
+            Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1328,7 +1375,7 @@ mod tests {
         sha::{Digest, Digestible},
         FakeReceipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
     };
-    use tracing_subscriber::EnvFilter;
+    use tracing_test::traced_test;
 
     fn ether(value: &str) -> U256 {
         parse_ether(value).unwrap()
@@ -1346,7 +1393,7 @@ mod tests {
         }
     }
 
-    async fn new_request(idx: u32, ctx: &TestCtx) -> ProofRequest {
+    async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         ProofRequest::new(
             idx,
             &ctx.customer_signer.address(),
@@ -1480,10 +1527,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         // Deposit prover balances
         ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
@@ -1504,16 +1548,18 @@ mod tests {
     }
 
     #[tokio::test]
+    #[traced_test]
     async fn test_deposit_withdraw_stake() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let mut ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let deposit = U256::from(10);
+
+        // set stake balance alerts
+        ctx.prover_market =
+            ctx.prover_market.with_stake_balance_alert(&Some(U256::from(10)), &Some(U256::from(5)));
 
         // Approve and deposit stake
         ctx.prover_market.approve_deposit_stake(deposit).await.unwrap();
@@ -1527,8 +1573,23 @@ mod tests {
             U256::from(20)
         );
 
-        // Withdraw prover balances
-        ctx.prover_market.withdraw_stake(U256::from(20)).await.unwrap();
+        // Withdraw prover balances in chunks to observe alerts
+
+        ctx.prover_market.withdraw_stake(U256::from(11)).await.unwrap();
+        assert_eq!(
+            ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+            U256::from(9)
+        );
+        assert!(logs_contain("< warning threshold"));
+
+        ctx.prover_market.withdraw_stake(U256::from(5)).await.unwrap();
+        assert_eq!(
+            ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+            U256::from(4)
+        );
+        assert!(logs_contain("< error threshold"));
+
+        ctx.prover_market.withdraw_stake(U256::from(4)).await.unwrap();
         assert_eq!(
             ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
             U256::ZERO
@@ -1543,10 +1604,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let request = new_request(1, &ctx).await;
 
@@ -1561,15 +1619,12 @@ mod tests {
     }
 
     #[tokio::test]
+    #[traced_test]
     async fn test_e2e() {
-        tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1645,10 +1700,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1708,7 +1760,7 @@ mod tests {
         // publish the committed root + fulfillments
         ctx.prover_market
             .submit_merkle_and_fulfill(
-                ctx.set_verifier_addr,
+                ctx.set_verifier_address,
                 root,
                 set_verifier_seal,
                 fulfillments.clone(),
@@ -1730,10 +1782,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1804,10 +1853,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",

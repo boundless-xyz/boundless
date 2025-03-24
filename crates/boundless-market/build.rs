@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, fs, fs::File, io::Write, path::Path};
+use std::{env, fs, path::Path};
 
 // Contracts to copy to the artificats folder for. If the contract is a directory, all .sol files in the directory.
 const CONTRACTS_TO_COPY: [&str; 3] = ["IBoundlessMarket.sol", "IHitPoints.sol", "types"];
@@ -25,8 +25,15 @@ const EXCLUDE_CONTRACTS: [&str; 2] = [
 ];
 
 // Contracts to copy bytecode for. Used for deploying contracts in tests.
-const ARTIFACT_TARGET_CONTRACTS: [&str; 5] =
-    ["BoundlessMarket", "HitPoints", "RiscZeroMockVerifier", "RiscZeroSetVerifier", "ERC1967Proxy"];
+const ARTIFACT_TARGET_CONTRACTS: [&str; 7] = [
+    "BoundlessMarket",
+    "HitPoints",
+    "RiscZeroMockVerifier",
+    "RiscZeroSetVerifier",
+    "ERC1967Proxy",
+    "RiscZeroVerifierRouter",
+    "RiscZeroGroth16Verifier",
+];
 
 // Output filename for the generated types. The file is placed in the build directory.
 const BOUNDLESS_MARKET_RS: &str = "boundless_market_generated.rs";
@@ -193,17 +200,24 @@ fn copy_interfaces_and_types() {
     }
 }
 
-fn copy_artifacts() {
+fn generate_contracts_rust_file() {
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let dest_path = Path::new(&manifest_dir).join("src/contracts/artifacts");
-    fs::create_dir_all(&dest_path).unwrap();
-
     let src_path =
         Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("out");
 
+    // If running under cargo publish, the contracts directory doesn't exist, so we exit early.
+    if !src_path.exists() {
+        println!("cargo:warning=Skipping contract bytecode generation during cargo publish");
+        return;
+    }
+
+    // Start with file header content
+    let mut rust_content = String::from("// Auto-generated file, do not edit manually\n\n");
+
     for contract in ARTIFACT_TARGET_CONTRACTS {
         let source_path = src_path.join(format!("{contract}.sol/{contract}.json"));
+
         // Tell cargo to rerun if this contract changes
         println!("cargo:rerun-if-changed={}", source_path.display());
 
@@ -222,11 +236,51 @@ fn copy_artifacts() {
                 .unwrap()
                 .trim_start_matches("0x");
 
-            // Write to new file with .hex extension
-            let dest_file = dest_path.join(format!("{contract}.hex"));
-            let mut file = File::create(dest_file).unwrap();
-            file.write_all(bytecode.as_bytes()).unwrap();
+            // Append the contract definition with embedded bytecode
+            rust_content.push_str(&format!(
+                r#"alloy::sol! {{
+    #[sol(rpc, bytecode = "{}")]
+    contract {} {{
+        {}
+    }}
+}}"#,
+                bytecode,
+                contract,
+                get_interfaces(contract)
+            ));
+
+            // Only add newline between contracts, not after the last one
+            if contract != *ARTIFACT_TARGET_CONTRACTS.last().unwrap() {
+                rust_content.push_str("\n\n");
+            }
         }
+    }
+    rust_content.push('\n');
+    let dest_path = Path::new(&manifest_dir).join("src/contracts/bytecode.rs");
+    fs::write(dest_path, rust_content).unwrap();
+}
+
+// Helper function to define interfaces for each contract
+fn get_interfaces(contract: &str) -> &str {
+    match contract {
+        "RiscZeroMockVerifier" => "constructor(bytes4 selector) {}",
+        "RiscZeroSetVerifier" => {
+            "constructor(address verifier, bytes32 imageId, string memory imageUrl) {}"
+        }
+        "BoundlessMarket" => {
+            r#"constructor(address verifier, bytes32 assessorId, address stakeTokenContract) {}
+            function initialize(address initialOwner, string calldata imageUrl) {}"#
+        }
+        "ERC1967Proxy" => "constructor(address implementation, bytes memory data) payable {}",
+        "HitPoints" => "constructor(address initialOwner) payable {}",
+        "RiscZeroVerifierRouter" => {
+            r#"constructor(address owner) {}
+            function addVerifier(bytes4 selector, address verifier) {}"#
+        }
+        "RiscZeroGroth16Verifier" => {
+            r#"constructor(bytes32 control_root, bytes32 bn254_control_id) {}"#
+        }
+        _ => "",
     }
 }
 
@@ -240,6 +294,6 @@ fn main() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
 
     if target_os != "zkvm" {
-        copy_artifacts();
+        generate_contracts_rust_file();
     }
 }

@@ -11,7 +11,6 @@ use alloy::{
     providers::Provider,
     rpc::types::{Filter, Log},
     sol_types::{SolCall, SolEvent},
-    transports::BoxTransport,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
@@ -38,7 +37,7 @@ pub struct MarketMonitor<P> {
 
 impl<P> MarketMonitor<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
 {
     pub fn new(
         lookback_blocks: u64,
@@ -266,7 +265,7 @@ where
 
 impl<P> RetryTask for MarketMonitor<P>
 where
-    P: Provider<BoxTransport, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
 {
     fn spawn(&self) -> RetryRes {
         let lookback_blocks = self.lookback_blocks;
@@ -326,7 +325,6 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer.clone()))
                 .on_builtin(&anvil.endpoint())
                 .await
@@ -334,7 +332,7 @@ mod tests {
         );
 
         let market_address = deploy_boundless_market(
-            &signer,
+            signer.address(),
             provider.clone(),
             Address::ZERO,
             Address::ZERO,
@@ -394,14 +392,13 @@ mod tests {
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
-                .with_recommended_fillers()
                 .wallet(EthereumWallet::from(signer))
                 .on_builtin(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
 
-        provider.anvil_mine(Some(U256::from(10)), Some(U256::from(2))).await.unwrap();
+        provider.anvil_mine(Some(10), Some(2)).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());

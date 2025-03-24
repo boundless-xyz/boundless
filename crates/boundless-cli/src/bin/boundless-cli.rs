@@ -26,11 +26,10 @@ use alloy::{
     primitives::{
         aliases::U96,
         utils::{format_ether, parse_ether},
-        Address, Bytes, FixedBytes, B256, U256,
+        Address, Bytes, B256, U256,
     },
     providers::{network::EthereumWallet, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
-    transports::Transport,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_cli::{DefaultProver, OrderFulfilled};
@@ -50,7 +49,7 @@ use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
         boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements,
+        PredicateType, ProofRequest, Requirements, UNSPECIFIED_SELECTOR,
     },
     input::{GuestEnv, InputBuilder},
     storage::{StorageProvider, StorageProviderConfig},
@@ -204,10 +203,6 @@ enum Command {
         /// If provided, the request will be fetched offchain via the provided order stream service URL.
         #[arg(long, conflicts_with_all = ["tx_hash"])]
         order_stream_url: Option<Url>,
-        /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
-        /// request is locked to another prover).
-        #[arg(long, default_value = "false")]
-        require_payment: bool,
     },
 }
 
@@ -272,7 +267,7 @@ struct SubmitOfferRequirements {
     journal_prefix: Option<String>,
     /// Address of the callback to use in the requirements.
     #[clap(long, requires = "callback_gas_limit")]
-    callback_addr: Option<Address>,
+    callback_address: Option<Address>,
     /// Gas limit of the callback to use in the requirements.
     #[clap(long, requires = "callback_addr")]
     callback_gas_limit: Option<u64>,
@@ -325,10 +320,7 @@ async fn main() -> Result<()> {
 pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     let caller = args.private_key.address();
     let wallet = EthereumWallet::from(args.private_key.clone());
-    let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(wallet)
-        .on_http(args.rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.rpc_url.clone());
     let mut boundless_market =
         BoundlessMarketService::new(args.boundless_market_address, provider.clone(), caller);
     if let Some(tx_timeout) = args.tx_timeout {
@@ -507,13 +499,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Execution succeeded.");
             tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
         }
-        Command::Fulfill {
-            request_id,
-            request_digest,
-            tx_hash,
-            order_stream_url,
-            require_payment,
-        } => {
+        Command::Fulfill { request_id, request_digest, tx_hash, order_stream_url } => {
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
@@ -549,10 +535,8 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 boundless_market.get_chain_id().await?,
             )?;
 
-            let (fill, root_receipt, _, assessor_receipt) =
-                prover.fulfill(order.clone(), require_payment).await?;
-            let order_fulfilled =
-                OrderFulfilled::new(fill, root_receipt, assessor_receipt, caller)?;
+            let (fill, root_receipt, assessor_receipt) = prover.fulfill(order.clone()).await?;
+            let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt)?;
             set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
 
             // If the request is not locked in, we need to "price" which checks the requirements
@@ -586,14 +570,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
     Ok(request_id)
 }
 
-async fn submit_offer<T, P, S>(
-    client: Client<T, P, S>,
+async fn submit_offer<P, S>(
+    client: Client<P, S>,
     signer: &impl Signer,
     args: &SubmitOfferArgs,
 ) -> Result<Option<U256>>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     // TODO(victor): Execute the request before sending it.
@@ -637,7 +620,7 @@ where
         _ => bail!("exactly one of journal-digest or journal-prefix args must be provided"),
     };
 
-    let callback = match (&args.reqs.callback_addr, &args.reqs.callback_gas_limit) {
+    let callback = match (&args.reqs.callback_address, &args.reqs.callback_gas_limit) {
         (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
         _ => Callback::default(),
     };
@@ -662,7 +645,7 @@ where
     let request = ProofRequest::new(
         id,
         &client.caller(),
-        Requirements { imageId: image_id, predicate, callback, selector: FixedBytes::<4>([0; 4]) },
+        Requirements { imageId: image_id, predicate, callback, selector: UNSPECIFIED_SELECTOR },
         elf_url,
         requirements_input,
         offer.clone(),
@@ -705,18 +688,17 @@ where
     Ok(Some(request_id))
 }
 
-async fn submit_request<T, P, S>(
+async fn submit_request<P, S>(
     id: u32,
     request_path: impl AsRef<Path>,
-    client: Client<T, P, S>,
+    client: Client<P, S>,
     signer: &impl Signer,
     wait: bool,
     offchain: bool,
     preflight: bool,
 ) -> Result<Option<U256>>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     // TODO(victor): Execute the request before sending it.
@@ -846,10 +828,9 @@ mod tests {
     use super::*;
 
     use alloy::node_bindings::Anvil;
-    use boundless_market::contracts::{hit_points::default_allowance, test_utils::TestCtx};
+    use boundless_market::contracts::{hit_points::default_allowance, test_utils::create_test_ctx};
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
-    use risc0_zkvm::sha::Digest;
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
@@ -858,17 +839,13 @@ mod tests {
     async fn test_deposit_withdraw() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
-
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
 
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.prover_signer.clone(),
-            boundless_market_address: ctx.boundless_market_addr,
-            set_verifier_address: ctx.set_verifier_addr,
+            boundless_market_address: ctx.boundless_market_address,
+            set_verifier_address: ctx.set_verifier_address,
             tx_timeout: None,
             command: Command::Deposit { amount: default_allowance() },
         };
@@ -890,11 +867,7 @@ mod tests {
     async fn test_submit_request() {
         // Setup anvil
         let anvil = Anvil::new().spawn();
-
-        let ctx =
-            TestCtx::new(&anvil, Digest::from(SET_BUILDER_ID), Digest::from(ASSESSOR_GUEST_ID))
-                .await
-                .unwrap();
+        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await
@@ -903,8 +876,8 @@ mod tests {
         let mut args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer.clone(),
-            boundless_market_address: ctx.boundless_market_addr,
-            set_verifier_address: ctx.set_verifier_addr,
+            boundless_market_address: ctx.boundless_market_address,
+            set_verifier_address: ctx.set_verifier_address,
             tx_timeout: None,
             command: Command::SubmitRequest {
                 storage_config: Some(StorageProviderConfig::dev_mode()),

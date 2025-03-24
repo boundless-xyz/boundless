@@ -7,7 +7,6 @@ use std::{default::Default, str::FromStr, sync::Arc};
 use alloy::primitives::{ruint::ParseError as RuintParseErr, B256, U256};
 use async_trait::async_trait;
 use chrono::Utc;
-use risc0_zkvm::sha::Digest;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Row,
@@ -80,7 +79,8 @@ pub trait BrokerDb {
         &self,
         id: U256,
     ) -> Result<(ProofRequest, String, B256, U256), DbError>;
-    async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError>;
+    async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError>;
+    async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
         &self,
@@ -98,18 +98,24 @@ pub trait BrokerDb {
         &self,
         end_timestamp: u64,
     ) -> Result<Vec<(U256, Order)>, DbError>;
-    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError>;
+    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u32, DbError>;
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_proof_id(&self, order_id: U256, proof_id: &str) -> Result<(), DbError>;
+    async fn set_order_compressed_proof_id(
+        &self,
+        order_id: U256,
+        proof_id: &str,
+    ) -> Result<(), DbError>;
     async fn set_image_input_ids(
         &self,
         id: U256,
         image_id: &str,
         input_id: &str,
     ) -> Result<(), DbError>;
-    async fn set_aggregation_status(&self, id: U256) -> Result<(), DbError>;
+    async fn set_aggregation_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError>;
     async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
+    async fn get_unaggregated_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
     async fn complete_batch(&self, batch_id: usize, g16_proof_id: String) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;
@@ -119,13 +125,13 @@ pub trait BrokerDb {
     /// Update a batch with the results of an aggregation step.
     ///
     /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
-    /// and deadline. During finalization, the assessor_claim_digest is recorded as well.
+    /// and deadline. During finalization, the assessor_proof_id is recorded as well.
     async fn update_batch(
         &self,
         batch_id: usize,
         aggreagtion_state: &AggregationState,
         orders: &[AggregationOrder],
-        assessor_claim_digest: Option<Digest>,
+        assessor_proof_id: Option<String>,
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
 
@@ -246,30 +252,43 @@ impl BrokerDb for SqliteDb {
         }
     }
 
-    async fn get_order_for_pricing(&self) -> Result<Option<(U256, Order)>, DbError> {
-        let elm: Option<DbOrder> = sqlx::query_as(
+    async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError> {
+        let order = self.get_order(id).await?;
+        if let Some(order) = order {
+            Ok(order.compressed_proof_id.ok_or(DbError::MissingElm("compressed_proof_id"))?)
+        } else {
+            Err(DbError::OrderNotFound(id))
+        }
+    }
+
+    async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
-            UPDATE orders
-            SET data = json_set(json_set(data, '$.status', $1), '$.update_at', $2)
-            WHERE id =
-                (SELECT id
+            WITH orders_to_update AS (
+                SELECT id
                 FROM orders
-                WHERE data->>'status' = $3
-                LIMIT 1)
+                WHERE data->>'status' = $1
+                LIMIT $2
+            )
+            UPDATE orders
+            SET data = json_set(json_set(data, '$.status', $3), '$.updated_at', $4)
+            WHERE id IN (SELECT id FROM orders_to_update)
             RETURNING *
             "#,
         )
+        .bind(OrderStatus::New)
+        .bind(i64::from(limit))
         .bind(OrderStatus::Pricing)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::New)
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
-        let Some(order) = elm else {
-            return Ok(None);
-        };
+        let result: Result<Vec<_>, _> = orders
+            .into_iter()
+            .map(|order| Ok((U256::from_str_radix(&order.id, 16)?, order.data)))
+            .collect();
 
-        Ok(Some((U256::from_str_radix(&order.id, 16)?, order.data)))
+        result
     }
 
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError> {
@@ -484,20 +503,21 @@ impl BrokerDb for SqliteDb {
         orders
     }
 
-    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u64, DbError> {
+    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u32, DbError> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6)",
+            "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(OrderStatus::Locking)
         .bind(OrderStatus::Locked)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
         .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::SkipAggregation)
         .bind(OrderStatus::PendingSubmission)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(count as u64)
+        Ok(u32::try_from(count).expect("count should never be negative"))
     }
 
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError> {
@@ -565,6 +585,34 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
+    async fn set_order_compressed_proof_id(
+        &self,
+        id: U256,
+        compressed_proof_id: &str,
+    ) -> Result<(), DbError> {
+        let res = sqlx::query(
+            r#"
+            UPDATE orders
+            SET data = json_set(
+                       json_set(data,
+                       '$.compressed_proof_id', $1),
+                       '$.updated_at', $2)
+            WHERE
+                id = $3"#,
+        )
+        .bind(compressed_proof_id)
+        .bind(Utc::now().timestamp())
+        .bind(format!("{id:x}"))
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::OrderNotFound(id));
+        }
+
+        Ok(())
+    }
+
     async fn set_image_input_ids(
         &self,
         id: U256,
@@ -597,7 +645,7 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
-    async fn set_aggregation_status(&self, id: U256) -> Result<(), DbError> {
+    async fn set_aggregation_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -608,7 +656,7 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(OrderStatus::PendingAgg)
+        .bind(status)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
         .execute(&self.pool)
@@ -638,6 +686,45 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::PendingAgg)
         .bind(OrderStatus::Aggregating)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut agg_orders = vec![];
+        for order in orders.into_iter() {
+            agg_orders.push(AggregationOrder {
+                order_id: U256::from_str_radix(&order.id, 16)?,
+                // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
+                proof_id: order
+                    .data
+                    .proof_id
+                    .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
+                expiration: order
+                    .data
+                    .expire_timestamp
+                    .ok_or(DbError::InvalidOrder(order.id.clone(), "expire_timestamp"))?,
+                fee: order.data.lock_price.ok_or(DbError::InvalidOrder(order.id, "lock_price"))?,
+            })
+        }
+
+        Ok(agg_orders)
+    }
+
+    async fn get_unaggregated_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            r#"
+            UPDATE orders
+            SET data = json_set(
+                       json_set(data,
+                       '$.status', $1),
+                       '$.update_at', $2)
+            WHERE
+                data->>'status' == $3
+            RETURNING *
+            "#,
+        )
+        .bind(OrderStatus::SkipAggregation)
+        .bind(Utc::now().timestamp())
+        .bind(OrderStatus::SkipAggregation)
         .fetch_all(&self.pool)
         .await?;
 
@@ -789,7 +876,7 @@ impl BrokerDb for SqliteDb {
         batch_id: usize,
         aggreagtion_state: &AggregationState,
         orders: &[AggregationOrder],
-        assessor_claim_digest: Option<Digest>,
+        assessor_proof_id: Option<String>,
     ) -> Result<(), DbError> {
         let mut txn = self.pool.begin().await?;
 
@@ -880,7 +967,7 @@ impl BrokerDb for SqliteDb {
             }
         }
 
-        if let Some(assessor_claim_digest) = assessor_claim_digest {
+        if let Some(assessor_proof_id) = assessor_proof_id {
             let res = sqlx::query(
                 r#"
                 UPDATE batches
@@ -888,12 +975,12 @@ impl BrokerDb for SqliteDb {
                     data = json_set(
                            json_set(data,
                            '$.status', $1),
-                           '$.assessor_claim_digest', json($2))
+                           '$.assessor_proof_id', json($2))
                 WHERE
                     id = $3"#,
             )
             .bind(BatchStatus::PendingCompression)
-            .bind(sqlx::types::Json(assessor_claim_digest))
+            .bind(sqlx::types::Json(assessor_proof_id))
             .bind(batch_id as i64)
             .execute(&mut *txn)
             .await?;
@@ -969,6 +1056,7 @@ mod tests {
         Input, InputType, Offer, Predicate, PredicateType, Requirements,
     };
     use risc0_aggregation::GuestState;
+    use risc0_zkvm::sha::Digest;
 
     fn create_order() -> Order {
         Order {
@@ -1000,6 +1088,7 @@ mod tests {
             image_id: None,
             input_id: None,
             proof_id: None,
+            compressed_proof_id: None,
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
@@ -1060,17 +1149,27 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn get_order_for_pricing(pool: SqlitePool) {
+    async fn update_orders_for_pricing(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
         let order = create_order();
         db.add_order(id, order.clone()).await.unwrap();
+        db.add_order(id + U256::from(1), order.clone()).await.unwrap();
+        db.add_order(id + U256::from(2), order.clone()).await.unwrap();
 
-        let price_order = db.get_order_for_pricing().await.unwrap();
-        let price_order = price_order.unwrap();
-        assert_eq!(price_order.0, id);
-        assert_eq!(price_order.1.status, OrderStatus::Pricing);
-        assert_ne!(price_order.1.updated_at, order.updated_at);
+        let price_order = db.update_orders_for_pricing(1).await.unwrap();
+        assert_eq!(price_order.len(), 1);
+        assert_eq!(price_order[0].0, id);
+        assert_eq!(price_order[0].1.status, OrderStatus::Pricing);
+        assert_ne!(price_order[0].1.updated_at, order.updated_at);
+
+        // Request the next two orders, which should skip the first
+        let price_order = db.update_orders_for_pricing(2).await.unwrap();
+        assert_eq!(price_order.len(), 2);
+        assert_eq!(price_order[0].0, id + U256::from(1));
+        assert_eq!(price_order[0].1.status, OrderStatus::Pricing);
+        assert_eq!(price_order[1].0, id + U256::from(2));
+        assert_eq!(price_order[1].1.status, OrderStatus::Pricing);
     }
 
     #[sqlx::test]
@@ -1290,7 +1389,7 @@ mod tests {
         let order = create_order();
         db.add_order(id, order.clone()).await.unwrap();
 
-        db.set_aggregation_status(id).await.unwrap();
+        db.set_aggregation_status(id, OrderStatus::PendingAgg).await.unwrap();
 
         let db_order = db.get_order(id).await.unwrap().unwrap();
 
@@ -1503,7 +1602,9 @@ mod tests {
         };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
-        db.update_batch(batch_id, &agg_state, &agg_proofs, Some([4u32; 8].into())).await.unwrap();
+        db.update_batch(batch_id, &agg_state, &agg_proofs, Some("proof_id".to_string()))
+            .await
+            .unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::PendingCompression);
