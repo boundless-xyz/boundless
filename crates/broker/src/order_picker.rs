@@ -147,14 +147,14 @@ where
         if let Some(allow_addresses) = allowed_addresses_opt {
             let client_addr = order.request.client_address()?;
             if !allow_addresses.contains(&client_addr) {
-                tracing::warn!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
+                tracing::info!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
                 return Ok(None);
             }
         }
 
         // TODO(BM-40): When accounting for gas costs of orders, a groth16 selector has much higher cost.
         if !self.supported_selectors.is_supported(&order.request.requirements.selector) {
-            tracing::warn!(
+            tracing::info!(
                 "Removing order {order_id:x} because it has an unsupported selector requirement"
             );
 
@@ -168,14 +168,14 @@ where
 
         let now = now_timestamp();
         if expiration <= now {
-            tracing::warn!("Removing order {order_id:x} because it has expired");
+            tracing::info!("Removing order {order_id:x} because it has expired");
             return Ok(None);
         };
 
         // Does the order expire within the min deadline
         let seconds_left = expiration - now;
         if seconds_left <= min_deadline {
-            tracing::warn!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
+            tracing::info!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             return Ok(None);
         }
 
@@ -187,7 +187,7 @@ where
 
         let lockin_stake = U256::from(order.request.offer.lockStake);
         if lockin_stake > max_stake {
-            tracing::warn!("Removing high stake order {order_id:x}");
+            tracing::info!("Removing high stake order {order_id:x}");
             return Ok(None);
         }
 
@@ -258,7 +258,7 @@ where
             .context("Failed to convert U256 exec limit to u64")?;
 
         if exec_limit == 0 {
-            tracing::warn!(
+            tracing::info!(
                 "Removing order {order_id:x} because it's mcycle price limit is below 0 mcycles"
             );
 
@@ -295,7 +295,7 @@ where
         if let Some(mcycle_limit) = max_mcycle_limit {
             let mcycles = proof_res.stats.total_cycles / 1_000_000;
             if mcycles >= mcycle_limit {
-                tracing::warn!("Order {order_id:x} max_mcycle_limit check failed req: {mcycle_limit} | config: {mcycles}");
+                tracing::info!("Order {order_id:x} max_mcycle_limit check failed req: {mcycle_limit} | config: {mcycles}");
                 return Ok(None);
             }
         }
@@ -322,7 +322,7 @@ where
             if completion_time >= expiration {
                 drop(prover_available);
                 // Proof estimated that it cannot complete before the expiration
-                tracing::warn!(
+                tracing::info!(
                     "Order {order_id:x} cannot be completed in time. Proof estimated to take {proof_time_seconds}s to complete, would be {}s past deadline",
                     completion_time.saturating_sub(expiration)
                 );
@@ -365,7 +365,7 @@ where
         let max_journal_bytes =
             self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
         if journal.len() > max_journal_bytes {
-            tracing::warn!(
+            tracing::info!(
                 "Order {order_id:x} journal larger than set limit ({} > {}), skipping",
                 journal.len(),
                 max_journal_bytes
@@ -375,7 +375,7 @@ where
 
         // Validate the predicates:
         if !order.request.requirements.predicate.eval(journal.clone()) {
-            tracing::warn!("Order {order_id:x} predicate check failed, skipping");
+            tracing::info!("Order {order_id:x} predicate check failed, skipping");
             return Ok(None);
         }
 
@@ -400,7 +400,7 @@ where
 
         // Skip the order if it will never be worth it
         if mcycle_price_max < config_min_mcycle_price {
-            tracing::warn!("Removing under priced order {order_id:x}");
+            tracing::info!("Removing under priced order {order_id:x}");
             return Ok(None);
         }
 
