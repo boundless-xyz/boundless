@@ -1364,6 +1364,7 @@ mod tests {
         sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
     };
     use alloy_sol_types::SolCall;
+    use boundless_assessor::commit;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use guest_util::ECHO_ID;
@@ -1427,11 +1428,12 @@ mod tests {
         let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
         let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
         let app_claim_digest = app_receipt_claim.digest();
+        let request_digest = request.eip712_signing_hash(&eip712_domain);
 
         let assessor_journal = AssessorJournal {
-            requestDigests: vec![request.eip712_signing_hash(&eip712_domain)],
+            requestDigests: vec![request_digest],
             selectors: vec![],
-            root: to_b256(app_claim_digest),
+            root: <[u8; 32]>::from(commit(&request.id, &request_digest, &app_claim_digest)).into(),
             prover,
             callbacks: vec![],
         };
@@ -1467,7 +1469,7 @@ mod tests {
 
         let fulfillment = Fulfillment {
             id: request.id,
-            requestDigest: request.eip712_signing_hash(&eip712_domain),
+            requestDigest: request_digest,
             imageId: to_b256(Digest::from(ECHO_ID)),
             journal: app_journal.bytes.into(),
             seal: set_inclusion_seal.into(),

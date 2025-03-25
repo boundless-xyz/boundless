@@ -16,7 +16,7 @@
 
 #![deny(missing_docs)]
 
-use alloy_primitives::{Address, PrimitiveSignature};
+use alloy_primitives::{keccak256, Address, PrimitiveSignature, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
 use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest};
@@ -64,6 +64,17 @@ impl Fulfillment {
         let image_id = Digest::from_bytes(self.request.requirements.imageId.0);
         ReceiptClaim::ok(image_id, self.journal.clone())
     }
+}
+
+/// Computes a commitment hash.
+pub fn commit(request_id: &U256, request_digest: &[u8; 32], claim_digest: &Digest) -> Digest {
+    let mut buf = [0u8; 96];
+
+    buf[0..32].copy_from_slice(&request_id.to_be_bytes::<32>());
+    buf[32..64].copy_from_slice(request_digest);
+    buf[64..96].copy_from_slice(claim_digest.as_bytes());
+
+    Digest::from_bytes(*keccak256(buf))
 }
 
 /// Input of the Assessor guest.

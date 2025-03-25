@@ -226,6 +226,7 @@ contract BoundlessMarket is
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+        bytes32 root = keccak256(abi.encodePacked(fill.id, fill.requestDigest, claimDigest));
 
         // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
         // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
@@ -250,7 +251,7 @@ contract BoundlessMarket is
                     requestDigests: requestDigests,
                     selectors: assessorReceipt.selectors,
                     callbacks: assessorReceipt.callbacks,
-                    root: claimDigest,
+                    root: root,
                     prover: assessorReceipt.prover
                 })
             )
@@ -273,7 +274,7 @@ contract BoundlessMarket is
         if (fills.length > type(uint16).max) {
             revert BatchSizeExceedsLimit(fills.length, type(uint16).max);
         }
-        bytes32[] memory claimDigests = new bytes32[](fills.length);
+        bytes32[] memory leaves = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
         bool[] memory hasSelector = new bool[](fills.length);
 
@@ -294,18 +295,19 @@ contract BoundlessMarket is
             Fulfillment calldata fill = fills[i];
 
             requestDigests[i] = fill.requestDigest;
-            claimDigests[i] = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+            bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+            leaves[i] = keccak256(abi.encodePacked(fill.id, fill.requestDigest, claimDigest));
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
             if (!hasSelector[i]) {
-                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigests[i]));
+                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
             } else {
-                VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigests[i]));
+                VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigest));
             }
         }
 
-        bytes32 batchRoot = MerkleProofish.processTree(claimDigests);
+        bytes32 batchRoot = MerkleProofish.processTree(leaves);
 
         // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
         // NOTE: Signature checks and recursive verification happen inside the assessor.

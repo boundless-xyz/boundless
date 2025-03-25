@@ -21,13 +21,14 @@ library TestUtils {
         AssessorCallback[] memory callbacks,
         address prover
     ) internal pure returns (ReceiptClaim memory) {
-        bytes32[] memory claimDigests = new bytes32[](fills.length);
+        bytes32[] memory leaves = new bytes32[](fills.length);
         bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
-            claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            bytes32 claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            leaves[i] = keccak256(abi.encodePacked(fills[i].id, fills[i].requestDigest, claimDigest));
             requestDigests[i] = fills[i].requestDigest;
         }
-        bytes32 root = MerkleProofish.processTree(claimDigests);
+        bytes32 root = MerkleProofish.processTree(leaves);
 
         bytes memory journal = abi.encode(
             AssessorJournal({

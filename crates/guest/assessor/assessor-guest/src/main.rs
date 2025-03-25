@@ -11,6 +11,7 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::{Address, B256};
 use alloy_sol_types::SolStruct;
 use alloy_sol_types::SolValue;
+use boundless_assessor::commit;
 use boundless_assessor::AssessorInput;
 use boundless_market::contracts::{
     AssessorCallback, AssessorJournal, RequestId, Selector, UNSPECIFIED_SELECTOR,
@@ -41,7 +42,7 @@ fn main() {
     // list of request digests
     let mut request_digests: Vec<B256> = Vec::with_capacity(input.fills.len());
     // list of ReceiptClaim digests used as leaves in the aggregation set
-    let mut claim_digests: Vec<Digest> = Vec::with_capacity(input.fills.len());
+    let mut leaves: Vec<Digest> = Vec::with_capacity(input.fills.len());
     // sparse list of callbacks to be recorded in the journal
     let mut callbacks: Vec<AssessorCallback> = Vec::<AssessorCallback>::new();
     // list of optional Selectors specified as part of the requests requirements
@@ -68,7 +69,8 @@ fn main() {
         };
         fill.evaluate_requirements().expect("requirements not met");
         env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
-        claim_digests.push(fill.receipt_claim().digest());
+        let claim_digest = fill.receipt_claim().digest();
+        leaves.push(commit(&fill.request.id, &request_digest, &claim_digest));
         request_digests.push(request_digest.into());
         if fill.request.requirements.callback.addr != Address::ZERO {
             callbacks.push(AssessorCallback {
@@ -86,7 +88,7 @@ fn main() {
     }
 
     // recompute the merkle root of the aggregation set
-    let root = merkle_root(&claim_digests);
+    let root = merkle_root(&leaves);
 
     let journal = AssessorJournal {
         requestDigests: request_digests,
