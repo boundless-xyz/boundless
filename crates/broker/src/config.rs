@@ -195,6 +195,7 @@ pub struct BatcherConfig {
     /// Max batch duration before publishing (in seconds)
     pub batch_max_time: Option<u64>,
     /// Batch size (in proofs) before publishing
+    #[serde(alias = "batch_size")]
     pub min_batch_size: Option<u64>,
     /// Max combined journal size (in bytes) that once exceeded will trigger a publish
     #[serde(default = "defaults::batch_max_journal_bytes")]
@@ -449,7 +450,7 @@ proof_retry_sleep_ms = 500
 
 [batcher]
 batch_max_time = 300
-min_batch_size = 2
+batch_size = 3
 block_deadline_buffer_secs = 120
 txn_timeout = 45
 batch_poll_time_ms = 1200
@@ -553,6 +554,7 @@ error = ?"#;
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
             assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
+            assert_eq!(config.batcher.min_batch_size, Some(3));
             assert!(config.batcher.single_txn_fulfill);
         }
         tracing::debug!("closing...");
