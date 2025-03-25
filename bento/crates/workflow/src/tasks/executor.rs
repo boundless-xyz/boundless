@@ -26,7 +26,8 @@ use workflow_common::{
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
     },
     CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, KeccakReq, ProveReq, ResolveReq,
-    SnarkReq, AUX_WORK_TYPE, COPROC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_WORK_TYPE,
+    SnarkReq, UnionReq, AUX_WORK_TYPE, COPROC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
+    SNARK_WORK_TYPE,
 };
 // use tempfile::NamedTempFile;
 use tokio::task::{JoinHandle, JoinSet};
@@ -43,6 +44,7 @@ async fn process_task(
     pool: &PgPool,
     prove_stream: &Uuid,
     join_stream: &Uuid,
+    union_stream: &Uuid,
     aux_stream: &Uuid,
     snark_stream: &Uuid,
     job_id: &Uuid,
@@ -131,6 +133,32 @@ async fn process_task(
             )
             .await
             .context("create_task failure during join creation")?;
+        }
+        TaskCmd::Union => {
+            let task_def = serde_json::to_value(TaskType::Union(UnionReq {
+                idx: tree_task.task_number,
+                left: tree_task.keccak_depends_on[0],
+                right: tree_task.keccak_depends_on[1],
+            }))
+            .context("Failed to serialize Union task-type")?;
+            let prereqs = serde_json::json!([
+                format!("{}", tree_task.keccak_depends_on[0]),
+                format!("{}", tree_task.keccak_depends_on[1])
+            ]);
+            let task_id = format!("{}", tree_task.task_number);
+
+            taskdb::create_task(
+                pool,
+                job_id,
+                &task_id,
+                union_stream,
+                &task_def,
+                &prereqs,
+                args.join_retries,
+                args.join_timeout,
+            )
+            .await
+            .context("create_task failure during Union creation")?;
         }
         TaskCmd::Finalize => {
             // Optionally create the Resolve task ahead of the finalize
@@ -396,6 +424,15 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         prove_stream
     };
 
+    let union_stream = if std::env::var("UNION_STREAM").is_ok() {
+        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+            .await
+            .context("Failed to get GPU Union stream")?
+            .with_context(|| format!("Customer {} missing gpu union stream", request.user_id))?
+    } else {
+        prove_stream
+    };
+
     let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
         taskdb::get_stream(&agent.db_pool, &request.user_id, COPROC_WORK_TYPE)
             .await
@@ -441,6 +478,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &pool_copy,
                             &prove_stream,
                             &join_stream,
+                            &union_stream,
                             &aux_stream,
                             &snark_stream,
                             &job_id_copy,
@@ -481,6 +519,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &pool_copy,
                             &coproc_stream,
                             &join_stream,
+                            &union_stream,
                             &aux_stream,
                             &snark_stream,
                             &job_id_copy,
@@ -509,6 +548,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     &pool_copy,
                     &prove_stream,
                     &join_stream,
+                    &union_stream,
                     &aux_stream,
                     &snark_stream,
                     &job_id_copy,
