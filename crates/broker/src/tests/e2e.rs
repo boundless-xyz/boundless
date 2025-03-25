@@ -52,7 +52,7 @@ fn generate_request(id: u32, addr: &Address, unaggregated: bool) -> ProofRequest
     )
 }
 
-async fn new_config(batch_size: u64) -> NamedTempFile {
+async fn new_config(min_batch_size: u64) -> NamedTempFile {
     let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let mut config = Config::default();
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -64,7 +64,7 @@ async fn new_config(batch_size: u64) -> NamedTempFile {
     config.prover.req_retry_count = 3;
     config.market.mcycle_price = "0.00001".into();
     config.market.min_deadline = 100;
-    config.batcher.batch_size = Some(batch_size);
+    config.batcher.min_batch_size = Some(min_batch_size);
     config.write(config_file.path()).await.unwrap();
     config_file
 }
