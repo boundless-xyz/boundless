@@ -44,6 +44,7 @@ isolate = true
 src = "contracts/src"
 out = "contracts/reference-contract/out"
 test = "contracts/reference-contract/test"
+fs_permissions = [{ access = "read", path = "out" }]
 libs = ["lib"]
 ffi = true
 ast = true
