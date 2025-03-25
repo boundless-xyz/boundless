@@ -33,7 +33,7 @@ use workflow_common::{
 use tokio::task::{JoinHandle, JoinSet};
 use uuid::Uuid;
 
-const ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
+const V2_ELF_MAGIC: &[u8] = b"R0BF"; // const V1_ ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
 const TASK_QUEUE_SIZE: usize = 100; // TODO: could be bigger, but requires testing IRL
 const CONCURRENT_SEGMENTS: usize = 50; // This peaks around ~4GB
 
@@ -305,7 +305,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let input_data = agent.s3_client.read_buf_from_s3(&input_key).await?;
 
     // validate elf
-    if elf_data[0..ELF_MAGIC.len()] != ELF_MAGIC {
+    if elf_data[0..V2_ELF_MAGIC.len()] != *V2_ELF_MAGIC {
         bail!("ELF MAGIC mismatch");
     };
 
