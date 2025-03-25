@@ -226,7 +226,7 @@ contract BoundlessMarket is
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-        bytes32 root = keccak256(abi.encodePacked(fill.id, fill.requestDigest, claimDigest));
+        bytes32 root = keccak256(abi.encodePacked(uint256(0), fill.id, fill.requestDigest, claimDigest));
 
         // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
         // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
@@ -296,7 +296,7 @@ contract BoundlessMarket is
 
             requestDigests[i] = fill.requestDigest;
             bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-            leaves[i] = keccak256(abi.encodePacked(fill.id, fill.requestDigest, claimDigest));
+            leaves[i] = keccak256(abi.encodePacked(i, fill.id, fill.requestDigest, claimDigest));
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.

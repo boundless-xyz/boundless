@@ -25,7 +25,7 @@ library TestUtils {
         bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
             bytes32 claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            leaves[i] = keccak256(abi.encodePacked(fills[i].id, fills[i].requestDigest, claimDigest));
+            leaves[i] = keccak256(abi.encodePacked(i, fills[i].id, fills[i].requestDigest, claimDigest));
             requestDigests[i] = fills[i].requestDigest;
         }
         bytes32 root = MerkleProofish.processTree(leaves);

@@ -8,6 +8,7 @@
 extern crate alloc;
 
 use alloc::{vec, vec::Vec};
+use alloy_primitives::U256;
 use alloy_primitives::{Address, B256};
 use alloy_sol_types::SolStruct;
 use alloy_sol_types::SolValue;
@@ -70,7 +71,7 @@ fn main() {
         fill.evaluate_requirements().expect("requirements not met");
         env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
         let claim_digest = fill.receipt_claim().digest();
-        leaves.push(commit(&fill.request.id, &request_digest, &claim_digest));
+        leaves.push(commit(&U256::from(index), &fill.request.id, &request_digest, &claim_digest));
         request_digests.push(request_digest.into());
         if fill.request.requirements.callback.addr != Address::ZERO {
             callbacks.push(AssessorCallback {

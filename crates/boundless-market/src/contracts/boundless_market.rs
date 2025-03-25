@@ -1433,7 +1433,13 @@ mod tests {
         let assessor_journal = AssessorJournal {
             requestDigests: vec![request_digest],
             selectors: vec![],
-            root: <[u8; 32]>::from(commit(&request.id, &request_digest, &app_claim_digest)).into(),
+            root: <[u8; 32]>::from(commit(
+                &U256::ZERO,
+                &request.id,
+                &request_digest,
+                &app_claim_digest,
+            ))
+            .into(),
             prover,
             callbacks: vec![],
         };

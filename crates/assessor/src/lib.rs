@@ -67,12 +67,24 @@ impl Fulfillment {
 }
 
 /// Computes a commitment hash.
-pub fn commit(request_id: &U256, request_digest: &[u8; 32], claim_digest: &Digest) -> Digest {
-    let mut buf = [0u8; 96];
+///
+/// The commitment hash is computed as the keccak256 hash of the concatenation of the following:
+/// - The index of the request in the batch.
+/// - The request ID.
+/// - The request digest.
+/// - The claim digest.
+pub fn commit(
+    index: &U256,
+    request_id: &U256,
+    request_digest: &[u8; 32],
+    claim_digest: &Digest,
+) -> Digest {
+    let mut buf = [0u8; 128];
 
-    buf[0..32].copy_from_slice(&request_id.to_be_bytes::<32>());
-    buf[32..64].copy_from_slice(request_digest);
-    buf[64..96].copy_from_slice(claim_digest.as_bytes());
+    buf[0..32].copy_from_slice(&index.to_be_bytes::<32>());
+    buf[32..64].copy_from_slice(&request_id.to_be_bytes::<32>());
+    buf[64..96].copy_from_slice(request_digest);
+    buf[96..128].copy_from_slice(claim_digest.as_bytes());
 
     Digest::from_bytes(*keccak256(buf))
 }
