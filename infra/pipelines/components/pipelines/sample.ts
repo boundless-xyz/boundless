@@ -74,15 +74,16 @@ export class SamplePipeline extends pulumi.ComponentResource {
 
 
     new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
+      pipelineType: "V2",
       artifactStores: [{
         type: "S3",
         location: artifactBucket.bucket
       }],
       stages: [
         {
-          name: "Source",
+          name: "Github",
           actions: [{
-              name: "Source",
+              name: "Github",
               category: "Source",
               owner: "AWS",
               provider: "CodeStarSourceConnection",
@@ -96,7 +97,7 @@ export class SamplePipeline extends pulumi.ComponentResource {
           }],
         },
         {
-          name: "Build",
+          name: "DeployStaging",
           actions: [
             {
               name: "DeployStaging",
@@ -113,6 +114,21 @@ export class SamplePipeline extends pulumi.ComponentResource {
             }
           ]
         }
+      ],
+      triggers: [
+        {
+          providerType: "CodeStarSourceConnection",
+          gitConfiguration: {
+            sourceActionName: "Github",
+            pushes: [
+              {
+                branches: {
+                  includes: ["willpote/init-deploy-aws"],
+                },
+              },
+            ],
+          },
+        },
       ],
       name: `${APP_NAME}-pipeline`,
       roleArn: role.arn,
