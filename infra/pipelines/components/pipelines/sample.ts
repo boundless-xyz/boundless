@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
+import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../../accountConstants";
 
 interface SamplePipelineArgs {
   connection: aws.codestarconnections.Connection;
@@ -8,14 +9,7 @@ interface SamplePipelineArgs {
 }
 
 const APP_NAME = "sample";
-
-export class SamplePipeline extends pulumi.ComponentResource {
-  constructor(name: string, args: SamplePipelineArgs, opts?: pulumi.ComponentResourceOptions) {
-    super("boundless:pipelines:SamplePipeline", name, args, opts);
-
-    const { connection, artifactBucket, role } = args;
-
-    const buildSpec = `
+const BUILD_SPEC = `
     version: 0.2
     
     phases:
@@ -32,46 +26,30 @@ export class SamplePipeline extends pulumi.ComponentResource {
       build:
         commands:
           - ls -lt
-          - cd infra/${APP_NAME}
-          - echo "DEPLOYING TO $STAGE"
-          - pulumi stack select $STAGE
+          - cd infra/$APP_NAME
+          - pulumi install
+          - echo "DEPLOYING stack $STACK_NAME"
+          - pulumi stack select $STACK_NAME
           - pulumi up --yes
     `;
 
-    const buildProject = new aws.codebuild.Project(
-      `${APP_NAME}-build`,
-      {
-        buildTimeout: 5,
-        description: `Build project for ${APP_NAME}`,
-        serviceRole: role.arn,
-        environment: {
-          computeType: "BUILD_GENERAL1_SMALL",
-          //image: "pulumi/pulumi:latest",
-          image: "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
-          type: "LINUX_CONTAINER",
-          privilegedMode: true,
-          environmentVariables: [
-            {
-              name: "DEPLOYMENT_ROLE_ARN",
-              type: "PLAINTEXT",
-              value: "arn:aws:iam::245178712747:role/deploymentRole-13fd149"
-            },
-            {
-              name: "STAGE",
-              type: "PLAINTEXT",
-              value: "staging"
-            }
-          ]
-        },
-        artifacts: { type: "CODEPIPELINE" },
-        source: {
-          type: "CODEPIPELINE",
-          buildspec: buildSpec
-        }
-      },
+export class SamplePipeline extends pulumi.ComponentResource {
+  constructor(name: string, args: SamplePipelineArgs, opts?: pulumi.ComponentResourceOptions) {
+    super("boundless:pipelines:SamplePipeline", name, args, opts);
+
+    const { connection, artifactBucket, role } = args;
+
+    const stagingDeployment = new aws.codebuild.Project(
+      `${APP_NAME}-staging-build`,
+      this.codeBuildProjectArgs(APP_NAME, "staging", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN),
       { dependsOn: [role] }
     );
 
+    const prodDeployment = new aws.codebuild.Project(
+      `${APP_NAME}-prod-build`,
+      this.codeBuildProjectArgs(APP_NAME, "prod", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN),
+      { dependsOn: [role] }
+    );
 
     new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
       pipelineType: "V2",
@@ -107,9 +85,35 @@ export class SamplePipeline extends pulumi.ComponentResource {
               version: "1",
               runOrder: 1,
               configuration: {
-                ProjectName: buildProject.name
+                ProjectName: stagingDeployment.name
               },
               outputArtifacts: ["staging_output"],
+              inputArtifacts: ["source_output"],
+            }
+          ]
+        },
+        {
+          name: "DeployProduction",
+          actions: [
+            { name: "ApproveDeployToProduction", 
+              category: "Approval", 
+              owner: "AWS", 
+              provider: "Manual", 
+              version: "1", 
+              runOrder: 1,
+              configuration: {}
+            },
+            {
+              name: "DeployProduction",
+              category: "Build",
+              owner: "AWS",
+              provider: "CodeBuild",
+              version: "1",
+              runOrder: 2,
+              configuration: {
+                ProjectName: prodDeployment.name
+              },
+              outputArtifacts: ["production_output"],
               inputArtifacts: ["source_output"],
             }
           ]
@@ -135,7 +139,39 @@ export class SamplePipeline extends pulumi.ComponentResource {
     });
   }
 
-
-
-
+  private codeBuildProjectArgs(appName: string, stackName: string, role: aws.iam.Role, serviceAccountRoleArn: string): aws.codebuild.ProjectArgs {
+    return {
+      buildTimeout: 5,
+      description: `Deployment for ${APP_NAME}`,
+      serviceRole: role.arn,
+      environment: {
+        computeType: "BUILD_GENERAL1_SMALL",
+        image: "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+        type: "LINUX_CONTAINER",
+        privilegedMode: true,
+        environmentVariables: [
+          {
+            name: "DEPLOYMENT_ROLE_ARN",
+            type: "PLAINTEXT",
+            value: serviceAccountRoleArn
+          },
+          {
+            name: "STACK_NAME",
+            type: "PLAINTEXT",
+            value: stackName
+          },
+          {
+            name: "APP_NAME",
+            type: "PLAINTEXT",
+            value: appName
+          }
+        ]
+      },
+      artifacts: { type: "CODEPIPELINE" },
+      source: {
+        type: "CODEPIPELINE",
+        buildspec: BUILD_SPEC
+      }
+    }
+  }
 }

@@ -3,24 +3,19 @@ import { PulumiSecrets } from "./components/pulumiSecrets";
 import { SamplePipeline } from "./components/pipelines/sample";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
-
-const boundlessOpsAccountId = "968153779208"; 
-const boundlessDevAccountId = "751442549745";
-const boundlessStagingAccountId = "245178712747";
-const boundlessStagingDeploymentRoleArn = "arn:aws:iam::245178712747:role/deploymentRole-13fd149";
-const boundlessProdAccountId = "632745187633";
-const boundlessProdDeploymentRoleArn = "arn:aws:iam::632745187633:role/deploymentRole-09bd21a";
-
-const boundlessDevAdminRoleArn = "arn:aws:iam::751442549745:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_AWSAdministratorAccess_05b42ccedab0fe1d";
-const boundlessStagingAdminRoleArn = "arn:aws:iam::245178712747:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_AWSAdministratorAccess_9cd40e36ef4d960f";
-const boundlessProdAdminRoleArn = "arn:aws:iam::632745187633:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_AWSAdministratorAccess_b887a89d07489007";
+import { 
+  BOUNDLESS_DEV_ADMIN_ROLE_ARN, 
+  BOUNDLESS_OPS_ACCOUNT_ID, 
+  BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, 
+  BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN 
+} from "./accountConstants";
 
 // Defines the S3 bucket used for storing the Pulumi state backend for staging and prod accounts.
 const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
-  accountId: boundlessOpsAccountId,
+  accountId: BOUNDLESS_OPS_ACCOUNT_ID,
   readWriteStateBucketArns: [
-    boundlessStagingDeploymentRoleArn,
-    boundlessProdDeploymentRoleArn,
+    BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
+    BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
   ],
 });
 
@@ -28,13 +23,13 @@ const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
 // Boundless dev account to encrypt secrets, but not decrypt them. Staging and prod deployement roles
 // are the only accounts allowed to decrypt secrets.
 const pulumiSecrets = new PulumiSecrets("pulumiSecrets", {
-  accountId: boundlessOpsAccountId,
+  accountId: BOUNDLESS_OPS_ACCOUNT_ID,
   encryptKmsKeyArns: [
-    boundlessDevAdminRoleArn
+    BOUNDLESS_DEV_ADMIN_ROLE_ARN
   ],
   decryptKmsKeyArns: [
-    boundlessStagingDeploymentRoleArn,
-    boundlessProdDeploymentRoleArn,
+    BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
+    BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
   ],
 });
 
@@ -44,10 +39,10 @@ const githubConnection = new aws.codestarconnections.Connection("boundlessGithub
 });
 
 const codePipelineSharedResources = new CodePipelineSharedResources("codePipelineShared", {
-  accountId: boundlessOpsAccountId,
+  accountId: BOUNDLESS_OPS_ACCOUNT_ID,
   serviceAccountDeploymentRoleArns: [
-    boundlessStagingDeploymentRoleArn,
-    boundlessProdDeploymentRoleArn,
+    BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
+    BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
   ],
 });
 
