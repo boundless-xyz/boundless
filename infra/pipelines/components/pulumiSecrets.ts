@@ -53,6 +53,15 @@ export class PulumiSecrets extends pulumi.ComponentResource {
           Resource: '*',
         },
         {
+          Sid: 'Deny admins of the ops account from deleting the key',
+          Effect: 'Deny',
+          Principal: {
+            AWS: `arn:aws:iam::${args.accountId}:root`,
+          },
+          Action: ['kms:DeleteKey', 'kms:ScheduleKeyDeletion', 'kms:DisableKey'],
+          Resource: '*',
+        },
+        {
           Principal: {
             AWS: args.encryptKmsKeyArns,
           },
