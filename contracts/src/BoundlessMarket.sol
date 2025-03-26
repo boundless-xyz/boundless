@@ -358,9 +358,6 @@ contract BoundlessMarket is
         paymentError = _fulfillAndPay(fill, assessorReceipt.prover);
         emit ProofDelivered(fill.id);
 
-        // Execute the callback with the associated fulfillment information.
-        // Note that if any of the following fulfillment logic fails, the entire transaction will
-        // revert including this callback.
         if (assessorReceipt.callbacks.length > 0) {
             AssessorCallback memory callback = assessorReceipt.callbacks[0];
             _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
@@ -384,9 +381,6 @@ contract BoundlessMarket is
             emit ProofDelivered(fills[i].id);
         }
 
-        // Execute the callback with the associated fulfillment information.
-        // Note that if any of the following fulfillment logic fails, the entire transaction will
-        // revert including these callbacks.
         uint256 callbacksLength = assessorReceipt.callbacks.length;
         for (uint256 i = 0; i < callbacksLength; i++) {
             AssessorCallback memory callback = assessorReceipt.callbacks[i];
