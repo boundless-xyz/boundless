@@ -78,7 +78,7 @@ export class SamplePipeline extends pulumi.ComponentResource {
               configuration: {
                   ConnectionArn: connection.arn,
                   FullRepositoryId: "boundless-xyz/boundless",
-                  BranchName: "willpote/init-deploy-aws",
+                  BranchName: BRANCH_NAME,
               },
           }],
         },
