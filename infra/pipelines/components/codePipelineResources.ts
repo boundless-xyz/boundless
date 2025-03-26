@@ -102,25 +102,6 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
       policyArn: codeConnectionPolicy.arn
     });
 
-    // Defines the IAM policy that allows the role to access the CodePipeline service. This is
-    // for the CodePipeline service to start and stop the pipeline.
-    // const codepipelinePolicy = new aws.iam.Policy(`pipeline-codepipeline-access-policy`, {
-    //   name: `pipeline-codepipeline-access-policy`,
-    //   policy: pulumi.jsonStringify({
-    //     Version: "2012-10-17",
-    //     Statement: [{
-    //       Action: ["codepipeline:StartPipelineExecution", "codepipeline:StopPipelineExecution"],
-    //       Effect: "Allow",
-    //       Resource: "*",
-    //     }],
-    //   }),
-    // });
-
-    // new aws.iam.RolePolicyAttachment(`pipeline-codepipeline-access`, {
-    //   role: this.role,
-    //   policyArn: codepipelinePolicy.arn
-    // });
-
     // Defines the IAM policy that allows the role to assume the deployment roles for the given
     // accounts. This is used to deploy the app cross-account to the service accounts.
     const serviceAccountDeploymentRoleAccessPolicy = new aws.iam.Policy(`pipeline-service-account-deployment-role-access`, {
