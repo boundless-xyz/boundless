@@ -1,3 +1,4 @@
-encryptionsalt: v1:/QYdBJsBcvc=:v1:GlZMho5Ao3kYbWwI:SitktUgRYFYrMKPspumV5fGxAl6Ccw==
 config:
   aws:region: us-west-2
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFRXbSyr6AYSMcivVuIOKM1AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM99POLOpwmSAsUSA6AgEQgDtWlwiW1A4Ljv+YiqVnhqlhSZhL08n2udrkFcXJOak8aa7RyAbspSlyMy/J6r9TffIO8mXOioXADQfokg==

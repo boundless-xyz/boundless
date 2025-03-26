@@ -1,7 +1,12 @@
 
 # Pipelines
 
+Defines deployment pipelines for the Boundless services.
+
+The deployment pipelines themselves are deployed and updated manually- they do not update on push/merge.
+
 Must be executed as an admin user in the Boundless Ops account.
+
 ```
 pulumi login "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
 pulumi up

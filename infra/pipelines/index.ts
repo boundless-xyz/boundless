@@ -1,6 +1,6 @@
 import { PulumiStateBucket } from "./components/pulumiState";
 import { PulumiSecrets } from "./components/pulumiSecrets";
-import { SamplePipeline } from "./components/pipelines/sample";
+import { SamplePipeline } from "./pipelines/sample";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import { 
@@ -33,11 +33,15 @@ const pulumiSecrets = new PulumiSecrets("pulumiSecrets", {
   ],
 });
 
+// Defines the connection to the "AWS Connector for Github" app on Github.
+// Note that this initial setup is a manual step that must be done in the console. See:
+// https://docs.aws.amazon.com/codepipeline/latest/userguide/connections-github.html
 const githubConnection = new aws.codestarconnections.Connection("boundlessGithubConnection", {
   name: "boundlessGithubConnection",
   providerType: "GitHub",
 });
 
+// Resouces that are shared between all deployment pipelines like IAM roles, S3 artifact buckets, etc.
 const codePipelineSharedResources = new CodePipelineSharedResources("codePipelineShared", {
   accountId: BOUNDLESS_OPS_ACCOUNT_ID,
   serviceAccountDeploymentRoleArns: [
@@ -46,6 +50,7 @@ const codePipelineSharedResources = new CodePipelineSharedResources("codePipelin
   ],
 });
 
+// Deploy the "sample" app.
 const samplePipeline = new SamplePipeline("samplePipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
