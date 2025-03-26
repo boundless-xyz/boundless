@@ -4,7 +4,6 @@
 
 pragma solidity ^0.8.20;
 
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Selector} from "../src/types/Selector.sol";
@@ -21,15 +20,12 @@ library TestUtils {
         bytes32 assessorImageId,
         Selector[] memory selectors,
         AssessorCallback[] memory callbacks,
-        address prover,
-        bytes32 domainSeparator
+        address prover
     ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory leaves = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
             bytes32 claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            leaves[i] = MessageHashUtils.toTypedDataHash(
-                domainSeparator, AssessorCommitment(i, fills[i].id, fills[i].requestDigest, claimDigest).eip712Digest()
-            );
+            leaves[i] = AssessorCommitment(i, fills[i].id, fills[i].requestDigest, claimDigest).eip712Digest();
         }
         bytes32 root = MerkleProofish.processTree(leaves);
 

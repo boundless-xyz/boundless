@@ -73,7 +73,7 @@ fn main() {
             requestDigest: request_digest.into(),
             claimDigest: <[u8; 32]>::from(claim_digest).into(),
         }
-        .eip712_signing_hash(&eip_domain_separator);
+        .eip712_hash_struct();
         leaves.push(Digest::from_bytes(*commit));
         if fill.request.requirements.callback.addr != Address::ZERO {
             callbacks.push(AssessorCallback {

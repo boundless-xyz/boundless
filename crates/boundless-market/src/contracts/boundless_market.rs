@@ -1435,7 +1435,7 @@ mod tests {
             requestDigest: request_digest,
             claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
         }
-        .eip712_signing_hash(&eip712_domain);
+        .eip712_hash_struct();
         let assessor_journal =
             AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
         let assesor_receipt_claim =

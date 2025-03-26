@@ -227,8 +227,7 @@ contract BoundlessMarket is
         // already verified that the prover has knowledge of a verifying receipt, because we need to
         // make sure the _delivered_ seal is valid.
         bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-        bytes32 root =
-            _hashTypedDataV4(AssessorCommitment(uint256(0), fill.id, fill.requestDigest, claimDigest).eip712Digest());
+        bytes32 root = AssessorCommitment(uint256(0), fill.id, fill.requestDigest, claimDigest).eip712Digest();
 
         // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
         // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
@@ -293,7 +292,7 @@ contract BoundlessMarket is
             Fulfillment calldata fill = fills[i];
 
             bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-            leaves[i] = _hashTypedDataV4(AssessorCommitment(i, fill.id, fill.requestDigest, claimDigest).eip712Digest());
+            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, claimDigest).eip712Digest();
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
