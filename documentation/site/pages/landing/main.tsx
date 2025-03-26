@@ -8,7 +8,7 @@ export default function Main() {
     const hasVisitedBefore = localStorage.getItem("hasVisitedDocs");
 
     if (hasVisitedBefore) {
-      window.location.href = "/introduction/why-boundless";
+      window.location.href = "/developers/why";
     } else {
       localStorage.setItem("hasVisitedDocs", "true");
       setRender(true);
@@ -67,7 +67,7 @@ export default function Main() {
         <div className="flex justify-center">
           <a
             className="flex h-14 w-fit items-center whitespace-pre rounded-lg bg-[var(--vocs-color\_background4)] px-4 font-medium text-[var(--vocs-color\_text)] text-xl shadow-2xl transition-colors duration-100"
-            href="/introduction/why-boundless"
+            href="/developers/why"
           >
             Why Boundless?
           </a>

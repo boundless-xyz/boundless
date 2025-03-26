@@ -1,0 +1,160 @@
+# Boundless Rust SDK
+
+The Boundless Market SDK offers high-level Rust APIs for interacting with the Boundless Market smart contracts, preparing and submitting ZK proofs, and handling relevant off-chain data such as images and inputs.
+
+[Crate Documentation](https://docs.rs/boundless-market/0.6.0/boundless_market/#boundless-market-sdk)
+
+## Installation
+
+```sh
+cargo add boundless-market
+```
+
+or add manually to your Cargo.toml:
+
+```toml
+[dependencies]
+boundless-market = "0.6.0"
+```
+
+## SDK Workflow Overview
+
+Below is an example of the **Boundless** end-to-end programmatic workflow:
+
+### 1. Initialize Client
+
+```rust
+use boundless_market::client::ClientBuilder;
+use alloy::signers::local::LocalSigner;
+
+let client = ClientBuilder::new()
+    .with_rpc_url("https://your-eth-rpc")
+    .with_boundless_market_address("0xMarketAddress")
+    .with_set_verifier_address("0xVerifierAddress")
+    .with_wallet(LocalSigner::random().into())
+    .build()
+    .await?;
+```
+
+### 2. Upload ELF and Input
+
+```rust
+let elf_url = client.upload_image(&std::fs::read("guest.elf")?).await?;
+let input_url = client.upload_input(&[0x41, 0x42, 0x43]).await?;
+```
+
+### 3. Submit Proof Request
+
+```rust
+use boundless_market::contracts::{ProofRequest, Requirements, Predicate, Offer};
+
+let request = ProofRequest::new(
+    0,
+    &client.wallet().address(),
+    Requirements::new([0u8; 32], Predicate::prefix_match([])),
+    elf_url,
+    input_url.into(),
+    Offer {
+        minPrice: 1000.into(),
+        maxPrice: 2000.into(),
+        biddingStart: 1690000000,
+        rampUpPeriod: 60,
+        timeout: 3600,
+        lockTimeout: 1800,
+        lockStake: 500.into(),
+    }
+);
+
+let (request_id, expires_at) = client.submit_request(&request).await?;
+```
+
+### 4. Await Fulfillment
+
+```rust
+let (journal, seal) = client
+    .wait_for_request_fulfillment(request_id, Duration::from_secs(10), expires_at)
+    .await?;
+```
+
+### 5. Fetch Proof Results
+
+```rust
+// If not using wait_for_request_fulfillment:
+let (journal, seal) = client.boundless_market.get_request_fulfillment(request_id).await?;
+
+// Advanced: Set-Inclusion Receipt
+let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32].into()).await?;
+```
+
+## SDK Modules
+
+### `client`
+- `Client`: Core struct for transactions, storage, and off-chain interaction.
+- `ClientBuilder`: Configure and build the client.
+
+### `contracts`
+- `BoundlessMarketService`: On-chain interactions (requests, fulfillments, deposits).
+- `SetVerifierService`: Manages aggregated proof verifications.
+- Structures: `ProofRequest`, `Offer`, `Fulfillment`.
+
+### `input`
+- `InputBuilder`: Prepare inputs for RISC Zero guests.
+
+### `order_stream_client`
+- `OrderStreamClient`: Submit/fetch orders off-chain via WebSocket.
+
+### `storage`
+- Providers: `S3`, `Pinata`, and `TempFile` for uploading ELF/input data.
+
+### `selector`
+- Utilities for tracking/verifying proof types.
+
+## Example: Full Proof Submission
+
+```rust
+use boundless_market::{client::ClientBuilder, contracts::*, input::InputBuilder};
+use alloy::signers::LocalSigner;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let client = ClientBuilder::new()
+        .with_rpc_url("https://your-eth-rpc")
+        .with_boundless_market_address("0xMarket")
+        .with_set_verifier_address("0xVerifier")
+        .with_wallet(LocalSigner::random().into())
+        .build()
+        .await?;
+
+    let elf_url = client.upload_image(&std::fs::read("guest.elf")?).await?;
+    let input_url = client.upload_input(&InputBuilder::new().write(&42u32)?.build_vec()?).await?;
+
+    let request = ProofRequest::new(
+        0,
+        &client.wallet().address(),
+        Requirements::new([0u8; 32], Predicate::prefix_match(&[])),
+        elf_url,
+        input_url.into(),
+        Offer {
+            minPrice: 1_000,
+            maxPrice: 2_000,
+            biddingStart: 0,
+            rampUpPeriod: 60,
+            timeout: 3600,
+            lockTimeout: 1800,
+            lockStake: 500,
+        }
+    );
+
+    let (request_id, expires_at) = client.submit_request(&request).await?;
+
+    let (journal, seal) = client
+        .wait_for_request_fulfillment(request_id, Duration::from_secs(10), expires_at)
+        .await?;
+
+    println!("Journal: {:?}, Seal: {:?}", journal, seal);
+
+    Ok(())
+}
+```
+
