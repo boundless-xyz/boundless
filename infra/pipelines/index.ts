@@ -22,9 +22,10 @@ const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
   ],
 });
 
-// Defines the KMS key used to encrypt and decrypt secrets. We allow any developer logged in as Admin in
-// Boundless dev account to encrypt secrets, but not decrypt them. Staging and prod deployement roles
-// are the only accounts allowed to decrypt secrets.
+// Defines the KMS key used to encrypt and decrypt secrets. 
+// Currently, developers logged in as Admin in the Boundless Dev account can encrypt and decrypt secrets.
+// TODO: Only deployment roles should be allowed to decrypt secrets.
+// Staging and prod deployement roles are the only accounts allowed to decrypt secrets.
 const pulumiSecrets = new PulumiSecrets("pulumiSecrets", {
   accountId: BOUNDLESS_OPS_ACCOUNT_ID,
   encryptKmsKeyArns: [
