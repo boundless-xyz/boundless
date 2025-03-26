@@ -147,10 +147,6 @@ pub async fn deploy_boundless_market<P: Provider>(
     Ok(proxy)
 }
 
-// alloy::sol! {
-//     function getCallCount() external view returns (uint256);
-// }
-
 pub async fn deploy_mock_callback<P: Provider>(
     deployer_provider: P,
     verifier: Address,
