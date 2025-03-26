@@ -2452,6 +2452,7 @@ dependencies = [
  "risc0-aggregation",
  "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
+ "risc0-groth16",
  "risc0-zkvm",
  "rmp-serde",
  "serde",
