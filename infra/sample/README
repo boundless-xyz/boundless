@@ -1,0 +1,21 @@
+# Sample
+
+A sample Pulumi stack that can be cloned to get started.
+
+The development stack can be deployed to any AWS account. It does not use any production resources like our Pulumi state bucket or secrets key.
+
+And two for staging and prod that can only be deployed to the staging and prod AWS accounts respectively. These stacks use our production secrets manager and KMS key, as well as our production Pulumi state bucket.
+
+## Local Development
+
+To develop locally and test, you should deploy the dev stack to any AWS account (e.g. the Boundless Dev Account)
+
+Steps are:
+
+1. Log into the development account as an Admin (e.g. via aws-vault)
+2. `pulumi stack select dev`
+3. `pulumi up`
+
+## Deploying to Staging and Production
+
+The deployment pipeline is configured to deploy to staging on merge to `main`, and require manual approval (in AWS CodePipeline in the ops account) to deploy to prod.
