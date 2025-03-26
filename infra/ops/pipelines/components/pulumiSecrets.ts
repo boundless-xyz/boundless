@@ -15,7 +15,7 @@ export class PulumiSecrets extends pulumi.ComponentResource {
   ) {
     super('pipelines:PulumiState', name, args, opts);
 
-    const pulumiStacksKey = new aws.kms.Key(
+    const pulumiSecretsKey = new aws.kms.Key(
       'pulumiSecretsKey',
       {
         description: 'KMS Key for Pulumi secrets',
@@ -32,7 +32,7 @@ export class PulumiSecrets extends pulumi.ComponentResource {
       'pulumiSecretsKeyAlias',
       {
         name: 'alias/pulumi-secrets-key',
-        targetKeyId: pulumiStacksKey.keyId,
+        targetKeyId: pulumiSecretsKey.keyId,
       },
       {
         parent: this,
@@ -57,16 +57,16 @@ export class PulumiSecrets extends pulumi.ComponentResource {
             AWS: args.encryptKmsKeyArns,
           },
           Effect: 'Allow',
-          Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
+          Action: ['kms:Encrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
           Resource: '*',
-          Sid: 'Allow principals to encrypt and decrypt using KMS key',
+          Sid: 'Allow principals to encrypt using KMS key',
         },
         {
           Principal: {
             AWS: args.decryptKmsKeyArns,
           },
           Effect: 'Allow',
-          Action: ['kms:Decrypt', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
+          Action: ['kms:Decrypt', 'kms:DescribeKey'],
           Resource: '*',
           Sid: 'Allow principals to decrypt using KMS key',
         },
@@ -76,7 +76,7 @@ export class PulumiSecrets extends pulumi.ComponentResource {
     new aws.kms.KeyPolicy(
       'pulumiSecretsKeyPolicy',
       {
-        keyId: pulumiStacksKey.id,
+        keyId: pulumiSecretsKey.id,
         policy: pulumi.jsonStringify(keyPolicyDoc),
       },
       {

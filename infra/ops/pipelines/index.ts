@@ -38,7 +38,8 @@ const pulumiSecrets = new PulumiSecrets("pulumiSecrets", {
 });
 
 // Defines the connection to the "AWS Connector for Github" app on Github.
-// Note that this initial setup is a manual step that must be done in the console. See:
+// Note that the initial setup for the app requires a manual step that must be done in the console. If this
+// resource is ever deleted, this step will need to be repeated. See:
 // https://docs.aws.amazon.com/codepipeline/latest/userguide/connections-github.html
 const githubConnection = new aws.codestarconnections.Connection("boundlessGithubConnection", {
   name: "boundlessGithubConnection",
@@ -54,7 +55,7 @@ const codePipelineSharedResources = new CodePipelineSharedResources("codePipelin
   ],
 });
 
-// Deploy the "sample" app.
+// Create the deployment pipeline for the "sample" app.
 const samplePipeline = new SamplePipeline("samplePipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
