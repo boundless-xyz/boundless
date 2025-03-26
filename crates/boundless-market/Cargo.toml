@@ -38,6 +38,8 @@ reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-aggregation = { workspace = true }
 risc0-circuit-recursion = { workspace = true, optional = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
+# Drop once upgrading to risc0-zkvm v2.0
+risc0-groth16 = { version = "~1.2", optional = true }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 rmp-serde = { workspace = true }
 serde_json = { workspace = true }

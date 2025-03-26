@@ -352,16 +352,13 @@ contract BoundlessMarket is
     {
         verifyDelivery(fill, assessorReceipt);
 
-        // Execute the callback with the associated fulfillment information.
-        // Note that if any of the following fulfillment logic fails, the entire transaction will
-        // revert including this callback.
+        paymentError = _fulfillAndPay(fill, assessorReceipt.prover);
+        emit ProofDelivered(fill.id);
+
         if (assessorReceipt.callbacks.length > 0) {
             AssessorCallback memory callback = assessorReceipt.callbacks[0];
             _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
         }
-
-        paymentError = _fulfillAndPay(fill, assessorReceipt.prover);
-        emit ProofDelivered(fill.id);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -371,16 +368,6 @@ contract BoundlessMarket is
     {
         verifyBatchDelivery(fills, assessorReceipt);
 
-        // Execute the callback with the associated fulfillment information.
-        // Note that if any of the following fulfillment logic fails, the entire transaction will
-        // revert including these callbacks.
-        uint256 callbacksLength = assessorReceipt.callbacks.length;
-        for (uint256 i = 0; i < callbacksLength; i++) {
-            AssessorCallback memory callback = assessorReceipt.callbacks[i];
-            Fulfillment calldata fill = fills[callback.index];
-            _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
-        }
-
         paymentError = new bytes[](fills.length);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
@@ -389,6 +376,13 @@ contract BoundlessMarket is
         for (uint256 i = 0; i < fills.length; i++) {
             paymentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
             emit ProofDelivered(fills[i].id);
+        }
+
+        uint256 callbacksLength = assessorReceipt.callbacks.length;
+        for (uint256 i = 0; i < callbacksLength; i++) {
+            AssessorCallback memory callback = assessorReceipt.callbacks[i];
+            Fulfillment calldata fill = fills[callback.index];
+            _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
         }
     }
 
