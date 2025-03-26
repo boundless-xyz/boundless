@@ -1,8 +1,7 @@
 import * as aws from "@pulumi/aws";
-import * as pulumi from "pulumi";
+import * as pulumi from "@pulumi/pulumi";
 
 const isDev = pulumi.getStack() === "dev";
-
 const config = new pulumi.Config();
 
 const sampleSecret = isDev ? process.env.SAMPLE_SECRET : config.requireSecret("sample:sampleSecret");
