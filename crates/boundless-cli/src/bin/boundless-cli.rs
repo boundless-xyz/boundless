@@ -32,7 +32,7 @@ use alloy::{
     signers::{local::PrivateKeySigner, Signer},
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use boundless_cli::{DefaultProver, OrderFulfilled};
+use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
@@ -1009,40 +1009,10 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     default_executor().execute(env, &elf)
 }
 
-/// Helper function to fetch content from an HTTP URL
-async fn fetch_http(url: &Url) -> Result<Vec<u8>> {
-    tracing::debug!("Fetching from HTTP URL: {}", url.as_str());
-    let response = reqwest::get(url.as_str()).await?;
-    let status = response.status();
-    if !status.is_success() {
-        bail!("HTTP request failed with status: {}", status);
-    }
-
-    Ok(response.bytes().await?.to_vec())
-}
-
-// Helper function to fetch content from a URL
-async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
-    let url = Url::parse(url_str)?;
-
-    match url.scheme() {
-        "http" | "https" => fetch_http(&url).await,
-        "file" => fetch_file(&url).await,
-        _ => bail!("unsupported URL scheme: {}", url.scheme()),
-    }
-}
-
 // Get current timestamp with appropriate error handling
 fn now_timestamp() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Time went backwards").as_secs()
 }
-
-async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
-    let path = std::path::Path::new(url.path());
-    let data = tokio::fs::read(path).await?;
-    Ok(data)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
