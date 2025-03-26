@@ -2,8 +2,8 @@ import { PulumiStateBucket } from "./components/pulumiState";
 import { PulumiSecrets } from "./components/pulumiSecrets";
 import { SamplePipeline } from "./components/pipelines/sample";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
-
 import * as aws from "@pulumi/aws";
+
 const boundlessOpsAccountId = "968153779208"; 
 const boundlessDevAccountId = "751442549745";
 const boundlessStagingAccountId = "245178712747";

@@ -34,7 +34,7 @@ export class SamplePipeline extends pulumi.ComponentResource {
           - ls -lt
           - cd infra/${APP_NAME}
           - echo "DEPLOYING"
-          - echo "pulumi up --non-interactive"
+          - echo "pulumi up --yes"
     `;
 
     const buildProject = new aws.codebuild.Project(
@@ -85,7 +85,7 @@ export class SamplePipeline extends pulumi.ComponentResource {
               configuration: {
                   ConnectionArn: connection.arn,
                   FullRepositoryId: "boundless-xyz/boundless",
-                  BranchName: "willpote/deployment-testing",
+                  BranchName: "willpote/init-deploy-aws",
               },
           }],
         },
