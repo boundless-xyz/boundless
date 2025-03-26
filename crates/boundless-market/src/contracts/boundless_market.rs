@@ -1350,8 +1350,9 @@ mod tests {
         contracts::{
             hit_points::default_allowance,
             test_utils::{create_test_ctx, TestCtx},
-            AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType,
-            Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements,
+            AssessorCommitment, AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket,
+            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
+            Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1364,7 +1365,6 @@ mod tests {
         sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
     };
     use alloy_sol_types::SolCall;
-    use boundless_assessor::commit;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use guest_util::ECHO_ID;
@@ -1429,28 +1429,23 @@ mod tests {
         let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
         let app_claim_digest = app_receipt_claim.digest();
         let request_digest = request.eip712_signing_hash(&eip712_domain);
-
-        let assessor_journal = AssessorJournal {
-            requestDigests: vec![request_digest],
-            selectors: vec![],
-            root: <[u8; 32]>::from(commit(
-                &U256::ZERO,
-                &request.id,
-                &request_digest,
-                &app_claim_digest,
-            ))
-            .into(),
-            prover,
-            callbacks: vec![],
-        };
+        let assessor_root = AssessorCommitment {
+            index: U256::ZERO,
+            id: request.id,
+            requestDigest: request_digest,
+            claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
+        }
+        .eip712_signing_hash(&eip712_domain);
+        let assessor_journal =
+            AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
         let assessor_claim_digest = assesor_receipt_claim.digest();
 
-        let root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
+        let set_builder_root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
         let set_builder_journal = {
             let mut state = GuestState::initial(SET_BUILDER_ID);
-            state.mmr.push(root).unwrap();
+            state.mmr.push(set_builder_root).unwrap();
             state.mmr.finalize().unwrap();
             state.encode()
         };
@@ -1461,7 +1456,7 @@ mod tests {
             InnerReceipt::Fake(FakeReceipt::new(set_builder_receipt_claim)),
             set_builder_journal,
         );
-        let set_verifier_seal = encode_seal(&set_builder_receipt).unwrap();
+        let set_builder_seal = encode_seal(&set_builder_receipt).unwrap();
 
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: Digest::from(SET_BUILDER_ID) };
@@ -1489,7 +1484,7 @@ mod tests {
         .abi_encode_seal()
         .unwrap();
 
-        (to_b256(root), set_verifier_seal.into(), fulfillment, assessor_seal.into())
+        (to_b256(set_builder_root), set_builder_seal.into(), fulfillment, assessor_seal.into())
     }
 
     #[test]

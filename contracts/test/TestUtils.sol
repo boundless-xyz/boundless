@@ -4,11 +4,13 @@
 
 pragma solidity ^0.8.20;
 
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Selector} from "../src/types/Selector.sol";
 import "../src/BoundlessMarket.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
+import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 
 library TestUtils {
@@ -19,26 +21,20 @@ library TestUtils {
         bytes32 assessorImageId,
         Selector[] memory selectors,
         AssessorCallback[] memory callbacks,
-        address prover
+        address prover,
+        bytes32 domainSeparator
     ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory leaves = new bytes32[](fills.length);
-        bytes32[] memory requestDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
             bytes32 claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            leaves[i] = keccak256(abi.encodePacked(i, fills[i].id, fills[i].requestDigest, claimDigest));
-            requestDigests[i] = fills[i].requestDigest;
+            leaves[i] = MessageHashUtils.toTypedDataHash(
+                domainSeparator, AssessorCommitment(i, fills[i].id, fills[i].requestDigest, claimDigest).eip712Digest()
+            );
         }
         bytes32 root = MerkleProofish.processTree(leaves);
 
-        bytes memory journal = abi.encode(
-            AssessorJournal({
-                requestDigests: requestDigests,
-                root: root,
-                selectors: selectors,
-                callbacks: callbacks,
-                prover: prover
-            })
-        );
+        bytes memory journal =
+            abi.encode(AssessorJournal({root: root, selectors: selectors, callbacks: callbacks, prover: prover}));
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 

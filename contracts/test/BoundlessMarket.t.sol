@@ -400,8 +400,9 @@ contract BoundlessMarketTest is Test {
         }
 
         // compute the assessor claim
-        ReceiptClaim memory assessorClaim =
-            TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, selectors, callbacks, prover);
+        ReceiptClaim memory assessorClaim = TestUtils.mockAssessor(
+            fills, ASSESSOR_IMAGE_ID, selectors, callbacks, prover, boundlessMarket.eip712DomainSeparator()
+        );
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 

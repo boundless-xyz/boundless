@@ -8,14 +8,12 @@
 extern crate alloc;
 
 use alloc::{vec, vec::Vec};
-use alloy_primitives::U256;
-use alloy_primitives::{Address, B256};
-use alloy_sol_types::SolStruct;
-use alloy_sol_types::SolValue;
-use boundless_assessor::commit;
+use alloy_primitives::{Address, U256};
+use alloy_sol_types::{SolStruct, SolValue};
 use boundless_assessor::AssessorInput;
 use boundless_market::contracts::{
-    AssessorCallback, AssessorJournal, RequestId, Selector, UNSPECIFIED_SELECTOR,
+    AssessorCallback, AssessorCommitment, AssessorJournal, RequestId, Selector,
+    UNSPECIFIED_SELECTOR,
 };
 use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
@@ -40,8 +38,6 @@ fn main() {
         panic!("too many fills: {}", input.fills.len());
     }
 
-    // list of request digests
-    let mut request_digests: Vec<B256> = Vec::with_capacity(input.fills.len());
     // list of ReceiptClaim digests used as leaves in the aggregation set
     let mut leaves: Vec<Digest> = Vec::with_capacity(input.fills.len());
     // sparse list of callbacks to be recorded in the journal
@@ -71,8 +67,14 @@ fn main() {
         fill.evaluate_requirements().expect("requirements not met");
         env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
         let claim_digest = fill.receipt_claim().digest();
-        leaves.push(commit(&U256::from(index), &fill.request.id, &request_digest, &claim_digest));
-        request_digests.push(request_digest.into());
+        let commit = AssessorCommitment {
+            index: U256::from(index),
+            id: fill.request.id,
+            requestDigest: request_digest.into(),
+            claimDigest: <[u8; 32]>::from(claim_digest).into(),
+        }
+        .eip712_signing_hash(&eip_domain_separator);
+        leaves.push(Digest::from_bytes(*commit));
         if fill.request.requirements.callback.addr != Address::ZERO {
             callbacks.push(AssessorCallback {
                 index: index.try_into().expect("callback index overflow"),
@@ -92,7 +94,6 @@ fn main() {
     let root = merkle_root(&leaves);
 
     let journal = AssessorJournal {
-        requestDigests: request_digests,
         callbacks,
         selectors,
         root: <[u8; 32]>::from(root).into(),

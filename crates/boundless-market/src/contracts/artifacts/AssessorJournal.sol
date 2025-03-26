@@ -11,10 +11,6 @@ import {Selector} from "./Selector.sol";
 /// from client(s) and that the requirements are met by claim digest(s) in the Merkle tree committed
 /// to by the given root.
 struct AssessorJournal {
-    /// @notice Digest of each request validated by the assessor.
-    /// @dev When a client signs two requests with the same ID, only one can ever be fulfilled.
-    /// Using the digest here ensures that the request validated by the assessor matches the one that was locked / priced.
-    bytes32[] requestDigests;
     /// @notice The (optional) callbacks for the requests committed by the assessor.
     AssessorCallback[] callbacks;
     /// @notice The (optional) selectors for the requests committed by the assessor.
