@@ -18,6 +18,7 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
     super('pipelines:CodePipelineRole', name, args, opts);
 
     // Defines the IAM role that CodeBuild and CodePipeline use to deploy the app.
+    // This role can only be assumed by CodeBuild and CodePipeline services.
     this.role = new aws.iam.Role(`pipeline-role`, {
       assumeRolePolicy: pulumi.jsonStringify({
         Version: "2012-10-17",
@@ -86,7 +87,7 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
         Statement: [{
           Action: [
             "codestar-connections:UseConnection",
-				    "codeconnections:UseConnection"
+            "codeconnections:UseConnection"
           ],
           Effect: "Allow",
           Resource: [
