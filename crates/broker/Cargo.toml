@@ -29,9 +29,12 @@ futures-util = { workspace = true }
 # TEMP:
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
+hex = { workspace = true }
 http = "1.1"
+http-cache-reqwest = "0.15.1"
 notify = "6.1"
 reqwest = { workspace = true }
+reqwest-middleware = "0.4.1"
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }

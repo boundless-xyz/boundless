@@ -332,7 +332,7 @@ mod tests {
         );
 
         let market_address = deploy_boundless_market(
-            &signer,
+            signer.address(),
             provider.clone(),
             Address::ZERO,
             Address::ZERO,

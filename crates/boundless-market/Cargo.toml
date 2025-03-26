@@ -36,7 +36,10 @@ hex = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-aggregation = { workspace = true }
+risc0-circuit-recursion = { workspace = true, optional = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
+# Drop once upgrading to risc0-zkvm v2.0
+risc0-groth16 = { version = "~1.2", optional = true }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 rmp-serde = { workspace = true }
 serde_json = { workspace = true }
@@ -51,6 +54,7 @@ time = "0.3"
 utoipa = { workspace = true }
 
 [dev-dependencies]
+boundless-assessor = { workspace = true }
 boundless-market = { path = ".", features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
@@ -62,4 +66,4 @@ serde_json = { workspace = true }
 
 [features]
 default = []
-test-utils = []
+test-utils = ["dep:risc0-circuit-recursion"]

@@ -7,6 +7,7 @@ lookback_blocks = 100
 max_stake = "5" # HP
 skip_preflight_ids = []
 max_file_size = 50_000_000
+max_concurrent_locks = 2
 # max_fetch_retries = 2
 # allow_client_addresses = []
 # lockin_priority_gas = 100

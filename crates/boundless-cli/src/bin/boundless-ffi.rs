@@ -85,10 +85,8 @@ async fn main() -> Result<()> {
             Bytes::from_hex(args.signature.trim_start_matches("0x"))?.as_ref(),
         )?,
     };
-    let (fill, root_receipt, _, assessor_receipt) =
-        prover.fulfill(order.clone(), args.require_payment).await?;
-    let order_fulfilled =
-        OrderFulfilled::new(fill, root_receipt, assessor_receipt, args.prover_address)?;
+    let (fill, root_receipt, assessor_receipt) = prover.fulfill(order.clone()).await?;
+    let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt)?;
 
     // Forge test FFI calls expect hex encoded bytes sent to stdout
     write!(&mut stdout, "{}", hex::encode(order_fulfilled.abi_encode()))

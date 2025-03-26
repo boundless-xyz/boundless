@@ -3977,14 +3977,15 @@ dependencies = [
 
 [[package]]
 name = "risc0-ethereum-contracts"
-version = "1.4.0"
+version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7158b09db4043f8169dcc7c161d662e22080cd1bf6fe2ba79c1358ee80ba599"
+checksum = "9bc9406a64e5945b3122a4bd2615222ad740efc3b6e86be04a89f98460acdcb6"
 dependencies = [
  "alloy",
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "bytemuck_derive",
  "cfg-if",
  "hex",
  "risc0-aggregation",

@@ -65,10 +65,12 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
 bytes32 constant APP_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000001;
+bytes32 constant APP_IMAGE_ID_2 = 0x0000000000000000000000000000000000000000000000000000000000000002;
 bytes32 constant SET_BUILDER_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000002;
 bytes32 constant ASSESSOR_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000003;
 
 bytes constant APP_JOURNAL = bytes("GUEST JOURNAL");
+bytes constant APP_JOURNAL_2 = bytes("GUEST JOURNAL 2");
 
 contract BoundlessMarketTest is Test {
     using ReceiptClaimLib for ReceiptClaim;
@@ -2007,6 +2009,89 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    // Testing that reordering request IDs in a batch will cause the fulfillBatch to revert.
+    function testFulfillBatchShuffleIds() public {
+        uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
+        uint256 batchSize = 0;
+        for (uint256 i = 0; i < batch.length; i++) {
+            batchSize += batch[i];
+        }
+        ProofRequest[] memory requests = new ProofRequest[](batchSize);
+        bytes[] memory journals = new bytes[](batchSize);
+        bytes[] memory signatures = new bytes[](batchSize);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < batch.length; i++) {
+            Client client = getClient(i);
+
+            for (uint256 j = 0; j < batch[i]; j++) {
+                ProofRequest memory request = client.request(uint32(j));
+
+                requests[idx] = request;
+                journals[idx] = APP_JOURNAL;
+                signatures[idx] = client.sign(request);
+                idx++;
+            }
+        }
+
+        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
+            createFillsAndSubmitRoot(requests, journals, testProverAddress);
+
+        // Swap first two IDs
+        RequestId id0 = fills[0].id;
+        fills[0].id = fills[1].id;
+        fills[1].id = id0;
+
+        vm.warp(requests[0].offer.timeAtPrice(uint256(1.5 ether)));
+        vm.expectRevert(VerificationFailed.selector);
+        boundlessMarket.priceAndFulfillBatch(requests, signatures, fills, assessorReceipt);
+
+        expectMarketBalanceUnchanged();
+    }
+
+    // Testing that reordering fulfillments in a batch will cause the fulfillBatch to revert.
+    function testFulfillBatchShuffleFills() public {
+        uint256 batchSize = 2;
+        ProofRequest[] memory requests = new ProofRequest[](batchSize);
+        bytes[] memory journals = new bytes[](batchSize);
+
+        // First request
+        Client client = getClient(0);
+        ProofRequest memory request = client.request(uint32(0));
+        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
+        requests[0] = request;
+        journals[0] = APP_JOURNAL;
+
+        // Second request
+        client = getClient(1);
+        request = client.request(uint32(1));
+        request.requirements = Requirements({
+            imageId: bytes32(APP_IMAGE_ID_2),
+            predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL_2))}),
+            selector: bytes4(0),
+            callback: Callback({addr: address(0), gasLimit: 0})
+        });
+        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.sign(request));
+        requests[1] = request;
+        journals[1] = APP_JOURNAL_2;
+
+        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
+            createFillsAndSubmitRoot(requests, journals, testProverAddress);
+
+        bytes32 imageId0 = fills[0].imageId;
+        bytes memory journal0 = fills[0].journal;
+
+        fills[0].imageId = fills[1].imageId;
+        fills[1].imageId = imageId0;
+
+        fills[0].journal = fills[1].journal;
+        fills[1].journal = journal0;
+
+        vm.expectRevert(VerificationFailed.selector);
+        boundlessMarket.fulfillBatch(fills, assessorReceipt);
+
+        expectMarketBalanceUnchanged();
+    }
+
     // Test that a smart contract signature can be used to price a request.
     // The smart contract signature must be validated when a request is priced. This
     // ensures that the smart contract signature is checked in the never locked path,
@@ -2726,11 +2811,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
 
         vm.expectEmit(true, true, true, true);
-        emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
-        vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id);
-        vm.expectEmit(true, true, true, false);
+        vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.ProofDelivered(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
         boundlessMarket.fulfill(fill, assessorReceipt);
 
         // Verify callback was called exactly once
@@ -2762,11 +2847,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.CallbackFailed(request.id, address(mockHighGasCallback), "");
-        vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id);
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.CallbackFailed(request.id, address(mockHighGasCallback), "");
         boundlessMarket.fulfill(fill, assessorReceipt);
 
         // Verify callback was attempted
@@ -2798,8 +2883,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
 
         vm.expectEmit(true, true, true, true);
-        emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
-        vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.PaymentRequirementsFailed(
@@ -2807,6 +2890,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         );
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id);
+        vm.expectEmit(true, true, true, true);
+        emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
 
         vm.prank(otherProverAddress);
         boundlessMarket.fulfill(fill, assessorReceipt);
@@ -2840,8 +2925,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
 
         vm.expectEmit(true, true, true, true);
-        emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
-        vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.PaymentRequirementsFailed(
@@ -2849,6 +2932,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         );
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id);
+        vm.expectEmit(true, true, true, true);
+        emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
         boundlessMarket.fulfill(fill, assessorReceipt);
 
         // Verify callback was called exactly once
@@ -2908,11 +2993,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, otherProver.addr());
 
         vm.expectEmit(true, true, true, true);
-        emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
-        vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id);
+        vm.expectEmit(true, true, true, true);
+        emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
 
         // Verify callback was called exactly once
@@ -2972,11 +3057,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(requestB, APP_JOURNAL, testProverAddress);
 
         vm.expectEmit(true, true, true, true);
-        emit MockCallback.MockCallbackCalled(requestB.requirements.imageId, APP_JOURNAL, fill.seal);
-        vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(requestB.id);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(requestB.id);
+        vm.expectEmit(true, true, true, true);
+        emit MockCallback.MockCallbackCalled(requestB.requirements.imageId, APP_JOURNAL, fill.seal);
         boundlessMarket.priceAndFulfill(requestB, clientSignatureB, fill, assessorReceipt);
 
         // Verify only the second request's callback was called

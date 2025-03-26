@@ -41,6 +41,7 @@ mod defaults {
 }
 /// All configuration related to markets mechanics
 #[derive(Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct MarketConf {
     /// Mega Cycle price (in native token)
     pub mcycle_price: String,
@@ -105,6 +106,10 @@ pub struct MarketConf {
     /// Stake balance error threshold (in stake tokens)
     /// if the stake balance drops below this the broker will issue error logs
     pub stake_balance_error_threshold: Option<String>,
+    /// Max concurrent locks
+    ///
+    /// Maximum number of concurrent lockin requests that can be processed at once
+    pub max_concurrent_locks: Option<u32>,
 }
 
 impl Default for MarketConf {
@@ -129,6 +134,7 @@ impl Default for MarketConf {
             balance_error_threshold: None,
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
+            max_concurrent_locks: None,
         }
     }
 }
