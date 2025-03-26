@@ -1,5 +1,3 @@
-import { cn } from "@risc0/ui/cn";
-import { Skeleton } from "@risc0/ui/skeleton";
 import { useEffect, useState } from "react";
 
 type PreviewData = {
@@ -44,11 +42,7 @@ export default function LinkPreview({ url, className = "" }: LinkPreviewProps) {
     }
   }, [url]);
 
-  if (loading) {
-    return <Skeleton style={{ height: "13rem", width: "100%" }} />;
-  }
-
-  if (error || !preview) {
+  if (loading || error || !preview) {
     return null;
   }
 

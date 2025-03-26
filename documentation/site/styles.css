@@ -84,12 +84,13 @@
   font-family: "Replica", sans-serif;
 }
 
-html {
-  @apply scroll-smooth;
+code *,
+pre * {
+  font-family: monospace;
 }
 
-body {
-  @apply bg-inherit;
+html {
+  @apply scroll-smooth;
 }
 
 .vocs_Content img {
