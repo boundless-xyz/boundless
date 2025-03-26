@@ -98,6 +98,7 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
       {
         parent: this,
         protect: true,
+        retainOnDelete: true,
       }
     );
 
