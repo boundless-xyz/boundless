@@ -34,9 +34,10 @@
     "remark-sort-definitions": "2.0.0",
     "remark-toc": "9.0.0",
     "remark-wiki-link": "2.0.1",
+    "tailwindcss": "^4.0.17",
     "vite-plugin-biome": "1.0.12",
     "vite-plugin-sitemap": "0.7.1",
-    "vocs": "1.0.0-alpha.62"
+    "vocs": "1.0.11"
   },
   "packageManager": "bun@1.2.6"
 }
