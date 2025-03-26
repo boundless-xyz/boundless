@@ -13,6 +13,9 @@ import {
 // Defines the S3 bucket used for storing the Pulumi state backend for staging and prod accounts.
 const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
   accountId: BOUNDLESS_OPS_ACCOUNT_ID,
+  readOnlyStateBucketArns: [
+    BOUNDLESS_DEV_ADMIN_ROLE_ARN,
+  ],
   readWriteStateBucketArns: [
     BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
     BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
@@ -28,6 +31,7 @@ const pulumiSecrets = new PulumiSecrets("pulumiSecrets", {
     BOUNDLESS_DEV_ADMIN_ROLE_ARN
   ],
   decryptKmsKeyArns: [
+    BOUNDLESS_DEV_ADMIN_ROLE_ARN,
     BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
     BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
   ],

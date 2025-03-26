@@ -9,6 +9,7 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
     name: string,
     args: {
       accountId: string;
+      readOnlyStateBucketArns: string[];
       readWriteStateBucketArns: string[];
     },
     opts?: pulumi.ComponentResourceOptions
@@ -62,7 +63,16 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
           Effect: 'Allow',
           Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
           Resource: '*',
-          Sid: 'Allow principals to use KMS key',
+          Sid: 'Allow principals to use the KMS key to encrypt and decrypt',
+        },
+        {
+          Principal: {
+            AWS: args.readOnlyStateBucketArns,
+          },
+          Effect: 'Allow',
+          Action: ['kms:Decrypt', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
+          Resource: '*',
+          Sid: 'Allow principals to decrypt using the KMS key to access the bucket',
         },
       ],
     };
@@ -155,7 +165,21 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
                   pulumi.interpolate`${this.bucket.arn}`,
                   pulumi.interpolate`${this.bucket.arn}/*`
               ]
-          }
+          },
+          {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": args.readOnlyStateBucketArns
+            },
+            "Action": [
+                "s3:GetObject",
+                "s3:ListBucket",
+            ],
+            "Resource": [
+                pulumi.interpolate`${this.bucket.arn}`,
+                pulumi.interpolate`${this.bucket.arn}/*`
+            ]
+        }
       ]
     };
 

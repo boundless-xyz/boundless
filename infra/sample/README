@@ -8,13 +8,29 @@ And two for staging and prod that can only be deployed to the staging and prod A
 
 ## Local Development
 
-To develop locally and test, you should deploy the dev stack to any AWS account (e.g. the Boundless Dev Account)
+To develop locally and test, you should deploy the dev stack to any AWS account (e.g. the Boundless Dev Account).
+
+When developing locally, you use a local Pulumi backend, and you do not have access to the secret provider that we use in staging/prod.
 
 Steps are:
 
 1. Log into the development account as an Admin (e.g. via aws-vault)
-2. `pulumi stack select dev`
-3. `pulumi up`
+2. `pulumi login --local && pulumi stack init dev`
+4. `pulumi stack select dev`
+5. `pulumi up`
+
+## Secrets
+
+For secrets in staging and production we use Pulumi's secret management with a KMS key managed by the ops account. The development account admin role has permissions to create secrets using the KMS key. Follow these steps to set up secrets for staging and prod:
+
+1. Log into development account as an Admin (e.g. via aws-vault)
+2. `pulumi login "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"` 
+3. `pulumi stack select staging`
+4. `pulumi config set --secret sampleSecret secretValue`
+5. `pulumi stack select prod`
+6. `pulumi config set --secret sampleSecret secretValue`
+
+Note for local development, we do not use the secret management. You should use environment variables.
 
 ## Deploying to Staging and Production
 

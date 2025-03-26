@@ -57,9 +57,9 @@ export class PulumiSecrets extends pulumi.ComponentResource {
             AWS: args.encryptKmsKeyArns,
           },
           Effect: 'Allow',
-          Action: ['kms:Encrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
+          Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
           Resource: '*',
-          Sid: 'Allow principals to encrypt using KMS key',
+          Sid: 'Allow principals to encrypt and decrypt using KMS key',
         },
         {
           Principal: {
