@@ -33,8 +33,9 @@ export class SamplePipeline extends pulumi.ComponentResource {
         commands:
           - ls -lt
           - cd infra/${APP_NAME}
-          - echo "DEPLOYING"
-          - echo "pulumi up --yes"
+          - echo "DEPLOYING TO $STAGE"
+          - pulumi stack select $STAGE
+          - pulumi up --yes
     `;
 
     const buildProject = new aws.codebuild.Project(
@@ -54,6 +55,11 @@ export class SamplePipeline extends pulumi.ComponentResource {
               name: "DEPLOYMENT_ROLE_ARN",
               type: "PLAINTEXT",
               value: "arn:aws:iam::245178712747:role/deploymentRole-13fd149"
+            },
+            {
+              name: "STAGE",
+              type: "PLAINTEXT",
+              value: "staging"
             }
           ]
         },
