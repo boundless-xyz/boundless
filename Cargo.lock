@@ -2438,6 +2438,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-s3",
  "balance-alerts-layer",
+ "boundless-assessor",
  "boundless-market",
  "bytemuck",
  "chrono",
