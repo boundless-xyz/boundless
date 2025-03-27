@@ -76,6 +76,7 @@ async fn test_basic_usage() {
 
     println!("{} {:?}", exe_path, args);
 
+    #[allow(clippy::zombie_processes)]
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
 
     // Subscribe to slash events before operations
