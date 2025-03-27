@@ -7,13 +7,15 @@ use std::path::PathBuf;
 use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, Address, FixedBytes, U256},
+    primitives::{aliases::U96, utils, Address, FixedBytes, U256},
+    providers::Provider,
     signers::local::PrivateKeySigner,
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, test_utils::create_test_ctx, Input, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements,
+        hit_points::default_allowance,
+        test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count},
+        Callback, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
     selector::is_unaggregated_selector,
 };
@@ -26,13 +28,21 @@ use tokio::time::Duration;
 use tracing_test::traced_test;
 use url::Url;
 
-fn generate_request(id: u32, addr: &Address, unaggregated: bool) -> ProofRequest {
+fn generate_request(
+    id: u32,
+    addr: &Address,
+    unaggregated: bool,
+    callback: Option<Callback>,
+) -> ProofRequest {
     let mut requirements = Requirements::new(
         Digest::from(ECHO_ID),
         Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
     );
     if unaggregated {
         requirements = requirements.with_unaggregated_proof();
+    }
+    if let Some(callback) = callback {
+        requirements = requirements.with_callback(callback);
     }
     ProofRequest::new(
         id,
@@ -142,6 +152,7 @@ async fn simple_e2e() {
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         false,
+        None,
     );
 
     ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -154,6 +165,88 @@ async fn simple_e2e() {
         )
         .await
         .unwrap();
+
+    // Check for a broker panic
+    if broker_task.is_finished() {
+        broker_task.await.unwrap();
+    } else {
+        broker_task.abort();
+    }
+}
+
+#[tokio::test]
+#[traced_test]
+async fn simple_e2e_with_callback() {
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    // Setup signers / providers
+    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+
+    // Deposit prover / customer balances
+    ctx.prover_market
+        .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    // Deploy MockCallback contract
+    let callback_address = deploy_mock_callback(
+        &ctx.prover_provider,
+        ctx.verifier_address,
+        ctx.boundless_market_address,
+        ECHO_ID,
+        U256::ZERO,
+    )
+    .await
+    .unwrap();
+
+    let callback = Callback { addr: callback_address, gasLimit: U96::from(100000) };
+
+    // Start broker
+    let config = new_config(1).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.boundless_market_address,
+        ctx.set_verifier_address,
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
+    let broker = Broker::new(args, ctx.prover_provider.clone()).await.unwrap();
+    let broker_task = tokio::spawn(async move {
+        broker.start_service().await.unwrap();
+    });
+
+    // Submit an order with callback
+    let request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        false,
+        Some(callback),
+    );
+
+    ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+    ctx.customer_market
+        .wait_for_request_fulfillment(
+            U256::from(request.id),
+            Duration::from_secs(1),
+            request.expires_at(),
+        )
+        .await
+        .unwrap();
+
+    let event_filter = ctx
+        .customer_market
+        .instance()
+        .CallbackFailed_filter()
+        .topic1(request.id)
+        .from_block(0)
+        .to_block(ctx.prover_provider.get_block_number().await.unwrap());
+    let logs = event_filter.query().await.unwrap();
+    assert!(logs.is_empty());
+
+    let count = get_mock_callback_count(&ctx.prover_provider, callback_address).await.unwrap();
+    assert!(count == U256::from(1));
 
     // Check for a broker panic
     if broker_task.is_finished() {
@@ -199,6 +292,7 @@ async fn e2e_with_selector() {
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         true,
+        None,
     );
 
     ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -260,6 +354,7 @@ async fn e2e_with_multiple_requests() {
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         false,
+        None,
     );
 
     ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
@@ -269,6 +364,7 @@ async fn e2e_with_multiple_requests() {
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         true,
+        None,
     );
 
     ctx.customer_market.submit_request(&request_unaggregated, &ctx.customer_signer).await.unwrap();

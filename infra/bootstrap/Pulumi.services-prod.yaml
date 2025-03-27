@@ -1,0 +1,2 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGWJ70tVboweCHT18HNwOmgAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMdA94TapOP9bZVcfxAgEQgDvrWs0GPDGvxe15IbE7P+Q+bmkDqRnoEsIW8OhpI07juDInJELsof8XQ2agtxgZ5urtJtPULtMhHtHjQw==

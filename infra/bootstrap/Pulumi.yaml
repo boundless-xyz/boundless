@@ -1,0 +1,9 @@
+name: bootstrap
+description: A minimal AWS TypeScript Pulumi program
+runtime: nodejs
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: aws-typescript
+backend:
+  url: s3://boundless-pulumi-state?region=us-west-2&awssdk=v2
