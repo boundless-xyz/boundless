@@ -481,9 +481,7 @@ mod tests {
 
     fn new_request(idx: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
-            idx,
-            addr,
-            Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
+            RequestIe::new(*Requ, idx)irements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),
             Offer {

@@ -77,8 +77,7 @@ async fn request_spawner<P: Provider>(
 
     while !shutdown.load(Ordering::Relaxed) {
         let request = ProofRequest::new(
-            ctx.customer_market.index_from_nonce().await?,
-            &ctx.customer_signer.address(),
+            RequestId::new(ctx.customer_signer.address(), ctx.customer_market.index_from_nonce().await?),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

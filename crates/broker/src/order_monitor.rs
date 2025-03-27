@@ -325,8 +325,7 @@ mod tests {
         let max_price = 2;
 
         let request = ProofRequest::new(
-            1,
-            &signer.address(),
+            RequestId::new(signer.address(), 1),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -435,8 +434,7 @@ mod tests {
         let max_price = 2;
 
         let request = ProofRequest::new(
-            boundless_market.index_from_nonce().await.unwrap(),
-            &signer.address(),
+            RequestId::new(signer.address(), boundless_market.index_from_nonce().await.unwrap()),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

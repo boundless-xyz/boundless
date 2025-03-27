@@ -45,8 +45,7 @@ fn generate_request(
         requirements = requirements.with_callback(callback);
     }
     ProofRequest::new(
-        id,
-        addr,
+        RequestId::new(*addr, id),
         requirements,
         format!("file://{ECHO_PATH}"),
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),

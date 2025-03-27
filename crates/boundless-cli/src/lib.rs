@@ -379,8 +379,7 @@ mod tests {
         selector: Option<Selector>,
     ) -> (ProofRequest, PrimitiveSignature) {
         let request = ProofRequest::new(
-            0,
-            &signer.address(),
+            RequestId::new(signer.address(), 0),
             Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
                 .with_selector(match selector {
                     Some(selector) => FixedBytes::from(selector as u32),

@@ -295,6 +295,30 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
+    /// on. Includes the specified value, which will be deposited to the account of msg.sender.
+    pub async fn submit_request_with_signature_bytes(
+        &self,
+        request: &ProofRequest,
+        signature: &Bytes,
+    ) -> Result<U256, MarketError> {
+        tracing::debug!("calling submitRequest({:x?})", request);
+        let call =
+            self.instance.submitRequest(request.clone(), signature.clone()).from(self.caller);
+        let pending_tx = call.send().await?;
+        tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
+
+        let receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        // Look for the logs for submitting the transaction.
+        let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
+        Ok(U256::from(log.inner.data.requestId))
+    }
+
+    /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on. Deposits funds to the client account if there are not enough to cover the max price on
     /// the offer.
     pub async fn submit_request(
@@ -309,6 +333,23 @@ impl<P: Provider> BoundlessMarketService<P> {
         let max_price = U256::from(request.offer.maxPrice);
         let value = if balance > max_price { U256::ZERO } else { U256::from(max_price) - balance };
         self.submit_request_with_value(request, signer, value).await
+    }
+
+    /// Submit a request such that it is publicly available for provers to evaluate and bid
+    /// on. Deposits funds to the client account if there are not enough to cover the max price on
+    /// the offer.
+    pub async fn submit_request_with_signature_bytes(
+        &self,
+        request: &ProofRequest,
+        signature: &Bytes,
+    ) -> Result<U256, MarketError> {
+        let balance = self
+            .balance_of(request.client_address()?)
+            .await
+            .context("failed to get whether the client balance can cover the offer max price")?;
+        let max_price = U256::from(request.offer.maxPrice);
+        let value = if balance > max_price { U256::ZERO } else { U256::from(max_price) - balance };
+        self.submit_request_with_value_and_signature_bytes(request, value, signature).await
     }
 
     /// Lock the request to the prover, giving them exclusive rights to be paid to
@@ -1966,8 +2007,7 @@ mod tests {
     #[test]
     fn test_decode_calldata() {
         let request = ProofRequest::new(
-            0,
-            &Address::ZERO,
+            RequestId::new(Address::ZERO, 0),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

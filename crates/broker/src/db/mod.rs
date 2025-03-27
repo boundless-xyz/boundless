@@ -1064,8 +1064,7 @@ mod tests {
             updated_at: Utc::now(),
             target_timestamp: None,
             request: ProofRequest::new(
-                1,
-                &Address::ZERO,
+                RequestId::new(Address::ZERO, 1),
                 Requirements::new(
                     Digest::ZERO,
                     Predicate {

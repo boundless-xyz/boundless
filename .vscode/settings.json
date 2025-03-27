@@ -20,6 +20,7 @@
     "./crates/guest/util/echo/Cargo.toml",
     "./crates/guest/util/identity/Cargo.toml",
     "./examples/counter/Cargo.toml",
+    "./examples/smart-contract-clients/Cargo.toml"
   ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",

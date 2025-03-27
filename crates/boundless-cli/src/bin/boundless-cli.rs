@@ -716,8 +716,7 @@ where
     }
 
     let mut request = ProofRequest::new(
-        id,
-        &client.caller(),
+        RequestId::new(client.caller(), id),
         request_yaml.requirements.clone(),
         &request_yaml.imageUrl,
         request_yaml.input,

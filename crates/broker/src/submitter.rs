@@ -541,8 +541,7 @@ mod tests {
         let echo_receipt = prover.get_receipt(&echo_proof.id).await.unwrap().unwrap();
 
         let order_request = ProofRequest::new(
-            market_customer.index_from_nonce().await.unwrap(),
-            &customer_addr,
+            RequestId::new(customer_addr, market_customer.index_from_nonce().await.unwrap()),
             Requirements::new(
                 echo_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

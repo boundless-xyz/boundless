@@ -362,6 +362,27 @@ where
         Ok((request_id, request.expires_at()))
     }
 
+    pub async fn submit_request_with_signature_bytes(
+        &self,
+        request: &ProofRequest,
+        signature: &Bytes,
+    ) -> Result<(U256, u64), ClientError> {
+        let mut request = request.clone();
+
+        if request.id == U256::ZERO {
+            request.id = self.boundless_market.request_id_from_rand().await?;
+        };
+        
+        if request.offer.biddingStart == 0 {
+            request.offer.biddingStart = now_timestamp() + self.bidding_start_delay
+        };
+
+        request.validate()?;
+
+        let request_id = self.boundless_market.submit_request_with_signature_bytes(&request, signature).await?;
+        Ok((request_id, request.expires_at()))
+    }
+
     /// Submit a proof request offchain via the order stream service.
     ///
     /// Accepts a signer to sign the request.

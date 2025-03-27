@@ -87,8 +87,7 @@ fn generate_test_order(id: u32) -> Order {
         updated_at: Utc::now(),
         target_timestamp: None,
         request: ProofRequest::new(
-            id,
-            &Address::ZERO,
+            RequestId::new(Address::ZERO, id),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

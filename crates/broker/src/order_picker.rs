@@ -699,8 +699,7 @@ mod tests {
                 status: OrderStatus::Pricing,
                 updated_at: Utc::now(),
                 request: ProofRequest::new(
-                    order_index,
-                    &self.provider.default_signer_address(),
+                    RequestId::new(self.provider.default_signer_address(), order_index),
                     Requirements::new(
                         image_id,
                         Predicate {

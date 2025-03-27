@@ -28,8 +28,7 @@ async fn create_order(
     now: u64,
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
-        order_id,
-        &signer_addr,
+        RequestId::new(signer_addr, order_id),
         Requirements::new(
             Digest::ZERO,
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

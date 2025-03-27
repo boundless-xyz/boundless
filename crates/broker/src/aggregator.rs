@@ -626,8 +626,7 @@ mod tests {
 
         // First order
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -670,8 +669,7 @@ mod tests {
 
         // Second order
         let order_request = ProofRequest::new(
-            1,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 1),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -780,8 +778,7 @@ mod tests {
 
         // First order
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -839,8 +836,7 @@ mod tests {
 
         // Second order
         let order_request = ProofRequest::new(
-            1,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 1),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -945,8 +941,7 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -1054,8 +1049,7 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -1171,8 +1165,7 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
