@@ -12,7 +12,7 @@ use risc0_zkvm::{
     default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
     VERSION,
 };
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Debug, Default)]
@@ -22,9 +22,9 @@ pub struct DefaultProver {
 
 #[derive(Debug, Default)]
 struct ProverState {
-    inputs: Mutex<HashMap<String, Vec<u8>>>,
-    images: Mutex<HashMap<String, Vec<u8>>>,
-    proofs: Mutex<HashMap<String, ProofData>>,
+    inputs: RwLock<HashMap<String, Vec<u8>>>,
+    images: RwLock<HashMap<String, Vec<u8>>>,
+    proofs: RwLock<HashMap<String, ProofData>>,
 }
 
 #[derive(Debug, Default)]
@@ -94,11 +94,11 @@ impl DefaultProver {
     }
 
     async fn get_input(&self, id: &str) -> Option<Vec<u8>> {
-        self.state.inputs.lock().await.get(id).cloned()
+        self.state.inputs.read().await.get(id).cloned()
     }
 
     async fn get_image(&self, id: &str) -> Option<Vec<u8>> {
-        self.state.images.lock().await.get(id).cloned()
+        self.state.images.read().await.get(id).cloned()
     }
 
     async fn get_receipts<S: Borrow<String>>(
@@ -107,7 +107,7 @@ impl DefaultProver {
     ) -> AnyhowResult<Vec<Receipt>> {
         let mut receipts = Vec::new();
 
-        let proofs = self.state.proofs.lock().await;
+        let proofs = self.state.proofs.read().await;
         for proof_id in proof_id {
             let receipt = proofs
                 .get(proof_id.borrow())
@@ -125,14 +125,14 @@ impl Prover for DefaultProver {
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
         let input_id = format!("input_{}", Uuid::new_v4());
 
-        let mut inputs = self.state.inputs.lock().await;
+        let mut inputs = self.state.inputs.write().await;
         inputs.insert(input_id.clone(), input);
 
         Ok(input_id)
     }
 
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
-        let mut images = self.state.images.lock().await;
+        let mut images = self.state.images.write().await;
         images.insert(image_id.to_string(), image);
 
         Ok(())
@@ -159,12 +159,12 @@ impl Prover for DefaultProver {
             .map_err(|err| ProverError::NotFound(err.to_string()))?;
 
         let proof_id = format!("execute_{}", Uuid::new_v4());
-        self.state.proofs.lock().await.insert(proof_id.clone(), ProofData::default());
+        self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
         let execute_result =
             DefaultProver::execute(image, input, assumption_receipts, executor_limit).await;
 
-        let mut proofs = self.state.proofs.lock().await;
+        let mut proofs = self.state.proofs.write().await;
         let proof = proofs.get_mut(&proof_id).unwrap();
         match execute_result {
             Ok(info) => {
@@ -210,7 +210,7 @@ impl Prover for DefaultProver {
             .map_err(|err| ProverError::NotFound(err.to_string()))?;
 
         let proof_id = format!("stark_{}", Uuid::new_v4());
-        self.state.proofs.lock().await.insert(proof_id.clone(), ProofData::default());
+        self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
         tokio::spawn({
             let state = self.state.clone();
@@ -220,7 +220,7 @@ impl Prover for DefaultProver {
                     DefaultProver::prove(image, input, assumption_receipts, ProverOpts::succinct())
                         .await;
 
-                let mut proofs = state.proofs.lock().await;
+                let mut proofs = state.proofs.write().await;
                 let proof = proofs.get_mut(&proof_id).unwrap();
                 match proof_result {
                     Ok(info) => {
@@ -260,7 +260,7 @@ impl Prover for DefaultProver {
 
         for _ in 0..MAX_ATTEMPTS {
             {
-                let proofs = self.state.proofs.lock().await;
+                let proofs = self.state.proofs.read().await;
                 let proof_data = proofs
                     .get(proof_id)
                     .ok_or_else(|| ProverError::NotFound(format!("stark proof {proof_id}")))?;
@@ -293,7 +293,7 @@ impl Prover for DefaultProver {
     }
 
     async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
-        let proofs = self.state.proofs.lock().await;
+        let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
@@ -301,7 +301,7 @@ impl Prover for DefaultProver {
     }
 
     async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        let proofs = self.state.proofs.lock().await;
+        let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
@@ -309,7 +309,7 @@ impl Prover for DefaultProver {
     }
 
     async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        let proofs = self.state.proofs.lock().await;
+        let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
@@ -323,7 +323,7 @@ impl Prover for DefaultProver {
             .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {}", proof_id)))?;
 
         let proof_id = format!("snark_{}", Uuid::new_v4());
-        self.state.proofs.lock().await.insert(proof_id.clone(), ProofData::default());
+        self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
         // TODO: remove this workaround when default_prover().compress works for Bonsai
         let compress_result = if default_prover().get_name() == "bonsai" {
@@ -342,7 +342,7 @@ impl Prover for DefaultProver {
             .map(|receipt| bincode::serialize(receipt).unwrap())
             .unwrap_or_default();
 
-        let mut proofs = self.state.proofs.lock().await;
+        let mut proofs = self.state.proofs.write().await;
         let proof = proofs.get_mut(&proof_id).unwrap();
         match compress_result {
             Ok(_) => {
@@ -361,7 +361,7 @@ impl Prover for DefaultProver {
     }
 
     async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        let proofs = self.state.proofs.lock().await;
+        let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
