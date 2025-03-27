@@ -2,112 +2,20 @@
 //
 // All rights reserved.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::Instant,
-};
-
 use async_trait::async_trait;
 use bonsai_sdk::{
     non_blocking::{Client as BonsaiClient, SessionId, SnarkId},
     responses::SnarkStatusRes,
     SdkErr,
 };
-use boundless_market::input::InputBuilder;
-use risc0_zkvm::{
-    compute_image_id, sha::Digestible, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
-    ReceiptClaim,
+use risc0_zkvm::Receipt;
+
+use super::{ExecutorResp, ProofResult, Prover, ProverError};
+use crate::config::ProverConf;
+use crate::{
+    config::{ConfigErr, ConfigLock},
+    futures_retry::retry,
 };
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use uuid::Uuid;
-
-use crate::futures_retry::retry;
-
-/// Executor output
-#[derive(Clone, Deserialize, Serialize)]
-pub struct ExecutorResp {
-    /// Total segments output
-    pub segments: u64,
-    /// risc0-zkvm user cycles
-    pub user_cycles: u64,
-    /// risc0-zkvm total cycles
-    pub total_cycles: u64,
-    /// Count of assumptions included
-    pub assumption_count: u64,
-}
-
-// For mock prover:
-use risc0_zkvm::{default_executor, ExecutorEnv};
-
-use crate::config::{ConfigErr, ConfigLock};
-
-#[derive(Error, Debug)]
-pub enum ProverError {
-    #[error("Bonsai proving error")]
-    BonsaiErr(#[from] SdkErr),
-
-    #[error("Config error")]
-    ConfigReadErr(#[from] ConfigErr),
-
-    #[error("Stark job missing stats data")]
-    MissingStatus,
-
-    #[error("Prover failure: {0}")]
-    ProvingFailed(String),
-
-    #[error("Bincode deserilization error")]
-    BincodeErr(#[from] bincode::Error),
-
-    #[error("proof status expired retry count")]
-    StatusFailure,
-}
-
-#[derive(Clone)]
-pub struct ProofResult {
-    pub id: String,
-    pub stats: ExecutorResp,
-    pub elapsed_time: f64,
-}
-
-/// Encode inputs for Prover::upload_slice()
-pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Error> {
-    Ok(InputBuilder::new().write(input)?.stdin)
-}
-
-#[async_trait]
-pub trait Prover {
-    async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError>;
-    async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError>;
-    async fn preflight(
-        &self,
-        image_id: &str,
-        input_id: &str,
-        assumptions: Vec<String>,
-        executor_limit: Option<u64>,
-    ) -> Result<ProofResult, ProverError>;
-    async fn prove_stark(
-        &self,
-        image_id: &str,
-        input_id: &str,
-        assumptions: Vec<String>,
-    ) -> Result<String, ProverError>;
-    async fn prove_and_monitor_stark(
-        &self,
-        image_id: &str,
-        input_id: &str,
-        assumptions: Vec<String>,
-    ) -> Result<ProofResult, ProverError>;
-    async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError>;
-    async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError>;
-    async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
-    async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
-    async fn compress(&self, proof_id: &str) -> Result<String, ProverError>;
-    async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
-}
-
-pub type ProverObj = Arc<dyn Prover + Send + Sync>;
 
 pub struct Bonsai {
     client: BonsaiClient,
@@ -143,6 +51,57 @@ impl Bonsai {
             status_poll_ms,
             status_poll_retry_count,
         })
+    }
+
+    pub async fn compress(
+        client: &BonsaiClient,
+        receipt: &Receipt,
+        cfg: &ProverConf,
+    ) -> Result<Receipt, ProverError> {
+        let receipt_bytes = bincode::serialize(receipt).unwrap();
+        let session_id = retry::<String, ProverError, _, _>(
+            cfg.req_retry_count,
+            cfg.req_retry_sleep_ms,
+            || async { Ok(client.upload_receipt(receipt_bytes.clone()).await?) },
+            "upload input",
+        )
+        .await?;
+        let proof_id = retry::<SnarkId, ProverError, _, _>(
+            cfg.req_retry_count,
+            cfg.req_retry_sleep_ms,
+            || async { Ok(client.create_snark(session_id.clone()).await?) },
+            "create snark",
+        )
+        .await?;
+
+        loop {
+            let status = retry::<_, SdkErr, _, _>(
+                cfg.status_poll_retry_count,
+                cfg.status_poll_ms,
+                || async { proof_id.status(client).await },
+                "get snark status",
+            )
+            .await?;
+
+            match status.status.as_ref() {
+                "RUNNING" => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(cfg.status_poll_ms))
+                        .await;
+                    continue;
+                }
+                "SUCCEEDED" => {
+                    let output = status.output.unwrap();
+                    let receipt_buf = client.download(&output).await?;
+                    return Ok(bincode::deserialize(&receipt_buf)?);
+                }
+                _ => {
+                    let err_msg = status.error_msg.unwrap_or_default();
+                    return Err(ProverError::ProvingFailed(format!(
+                        "snark proving failed: {err_msg}"
+                    )));
+                }
+            }
+        }
     }
 }
 
@@ -410,181 +369,5 @@ impl Prover for Bonsai {
         .await?;
 
         Ok(Some(receipt_buf))
-    }
-}
-
-#[derive(Default)]
-pub struct MockProver {
-    images: Mutex<HashMap<String, Vec<u8>>>,
-    inputs: Mutex<HashMap<String, Vec<u8>>>,
-    starks: Mutex<HashMap<String, (ProofResult, Receipt)>>,
-    snarks: Mutex<HashMap<String, Receipt>>,
-}
-
-impl MockProver {
-    fn mock_prove_stark(
-        &self,
-        image_id: &str,
-        input_id: &str,
-        assumptions: Vec<String>,
-        executor_limit: Option<u64>,
-    ) -> Result<ProofResult, ProverError> {
-        let image = self
-            .images
-            .lock()
-            .unwrap()
-            .get(image_id)
-            .ok_or(ProverError::BonsaiErr(SdkErr::InternalServerErr("image not found".into())))?
-            .clone();
-        let input = self
-            .inputs
-            .lock()
-            .unwrap()
-            .get(input_id)
-            .ok_or(ProverError::BonsaiErr(SdkErr::InternalServerErr("input not found".into())))?
-            .clone();
-
-        let mut env = ExecutorEnv::builder();
-        env.write_slice(&input);
-        env.session_limit(executor_limit);
-
-        if risc0_zkvm::is_dev_mode() {
-            // enable dev mode also in the guest
-            env.env_var("RISC0_DEV_MODE", "true");
-        }
-
-        for assumption_id in assumptions.iter() {
-            let assumption_receipt = self
-                .starks
-                .lock()
-                .unwrap()
-                .get(assumption_id)
-                .ok_or(ProverError::BonsaiErr(SdkErr::InternalServerErr(
-                    "assumption not found".into(),
-                )))?
-                .clone();
-            env.add_assumption(assumption_receipt.1.clone());
-        }
-        let start = Instant::now();
-        let env = env.build().map_err(|_| {
-            ProverError::BonsaiErr(SdkErr::InternalServerErr("failed to build env".into()))
-        })?;
-        let elapsed = Instant::now() - start;
-
-        let image_id = compute_image_id(&image).unwrap();
-        let session = default_executor().execute(env, &image).unwrap();
-        let id = Uuid::new_v4().to_string();
-
-        let receipt = Receipt::new(
-            InnerReceipt::Fake(FakeReceipt::new(ReceiptClaim::ok(
-                image_id,
-                MaybePruned::Pruned(session.journal.digest()),
-            ))),
-            session.journal.bytes,
-        );
-
-        // TODO: Get total cycles
-        let cycles = session.segments.iter().map(|segment| segment.cycles as u64).sum();
-        let proof_res = ProofResult {
-            id: id.clone(),
-            stats: ExecutorResp {
-                assumption_count: assumptions.len() as u64,
-                segments: session.segments.len() as u64,
-                user_cycles: cycles,
-                total_cycles: cycles,
-            },
-            elapsed_time: elapsed.as_secs_f32().into(),
-        };
-
-        self.starks.lock().unwrap().insert(id.clone(), (proof_res.clone(), receipt.clone()));
-
-        Ok(proof_res)
-    }
-}
-
-#[async_trait]
-impl Prover for MockProver {
-    async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
-        let id = Uuid::new_v4().to_string();
-        self.inputs.lock().unwrap().insert(id.clone(), input);
-        Ok(id)
-    }
-
-    async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
-        self.images.lock().unwrap().insert(image_id.to_string(), image);
-        Ok(())
-    }
-
-    async fn preflight(
-        &self,
-        image_id: &str,
-        input_id: &str,
-        assumptions: Vec<String>,
-        executor_limit: Option<u64>,
-    ) -> Result<ProofResult, ProverError> {
-        self.mock_prove_stark(image_id, input_id, assumptions, executor_limit)
-    }
-
-    async fn prove_stark(
-        &self,
-        image_id: &str,
-        input_id: &str,
-        assumptions: Vec<String>,
-    ) -> Result<String, ProverError> {
-        Ok(self.mock_prove_stark(image_id, input_id, assumptions, None)?.id)
-    }
-
-    async fn prove_and_monitor_stark(
-        &self,
-        image_id: &str,
-        input_id: &str,
-        assumptions: Vec<String>,
-    ) -> Result<ProofResult, ProverError> {
-        self.mock_prove_stark(image_id, input_id, assumptions, None)
-    }
-
-    async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
-        let starks_lock = self.starks.lock().unwrap();
-        let res = starks_lock.get(proof_id).unwrap();
-        Ok(res.0.clone())
-    }
-
-    async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
-        let proofs = self.starks.lock().unwrap();
-        let Some(res) = proofs.get(proof_id) else {
-            return Ok(None);
-        };
-
-        Ok(Some(res.1.clone()))
-    }
-
-    async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        self.get_journal(proof_id).await
-    }
-
-    async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        let proofs = self.starks.lock().unwrap();
-        let Some(res) = proofs.get(proof_id) else {
-            return Ok(None);
-        };
-
-        Ok(Some(res.1.journal.clone().bytes))
-    }
-
-    async fn compress(&self, proof_id: &str) -> Result<String, ProverError> {
-        let id = Uuid::new_v4().to_string();
-        let proofs = self.starks.lock().unwrap();
-        let proof = proofs.get(proof_id).unwrap();
-        self.snarks.lock().unwrap().insert(id.clone(), proof.1.clone());
-        Ok(id)
-    }
-
-    async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        let proofs = self.snarks.lock().unwrap();
-        let Some(res) = proofs.get(proof_id) else {
-            return Ok(None);
-        };
-
-        Ok(Some(bincode::serialize(&res).unwrap()))
     }
 }
