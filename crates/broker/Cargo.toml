@@ -64,7 +64,7 @@ proptest-derive = "0.4"
 rand = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
 tokio = { workspace = true, features = ["full"] }
-tracing-test = "0.2"
+tracing-test = { workspace = true }
 
 [features]
 test-utils = ["boundless-market/test-utils"]

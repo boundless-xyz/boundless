@@ -165,7 +165,7 @@ pub struct Args {
 }
 
 /// Configuration struct
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Config {
     /// RPC URL for the Ethereum node
@@ -192,6 +192,103 @@ pub struct Config {
     pub rpc_retry_cu: u64,
 }
 
+impl Config {
+    /// Creates a new ConfigBuilder with default values
+    pub fn builder() -> ConfigBuilder {
+        ConfigBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct ConfigBuilder {
+    rpc_url: Option<Url>,
+    market_address: Option<Address>,
+    min_balance: Option<U256>,
+    max_connections: Option<usize>,
+    queue_size: Option<usize>,
+    domain: Option<String>,
+    bypass_addrs: Option<Vec<Address>>,
+    ping_time: Option<u64>,
+    rpc_retry_max: Option<u32>,
+    rpc_retry_backoff: Option<u64>,
+    rpc_retry_cu: Option<u64>,
+}
+
+impl ConfigBuilder {
+    /// Set the RPC URL
+    pub fn rpc_url(self, url: Url) -> Self {
+        Self { rpc_url: Some(url), ..self }
+    }
+
+    /// Set the market address
+    pub fn market_address(self, address: Address) -> Self {
+        Self { market_address: Some(address), ..self }
+    }
+
+    /// Set the minimum balance
+    pub fn min_balance(self, balance: U256) -> Self {
+        Self { min_balance: Some(balance), ..self }
+    }
+
+    /// Set the maximum number of connections
+    pub fn max_connections(self, max: usize) -> Self {
+        Self { max_connections: Some(max), ..self }
+    }
+
+    /// Set the queue size
+    pub fn queue_size(self, size: usize) -> Self {
+        Self { queue_size: Some(size), ..self }
+    }
+
+    /// Set the domain
+    pub fn domain(self, domain: String) -> Self {
+        Self { domain: Some(domain), ..self }
+    }
+
+    /// Set the bypass addresses
+    pub fn bypass_addrs(self, addrs: Vec<Address>) -> Self {
+        Self { bypass_addrs: Some(addrs), ..self }
+    }
+
+    /// Set the ping time
+    pub fn ping_time(self, time: u64) -> Self {
+        Self { ping_time: Some(time), ..self }
+    }
+
+    /// Set the maximum number of RPC retries
+    pub fn rpc_retry_max(self, max: u32) -> Self {
+        Self { rpc_retry_max: Some(max), ..self }
+    }
+
+    /// Set the RPC retry backoff time
+    pub fn rpc_retry_backoff(self, backoff: u64) -> Self {
+        Self { rpc_retry_backoff: Some(backoff), ..self }
+    }
+
+    /// Set the RPC retry compute units
+    pub fn rpc_retry_cu(self, cu: u64) -> Self {
+        Self { rpc_retry_cu: Some(cu), ..self }
+    }
+
+    /// Build the Config with default values for any unset fields
+    pub fn build(self) -> Result<Config, ConfigError> {
+        Ok(Config {
+            rpc_url: self.rpc_url.ok_or(ConfigError::MissingRequiredField("rpc_url"))?,
+            market_address: self
+                .market_address
+                .ok_or(ConfigError::MissingRequiredField("market_address"))?,
+            min_balance: self.min_balance.unwrap_or_else(|| parse_ether("2").unwrap()),
+            max_connections: self.max_connections.unwrap_or(100),
+            queue_size: self.queue_size.unwrap_or(10),
+            domain: self.domain.unwrap_or_else(|| "0.0.0.0:8585".to_string()),
+            bypass_addrs: self.bypass_addrs.unwrap_or_default(),
+            ping_time: self.ping_time.unwrap_or(60),
+            rpc_retry_max: self.rpc_retry_max.unwrap_or(10),
+            rpc_retry_backoff: self.rpc_retry_backoff.unwrap_or(1000),
+            rpc_retry_cu: self.rpc_retry_cu.unwrap_or(100),
+        })
+    }
+}
 impl From<&Args> for Config {
     fn from(args: &Args) -> Self {
         Self {
@@ -208,6 +305,12 @@ impl From<&Args> for Config {
             rpc_retry_cu: args.rpc_retry_cu,
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Missing required field: {0}")]
+    MissingRequiredField(&'static str),
 }
 
 type WalletProvider = FillProvider<
@@ -360,7 +463,11 @@ pub async fn run(args: &Args) -> Result<()> {
     run_from_parts(app_state, listener).await
 }
 
-async fn run_from_parts(app_state: Arc<AppState>, listener: tokio::net::TcpListener) -> Result<()> {
+/// Run the REST API service from parts
+pub async fn run_from_parts(
+    app_state: Arc<AppState>,
+    listener: tokio::net::TcpListener,
+) -> Result<()> {
     let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {

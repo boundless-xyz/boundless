@@ -23,6 +23,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_assessor::{AssessorInput, Fulfillment};
+use chrono::{DateTime, Local};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
@@ -78,6 +79,12 @@ impl OrderFulfilled {
             assessorReceipt: assessor_receipt,
         })
     }
+}
+
+/// Converts a timestamp to a [DateTime] in the local timezone.
+pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
+    let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
+    t.with_timezone(&Local)
 }
 
 /// Fetches the content of a URL.

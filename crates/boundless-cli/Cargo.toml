@@ -9,12 +9,13 @@ repository = { workspace = true }
 license = "Apache-2.0"
 
 [dependencies]
-alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
+chrono = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true }
 dotenvy = { workspace = true }
@@ -43,6 +44,8 @@ boundless-market = { workspace = true, features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
+order-stream = { workspace = true }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tracing-test = { workspace = true }
 
 [features]

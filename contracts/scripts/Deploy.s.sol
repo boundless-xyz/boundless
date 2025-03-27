@@ -6,9 +6,11 @@ pragma solidity ^0.8.20;
 
 import {Script, console2} from "forge-std/Script.sol";
 import "forge-std/Test.sol";
+import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {ControlID, RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
+import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
@@ -56,7 +58,13 @@ contract Deploy is Script, RiscZeroCheats {
 
         // Deploy the verifier, if dev mode is enabled.
         if (bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0) {
+            RiscZeroVerifierRouter verifierRouter = new RiscZeroVerifierRouter(boundlessMarketOwner);
+            console2.log("Deployed RiscZeroVerifierRouter to", address(verifierRouter));
+
             IRiscZeroVerifier _verifier = deployRiscZeroVerifier();
+            IRiscZeroSelectable selectable = IRiscZeroSelectable(address(_verifier));
+            bytes4 selector = selectable.SELECTOR();
+            verifierRouter.addVerifier(selector, _verifier);
 
             // TODO: Create a more robust way of getting a URI for guests, and ensure that it is
             // in-sync with the configured image ID.
@@ -81,9 +89,12 @@ contract Deploy is Script, RiscZeroCheats {
             argv[3] = string.concat(".", assessorPath);
             assessorImageId = abi.decode(vm.ffi(argv), (bytes32));
 
-            RiscZeroSetVerifier setVerifier = new RiscZeroSetVerifier(_verifier, setBuilderImageId, setBuilderGuestUrl);
+            RiscZeroSetVerifier setVerifier =
+                new RiscZeroSetVerifier(IRiscZeroVerifier(verifierRouter), setBuilderImageId, setBuilderGuestUrl);
             console2.log("Deployed RiscZeroSetVerifier to", address(setVerifier));
-            verifier = IRiscZeroVerifier(setVerifier);
+            verifierRouter.addVerifier(setVerifier.SELECTOR(), setVerifier);
+
+            verifier = IRiscZeroVerifier(verifierRouter);
         }
 
         if (address(verifier) == address(0)) {

@@ -35,7 +35,10 @@ use std::time::Duration;
 #[cfg(not(target_os = "zkvm"))]
 use thiserror::Error;
 #[cfg(not(target_os = "zkvm"))]
-use token::IHitPoints::{self, IHitPointsErrors};
+use token::{
+    IHitPoints::{self, IHitPointsErrors},
+    IERC20::IERC20Errors,
+};
 use url::Url;
 
 use risc0_zkvm::sha::Digest;
@@ -84,8 +87,15 @@ pub mod token {
     }
 
     alloy::sol! {
+        #[derive(Debug)]
         #[sol(rpc)]
         interface IERC20 {
+            error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed);
+            error ERC20InvalidSender(address sender);
+            error ERC20InvalidReceiver(address receiver);
+            error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed);
+            error ERC20InvalidApprover(address approver);
+            error ERC20InvalidSpender(address spender);
             function approve(address spender, uint256 value) external returns (bool);
             function balanceOf(address account) external view returns (uint256);
         }
@@ -701,6 +711,10 @@ pub enum TxnErr {
     #[error("HitPoints Err: {0:?}")]
     HitPointsErr(IHitPoints::IHitPointsErrors),
 
+    /// Error from the ERC20 contract.
+    #[error("IERC20 Err: {0:?}")]
+    ERC20Err(token::IERC20::IERC20Errors),
+
     /// Missing data while decoding the error response from the contract.
     #[error("decoding err, missing data, code: {0} msg: {1}")]
     MissingData(i64, String),
@@ -722,9 +736,9 @@ pub enum TxnErr {
 #[cfg(not(target_os = "zkvm"))]
 impl From<ContractErr> for TxnErr {
     fn from(err: ContractErr) -> Self {
-        match err {
+        match &err {
             ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
-                let Some(data) = ts_err.data else {
+                let Some(data) = &ts_err.data else {
                     return TxnErr::MissingData(ts_err.code, ts_err.message.to_string());
                 };
 
@@ -734,16 +748,19 @@ impl From<ContractErr> for TxnErr {
                     return Self::BytesDecode;
                 };
 
-                // Trial deocde the error with each possible contract ABI. Right now, there are two.
+                // Trial deocde the error with each possible contract ABI.
                 if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data, true) {
-                    return Self::BoundlessMarketErr(decoded_error);
-                }
-                if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data, true) {
-                    return Self::HitPointsErr(decoded_error);
-                }
-                match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
-                    Ok(decoded_error) => Self::SetVerifierErr(decoded_error),
-                    Err(err) => Self::DecodeErr(err, data),
+                    Self::BoundlessMarketErr(decoded_error)
+                } else if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data, true) {
+                    Self::HitPointsErr(decoded_error)
+                } else if let Ok(decoded_error) =
+                    IRiscZeroSetVerifierErrors::abi_decode(&data, true)
+                {
+                    Self::SetVerifierErr(decoded_error)
+                } else if let Ok(decoded_error) = IERC20Errors::abi_decode(&data, true) {
+                    Self::ERC20Err(decoded_error)
+                } else {
+                    Self::ContractErr(err)
                 }
             }
             _ => Self::ContractErr(err),
