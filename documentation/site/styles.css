@@ -112,3 +112,11 @@ html {
 .dark .vocs_Logo {
   @apply invert;
 }
+
+.vocs_NavigationMenu_list {
+  @apply flex gap-3;
+}
+
+.vocs_DesktopTopNav_item {
+  @apply text-[16px] font-bold rounded-lg px-4 py-1 border border-neutral-200;
+}
