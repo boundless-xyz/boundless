@@ -228,7 +228,7 @@ impl From<RequestId> for U256 {
         let addr = U160::try_from(value.addr).unwrap();
         let smart_contract_signed_flag =
             if value.smart_contract_signed { U256::from(1) } else { U256::ZERO };
-        smart_contract_signed_flag << 192 | (U256::from(addr) << 32) | U256::from(value.index)
+        (smart_contract_signed_flag << 192) | (U256::from(addr) << 32) | U256::from(value.index)
     }
 }
 
