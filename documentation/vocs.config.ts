@@ -5,8 +5,8 @@ import { defineConfig } from "vocs";
 
 
 const SHARED_LINKS = [
-  { text: "Developers", link: "/developers/why" },
-  { text: "Provers", link: "/provers/quick-start" },
+  { text: "For Developers", link: "/developers/why" },
+  { text: "For Provers", link: "/provers/quick-start" },
 ]
 
 const DEVELOPERS_ITEMS = [
@@ -141,6 +141,27 @@ const DEVELOPERS_ITEMS = [
 ];
 
 const PROVERS_ITEMS = [
+  {
+    text: "Introduction",
+    items: [
+      {
+        text: "Why use Boundless?",
+        link: "/developers/why",
+      },
+      {
+        text: "What is Boundless?",
+        link: "/developers/what",
+      },
+      {
+        text: "Proof Lifecycle",
+        link: "/developers/proof-lifecycle",
+      },
+      {
+        text: "Terminology",
+        link: "/developers/terminology",
+      },
+    ],
+  },
   {
     text: "Running a Prover",
     items: [
