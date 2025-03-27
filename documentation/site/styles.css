@@ -1,4 +1,4 @@
-@import "@risc0/ui/styles/globals.css";
+@import "tailwindcss";
 
 @font-face {
   font-family: "Self Modern";
@@ -8,7 +8,6 @@
   font-display: swap;
 }
 
-/* Self Modern - Semi Bold */
 @font-face {
   font-family: "Self Modern";
   src: url("/fonts/self-modern/SelfModernSemiBold.otf") format("opentype");
@@ -17,7 +16,6 @@
   font-display: swap;
 }
 
-/* Self Modern - Bold */
 @font-face {
   font-family: "Self Modern";
   src: url("/fonts/self-modern/SelfModernBold.otf") format("opentype");
@@ -26,7 +24,6 @@
   font-display: swap;
 }
 
-/* Self Modern - Italic */
 @font-face {
   font-family: "Self Modern";
   src: url("/fonts/self-modern/SelfModernItalic.otf") format("opentype");
@@ -35,7 +32,6 @@
   font-display: swap;
 }
 
-/* Replica - Regular */
 @font-face {
   font-family: "Replica";
   src: url("/fonts/replica/ReplicaRegular.otf") format("opentype");
@@ -44,7 +40,6 @@
   font-display: swap;
 }
 
-/* Replica - Regular Italic */
 @font-face {
   font-family: "Replica";
   src: url("/fonts/replica/ReplicaItalic.otf") format("opentype");
@@ -53,7 +48,6 @@
   font-display: swap;
 }
 
-/* Replica - Bold */
 @font-face {
   font-family: "Replica";
   src: url("/fonts/replica/ReplicaBold.otf") format("opentype");
@@ -62,7 +56,6 @@
   font-display: swap;
 }
 
-/* Replica - Bold Italic */
 @font-face {
   font-family: "Replica";
   src: url("/fonts/replica/ReplicaBoldItalic.otf") format("opentype");
@@ -71,7 +64,6 @@
   font-display: swap;
 }
 
-/* Replica - Light */
 @font-face {
   font-family: "Replica";
   src: url("/fonts/replica/ReplicaLight.otf") format("opentype");
@@ -80,7 +72,6 @@
   font-display: swap;
 }
 
-/* Replica - Light Italic */
 @font-face {
   font-family: "Replica";
   src: url("/fonts/replica/ReplicaLightItalic.otf") format("opentype");
@@ -89,119 +80,43 @@
   font-display: swap;
 }
 
+* {
+  font-family: "Replica", sans-serif;
+}
 
-:root {
-  --font-self-modern: "Self Modern";
-  --font-replica: "Replica";
-  --font-ubuntu-mono: "Ubuntu Mono";
-  --removed-body-scroll-bar-size: 0px;
-  --vocs-fontWeight_semibold: 600;
-
-  /* tailwind/shadcn overrides */
-  --radius: 0.5rem;
+code *,
+pre * {
+  font-family: monospace;
 }
 
 html {
   @apply scroll-smooth;
 }
 
-html,
-body,
-.vocs_DocsLayout {
-  @apply font-sans;
-}
-
-body {
-  @apply bg-inherit;
-}
-
 .vocs_Content img {
   @apply rounded-md;
 }
 
-.vocs_Logo {
-  @apply object-contain dark:invert;
-}
-
 .vocs_H1 {
-  @apply font-serif;
-}
-
-#vocs-content {
-  @apply flex flex-col;
-}
-
-.vocs_Content {
-  @apply flex-1;
-}
-
-.vocs_HomePage {
-  @apply !pt-40;
-}
-
-.vocs_Heading {
-  @apply font-normal;
-}
-
-.vocs_Sidebar_sectionTitle {
-  @apply font-bold;
-}
-
-.vocs_Sidebar_logo {
-  @apply max-w-40;
-}
-
-.vocs_ExternalLink {
-  @apply whitespace-pre;
-}
-
-.lightgallery {
-  @apply block;
-}
-
-[data-layout="landing"] .vocs_DocsLayout_gutterTop {
-  @apply bg-transparent backdrop-blur-md;
-}
-
-[data-layout="landing"] .vocs_DesktopTopNav_hideCompact {
-  @apply hidden;
-}
-
-[data-layout="landing"] .vocs_Footer {
-  @apply hidden;
-}
-
-.dark [data-layout="landing"] .vocs_DesktopTopNav_icon {
-  @apply text-[#646464];
-}
-
-.dark [data-layout="landing"] .vocs_DesktopTopNav_section {
-  @apply text-neutral-900;
-}
-
-:where(html:not(.dark)) .vocs_Sidebar_sectionTitle {
-  @apply font-bold;
-}
-
-:where(html:not(.dark)) .vocs_Sidebar_divider {
-  @apply bg-border;
-}
-
-:where(html:not(.dark)) .vocs_Sidebar_navigation > .vocs_Sidebar_group > .vocs_Sidebar_section + .vocs_Sidebar_section {
-  @apply border-t border-border;
-}
-
-:where(html:not(.dark)) .vocs_Sidebar_levelInset {
-  @apply border-l border-border;
+  font-family: "Self Modern", serif;
 }
 
 .vocs_SearchDialog_overlay {
   @apply backdrop-blur-[2px]
 }
 
-@media (max-width: 1080px) {
-  .vocs_DocsLayout_content {
-    @apply min-h-[calc(100dvh-48px)];
-  }
+.vocs_Logo {
+  @apply object-contain max-w-40;
 }
 
+.dark .vocs_Logo {
+  @apply invert;
+}
+
+.vocs_NavigationMenu_list {
+  @apply flex gap-3;
+}
+
+.vocs_DesktopTopNav_item {
+  @apply text-[16px] font-bold rounded-lg px-4 py-1 border border-neutral-200;
+}
