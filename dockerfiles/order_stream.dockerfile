@@ -1,7 +1,7 @@
 # TODO: param these correctly and detect OS / arch
 ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
 
-FROM rust:1.81.0-bookworm AS builder
+FROM rust:1.85.0-bookworm AS builder
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -34,7 +34,7 @@ ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
 
 RUN curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install rust 1.81.0
+    PATH="$PATH:/root/.risc0/bin" rzup install rust 1.85.0
 
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4229
@@ -47,7 +47,7 @@ RUN \
     cp /src/target/release/order_stream /src/order_stream && \
     sccache --show-stats
 
-FROM rust:1.81.0-bookworm AS runtime
+FROM rust:1.85.0-bookworm AS runtime
 
 RUN mkdir /app/
 
