@@ -79,8 +79,8 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '2.0.0-rc.3'
-          toolchain-version: '1.81.0'
+          risczero-version: '2.0.0'
+          toolchain-version: '1.85.0'
 
       - name: install cargo-sort
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -263,8 +263,8 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '2.0.0-rc.3'
-          toolchain-version: '1.81.0'
+          risczero-version: '2.0.0'
+          toolchain-version: '1.85.0'
 
       - name: check order-stream
         run: cargo check --locked -p order-stream --bin order_stream
@@ -407,8 +407,8 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '2.0.0-rc.3'
-          toolchain-version: '1.81.0'
+          risczero-version: '2.0.0'
+          toolchain-version: '1.85.0'
 
       - name: install cargo-sort
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3

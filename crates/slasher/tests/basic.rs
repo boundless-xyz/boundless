@@ -8,7 +8,7 @@ use alloy::{
     node_bindings::Anvil,
     primitives::{Address, Bytes, U256},
     providers::Provider,
-    rpc::types::{BlockNumberOrTag, BlockTransactionsKind},
+    rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
 use boundless_market::contracts::{
@@ -86,7 +86,7 @@ async fn test_basic_usage() {
     // Use the chain's timestamps to avoid inconsistencies with system time.
     let now = ctx
         .customer_provider
-        .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+        .get_block_by_number(BlockNumberOrTag::Latest)
         .await
         .unwrap()
         .unwrap()

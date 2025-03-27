@@ -5,13 +5,13 @@ inputs:
   risczero-version:
     description: 'Version of the RISC Zero zkvm to install'
     required: false
-    default: '2.0.0-rc.3'
+    default: '2.0.0'
     type: string
 
   toolchain-version:
     description: 'Version of the RISC Zero toolchains to install'
     required: false
-    default: '1.81.0'
+    default: '1.85.0'
     type: string
 
 runs:
