@@ -39,16 +39,7 @@ export COUNTER_ADDRESS=#COPY COUNTER ADDRESS FROM DEPLOY LOGS
 ## Run the example
 
 Running this example requires having access to a Boundless market deployment.
-
-To run the example run:
-
-```bash
-RISC0_DEV_MODE=1 RUST_LOG=info cargo run --bin example-composition -- --counter-address ${COUNTER_ADDRESS:?}
-```
-
-By setting the `RISC0_DEV_MODE` env variable, a temporary file storage provider will be used.
-
-Alternatively, you can also use an IPFS or AWS S3 provider. For IPFS, we suggest using [Pinata](https://www.pinata.cloud) as a pinning service, and have implemented builtin support for uploading files there.
+For storage, you can either use an IPFS or AWS S3 provider. For IPFS, we suggest using [Pinata](https://www.pinata.cloud) as a pinning service, and have implemented builtin support for uploading files there.
 
 To use IPFS via Pinata, just export the following env variables:
 

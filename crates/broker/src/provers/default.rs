@@ -65,10 +65,6 @@ impl DefaultProver {
             assumptions.into_iter().for_each(|receipt| {
                 env_builder.add_assumption(receipt);
             });
-            if risc0_zkvm::is_dev_mode() {
-                // enable dev mode also in the guest
-                env_builder.env_var("RISC0_DEV_MODE", "true");
-            }
             let env = env_builder.build()?;
 
             default_executor().execute(env, &elf)
@@ -89,10 +85,6 @@ impl DefaultProver {
             assumptions.into_iter().for_each(|receipt| {
                 env_builder.add_assumption(receipt);
             });
-            if risc0_zkvm::is_dev_mode() {
-                // enable dev mode also in the guest
-                env_builder.env_var("RISC0_DEV_MODE", "true");
-            }
             let env = env_builder.build()?;
 
             default_prover().prove_with_opts(env, &elf, &opts)

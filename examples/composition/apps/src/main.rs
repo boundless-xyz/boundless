@@ -13,6 +13,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
+use boundless_market::storage::BuiltinStorageProvider;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
@@ -51,7 +52,7 @@ struct Args {
     order_stream_url: Option<Url>,
     /// Storage provider configuration
     #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
+    storage_config: StorageProviderConfig,
     /// Private key used to interact with the Counter contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -80,7 +81,7 @@ async fn main() -> Result<()> {
         args.private_key,
         args.rpc_url,
         args.order_stream_url,
-        args.storage_config,
+        BuiltinStorageProvider::from_config(&args.storage_config).await?,
         args.boundless_market_address,
         args.set_verifier_address,
         args.counter_address,
@@ -103,22 +104,22 @@ fn load_dotenv() -> Result<()> {
 }
 
 /// Main logic which creates the Boundless client, executes the proofs and submits the tx.
-async fn run(
+async fn run<P: StorageProvider>(
     private_key: PrivateKeySigner,
     rpc_url: Url,
     order_stream_url: Option<Url>,
-    storage_config: Option<StorageProviderConfig>,
+    storage_provider: P,
     boundless_market_address: Address,
     set_verifier_address: Address,
     counter_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client = ClientBuilder::default()
+    let boundless_client = ClientBuilder::<P>::default()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)
         .with_order_stream_url(order_stream_url)
-        .with_storage_provider_config(storage_config.clone())
+        .with_storage_provider(Some(storage_provider))
         .with_private_key(private_key)
         .build()
         .await
@@ -129,16 +130,14 @@ async fn run(
     let echo_input = Input::builder().write_slice(&echo_message).build_env()?;
 
     // Request an un-aggregated proof from the Boundless market using the ECHO guest.
-    let selector = if risc0_zkvm::is_dev_mode() {
-        // NOTE: Do not use in production.
-        ContractSelector::FakeReceipt // in dev mode request a fake receipt
-    } else {
-        ContractSelector::Groth16V1_2 // otherwise a proper Groth16 proof
-    };
-    let (echo_journal, echo_seal) =
-        boundless_proof(&boundless_client, ECHO_ELF, echo_input, Some(selector))
-            .await
-            .context("failed to prove ECHO")?;
+    let (echo_journal, echo_seal) = boundless_proof(
+        &boundless_client,
+        ECHO_ELF,
+        echo_input,
+        Some(ContractSelector::Groth16V1_2),
+    )
+    .await
+    .context("failed to prove ECHO")?;
 
     // Decode the resulting RISC0-ZKVM receipt.
     let Ok(ContractReceipt::Base(echo_receipt)) = risc0_ethereum_contracts::receipt::decode_seal(
@@ -203,7 +202,7 @@ async fn boundless_proof<P, S>(
 ) -> Result<(Journal, Bytes)>
 where
     P: Provider<Ethereum> + 'static + Clone,
-    S: StorageProvider + Clone,
+    S: StorageProvider,
 {
     // Compute the image ID of the ELF
     let elf = elf.as_ref();
@@ -219,11 +218,6 @@ where
 
     // Execute the guest binary with the input
     let mut env_builder = ExecutorEnv::builder();
-    if risc0_zkvm::is_dev_mode() {
-        // Enable and allow dev mode also in the guest.
-        // NOTE: Do not use in production.
-        env_builder.env_var("RISC0_DEV_MODE", "true");
-    }
     env_builder.write_slice(&input.stdin);
 
     let session_info =
@@ -279,6 +273,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
@@ -288,13 +283,12 @@ mod tests {
         hit_points::default_allowance,
         test_utils::{create_test_ctx, TestCtx},
     };
+    use boundless_market::storage::MockStorageProvider;
     use broker::test_utils::BrokerBuilder;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
     use test_log::test;
-    use tokio::time::timeout;
-
-    use super::*;
+    use tokio::task::JoinSet;
 
     alloy::sol!(
         #![sol(rpc)]
@@ -317,9 +311,8 @@ mod tests {
     }
 
     #[test(tokio::test)]
-    // This test should run in dev mode. Set the RISC0_DEV_MODE environment variable to true, e.g.:
-    // RISC0_DEV_MODE=true cargo test
-    async fn test_main() -> anyhow::Result<()> {
+    #[ignore = "does not work with RISC0_DEV_MODE=1"]
+    async fn test_main() -> Result<()> {
         // Setup anvil and deploy contracts.
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
@@ -329,45 +322,33 @@ mod tests {
             .unwrap();
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
 
-        // Start a broker.
-        let (broker, _) = BrokerBuilder::new_test(&ctx, anvil.endpoint_url())
-            .await
-            //.with_bonsai(bonsai_api_key, bonsai_api_url)
-            .build()
-            .await?;
-        let broker_task = tokio::spawn(async move { broker.start_service().await.unwrap() });
+        let mut tasks = JoinSet::new();
 
-        // Run the main function with a timeout of 60 seconds.
-        let result = timeout(
-            Duration::from_secs(60),
-            run(
+        // Start a broker.
+        let (broker, _) = BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
+        tasks.spawn(async move { broker.start_service().await });
+
+        const TIMEOUT_SECS: u64 = 1200; // 20 minutes
+
+        // Run with properly handled cancellation.
+        tokio::select! {
+            run_result = run(
                 ctx.customer_signer,
                 anvil.endpoint_url(),
                 None,
-                Some(StorageProviderConfig::dev_mode()),
+                MockStorageProvider::start(),
                 ctx.boundless_market_address,
                 ctx.set_verifier_address,
                 counter_address,
-            ),
-        )
-        .await;
+            ) => run_result?,
 
-        // Check the result of the timeout.
-        match result {
-            Ok(run_result) => {
-                run_result?;
-            }
-            Err(_) => {
-                broker_task.abort();
-                panic!("The run function did not complete within 60 seconds.");
-            }
-        }
+            broker_task_result = tasks.join_next() => {
+                panic!("Broker exited unexpectedly: {:?}", broker_task_result.unwrap());
+            },
 
-        // Ensure the broker task finishes.
-        if broker_task.is_finished() {
-            broker_task.await?;
-        } else {
-            broker_task.abort();
+            _ = tokio::time::sleep(Duration::from_secs(TIMEOUT_SECS)) => {
+                panic!("The run function did not complete within {} seconds", TIMEOUT_SECS)
+            }
         }
 
         Ok(())

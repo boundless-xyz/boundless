@@ -476,7 +476,6 @@ name = "identity"
 version = "0.1.0"
 dependencies = [
  "risc0-zkvm",
- "risc0-zkvm-platform",
 ]
 
 [[package]]

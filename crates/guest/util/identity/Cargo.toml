@@ -5,6 +5,9 @@ edition = "2021"
 
 [workspace]
 
+[profile.release]
+codegen-units = 1
+lto = "fat"
+
 [dependencies]
 risc0-zkvm = { version = "1.2", default-features = false, features = ["std"] }
-risc0-zkvm-platform = { version = "1.2", features = ["sys-getenv"] }
