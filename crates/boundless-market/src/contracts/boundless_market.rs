@@ -777,7 +777,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(res._0)
     }
 
-    /// Returns the [ProofStatus] of a request.
+    /// Returns the [RequestStatus] of a request.
     ///
     /// The `expires_at` parameter is the time at which the request expires.
     pub async fn get_status(
