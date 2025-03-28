@@ -406,7 +406,7 @@ impl BrokerDb for SqliteDb {
 
     async fn set_order_complete(&self, id: U256) -> Result<(), DbError> {
         let mut tx = self.pool.begin().await?;
-        
+
         // Update the order status
         let res = sqlx::query(
             r#"
