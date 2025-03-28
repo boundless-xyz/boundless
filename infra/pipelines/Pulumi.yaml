@@ -1,0 +1,12 @@
+name: pipelines
+description: Deployment pipelines for Boundless services
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: aws-typescript
+backend:
+  url: s3://boundless-pulumi-state?region=us-west-2&awssdk=v2

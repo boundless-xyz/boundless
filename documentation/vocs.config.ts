@@ -191,10 +191,6 @@ export default defineConfig({
   ],
   rootDir: "site",
   title: "Boundless Docs",
-  /*logoUrl: {
-    light: "/logo.png",
-    dark: "/logo-dark.png",
-  },*/
   theme: {
     accentColor: {
       light: "#537263", // Forest - primary accent for light mode
