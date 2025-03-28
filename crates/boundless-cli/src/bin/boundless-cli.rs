@@ -1096,8 +1096,19 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     };
 
     tracing::info!("Executing program in zkVM");
+    r0vm_is_installed()?;
     let env = ExecutorEnv::builder().write_slice(&input).build()?;
     default_executor().execute(env, &elf)
+}
+
+fn r0vm_is_installed() -> Result<()> {
+    // Try to run the binary with the --version flag
+    let result = std::process::Command::new("r0vm").arg("--version").output();
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(_) => Err(anyhow!("r0vm is not installed or could not be executed. Please check instructions at https://dev.risczero.com/api/zkvm/install")),
+    }
 }
 
 // Get current timestamp with appropriate error handling
@@ -1488,7 +1499,7 @@ mod tests {
                 wait: false,
                 offchain: true,
                 order_stream_url: Some(order_stream_url),
-                no_preflight: false,
+                no_preflight: true,
                 unaggregated: false,
                 callback_address: None,
                 callback_gas_limit: None,
@@ -1517,7 +1528,7 @@ mod tests {
                 wait: false,
                 offchain: false,
                 order_stream_url: None,
-                no_preflight: false,
+                no_preflight: true,
                 encode_input: false,
                 inline_input: true,
                 input: SubmitOfferInput {
