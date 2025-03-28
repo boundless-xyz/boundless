@@ -385,6 +385,7 @@ jobs:
       matrix:
         workspace:
           - examples/counter
+          - examples/smart-contract-requestor
     steps:
       - name: checkout code
         uses: actions/checkout@v4
