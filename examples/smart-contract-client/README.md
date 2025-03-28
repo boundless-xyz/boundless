@@ -8,6 +8,9 @@ This is a useful pattern for enabling DAO-like entities to receive proofs to dri
 
 In this simple example, our Smart Contract Client agrees to pay for one proof of the Echo guest per day. For each day, it additionally requires that the input to the guest is an integer representing the number of days since the unix epoch.
 
+See `apps/src/main.rs` for logic for constructing the proof request.
+See `contracts/src/SmartContractClient.sol` for the client logic that validates the request and authorizes payment.
+
 # How it works
 
 ### Entities 
@@ -32,10 +35,6 @@ In this simple example, our Smart Contract Client agrees to pay for one proof of
 In Boundless, Request IDs are specified by the request builder. The Boundless Market ensures that only one payment will ever be issued for each request id.
 
 For Smart Contract Clients, the Request ID is especially important as it acts as a nonce. It is important to design a nonce structure that maps each batch of work to a particular nonce value, and for the Smart Contract Client to validate that the work specified by the Request ID matches the work specified by the proof request.
-
-
-
-
 
 ## Build
 ```bash
