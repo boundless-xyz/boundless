@@ -2,14 +2,14 @@
 //
 // All rights reserved.
 
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use alloy::{
     network::Ethereum,
-    primitives::{utils::parse_ether, Address, Bytes, B256},
+    primitives::{utils::parse_ether, Address, Bytes},
     providers::Provider,
     signers::local::PrivateKeySigner,
-    sol_types::{SolCall, SolValue},
+    sol_types::SolValue,
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::{
@@ -19,12 +19,7 @@ use boundless_market::{
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
-use risc0_zkvm::{
-    default_executor,
-    serde::from_slice,
-    sha::{Digest, Digestible},
-    Journal,
-};
+use risc0_zkvm::{default_executor, serde::from_slice, sha::Digestible, Journal};
 use url::Url;
 
 /// Timeout for the transaction to be confirmed.
@@ -97,12 +92,13 @@ async fn run(
     smart_contract_client_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client = ClientBuilder::default()
+    let boundless_client = ClientBuilder::new()
+        .with_storage_provider_config(storage_config.clone())
+        .await?
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)
         .with_order_stream_url(order_stream_url)
-        .with_storage_provider_config(storage_config.clone())
         .with_private_key(private_key)
         .build()
         .await?;
@@ -142,7 +138,7 @@ async fn run(
         prepare_guest_input(&boundless_client, days_since_epoch).await?;
     let requirements = Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()));
 
-    // Create the request, ensuring to set the request id and requiremens that we prepared above.
+    // Create the request, ensuring to set the request id and requirements that we prepared above.
     let request = ProofRequest::builder()
         .with_request_id(request_id)
         .with_image_url(image_url)

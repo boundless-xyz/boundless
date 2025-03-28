@@ -47,9 +47,9 @@ contract SmartContractClient is IERC1271 {
             return 0xffffffff;
         }
 
-        // Validate that the request provided is as expected. For this sample, we simply check the image id
-        // is as expected. In a real example, you would want to check other properties,
-        // such as the input, requirements, and offer, to ensure they are well constructed.
+        // Validate that the request provided is as expected. 
+        // For this example, we check the image id is as expected, and that the predicate restricts 
+        // the output to match the day specified in the id.
         if (request.requirements.imageId != ECHO_ID) {
             return 0xffffffff;
         }
@@ -65,7 +65,7 @@ contract SmartContractClient is IERC1271 {
             return 0xffffffff;
         }
 
-        // Validate that the eip-712 hash of the request provided in the signature matches the hash that was
+        // Validate that the EIP-712 hash of the request provided in the signature matches the hash that was
         // provided by BoundlessMarket. This ensures that Boundless is processing the same request that we have
         // validated.
         if (_hashTypedData(request.eip712Digest()) == requestHash) {
