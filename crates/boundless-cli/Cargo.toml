@@ -15,8 +15,8 @@ bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
-chrono = { workspace = true }
 bytemuck = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 dotenvy = { workspace = true }
 hex = { workspace = true }
