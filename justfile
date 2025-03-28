@@ -177,13 +177,13 @@ localnet action="up": check-deps
         echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS"
         echo "Updating .env.localnet file..."
         # Update the environment variables in .env.localnet
-        sed -i.bak "s/^export VERIFIER_ADDRESS=.*/export VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
-        sed -i.bak "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
-        sed -i.bak "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
+        sed -i.bak "s/^VERIFIER_ADDRESS=.*/VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
+        sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
+        sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
         # Add HIT_POINTS_ADDRESS to .env.localnet
-        grep -q "^export HIT_POINTS_ADDRESS=" .env.localnet && \
-            sed -i.bak "s/^export HIT_POINTS_ADDRESS=.*/export HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet || \
-            echo "export HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS" >> .env.localnet
+        grep -q "^HIT_POINTS_ADDRESS=" .env.localnet && \
+            sed -i.bak "s/^HIT_POINTS_ADDRESS=.*/HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet || \
+            echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS" >> .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
         echo "Minting HP for prover address."
