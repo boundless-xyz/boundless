@@ -22,7 +22,7 @@ pub enum IterReq {
     DoubleComposition(u64, Digest, Digest),
 }
 
-const TEST_ELF: &[u8] = include_bytes!("../method_name");
+const TEST_ELF: &[u8] = include_bytes!("../method_name.bin");
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

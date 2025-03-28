@@ -1,6 +1,6 @@
 ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
 
-FROM rust:1.81.0-bookworm AS init
+FROM rust:1.85.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -12,7 +12,7 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
     foundryup
 
 RUN curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install rust 1.81.0
+    PATH="$PATH:/root/.risc0/bin" rzup install rust 1.85.0
 
 FROM init AS builder
 
@@ -48,7 +48,7 @@ RUN \
     cp /src/target/release/broker /src/broker && \
     sccache --show-stats
 
-FROM rust:1.81.0-bookworm AS runtime
+FROM rust:1.85.0-bookworm AS runtime
 
 RUN mkdir /app/
 

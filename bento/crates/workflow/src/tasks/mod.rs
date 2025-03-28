@@ -14,6 +14,7 @@ pub(crate) mod keccak;
 pub(crate) mod prove;
 pub(crate) mod resolve;
 pub(crate) mod snark;
+pub(crate) mod union;
 
 /// Recursion receipts key prefix
 pub(crate) const RECUR_RECEIPT_PATH: &str = "recursion_receipts";

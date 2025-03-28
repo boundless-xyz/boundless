@@ -182,7 +182,7 @@ async fn deploy_contracts(
     let deployer_address = deployer_signer.address();
     let deployer_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(deployer_signer.clone()))
-        .on_builtin(&anvil.endpoint())
+        .connect(&anvil.endpoint())
         .await?;
 
     // Deploy contracts
@@ -268,15 +268,15 @@ pub async fn create_test_ctx_with_rpc_url(
 
     let prover_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(prover_signer.clone()))
-        .on_builtin(rpc_url)
+        .connect(rpc_url)
         .await?;
     let customer_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(customer_signer.clone()))
-        .on_builtin(rpc_url)
+        .connect(rpc_url)
         .await?;
     let verifier_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(verifier_signer.clone()))
-        .on_builtin(rpc_url)
+        .connect(rpc_url)
         .await?;
 
     let prover_market = BoundlessMarketService::new(

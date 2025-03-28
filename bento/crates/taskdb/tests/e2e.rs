@@ -145,6 +145,34 @@ async fn e2e(pool: PgPool) -> Result<()> {
                 .await
                 .unwrap();
             }
+            TaskCmd::Union => {
+                let task_def = serde_json::json!({
+                    "Union": {
+                        "left": tree_task.depends_on[0],
+                        "right": tree_task.depends_on[1],
+                        "index": tree_task.task_number
+                    }
+                });
+                let prereqs = serde_json::json!([
+                    format!("{}", tree_task.depends_on[0]),
+                    format!("{}", tree_task.depends_on[1])
+                ]);
+                let task_name = format!("{}", tree_task.task_number);
+
+                // println!("inserting union {} - {:?}", task_name, prereqs);
+                taskdb::create_task(
+                    pool,
+                    &db_task.job_id,
+                    &task_name,
+                    gpu_stream,
+                    &task_def,
+                    &prereqs,
+                    0,
+                    10,
+                )
+                .await
+                .unwrap();
+            }
             TaskCmd::Finalize => {
                 let task_def = serde_json::json!({
                     "Finalize": {

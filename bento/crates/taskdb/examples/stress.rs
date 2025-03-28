@@ -160,6 +160,34 @@ async fn process_task(pool: &PgPool, tree_task: &Task, db_task: &ReadyTask) -> R
             .await
             .context("Failed to create Join task")?;
         }
+        TaskCmd::Union => {
+            let task_def = serde_json::json!({
+                "Union": {
+                    "left": tree_task.depends_on[0],
+                    "right": tree_task.depends_on[1],
+                    "index": tree_task.task_number
+                }, "user_id": user_id
+            });
+            let prereqs = serde_json::json!([
+                format!("{}", tree_task.depends_on[0]),
+                format!("{}", tree_task.depends_on[1])
+            ]);
+            let task_name = format!("{}", tree_task.task_number);
+
+            // tracing::debug!("inserting Union {} - {:?}", task_name, prereqs);
+            taskdb::create_task(
+                pool,
+                &db_task.job_id,
+                &task_name,
+                &gpu_stream,
+                &task_def,
+                &prereqs,
+                2,
+                2,
+            )
+            .await
+            .context("Failed to create Union task")?;
+        }
         TaskCmd::Finalize => {
             let task_def = serde_json::json!({
                 "Finalize": {

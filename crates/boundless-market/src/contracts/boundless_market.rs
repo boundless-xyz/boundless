@@ -24,7 +24,7 @@ use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
     providers::Provider,
-    rpc::types::{BlockTransactionsKind, Log, TransactionReceipt},
+    rpc::types::{Log, TransactionReceipt},
     signers::Signer,
 };
 use alloy_sol_types::{SolCall, SolEvent};
@@ -339,7 +339,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let priority_fee = self
                 .instance
                 .provider()
-                .estimate_eip1559_fees(None)
+                .estimate_eip1559_fees()
                 .await
                 .context("Failed to get priority gas fee")?;
 
@@ -670,7 +670,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let priority_fee = self
                 .instance
                 .provider()
-                .estimate_eip1559_fees(None)
+                .estimate_eip1559_fees()
                 .await
                 .context("Failed to get priority gas fee")?;
 
@@ -730,7 +730,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let priority_fee = self
                 .instance
                 .provider()
-                .estimate_eip1559_fees(None)
+                .estimate_eip1559_fees()
                 .await
                 .context("Failed to get priority gas fee")?;
 
@@ -821,7 +821,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let block = self
             .instance
             .provider()
-            .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+            .get_block_by_number(BlockNumberOrTag::Latest)
             .await
             .context("failed to get block")?
             .context("failed to get block")?;
@@ -1162,7 +1162,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let block = self
             .instance
             .provider()
-            .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+            .get_block_by_number(BlockNumberOrTag::Latest)
             .await
             .context("failed to get block")?
             .context("failed to get block")?;

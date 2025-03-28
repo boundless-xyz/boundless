@@ -10,6 +10,7 @@ pub enum Command {
     Finalize,
     Join,
     Segment,
+    Union,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,6 +50,16 @@ impl Task {
             command: Command::Join,
             depends_on: vec![left, right],
             keccak_depends_on: VecDeque::new(),
+        }
+    }
+
+    pub fn new_union(task_number: usize, task_height: u32, left: usize, right: usize) -> Self {
+        Task {
+            task_number,
+            task_height,
+            command: Command::Union,
+            depends_on: vec![],
+            keccak_depends_on: vec![left, right].into(),
         }
     }
 
