@@ -580,13 +580,13 @@ where
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-
-            let client = ClientBuilder::default()
+            let client = ClientBuilder::new()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
                 .with_storage_provider_config(offer_args.storage_config.clone())
+                .await?
                 .with_order_stream_url(order_stream_url)
                 .with_timeout(args.config.tx_timeout)
                 .build()
@@ -619,14 +619,14 @@ where
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-
-            let client = ClientBuilder::default()
+            let client = ClientBuilder::new()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
                 .with_order_stream_url(order_stream_url.clone())
                 .with_storage_provider_config(storage_config.clone())
+                .await?
                 .with_timeout(args.config.tx_timeout)
                 .build()
                 .await?;
@@ -709,7 +709,7 @@ where
                 serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
             } else if let Some(request_id) = request_id {
                 tracing::debug!("Loading request from blockchain: 0x{:x}", request_id);
-                let client = ClientBuilder::default()
+                let client = ClientBuilder::new()
                     .with_private_key(args.config.private_key.clone())
                     .with_rpc_url(args.config.rpc_url.clone())
                     .with_boundless_market_address(args.config.boundless_market_address)
@@ -756,7 +756,7 @@ where
 
             let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
 
-            let client = ClientBuilder::default()
+            let client = ClientBuilder::new()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
