@@ -370,7 +370,7 @@ where
         request: &ProofRequest,
         signature: &Bytes,
     ) -> Result<(U256, u64), ClientError> {
-        let mut request = request.clone();
+        let request = request.clone();
         request.validate()?;
 
         let request_id =
