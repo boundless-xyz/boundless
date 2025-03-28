@@ -16,7 +16,15 @@
 //! accessible to provers.
 
 use std::{
-    env::VarError, fmt::Debug, path::PathBuf, result::Result::Ok, sync::Arc, time::Duration,
+    env::VarError,
+    fmt::Debug,
+    path::PathBuf,
+    result::Result::Ok,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 
 use anyhow::{anyhow, Context};
@@ -29,6 +37,7 @@ use aws_sdk_s3::{
     Error as S3Error,
 };
 use clap::{Parser, ValueEnum};
+use httpmock::MockServer;
 use reqwest::{
     multipart::{Form, Part},
     Url,
@@ -209,6 +218,42 @@ pub async fn storage_provider_from_env(
     }
 
     Err(BuiltinStorageProviderError::NoProvider)
+}
+
+/// Creates a storage provider based on the given configuration.
+pub async fn storage_provider_from_config(
+    config: &StorageProviderConfig,
+) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
+    match config.storage_provider {
+        StorageProviderType::S3 => {
+            let provider = S3StorageProvider::from_config(config).await?;
+            Ok(BuiltinStorageProvider::S3(provider))
+        }
+        StorageProviderType::Pinata => {
+            let provider = PinataStorageProvider::from_config(config).await?;
+            Ok(BuiltinStorageProvider::Pinata(provider))
+        }
+        StorageProviderType::File => {
+            let provider = TempFileStorageProvider::from_config(config)?;
+            Ok(BuiltinStorageProvider::File(provider))
+        }
+    }
+}
+
+impl BuiltinStorageProvider {
+    /// Creates a storage provider based on the environment variables.
+    ///
+    /// See [storage_provider_from_env()].
+    pub async fn from_env() -> Result<Self, <Self as StorageProvider>::Error> {
+        storage_provider_from_env().await
+    }
+
+    /// Creates a storage provider based on the given configuration.
+    pub async fn from_config(
+        config: &StorageProviderConfig,
+    ) -> Result<Self, <Self as StorageProvider>::Error> {
+        storage_provider_from_config(&config).await
+    }
 }
 
 /// Storage provider that uploads inputs and inputs to IPFS via Pinata.
@@ -620,29 +665,77 @@ impl StorageProvider for TempFileStorageProvider {
     }
 }
 
-/// Creates a storage provider based on the given configuration.
-pub async fn storage_provider_from_config(
-    config: &StorageProviderConfig,
-) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
-    match config.storage_provider {
-        StorageProviderType::S3 => {
-            let provider = S3StorageProvider::from_config(config).await?;
-            Ok(BuiltinStorageProvider::S3(provider))
-        }
-        StorageProviderType::Pinata => {
-            let provider = PinataStorageProvider::from_config(config).await?;
-            Ok(BuiltinStorageProvider::Pinata(provider))
-        }
-        StorageProviderType::File => {
-            let provider = TempFileStorageProvider::from_config(config)?;
-            Ok(BuiltinStorageProvider::File(provider))
-        }
+/// A `StorageProvider` implementation for testing using [MockServer].
+///
+/// This provider doesn't actually upload files to a real storage system. Instead, it:
+/// 1. Configures the MockServer to respond to requests at a unique URL with the provided content
+/// 2. Returns that URL from the upload methods
+pub struct MockStorageProvider {
+    server: MockServer,
+    next_id: AtomicUsize,
+}
+
+/// Error type for the temporary file storage provider.
+#[derive(Debug, thiserror::Error)]
+pub enum MockStorageError {
+    /// Error type for the temporary file storage provider.
+    #[error("invalid URL: {0}")]
+    UrlParseError(#[from] url::ParseError),
+}
+
+impl MockStorageProvider {
+    /// Starts a new MockServer and creates a MockStorageProvider from it.
+    pub fn start() -> Self {
+        Self::from_server(MockServer::start())
+    }
+
+    /// Create a new MockStorageProvider with the given MockServer.
+    pub fn from_server(server: MockServer) -> Self {
+        Self { server, next_id: AtomicUsize::new(1) }
+    }
+
+    fn get_next_id(&self) -> usize {
+        self.next_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Helper function to upload data and configure the mock server.
+    fn upload_and_mock(
+        &self,
+        data: impl Into<Vec<u8>>,
+        path_prefix: &str,
+    ) -> Result<Url, MockStorageError> {
+        let data = data.into();
+        let path = format!("/{}/{}", path_prefix, self.get_next_id());
+
+        // set up a mock route to respond to requests for this path
+        let _mock_handle = self.server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path(&path);
+            then.status(200).header("content-type", "application/octet-stream").body(data);
+        });
+
+        // Create the URL that points to this resource
+        let url = Url::parse(&self.server.base_url()).and_then(|url| url.join(&path))?;
+
+        Ok(url)
+    }
+}
+
+#[async_trait]
+impl StorageProvider for MockStorageProvider {
+    type Error = MockStorageError;
+
+    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
+        self.upload_and_mock(elf, "image")
+    }
+
+    async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
+        self.upload_and_mock(input, "input")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{StorageProvider, TempFileStorageProvider};
+    use super::*;
 
     #[tokio::test]
     async fn test_temp_file_storage_provider() {
@@ -656,5 +749,28 @@ mod tests {
 
         println!("Image URL: {}", image_url);
         println!("Input URL: {}", input_url);
+    }
+
+    #[tokio::test]
+    async fn test_mock_storage_provider() {
+        // Create our mock storage provider
+        let storage = MockStorageProvider::start();
+
+        // Upload some test data
+        let image_data = guest_util::ECHO_ELF;
+        let input_data = b"test input data";
+
+        let image_url = storage.upload_image(image_data).await.unwrap();
+        let input_url = storage.upload_input(input_data).await.unwrap();
+
+        let response = reqwest::get(image_url).await.unwrap();
+        assert_eq!(response.status(), 200);
+        let content = response.bytes().await.unwrap();
+        assert_eq!(&content[..], image_data);
+
+        let response = reqwest::get(input_url).await.unwrap();
+        assert_eq!(response.status(), 200);
+        let content = response.bytes().await.unwrap();
+        assert_eq!(&content[..], input_data);
     }
 }

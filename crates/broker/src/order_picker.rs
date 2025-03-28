@@ -657,10 +657,10 @@ mod tests {
         test_utils::{deploy_boundless_market, deploy_hit_points},
         Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
+    use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_util::{ECHO_ELF, ECHO_ID};
-    use httpmock::prelude::*;
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
@@ -670,7 +670,7 @@ mod tests {
         anvil: AnvilInstance,
         picker: OrderPicker<P>,
         boundless_market: BoundlessMarketService<Arc<P>>,
-        image_server: MockServer,
+        storage_provider: MockStorageProvider,
         db: DbObj,
         provider: Arc<P>,
     }
@@ -679,10 +679,6 @@ mod tests {
     where
         P: Provider + WalletProvider,
     {
-        fn image_uri(&self) -> String {
-            format!("http://{}/image", self.image_server.address())
-        }
-
         fn signer(&self, index: usize) -> PrivateKeySigner {
             self.anvil.keys()[index].clone().into()
         }
@@ -694,7 +690,9 @@ mod tests {
             max_price: U256,
             lock_stake: U256,
         ) -> Order {
+            let image_url = self.storage_provider.upload_image(ECHO_ELF).await.unwrap();
             let image_id = Digest::from(ECHO_ID);
+
             Order {
                 status: OrderStatus::Pricing,
                 updated_at: Utc::now(),
@@ -708,7 +706,7 @@ mod tests {
                             data: Default::default(),
                         },
                     ),
-                    self.image_uri(),
+                    image_url,
                     Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
                     Offer {
                         minPrice: min_price,
@@ -796,11 +794,7 @@ mod tests {
                 );
             }
 
-            let image_server = MockServer::start();
-            let _get_mock = image_server.mock(|when, then| {
-                when.method(GET).path("/image");
-                then.status(200).body(ECHO_ELF);
-            });
+            let storage_provider = MockStorageProvider::start();
 
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
@@ -811,7 +805,7 @@ mod tests {
             let picker =
                 OrderPicker::new(db.clone(), config, prover, market_address, provider.clone());
 
-            TestCtx { anvil, picker, boundless_market, image_server, db, provider }
+            TestCtx { anvil, picker, boundless_market, storage_provider, db, provider }
         }
     }
 
