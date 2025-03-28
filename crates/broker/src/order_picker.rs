@@ -1377,11 +1377,14 @@ mod tests {
         let order = pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
         ctx.db.set_order_complete(order).await.unwrap();
 
+        // Await other pricing task to avoid race conditions
+        pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
+
         let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
         assert_eq!(capacity, Some(1));
-        assert_eq!(pricing_tasks.len(), 1);
+        assert_eq!(pricing_tasks.len(), 0);
 
         ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, capacity.unwrap()).await.unwrap();
-        assert_eq!(pricing_tasks.len(), 2);
+        assert_eq!(pricing_tasks.len(), 1);
     }
 }
