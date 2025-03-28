@@ -14,11 +14,13 @@ use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_span_events(FmtSpan::CLOSE)
         .init();
 
     let args = Args::parse();
