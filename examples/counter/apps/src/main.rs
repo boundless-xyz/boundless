@@ -275,6 +275,7 @@ mod tests {
             .unwrap();
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
 
+        // A JoinSet automatically aborts all its tasks when dropped
         let mut tasks = JoinSet::new();
 
         // Start a broker.
@@ -296,13 +297,7 @@ mod tests {
             ) => run_result?,
 
             broker_task_result = tasks.join_next() => {
-                // This branch triggers if the broker task completes (or panics).
-                match broker_task_result {
-                    Some(Ok(Ok(()))) => panic!("Broker exited unexpectedly but successfully"),
-                    Some(Ok(Err(e))) => panic!("Broker failed with error: {}", e),
-                    Some(Err(e)) => panic!("Broker task panicked: {}", e),
-                    _ => unreachable!(),
-                }
+                panic!("Broker exited unexpectedly: {:?}", broker_task_result.unwrap());
             },
 
             _ = tokio::time::sleep(Duration::from_secs(TIMEOUT_SECS)) => {
