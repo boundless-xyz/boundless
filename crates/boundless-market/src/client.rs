@@ -362,6 +362,12 @@ where
         Ok((request_id, request.expires_at()))
     }
 
+    /// Submit a proof request with a signature bytes.
+    ///
+    /// Accepts a signature bytes to be used as the request signature.
+    ///
+    /// If the request ID is not set, a random ID will be generated.
+    /// If the bidding start is not set, the current time plus a delay will be used.
     pub async fn submit_request_with_signature_bytes(
         &self,
         request: &ProofRequest,
@@ -372,14 +378,15 @@ where
         if request.id == U256::ZERO {
             request.id = self.boundless_market.request_id_from_rand().await?;
         };
-        
+
         if request.offer.biddingStart == 0 {
             request.offer.biddingStart = now_timestamp() + self.bidding_start_delay
         };
 
         request.validate()?;
 
-        let request_id = self.boundless_market.submit_request_with_signature_bytes(&request, signature).await?;
+        let request_id =
+            self.boundless_market.submit_request_with_signature_bytes(&request, signature).await?;
         Ok((request_id, request.expires_at()))
     }
 

@@ -1,0 +1,25 @@
+[package]
+name = "example-counter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+alloy = { workspace = true }
+anyhow = { workspace = true }
+boundless-market = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+guest-util = { workspace = true }
+risc0-zkvm = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
+
+[dev-dependencies]
+boundless-market = { workspace = true, features = ["test-utils"] }
+broker = { workspace = true, features = ["test-utils"] }
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
+tracing-test = "0.2"

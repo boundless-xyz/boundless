@@ -483,7 +483,8 @@ impl ProofRequest {
         Ok(signer.sign_hash(&hash).await?)
     }
 
-    pub async fn signing_hash(
+    /// Returns the EIP-712 signing hash for the request.
+    pub fn signing_hash(
         &self,
         contract_addr: Address,
         chain_id: u64,

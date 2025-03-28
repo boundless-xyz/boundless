@@ -34,7 +34,7 @@ contract MockSmartContractWallet is IERC1271 {
     // Allow the wallet to receive ETH
     receive() external payable {}
 
-    function execute(address target, bytes memory data, uint256 value) external {
+    function execute(address target, bytes memory data, uint256 value) payable external {
         require(msg.sender == owner, "Not authorized");
         (bool success,) = target.call{value: value}(data);
         require(success, "Call failed");
