@@ -3,123 +3,210 @@ import biomePlugin from "vite-plugin-biome";
 import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
 
-const SIDEBAR_CONFIG = [
+
+const SHARED_LINKS = [
+  { text: "For Developers", link: "/developers/why" },
+  { text: "For Provers", link: "/provers/quick-start" },
+]
+
+const DEVELOPERS_ITEMS = [
   {
-    text: "✨ Introduction",
+    text: "Introduction",
     items: [
       {
-        text: "Why Boundless?",
-        link: "/introduction/why-boundless",
+        text: "Why use Boundless?",
+        link: "/developers/why",
       },
       {
         text: "What is Boundless?",
-        link: "/introduction/what-is-boundless",
-        collapsed: true,
-        items: [
-          {
-            text: "Extensions",
-            link: "/introduction/extensions",
-          },
-        ],
+        link: "/developers/what",
       },
       {
         text: "Proof Lifecycle",
-        link: "/introduction/proof-lifecycle",
-      },
-    ],
-  },
-  {
-    text: "🏋️ Build",
-    items: [
-      {
-        text: "Build a Program",
-        link: "/build/build-a-program",
-      },
-      {
-        text: "Request a Proof",
-        link: "/build/request-a-proof",
-        collapsed: true,
-        items: [
-          {
-            text: "Pricing a Request",
-            link: "/build/pricing-a-request",
-          },
-          {
-            text: "Troubleshooting",
-            link: "/build/troubleshooting-a-request",
-          },
-        ],
-      },
-      {
-        text: "Use a Proof",
-        link: "/build/use-a-proof",
-      },
-    ],
-  },
-  {
-    text: "🧪 Prove",
-    items: [
-      {
-        text: "Becoming a Prover",
-        link: "/prove/becoming-a-prover",
-      },
-      {
-        text: "Requirements",
-        link: "/prove/requirements",
-      },
-      {
-        text: "Quick Start",
-        link: "/prove/quick-start",
-      },
-      {
-        text: "Running a Boundless Prover",
-        link: "/prove/proving-stack",
-        collapsed: true,
-        items: [
-          {
-            text: "The Boundless Proving Stack",
-            link: "/prove/proving-stack",
-          },
-          {
-            text: "Broker Configuration & Operation",
-            link: "/prove/broker",
-          },
-          {
-            text: "Monitoring",
-            link: "/prove/monitoring",
-          },
-          {
-            text: "Performance Optimization",
-            link: "/prove/performance-optimization",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    text: "🧠 Advanced & References",
-    items: [
-      {
-        text: "Deployments",
-        link: "/deployments",
-      },
-      {
-        text: "Smart Contracts",
-        link: "/smart-contracts",
+        link: "/developers/proof-lifecycle",
       },
       {
         text: "Terminology",
-        link: "/terminology",
+        link: "/developers/terminology",
+      },
+    ],
+  },
+  {
+    text: "For App Devs",
+    items: [
+      {
+        text: "Quick Start",
+        link: "/developers/apps/quick-start",
       },
       {
-        text: "Bento Technical Design",
-        link: "/bento-technical-design",
+        text: "Tutorials",
+        items: [
+          {
+            text: "Build a Program",
+            link: "/developers/apps/tutorials/build",
+          },
+          {
+            text: "Request a Proof",
+            link: "/developers/apps/tutorials/request",
+          },
+          {
+            text: "Pricing a Request",
+            link: "/developers/apps/tutorials/pricing",
+          },
+          {
+            text: "Troubleshooting",
+            link: "/developers/apps/tutorials/troubleshooting",
+          },
+        ],
+      },
+      {
+        text: "Dev Tooling",
+        items: [
+          {
+            text: "Boundless SDK",
+            link: "/developers/apps/tooling/sdk",
+          },
+          {
+            text: "Boundless CLI",
+            link: "/developers/apps/tooling/cli",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    text: "For Solidity Devs",
+    items: [
+      {
+        text: "Smart Contracts",
+        items: [
+          {
+            text: "Boundless Smart Contract Reference",
+            link: "/developers/solidity/smart-contract-docs",
+          },
+          {
+            text: "RISC Zero Verifier Contracts",
+            link: "/developers/solidity/verifier-contracts",
+          },
+          {
+            text: "Chains & Deployments",
+            link: "/developers/solidity/deployments",
+          },
+        ],
+      },
+      {
+        text: "Steel: Boundless ZK Coprocessing",
+        items: [
+          {
+            text: "Quick Start",
+            link: "/developers/solidity/steel/quick-start",
+          },
+          {
+            text: "What is Steel?",
+            link: "/developers/solidity/steel/what-is-steel",
+          },
+          {
+            text: "How does Steel work?",
+            link: "/developers/solidity/steel/how-it-works",
+          },
+          {
+            text: "Steel Commitments",
+            link: "/developers/solidity/steel/commitments",
+          },
+          {
+            text: "Steel History",
+            link: "/developers/solidity/steel/history",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    text: "For Rollup Devs",
+    items: [
+      {
+        text: "Why Kailua?",
+        link: "/developers/rollups/why",
+      },
+      {
+        text: "Quick Start",
+        link: "/developers/rollups/quick-start",
+      },
+      {
+        text: "Kailua Book",
+        link: "https://risc0.github.io/kailua/",
       },
     ],
   },
 ];
 
+const PROVERS_ITEMS = [
+  {
+    text: "Introduction",
+    items: [
+      {
+        text: "Why use Boundless?",
+        link: "/developers/why",
+      },
+      {
+        text: "What is Boundless?",
+        link: "/developers/what",
+      },
+      {
+        text: "Proof Lifecycle",
+        link: "/developers/proof-lifecycle",
+      },
+      {
+        text: "Terminology",
+        link: "/developers/terminology",
+      },
+    ],
+  },
+  {
+    text: "Running a Prover",
+    items: [
+      {
+        text: "Who should run a prover?",
+        link: "/provers/becoming-a-prover",
+      },
+      {
+        text: "Requirements",
+        link: "/provers/requirements",
+      },
+      {
+        text: "Quick Start",
+        link: "/provers/quick-start",
+      },
+    ],
+  },
+  {
+    text: "Running a Boundless Prover",
+    items: [
+      {
+        text: "The Boundless Proving Stack",
+        link: "/provers/proving-stack",
+      },
+      {
+        text: "Broker Configuration & Operation",
+        link: "/provers/broker",
+      },
+      {
+        text: "Monitoring",
+        link: "/provers/monitoring",
+      },
+      {
+        text: "Performance Optimization",
+        link: "/provers/performance-optimization",
+      },
+    ],
+  }
+];
+
+const DEVELOPERS_SIDEBAR = [...SHARED_LINKS, ...DEVELOPERS_ITEMS]
+const PROVERS_SIDEBAR = [...SHARED_LINKS, ...PROVERS_ITEMS]
+
 export function generateSitemap() {
+  const allSidebarItems = [...DEVELOPERS_SIDEBAR, ...PROVERS_SIDEBAR];
   function extractRoutes(items): string[] {
     return items.flatMap((item) => {
       const routes: string[] = [];
@@ -138,7 +225,7 @@ export function generateSitemap() {
 
   return VitePluginSitemap({
     hostname: "https://docs.beboundless.xyz",
-    dynamicRoutes: extractRoutes(SIDEBAR_CONFIG),
+    dynamicRoutes: extractRoutes(allSidebarItems),
     changefreq: "weekly",
     outDir: "site/dist",
   });
@@ -165,25 +252,15 @@ export default defineConfig({
       },
     },
   },
-  sidebar: SIDEBAR_CONFIG,
-  topNav: [
-    { text: "Explorer", link: "https://explorer.beboundless.xyz" },
-    { text: "Help", link: "https://t.me/+E9J7zgtyoTVlNzk1" },
-    /*{
-      text: process.env.LATEST_TAG || "Latest",
-      items: [
-        {
-          text: "Releases",
-          link: "https://github.com/boundless-xyz/boundless/releases",
-        },
-      ],
-    },*/
-  ],
+  sidebar: {
+    "/developers/": DEVELOPERS_SIDEBAR,
+    "/provers/": PROVERS_SIDEBAR,
+  },
   socials: [
-    /*{
+    {
       icon: "github",
       link: "https://github.com/boundless-xyz",
-    },*/
+    },
     {
       icon: "x",
       link: "https://x.com/boundless_xyz",
@@ -215,11 +292,6 @@ export default defineConfig({
   iconUrl: {
     light: "/favicon.svg",
     dark: "/favicon.svg",
-  },
-  banner: {
-    dismissable: true,
-    content:
-      "BREAKING: Boundless is opening the allowlist for infrastructure companies to start proving, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) to apply for access. See the new [proving docs](/prove/becoming-a-prover) for more info.",
   },
   ogImageUrl: "https://docs.beboundless.xyz/og.png",
 });
