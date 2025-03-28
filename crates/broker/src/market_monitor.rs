@@ -242,9 +242,9 @@ where
         let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
             .context("Failed to decode calldata")?;
 
-        // Check the request id flag to determine if the request is smart contract signed. If so we validate the
-        // ERC1271 signature by calling isValidSignature on the smart contract client. Otherwise we validate the
-        // signature locally.
+        // Check the request id flag to determine if the request is smart contract signed. If so we verify the
+        // ERC1271 signature by calling isValidSignature on the smart contract client. Otherwise we verify the
+        // the signature as an ECDSA signature.
         let request_id = RequestId::from_lossy(calldata.request.id);
         if request_id.smart_contract_signed {
             let erc1271 = IERC1271::new(request_id.addr, provider);

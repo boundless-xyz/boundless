@@ -192,7 +192,8 @@ impl RequestId {
         Self::new(addr, index).into()
     }
 
-    /// Set the smart contract signed flag to true.
+    /// Set the smart contract signed flag to true. This indicates that the signature associated
+    /// with the request should be validated using ERC-1271's isValidSignature function.
     pub fn set_smart_contract_signed_flag(self) -> Self {
         Self { addr: self.addr, index: self.index, smart_contract_signed: true }
     }
