@@ -405,6 +405,9 @@ impl BrokerDb for SqliteDb {
     }
 
     async fn set_order_complete(&self, id: U256) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+        
+        // Update the order status
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -418,13 +421,16 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::Done)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
         if res.rows_affected() == 0 {
+            tx.rollback().await?;
             return Err(DbError::OrderNotFound(id));
         }
 
+        // Commit the transaction
+        tx.commit().await?;
         Ok(())
     }
 
