@@ -252,7 +252,7 @@ impl BuiltinStorageProvider {
     pub async fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, <Self as StorageProvider>::Error> {
-        storage_provider_from_config(&config).await
+        storage_provider_from_config(config).await
     }
 }
 
