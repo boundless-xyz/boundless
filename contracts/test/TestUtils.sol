@@ -9,6 +9,7 @@ import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Selector} from "../src/types/Selector.sol";
 import "../src/BoundlessMarket.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
+import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 
 library TestUtils {
@@ -21,23 +22,15 @@ library TestUtils {
         AssessorCallback[] memory callbacks,
         address prover
     ) internal pure returns (ReceiptClaim memory) {
-        bytes32[] memory claimDigests = new bytes32[](fills.length);
-        bytes32[] memory requestDigests = new bytes32[](fills.length);
+        bytes32[] memory leaves = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
-            claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            requestDigests[i] = fills[i].requestDigest;
+            bytes32 claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            leaves[i] = AssessorCommitment(i, fills[i].id, fills[i].requestDigest, claimDigest).eip712Digest();
         }
-        bytes32 root = MerkleProofish.processTree(claimDigests);
+        bytes32 root = MerkleProofish.processTree(leaves);
 
-        bytes memory journal = abi.encode(
-            AssessorJournal({
-                requestDigests: requestDigests,
-                root: root,
-                selectors: selectors,
-                callbacks: callbacks,
-                prover: prover
-            })
-        );
+        bytes memory journal =
+            abi.encode(AssessorJournal({root: root, selectors: selectors, callbacks: callbacks, prover: prover}));
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 
