@@ -19,9 +19,7 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance,
-        test_utils::{create_test_ctx_with_rpc_url, TestCtx},
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        hit_points::default_allowance, test_utils::{create_test_ctx_with_rpc_url, TestCtx}, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements
     },
     input::InputBuilder,
 };

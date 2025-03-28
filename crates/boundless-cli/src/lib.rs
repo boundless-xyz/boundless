@@ -367,7 +367,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, Offer, Predicate, ProofRequest, Requirements, UNSPECIFIED_SELECTOR,
+        eip712_domain, Input, Offer, Predicate, ProofRequest, RequestId, Requirements,
+        UNSPECIFIED_SELECTOR,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_set_builder::SET_BUILDER_ELF;

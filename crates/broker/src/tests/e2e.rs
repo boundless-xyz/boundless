@@ -13,9 +13,7 @@ use alloy::{
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance,
-        test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count},
-        Callback, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        hit_points::default_allowance, test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count}, Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements
     },
     selector::is_unaggregated_selector,
 };

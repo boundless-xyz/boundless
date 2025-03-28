@@ -7,19 +7,18 @@ use std::sync::Arc;
 use alloy::{
     consensus::Transaction,
     network::Ethereum,
-    primitives::{Address, FixedBytes, U256},
+    primitives::{Address, U256},
     providers::Provider,
     rpc::types::{Filter, Log},
     sol,
-    sol_types::{SolCall, SolEvent, SolStruct},
+    sol_types::{SolCall, SolEvent},
 };
 
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
     boundless_market::BoundlessMarketService,
-    eip712_domain,
-    IBoundlessMarket::{self, IBoundlessMarketInstance},
-    ProofRequest, ProofStatus, RequestId,
+    IBoundlessMarket::{self},
+    ProofStatus, RequestId,
 };
 use futures_util::StreamExt;
 

@@ -278,8 +278,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::{deploy_boundless_market, deploy_hit_points},
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        test_utils::{deploy_boundless_market, deploy_hit_points}, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements
     };
     use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;

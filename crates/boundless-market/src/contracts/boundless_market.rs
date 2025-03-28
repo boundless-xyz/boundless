@@ -1376,7 +1376,7 @@ mod tests {
             test_utils::{create_test_ctx, TestCtx},
             AssessorCommitment, AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket,
             Input, InputType, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
-            Requirements,
+            RequestId, Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1420,8 +1420,7 @@ mod tests {
 
     async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         ProofRequest::new(
-            idx,
-            &ctx.customer_signer.address(),
+            RequestId::new(ctx.customer_signer.address(), idx),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
