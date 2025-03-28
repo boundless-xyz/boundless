@@ -2,13 +2,13 @@
 //
 // All rights reserved.
 
-use std::path::PathBuf;
+use std::{future::Future, path::PathBuf};
 
 use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
     primitives::{aliases::U96, utils, Address, FixedBytes, U256},
-    providers::Provider,
+    providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use boundless_market::{
@@ -16,13 +16,14 @@ use boundless_market::{
         hit_points::default_allowance, test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count}, Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements
     },
     selector::is_unaggregated_selector,
+    storage::{MockStorageProvider, StorageProvider},
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::{ECHO_ID, ECHO_PATH};
+use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{is_dev_mode, sha::Digest};
 use tempfile::NamedTempFile;
-use tokio::time::Duration;
+use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
 
@@ -30,6 +31,7 @@ fn generate_request(
     id: u32,
     addr: &Address,
     unaggregated: bool,
+    image_url: impl Into<String>,
     callback: Option<Callback>,
 ) -> ProofRequest {
     let mut requirements = Requirements::new(
@@ -45,14 +47,14 @@ fn generate_request(
     ProofRequest::new(
         RequestId::new(*addr, id),
         requirements,
-        format!("file://{ECHO_PATH}"),
+        image_url,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         Offer {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),
             biddingStart: now_timestamp(),
-            timeout: 420,
-            lockTimeout: 420,
+            timeout: 600,
+            lockTimeout: 600,
             rampUpPeriod: 1,
             lockStake: U256::from(10),
         },
@@ -114,6 +116,24 @@ fn broker_args(
     }
 }
 
+async fn run_with_broker<P, F, T>(broker: Broker<P>, f: F) -> T
+where
+    P: Provider + WalletProvider + Clone + 'static,
+    F: Future<Output = T>,
+{
+    // A JoinSet automatically aborts all its tasks when dropped
+    let mut tasks = JoinSet::new();
+    // Spawn the broker
+    tasks.spawn(async move { broker.start_service().await });
+
+    tokio::select! {
+        result = f => result,
+        broker_task_result = tasks.join_next() => {
+            panic!("Broker exited unexpectedly: {:?}", broker_task_result.unwrap());
+        },
+    }
+}
+
 #[tokio::test]
 #[traced_test]
 async fn simple_e2e() {
@@ -140,35 +160,35 @@ async fn simple_e2e() {
         ctx.prover_signer,
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
-    let broker_task = tokio::spawn(async move {
-        broker.start_service().await.unwrap();
-    });
+
+    // Provide URL for ECHO ELF
+    let storage = MockStorageProvider::start();
+    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
 
     // Submit an order
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         false,
+        image_url,
         None,
     );
 
-    ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+    run_with_broker(broker, async move {
+        // Submit the request
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
-    ctx.customer_market
-        .wait_for_request_fulfillment(
-            U256::from(request.id),
-            Duration::from_secs(1),
-            request.expires_at(),
-        )
-        .await
-        .unwrap();
-
-    // Check for a broker panic
-    if broker_task.is_finished() {
-        broker_task.await.unwrap();
-    } else {
-        broker_task.abort();
-    }
+        // Wait for fulfillment
+        ctx.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -210,47 +230,50 @@ async fn simple_e2e_with_callback() {
         ctx.prover_signer,
     );
     let broker = Broker::new(args, ctx.prover_provider.clone()).await.unwrap();
-    let broker_task = tokio::spawn(async move {
-        broker.start_service().await.unwrap();
-    });
+
+    // Provide URL for ECHO ELF
+    let storage = MockStorageProvider::start();
+    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
 
     // Submit an order with callback
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         false,
+        image_url,
         Some(callback),
     );
 
-    ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
-    ctx.customer_market
-        .wait_for_request_fulfillment(
-            U256::from(request.id),
-            Duration::from_secs(1),
-            request.expires_at(),
-        )
-        .await
-        .unwrap();
+    run_with_broker(broker, async move {
+        // Submit the request
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
-    let event_filter = ctx
-        .customer_market
-        .instance()
-        .CallbackFailed_filter()
-        .topic1(request.id)
-        .from_block(0)
-        .to_block(ctx.prover_provider.get_block_number().await.unwrap());
-    let logs = event_filter.query().await.unwrap();
-    assert!(logs.is_empty());
+        // Wait for fulfillment
+        ctx.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
 
-    let count = get_mock_callback_count(&ctx.prover_provider, callback_address).await.unwrap();
-    assert!(count == U256::from(1));
+        // Check for callback failures
+        let event_filter = ctx
+            .customer_market
+            .instance()
+            .CallbackFailed_filter()
+            .topic1(request.id)
+            .from_block(0)
+            .to_block(ctx.prover_provider.get_block_number().await.unwrap());
+        let logs = event_filter.query().await.unwrap();
+        assert!(logs.is_empty(), "Found unexpected callback failure logs");
 
-    // Check for a broker panic
-    if broker_task.is_finished() {
-        broker_task.await.unwrap();
-    } else {
-        broker_task.abort();
-    }
+        // Verify callback count
+        let count = get_mock_callback_count(&ctx.prover_provider, callback_address).await.unwrap();
+        assert_eq!(count, U256::from(1), "Expected exactly one callback");
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -280,39 +303,38 @@ async fn e2e_with_selector() {
         ctx.prover_signer,
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
-    let broker_task = tokio::spawn(async move {
-        broker.start_service().await.unwrap();
-    });
+
+    // Provide URL for ECHO ELF
+    let storage = MockStorageProvider::start();
+    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
 
     // Submit an order
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         true,
+        image_url,
         None,
     );
 
-    ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+    run_with_broker(broker, async move {
+        // Submit the request
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
-    let (_journal, seal) = ctx
-        .customer_market
-        .wait_for_request_fulfillment(
-            U256::from(request.id),
-            Duration::from_secs(1),
-            request.expires_at(),
-        )
-        .await
-        .unwrap();
-
-    let selector = FixedBytes(seal[0..4].try_into().unwrap());
-    assert!(is_unaggregated_selector(selector));
-
-    // Check for a broker panic
-    if broker_task.is_finished() {
-        broker_task.await.unwrap();
-    } else {
-        broker_task.abort();
-    }
+        // Wait for fulfillment
+        let (_, seal) = ctx
+            .customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+        let selector = FixedBytes(seal[0..4].try_into().unwrap());
+        assert!(is_unaggregated_selector(selector));
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -342,60 +364,61 @@ async fn e2e_with_multiple_requests() {
         ctx.prover_signer,
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
-    let broker_task = tokio::spawn(async move {
-        broker.start_service().await.unwrap();
-    });
+
+    // Provide URL for ECHO ELF
+    let storage = MockStorageProvider::start();
+    let image_url = storage.upload_image(ECHO_ELF).await.unwrap().to_string();
 
     // Submit the first order
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
         false,
+        &image_url,
         None,
     );
 
-    ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+    run_with_broker(broker, async move {
+        // Submit the first order
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
-    // Submit the second (unaggregated) order
-    let request_unaggregated = generate_request(
-        ctx.customer_market.index_from_nonce().await.unwrap(),
-        &ctx.customer_signer.address(),
-        true,
-        None,
-    );
+        let request_unaggregated = generate_request(
+            ctx.customer_market.index_from_nonce().await.unwrap(),
+            &ctx.customer_signer.address(),
+            true,
+            &image_url,
+            None,
+        );
 
-    ctx.customer_market.submit_request(&request_unaggregated, &ctx.customer_signer).await.unwrap();
+        // Submit the second (unaggregated) order
+        ctx.customer_market
+            .submit_request(&request_unaggregated, &ctx.customer_signer)
+            .await
+            .unwrap();
 
-    let (_journal, seal) = ctx
-        .customer_market
-        .wait_for_request_fulfillment(
-            U256::from(request.id),
-            Duration::from_secs(1),
-            request.expires_at(),
-        )
-        .await
-        .unwrap();
+        let (_, seal) = ctx
+            .customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+        let selector = FixedBytes(seal[0..4].try_into().unwrap());
+        assert!(!is_unaggregated_selector(selector));
 
-    let selector = FixedBytes(seal[0..4].try_into().unwrap());
-    assert!(!is_unaggregated_selector(selector));
-
-    let (_journal, seal) = ctx
-        .customer_market
-        .wait_for_request_fulfillment(
-            U256::from(request_unaggregated.id),
-            Duration::from_secs(1),
-            request.expires_at(),
-        )
-        .await
-        .unwrap();
-
-    let selector = FixedBytes(seal[0..4].try_into().unwrap());
-    assert!(is_unaggregated_selector(selector));
-
-    // Check for a broker panic
-    if broker_task.is_finished() {
-        broker_task.await.unwrap();
-    } else {
-        broker_task.abort();
-    }
+        let (_, seal) = ctx
+            .customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request_unaggregated.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+        let selector = FixedBytes(seal[0..4].try_into().unwrap());
+        assert!(is_unaggregated_selector(selector));
+    })
+    .await;
 }

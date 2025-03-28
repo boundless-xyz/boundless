@@ -35,20 +35,20 @@ To instantiate a boundless client, you will need a wallet with sufficient funds 
 <StripRustCodeComments>
 ```rust
 # use alloy::{primitives::Address, signers::local::PrivateKeySigner};
-# use boundless_market::{client::ClientBuilder, storage::StorageProviderConfig};
+# use boundless_market::{client::ClientBuilder, storage::BuiltinStorageProvider};
 # async fn create_boundless_client(
 # rpc_url: url::Url,
 # boundless_market_address: Address,
 # set_verifier_address: Address,
 # order_stream_url: Option<url::Url>,
-# storage_config: Option<StorageProviderConfig>,
+# storage_provider: Option<BuiltinStorageProvider>,
 # private_key: PrivateKeySigner) -> Result<(), Box<dyn std::error::Error>> {
-let boundless_client = ClientBuilder::default()
+let boundless_client = ClientBuilder::new()
   .with_rpc_url(rpc_url)
   .with_boundless_market_address(boundless_market_address)
   .with_set_verifier_address(set_verifier_address)
   .with_order_stream_url(order_stream_url)
-  .with_storage_provider_config(storage_config.clone())
+  .with_storage_provider(storage_provider)
   .with_private_key(private_key)
   .build()
   .await?;
@@ -77,7 +77,7 @@ With the storage provider added to the `Client`, the executable can be uploaded 
 ```rust
 # use boundless_market::client::ClientBuilder;
 # async fn upload_elf(ELF: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::default().build().await?;
+# let boundless_client = ClientBuilder::new().build().await?;
 let image_url = boundless_client.upload_image(ELF).await?;
 # Ok(())
 # }
@@ -93,7 +93,7 @@ Similar to the program executable, the program inputs are uploaded to a public H
 ```rust
 # use boundless_market::client::ClientBuilder;
 # async fn upload_elf(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::default().build().await?;
+# let boundless_client = ClientBuilder::new().build().await?;
 let input_url = boundless_client.upload_input(&input_bytes).await?;
 # Ok(())
 # }
@@ -205,7 +205,7 @@ Once the request is configured, it can submitted to the market:
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
 # async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::default().build().await?;
+# let boundless_client = ClientBuilder::new().build().await?;
 let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 # Ok(())
 # }
@@ -228,7 +228,7 @@ you can use the following code:
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
 # async fn submit_request_with_signer(request: ProofRequest, signer: impl Signer) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::default().build().await?;
+# let boundless_client = ClientBuilder::new().build().await?;
 let (request_id, expires_at) = boundless_client.submit_request_with_signer(&request, &signer).await?;
 # Ok(())
 # }
@@ -249,7 +249,7 @@ Once fulfilled, the journal and seal are returned. The journal contains the publ
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
 # async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::default().build().await?;
+# let boundless_client = ClientBuilder::new().build().await?;
 # let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 let (_journal, seal) = boundless_client
   .wait_for_request_fulfillment(
