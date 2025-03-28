@@ -19,7 +19,9 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, test_utils::{create_test_ctx_with_rpc_url, TestCtx}, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements
+        hit_points::default_allowance,
+        test_utils::{create_test_ctx_with_rpc_url, TestCtx},
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     },
     input::InputBuilder,
 };
@@ -75,7 +77,10 @@ async fn request_spawner<P: Provider>(
 
     while !shutdown.load(Ordering::Relaxed) {
         let request = ProofRequest::new(
-            RequestId::new(ctx.customer_signer.address(), ctx.customer_market.index_from_nonce().await?),
+            RequestId::new(
+                ctx.customer_signer.address(),
+                ctx.customer_market.index_from_nonce().await?,
+            ),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

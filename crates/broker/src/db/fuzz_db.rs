@@ -22,7 +22,7 @@ use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
 use super::{BrokerDb, SqliteDb};
 
 use boundless_market::contracts::{
-    Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements
+    Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
 };
 
 // Add new state tracking structure

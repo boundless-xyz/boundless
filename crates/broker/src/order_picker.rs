@@ -654,7 +654,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::{deploy_boundless_market, deploy_hit_points}, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements
+        test_utils::{deploy_boundless_market, deploy_hit_points},
+        Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use chrono::Utc;

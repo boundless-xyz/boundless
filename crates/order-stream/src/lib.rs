@@ -420,7 +420,9 @@ mod tests {
     };
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, test_utils::{create_test_ctx, TestCtx}, Offer, Predicate, ProofRequest, RequestId, Requirements
+            hit_points::default_allowance,
+            test_utils::{create_test_ctx, TestCtx},
+            Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
         input::InputBuilder,
         order_stream_client::{order_stream, Client},

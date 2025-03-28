@@ -12,7 +12,8 @@ use alloy::{
     signers::Signer,
 };
 use boundless_market::contracts::{
-    test_utils::create_test_ctx, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements
+    test_utils::create_test_ctx, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+    Requirements,
 };
 use futures_util::StreamExt;
 use guest_assessor::ASSESSOR_GUEST_ID;
