@@ -297,30 +297,6 @@ mod tests {
         )
         .clone();
 
-        // let balance_before = smart_contract_client_owner
-        //     .get_balance(smart_contract_client_owner.default_signer_address())
-        //     .await
-        //     .unwrap();
-        // tracing::info!(
-        //     "Address of smart contract client: {} Balance before: {} Owner: {}",
-        //     smart_contract_client_address,
-        //     balance_before,
-        //     smart_contract_client_owner.default_signer_address()
-        // );
-
-        // let smart_contract_client_provider = smart_contract_client.provider();
-        // let smart_contract_client_provider_address = smart_contract_client_provider.default_signer_address();
-        // let smart_contract_client_provider_bal = smart_contract_client_provider
-        //     .get_balance(smart_contract_client_provider.default_signer_address())
-        //     .await
-        //     .unwrap();
-
-        // tracing::info!(
-        //     "Smart contract client provider address: {} Balance after: {}",
-        //     smart_contract_client_provider_address,
-        //     smart_contract_client_provider_bal
-        // );
-
         // Fund the smart contract client with ETH and deposit to the market.
         let deposit_call = IBoundlessMarket::depositCall {}.abi_encode();
 
