@@ -1,15 +1,15 @@
 # Steel Commitments
 
-Steel retrieves state for a view call at a specific block, therefore it commits the relevant block data to the journal for validation on-chain; this data is known as a Steel commitment.
+Steel retrieves state for a view call at a specific block, therefore it commits the relevant block data to the journal for validation onchain; this data is known as a Steel commitment.
 
-Concretely, a Steel commitment consists of a block identifier, and the block hash. To validate this block commitment on-chain, the block hash in the commitment is compared with the block hash available on-chain. If there is a discrepancy, there is no guarantee that the proof accurately reflects the correct blockchain state at the specified block.
+Concretely, a Steel commitment consists of a block identifier, and the block hash. To validate this block commitment onchain, the block hash in the commitment is compared with the block hash available onchain. If there is a discrepancy, there is no guarantee that the proof accurately reflects the correct blockchain state at the specified block.
 
 ## Steel's Trust Anchor: The Blockhash
 
 Steel uses [revm] to generate an EVM execution environment, `EvmEnv` within the guest. When you create the `EvmEnv`, you can specify a block (the default is the latest block).
 
 ```rust
-// Create an EVM environment from that provider 
+// Create an EVM environment from that provider
 let mut env = EthEvmEnv::builder()
     .provider(provider.clone())
     .block_number(20842508)
@@ -51,7 +51,7 @@ let journal = Journal {
 env::commit_slice(&journal.abi_encode());
 ```
 
-This block hash has to be compared on-chain, alongside the verification of the proof, to validate that the Steel proof is correct and to verify the integrity of RPC data.
+This block hash has to be compared onchain, alongside the verification of the proof, to validate that the Steel proof is correct and to verify the integrity of RPC data.
 
 ## What is a Steel Commitment?
 
@@ -88,7 +88,7 @@ function validateCommitment(Commitment memory commitment) internal view returns 
 
 ## Validation of Steel Commitments
 
-Steel supports two methods of commitment validation (see `validateCommitment` in [Steel.sol]); This validation on-chain is essential to ensure that the proof accurately reflects the correct blockchain state.
+Steel supports two methods of commitment validation (see `validateCommitment` in [Steel.sol]); This validation onchain is essential to ensure that the proof accurately reflects the correct blockchain state.
 
 1. Block hash commitment
 
@@ -122,7 +122,7 @@ function validateBeaconCommitment(uint256 timestamp, bytes32 blockRoot) internal
 }
 ```
 
-The second method allows validation using the [EIP-4788] beacon roots contract. This technique extends the time window in which the proof can be validated on-chain to just over a day. It requires access to a beacon API endpoint and can be enabled by calling `EvmEnv::builder().beacon_api()`. However, this approach is specific to Ethereum (L1) Steel proofs and depends on the implementation of EIP-4788.
+The second method allows validation using the [EIP-4788] beacon roots contract. This technique extends the time window in which the proof can be validated onchain to just over a day. It requires access to a beacon API endpoint and can be enabled by calling `EvmEnv::builder().beacon_api()`. However, this approach is specific to Ethereum (L1) Steel proofs and depends on the implementation of EIP-4788.
 
 Note that EIP-4788 only provides access to the parent beacon root, requiring iterative queries in Solidity to retrieve the target beacon root for validation. This iterative process can result in slightly higher gas costs compared to using the `blockhash` opcode. Overall, it is suitable for environments where longer proof generation times are required.
 
