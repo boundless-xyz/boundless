@@ -655,7 +655,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, deploy_hit_points},
-        Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use chrono::Utc;
@@ -697,8 +697,7 @@ mod tests {
                 status: OrderStatus::Pricing,
                 updated_at: Utc::now(),
                 request: ProofRequest::new(
-                    order_index,
-                    &self.provider.default_signer_address(),
+                    RequestId::new(self.provider.default_signer_address(), order_index),
                     Requirements::new(
                         image_id,
                         Predicate {

@@ -295,6 +295,30 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
+    /// on, with a signature specified as Bytes.
+    pub async fn submit_request_with_signature_bytes(
+        &self,
+        request: &ProofRequest,
+        signature: &Bytes,
+    ) -> Result<U256, MarketError> {
+        tracing::debug!("calling submitRequest({:x?})", request);
+        let call =
+            self.instance.submitRequest(request.clone(), signature.clone()).from(self.caller);
+        let pending_tx = call.send().await?;
+        tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
+
+        let receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        // Look for the logs for submitting the transaction.
+        let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
+        Ok(U256::from(log.inner.data.requestId))
+    }
+
+    /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on. Deposits funds to the client account if there are not enough to cover the max price on
     /// the offer.
     pub async fn submit_request(
@@ -1352,7 +1376,7 @@ mod tests {
             test_utils::{create_test_ctx, TestCtx},
             AssessorCommitment, AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket,
             Input, InputType, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
-            Requirements,
+            RequestId, Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1396,8 +1420,7 @@ mod tests {
 
     async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         ProofRequest::new(
-            idx,
-            &ctx.customer_signer.address(),
+            RequestId::new(ctx.customer_signer.address(), idx),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -1966,8 +1989,7 @@ mod tests {
     #[test]
     fn test_decode_calldata() {
         let request = ProofRequest::new(
-            0,
-            &Address::ZERO,
+            RequestId::new(Address::ZERO, 0),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

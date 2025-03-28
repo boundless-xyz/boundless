@@ -456,7 +456,7 @@ mod tests {
         test_utils::{
             deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
         },
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
@@ -541,8 +541,7 @@ mod tests {
         let echo_receipt = prover.get_receipt(&echo_proof.id).await.unwrap().unwrap();
 
         let order_request = ProofRequest::new(
-            market_customer.index_from_nonce().await.unwrap(),
-            &customer_addr,
+            RequestId::new(customer_addr, market_customer.index_from_nonce().await.unwrap()),
             Requirements::new(
                 echo_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

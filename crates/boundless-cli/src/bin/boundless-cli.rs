@@ -49,7 +49,7 @@ use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
         boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, Requirements, UNSPECIFIED_SELECTOR,
+        PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR,
     },
     input::{GuestEnv, InputBuilder},
     storage::{StorageProvider, StorageProviderConfig},
@@ -645,8 +645,7 @@ where
 
     // Construct the request from its individual parts.
     let request = ProofRequest::new(
-        id,
-        &client.caller(),
+        RequestId::new(client.caller(), id),
         Requirements { imageId: image_id, predicate, callback, selector: UNSPECIFIED_SELECTOR },
         elf_url,
         requirements_input,
@@ -718,8 +717,7 @@ where
     }
 
     let mut request = ProofRequest::new(
-        id,
-        &client.caller(),
+        RequestId::new(client.caller(), id),
         request_yaml.requirements.clone(),
         &request_yaml.imageUrl,
         request_yaml.input,

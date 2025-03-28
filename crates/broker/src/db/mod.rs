@@ -1053,7 +1053,7 @@ mod tests {
     use crate::ProofRequest;
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, RequestId, Requirements,
     };
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
@@ -1064,8 +1064,7 @@ mod tests {
             updated_at: Utc::now(),
             target_timestamp: None,
             request: ProofRequest::new(
-                1,
-                &Address::ZERO,
+                RequestId::new(Address::ZERO, 1),
                 Requirements::new(
                     Digest::ZERO,
                     Predicate {
