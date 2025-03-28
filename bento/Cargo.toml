@@ -29,7 +29,7 @@ deadpool-redis = "0.15"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 redis = { version = "0.25", features = ["tokio-comp"] }
 tempfile = "3.10"
-sqlx = { version = "0.7", default-features = false }
+sqlx = { version = "0.8", default-features = false }
 bonsai-sdk = { version = "1.4.0", features = ["non_blocking"] }
 thiserror = "1.0"
 tokio = { version = "1" }
