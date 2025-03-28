@@ -432,10 +432,11 @@ where
         check_interval: std::time::Duration,
         expires_at: u64,
     ) -> Result<(Bytes, Bytes), ClientError> {
-        Ok(self
+        let fulfillment = self
             .boundless_market
-            .wait_for_request_fulfillment(request_id, check_interval, expires_at)
-            .await?)
+            .wait_for_request_fulfillment_with_tx(request_id, check_interval, expires_at)
+            .await?;
+        Ok((fulfillment.journal, fulfillment.seal))
     }
 
     /// Get the [SetInclusionReceipt] for a request.
