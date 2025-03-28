@@ -535,8 +535,8 @@ mod tests {
         order_stream_client::{order_stream, Client},
     };
     use futures_util::StreamExt;
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use reqwest::Url;
     use risc0_zkvm::sha::Digest;
     use sqlx::PgPool;
@@ -553,7 +553,15 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)

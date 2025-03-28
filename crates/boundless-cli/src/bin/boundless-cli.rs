@@ -199,6 +199,14 @@ enum RequestCommands {
         /// Request an unaggregated proof (i.e., a Groth16).
         #[clap(long)]
         unaggregated: bool,
+
+        /// Address of the callback to use in the requirements.
+        #[clap(long, requires = "callback_gas_limit")]
+        callback_address: Option<Address>,
+
+        /// Gas limit of the callback to use in the requirements.
+        #[clap(long, requires = "callback_addr")]
+        callback_gas_limit: Option<u64>,
     },
 
     /// Get the status of a given request
@@ -595,6 +603,8 @@ where
             order_stream_url,
             no_preflight,
             unaggregated,
+            callback_address,
+            callback_gas_limit,
         } => {
             tracing::info!("Submitting proof request from YAML file");
             let id = match id {
@@ -631,6 +641,8 @@ where
                     offchain: *offchain,
                     preflight: !*no_preflight,
                     unaggredated: *unaggregated,
+                    callback_address: *callback_address,
+                    callback_gas_limit: *callback_gas_limit,
                 },
             )
             .await
@@ -720,8 +732,8 @@ where
                 bail!("Predicate evaluation failed");
             }
 
-            tracing::info!("Successfully executed proof request");
-            tracing::debug!("Journal: {}", serde_json::to_string_pretty(&journal)?);
+            tracing::info!("Successfully executed request 0x{:x}", request.id);
+            tracing::debug!("Journal: {:?}", journal);
             Ok(())
         }
         ProvingCommands::Fulfill { request_id, request_digest, tx_hash, order_stream_url } => {
@@ -950,6 +962,8 @@ struct SubmitOptions {
     offchain: bool,
     preflight: bool,
     unaggredated: bool,
+    callback_address: Option<Address>,
+    callback_gas_limit: Option<u64>,
 }
 
 /// Submit a proof request from a YAML file
@@ -996,6 +1010,12 @@ where
     if opts.unaggredated {
         request.requirements = request.requirements.with_unaggregated_proof();
     }
+
+    // Configure callback if provided
+    request.requirements.callback = match (opts.callback_address, opts.callback_gas_limit) {
+        (Some(addr), Some(gas_limit)) => Callback { addr, gasLimit: U96::from(gas_limit) },
+        _ => Callback::default(),
+    };
 
     // Run preflight check if enabled
     if opts.preflight {
@@ -1199,38 +1219,32 @@ mod tests {
         node_bindings::{Anvil, AnvilInstance},
         providers::WalletProvider,
     };
-    use boundless_market::contracts::{
-        hit_points::default_allowance,
-        test_utils::{create_test_ctx, TestCtx},
+    use boundless_market::{
+        contracts::{
+            hit_points::default_allowance,
+            test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx},
+            RequestStatus,
+        },
+        selector::is_unaggregated_selector,
     };
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use guest_util::{ECHO_ID, ECHO_PATH};
     use order_stream::{run_from_parts, AppState, ConfigBuilder};
     use sqlx::PgPool;
+    use tempfile::tempdir;
     use tokio::task::JoinHandle;
     use tracing_test::traced_test;
 
-    fn generate_request(
-        id: u32,
-        addr: &Address,
-        unaggregated: bool,
-        callback: Option<Callback>,
-    ) -> ProofRequest {
-        let mut requirements = Requirements::new(
-            Digest::from(ECHO_ID),
-            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-        );
-        if unaggregated {
-            requirements = requirements.with_unaggregated_proof();
-        }
-        if let Some(callback) = callback {
-            requirements = requirements.with_callback(callback);
-        }
+    // generate a test request
+    fn generate_request(id: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
             id,
             addr,
-            requirements,
+            Requirements::new(
+                Digest::from(ECHO_ID),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
             format!("file://{ECHO_PATH}"),
             Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
@@ -1257,7 +1271,15 @@ mod tests {
     {
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let private_key = match owner {
             AccountOwner::Customer => {
@@ -1438,6 +1460,8 @@ mod tests {
                 order_stream_url: None,
                 no_preflight: false,
                 unaggregated: false,
+                callback_address: None,
+                callback_gas_limit: None,
             })),
         };
         run(&args).await.unwrap();
@@ -1466,6 +1490,8 @@ mod tests {
                 order_stream_url: Some(order_stream_url),
                 no_preflight: false,
                 unaggregated: false,
+                callback_address: None,
+                callback_gas_limit: None,
             })),
         };
         run(&args).await.unwrap();
@@ -1478,15 +1504,56 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_submit_offer_onchain() {
+        let (_ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+
+        // Submit a request onchain
+        let args = MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::SubmitOffer(SubmitOfferArgs {
+                storage_config: Some(StorageProviderConfig::dev_mode()),
+                yaml_offer: "../../offer.yaml".to_string().into(),
+                id: None,
+                wait: false,
+                offchain: false,
+                order_stream_url: None,
+                no_preflight: false,
+                encode_input: false,
+                inline_input: true,
+                input: SubmitOfferInput {
+                    input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),
+                    input_file: None,
+                },
+                elf: PathBuf::from(ECHO_PATH),
+                reqs: SubmitOfferRequirements {
+                    journal_digest: None,
+                    journal_prefix: Some(String::default()),
+                    callback_address: None,
+                    callback_gas_limit: None,
+                    unaggregated: false,
+                },
+            }))),
+        };
+        run(&args).await.unwrap();
+        assert!(logs_contain("Submitting request onchain"));
+        assert!(logs_contain("Submitted request"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_request_status_onchain() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         let request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
             &ctx.customer_signer.address(),
-            false,
-            None,
         );
+
+        // Deposit funds into the market
+        ctx.customer_market.deposit(parse_ether("1").unwrap()).await.unwrap();
+
+        // Submit the request onchain
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         // Create a new args struct to test the Status command
         let status_args = MainArgs {
@@ -1500,5 +1567,398 @@ mod tests {
         run(&status_args).await.unwrap();
 
         assert!(logs_contain(&format!("Request 0x{:x} status: Unknown", request.id)));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_slash() {
+        let (ctx, anvil, config) = setup_test_env(AccountOwner::Customer).await;
+
+        let mut request = generate_request(
+            ctx.customer_market.index_from_nonce().await.unwrap(),
+            &ctx.customer_signer.address(),
+        );
+        request.offer.timeout = 50;
+        request.offer.lockTimeout = 50;
+
+        // Deposit funds into the market
+        ctx.customer_market.deposit(parse_ether("1").unwrap()).await.unwrap();
+
+        // Submit the request onchain
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        let client_sig = request
+            .sign_request(&ctx.customer_signer, ctx.boundless_market_address, anvil.chain_id())
+            .await
+            .unwrap();
+
+        // Lock the request
+        ctx.prover_market
+            .lock_request(&request, &Bytes::copy_from_slice(&client_sig.as_bytes()), None)
+            .await
+            .unwrap();
+
+        // Create a new args struct to test the Status command
+        let status_args = MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::Status {
+                request_id: request.id,
+                expires_at: None,
+            })),
+        };
+        run(&status_args).await.unwrap();
+        assert!(logs_contain(&format!("Request 0x{:x} status: Locked", request.id)));
+
+        loop {
+            // Wait for the timeout to expire
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let status = ctx
+                .customer_market
+                .get_status(request.id, Some(request.expires_at()))
+                .await
+                .unwrap();
+            if status == RequestStatus::Expired {
+                break;
+            }
+        }
+
+        // test the Slash command
+        run(&MainArgs {
+            config,
+            command: Command::Ops(Box::new(OpsCommands::Slash { request_id: request.id })),
+        })
+        .await
+        .unwrap();
+        assert!(logs_contain(&format!(
+            "Successfully slashed prover for request 0x{:x}",
+            request.id
+        )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+    async fn test_proving_onchain() {
+        let (ctx, anvil, config) = setup_test_env(AccountOwner::Customer).await;
+
+        let request = generate_request(
+            ctx.customer_market.index_from_nonce().await.unwrap(),
+            &ctx.customer_signer.address(),
+        );
+
+        let request_id = request.id;
+
+        // Dump the request to a tmp file
+        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        let request_file = File::create(&request_path).unwrap();
+        serde_yaml::to_writer(request_file, &request).unwrap();
+
+        // send the request onchain
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::Submit {
+                storage_config: Some(StorageProviderConfig::dev_mode()),
+                yaml_request: request_path,
+                id: None,
+                wait: false,
+                offchain: false,
+                order_stream_url: None,
+                no_preflight: true,
+                unaggregated: false,
+                callback_address: None,
+                callback_gas_limit: None,
+            })),
+        })
+        .await
+        .unwrap();
+
+        // test the Execute command
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Proving(Box::new(ProvingCommands::Execute {
+                request_path: None,
+                request_id: Some(request_id),
+                request_digest: None,
+                tx_hash: None,
+                order_stream_url: None,
+            })),
+        })
+        .await
+        .unwrap();
+
+        assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
+
+        let client_sig = request
+            .sign_request(&ctx.customer_signer, ctx.boundless_market_address, anvil.chain_id())
+            .await
+            .unwrap();
+
+        // Lock the request
+        ctx.prover_market
+            .lock_request(&request, &Bytes::copy_from_slice(&client_sig.as_bytes()), None)
+            .await
+            .unwrap();
+
+        // test the Status command
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::Status {
+                request_id,
+                expires_at: None,
+            })),
+        })
+        .await
+        .unwrap();
+        assert!(logs_contain(&format!("Request 0x{:x} status: Locked", request.id)));
+
+        // test the Fulfill command
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+                request_id,
+                request_digest: None,
+                tx_hash: None,
+                order_stream_url: None,
+            })),
+        })
+        .await
+        .unwrap();
+
+        assert!(logs_contain(&format!("Successfully fulfilled request 0x{:x}", request.id)));
+
+        // test the Status command
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::Status {
+                request_id,
+                expires_at: None,
+            })),
+        })
+        .await
+        .unwrap();
+        assert!(logs_contain(&format!("Request 0x{:x} status: Fulfilled", request.id)));
+
+        // test the GetProof command
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::GetProof { request_id })),
+        })
+        .await
+        .unwrap();
+        assert!(logs_contain(&format!(
+            "Successfully retrieved proof for request 0x{:x}",
+            request.id
+        )));
+
+        // test the Verify command
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::VerifyProof {
+                request_id,
+                image_id: request.requirements.imageId,
+            })),
+        })
+        .await
+        .unwrap();
+        assert!(logs_contain(&format!(
+            "Successfully verified proof for request 0x{:x}",
+            request.id
+        )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+    async fn test_callback() {
+        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+
+        let request = generate_request(
+            ctx.customer_market.index_from_nonce().await.unwrap(),
+            &ctx.customer_signer.address(),
+        );
+
+        // Dump the request to a tmp file
+        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        let request_file = File::create(&request_path).unwrap();
+        serde_yaml::to_writer(request_file, &request).unwrap();
+
+        // Deploy MockCallback contract
+        let callback_address = deploy_mock_callback(
+            &ctx.prover_provider,
+            ctx.verifier_address,
+            ctx.boundless_market_address,
+            ECHO_ID,
+            U256::ZERO,
+        )
+        .await
+        .unwrap();
+
+        // send the request onchain
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::Submit {
+                storage_config: Some(StorageProviderConfig::dev_mode()),
+                yaml_request: request_path,
+                id: None,
+                wait: false,
+                offchain: false,
+                order_stream_url: None,
+                no_preflight: true,
+                unaggregated: false,
+                callback_address: Some(callback_address),
+                callback_gas_limit: Some(100000),
+            })),
+        })
+        .await
+        .unwrap();
+
+        // fulfill the request
+        run(&MainArgs {
+            config,
+            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+                request_id: request.id,
+                request_digest: None,
+                tx_hash: None,
+                order_stream_url: None,
+            })),
+        })
+        .await
+        .unwrap();
+
+        // check the callback was called
+        let count =
+            get_mock_callback_count(&ctx.customer_provider, callback_address).await.unwrap();
+        assert!(count == U256::from(1));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+    async fn test_selector() {
+        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+
+        let request = generate_request(
+            ctx.customer_market.index_from_nonce().await.unwrap(),
+            &ctx.customer_signer.address(),
+        );
+
+        // Dump the request to a tmp file
+        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        let request_file = File::create(&request_path).unwrap();
+        serde_yaml::to_writer(request_file, &request).unwrap();
+
+        // send the request onchain
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::Submit {
+                storage_config: Some(StorageProviderConfig::dev_mode()),
+                yaml_request: request_path,
+                id: None,
+                wait: false,
+                offchain: false,
+                order_stream_url: None,
+                no_preflight: true,
+                unaggregated: true,
+                callback_address: None,
+                callback_gas_limit: None,
+            })),
+        })
+        .await
+        .unwrap();
+
+        // fulfill the request
+        run(&MainArgs {
+            config,
+            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+                request_id: request.id,
+                request_digest: None,
+                tx_hash: None,
+                order_stream_url: None,
+            })),
+        })
+        .await
+        .unwrap();
+
+        // check the seal is aggregated
+        let (_journal, seal) =
+            ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
+        let selector: FixedBytes<4> = seal[0..4].try_into().unwrap();
+        assert!(is_unaggregated_selector(selector))
+    }
+
+    #[sqlx::test]
+    #[traced_test]
+    #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+    async fn test_proving_offchain(pool: PgPool) {
+        let (ctx, _anvil, config, order_stream_url, order_stream_handle) =
+            setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
+
+        // Deposit funds into the market
+        ctx.customer_market.deposit(parse_ether("1").unwrap()).await.unwrap();
+
+        let request = generate_request(
+            ctx.customer_market.index_from_nonce().await.unwrap(),
+            &ctx.customer_signer.address(),
+        );
+
+        let request_id = request.id;
+
+        // Dump the request to a tmp file
+        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        let request_file = File::create(&request_path).unwrap();
+        serde_yaml::to_writer(request_file, &request).unwrap();
+
+        // send the request offchain
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Request(Box::new(RequestCommands::Submit {
+                storage_config: Some(StorageProviderConfig::dev_mode()),
+                yaml_request: request_path,
+                id: None,
+                wait: false,
+                offchain: true,
+                order_stream_url: Some(order_stream_url.clone()),
+                no_preflight: true,
+                unaggregated: false,
+                callback_address: None,
+                callback_gas_limit: None,
+            })),
+        })
+        .await
+        .unwrap();
+
+        // test the Execute command
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Proving(Box::new(ProvingCommands::Execute {
+                request_path: None,
+                request_id: Some(request_id),
+                request_digest: None,
+                tx_hash: None,
+                order_stream_url: Some(order_stream_url.clone()),
+            })),
+        })
+        .await
+        .unwrap();
+
+        assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
+
+        // test the Fulfill command
+        run(&MainArgs {
+            config,
+            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+                request_id,
+                request_digest: None,
+                tx_hash: None,
+                order_stream_url: Some(order_stream_url),
+            })),
+        })
+        .await
+        .unwrap();
+
+        assert!(logs_contain(&format!("Successfully fulfilled request 0x{:x}", request.id)));
+
+        // Clean up
+        order_stream_handle.abort();
     }
 }

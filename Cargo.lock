@@ -2422,6 +2422,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sqlx",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.19",

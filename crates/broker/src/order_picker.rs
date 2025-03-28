@@ -658,7 +658,7 @@ mod tests {
         Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
-    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_util::{ECHO_ELF, ECHO_ID};
     use httpmock::prelude::*;
     use risc0_ethereum_contracts::selector::Selector;
@@ -773,6 +773,7 @@ mod tests {
                 Address::ZERO,
                 hp_contract,
                 Digest::from(ASSESSOR_GUEST_ID),
+                format!("file://{ASSESSOR_GUEST_PATH}"),
                 Some(signer.address()),
             )
             .await

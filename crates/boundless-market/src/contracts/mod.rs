@@ -132,7 +132,7 @@ pub mod token {
 
 /// Status of a proof request
 #[derive(Debug, PartialEq)]
-pub enum ProofStatus {
+pub enum RequestStatus {
     /// The request has expired.
     Expired,
     /// The request is locked in and waiting for fulfillment.

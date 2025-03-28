@@ -46,6 +46,7 @@ guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
 order-stream = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
+tempfile = { workspace = true }
 tracing-test = { workspace = true }
 
 [features]

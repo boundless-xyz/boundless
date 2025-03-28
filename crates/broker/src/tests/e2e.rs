@@ -124,7 +124,15 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+    let ctx = create_test_ctx(
+        &anvil,
+        SET_BUILDER_ID,
+        format!("file://{SET_BUILDER_PATH}"),
+        ASSESSOR_GUEST_ID,
+        format!("file://{ASSESSOR_GUEST_PATH}"),
+    )
+    .await
+    .unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -181,7 +189,15 @@ async fn simple_e2e_with_callback() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+    let ctx = create_test_ctx(
+        &anvil,
+        SET_BUILDER_ID,
+        format!("file://{SET_BUILDER_PATH}"),
+        ASSESSOR_GUEST_ID,
+        format!("file://{ASSESSOR_GUEST_PATH}"),
+    )
+    .await
+    .unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -264,7 +280,15 @@ async fn e2e_with_selector() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+    let ctx = create_test_ctx(
+        &anvil,
+        SET_BUILDER_ID,
+        format!("file://{SET_BUILDER_PATH}"),
+        ASSESSOR_GUEST_ID,
+        format!("file://{ASSESSOR_GUEST_PATH}"),
+    )
+    .await
+    .unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -326,7 +350,15 @@ async fn e2e_with_multiple_requests() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+    let ctx = create_test_ctx(
+        &anvil,
+        SET_BUILDER_ID,
+        format!("file://{SET_BUILDER_PATH}"),
+        ASSESSOR_GUEST_ID,
+        format!("file://{ASSESSOR_GUEST_PATH}"),
+    )
+    .await
+    .unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
