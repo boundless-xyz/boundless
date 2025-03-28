@@ -504,8 +504,6 @@ where
 
         if let Some(max) = max_concurrent_locks {
             let committed_orders_count = self.db.get_orders_committed_to_fulfill_count().await?;
-            println!("max_concurrent_locks: {}", max);
-            println!("committed_orders_count: {}", committed_orders_count);
             let available_slots = max.saturating_sub(committed_orders_count);
             Ok(Some(available_slots))
         } else {
