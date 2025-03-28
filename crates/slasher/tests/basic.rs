@@ -15,8 +15,8 @@ use boundless_market::contracts::{
     test_utils::create_test_ctx, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
 };
 use futures_util::StreamExt;
-use guest_assessor::ASSESSOR_GUEST_ID;
-use guest_set_builder::SET_BUILDER_ID;
+use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use risc0_zkvm::sha::Digest;
 
 async fn create_order(
@@ -56,7 +56,15 @@ async fn create_order(
 async fn test_basic_usage() {
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+    let ctx = create_test_ctx(
+        &anvil,
+        SET_BUILDER_ID,
+        format!("file://{SET_BUILDER_PATH}"),
+        ASSESSOR_GUEST_ID,
+        format!("file://{ASSESSOR_GUEST_PATH}"),
+    )
+    .await
+    .unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-slasher");
     let args = [
