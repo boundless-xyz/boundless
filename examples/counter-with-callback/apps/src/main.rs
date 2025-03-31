@@ -6,23 +6,19 @@ use std::time::{Duration, SystemTime};
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
-    primitives::{utils::parse_ether, Address, B256},
+    primitives::{aliases::U96, utils::parse_ether, Address},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements, Callback},
+    contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
     storage::{BuiltinStorageProvider, StorageProvider, StorageProviderConfig},
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
-use risc0_zkvm::{
-    default_executor,
-    sha::{Digest, Digestible},
-    ExecutorEnv,
-};
+use risc0_zkvm::{default_executor, sha::Digestible, ExecutorEnv};
 use url::Url;
 
 /// Timeout for the transaction to be confirmed.
@@ -143,27 +139,25 @@ async fn run<P: StorageProvider>(
         .div_ceil(1_000_000);
     let journal = session_info.journal;
 
-    let callback = Callback {};
-
     // Create a proof request with the image, input, requirements and offer.
     // The ELF (i.e. image) is specified by the image URL.
     // The input can be specified by an URL, as in this example, or can be posted on chain by using
     // the `with_inline` method with the input bytes.
     // The requirements are the ECHO_ID and the digest of the journal. In this way, the market can
     // verify that the proof is correct by checking both the committed image id and digest of the
-    // journal. The offer specifies the price range and the timeout for the request.
-    // Additionally, the offer can also specify:
-    // - the bidding start time: the UNIX timestamp at which the bidding starts;
-    // - the ramp up period: the number of seconds before the price increases until reaches
-    //   the maxPrice, starting from the bidding start;
-    // - the lockin price: the price at which the request can be locked in by a prover, if the
-    //   request is not fulfilled before the timeout, the prover can be slashed.
+    // journal. Additionally, the requirements specify the callback to be executed by the prover
+    // when the proof is fulfilled. The callback is a contract address and a gas limit. The prover
+    // will call the contract with the journal and seal as arguments. The contract can then verify
+    // the proof and execute the callback. The callback can be any contract that implements the
+    // `IBoundlessMarketCallback` interface.
     let request = ProofRequest::builder()
         .with_image_url(image_url)
         .with_input(input_url)
-        .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())).with_callback(
-            callback,
-        ))
+        .with_requirements(
+            Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()))
+                .with_callback(Callback { addr: counter_address, gasLimit: U96::from(1_000_000) }),
+        )
+        // The offer specifies the price range and the timeout for the request.
         .with_offer(
             Offer::default()
                 // The market uses a reverse Dutch auction mechanism to match requests with provers.
@@ -179,6 +173,9 @@ async fn run<P: StorageProvider>(
                 // the request and does not fulfill it before the timeout, the prover can be
                 // slashed.
                 .with_timeout(1000)
+                // The lock timeout is the time, in seconds, the prover has to fulfill the request.
+                // If a prover locks in the request and does not fulfill it before the lock timeout,
+                // the prover can be slashed.
                 .with_lock_timeout(1000),
         )
         .build()?;
@@ -190,7 +187,7 @@ async fn run<P: StorageProvider>(
     // Wait for the request to be fulfilled by the market. The market will return the journal and
     // seal.
     tracing::info!("Waiting for request {} to be fulfilled", request_id);
-    let (_journal, seal) = client
+    let (_journal, _seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
@@ -199,29 +196,14 @@ async fn run<P: StorageProvider>(
         .await?;
     tracing::info!("Request {} fulfilled", request_id);
 
-    // We interact with the Counter contract by calling the increment function with the journal and
-    // seal returned by the market.
+    // We interact with the Counter contract by calling the getCount function to check that the callback
+    // was executed correctly.
     let counter = ICounterInstance::new(counter_address, client.provider().clone());
-    let journal_digest = B256::try_from(journal.digest().as_bytes())?;
-    let image_id = B256::try_from(Digest::from(ECHO_ID).as_bytes())?;
-    let call_increment = counter.increment(seal, image_id, journal_digest).from(client.caller());
-
-    // By calling the increment function, we verify the seal against the published roots
-    // of the SetVerifier contract.
-    tracing::info!("Calling Counter increment function");
-    let pending_tx = call_increment.send().await.context("failed to broadcast tx")?;
-    tracing::info!("Broadcasting tx {}", pending_tx.tx_hash());
-    let tx_hash =
-        pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await.context("failed to confirm tx")?;
-    tracing::info!("Tx {:?} confirmed", tx_hash);
-
-    // Query the counter value for the caller address to check that the counter has been
-    // increased.
     let count = counter
-        .getCount(client.caller())
+        .count()
         .call()
         .await
-        .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?
+        .with_context(|| format!("failed to call {}", ICounter::countCall::SIGNATURE))?
         ._0;
     tracing::info!("Counter value for address: {:?} is {:?}", client.caller(), count);
 
@@ -244,6 +226,7 @@ mod tests {
     use broker::test_utils::BrokerBuilder;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use guest_set_builder::SET_BUILDER_ID;
+    use risc0_zkvm::Digest;
     use test_log::test;
     use tokio::task::JoinSet;
 
@@ -263,7 +246,13 @@ mod tests {
             .connect(&anvil.endpoint())
             .await
             .unwrap();
-        let counter = Counter::deploy(&deployer_provider, test_ctx.set_verifier_address).await?;
+        let counter = Counter::deploy(
+            &deployer_provider,
+            test_ctx.verifier_address,
+            test_ctx.boundless_market_address,
+            <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
+        )
+        .await?;
 
         Ok(*counter.address())
     }

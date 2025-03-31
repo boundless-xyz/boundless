@@ -12,11 +12,13 @@ contract Deploy is Script {
     function run() external payable {
         // load ENV variables first
         uint256 key = vm.envUint("PRIVATE_KEY");
-        address verifierAddress = vm.envAddress("SET_VERIFIER_ADDRESS");
+        address verifierAddress = vm.envAddress("VERIFIER_ADDRESS");
+        address boundlessMarketAddress = vm.envAddress("BOUNDLESS_MARKET_ADDRESS");
+        bytes32 imageId = vm.envBytes32("IMAGE_ID");
         vm.startBroadcast(key);
 
         IRiscZeroVerifier verifier = IRiscZeroVerifier(verifierAddress);
-        Counter counter = new Counter(verifier);
+        Counter counter = new Counter(verifier, boundlessMarketAddress, imageId);
         address counterAddress = address(counter);
         console2.log("Deployed Counter to", counterAddress);
 

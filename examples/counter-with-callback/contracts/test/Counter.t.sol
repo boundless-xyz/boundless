@@ -22,14 +22,20 @@ contract CounterTest is RiscZeroCheats, Test {
 
     function setUp() public {
         verifier = new RiscZeroMockVerifier(0);
-        counter = new Counter(verifier);
-        assertEq(counter.count(address(this)), 0);
+        // Setting the boundless market address to the contract itself for testing purposes.
+        // Only the boundless market should be able to call the callback.
+        // In a real scenario, this would be the address of the boundless market.
+        address boundlessMarket = address(this);
+        counter = new Counter(verifier, boundlessMarket, IMAGE_ID);
+        assertEq(counter.count(), 0);
     }
 
-    function test_Increment() public {
+    function test_callback() public {
         RiscZeroReceipt memory receipt = verifier.mockProve(IMAGE_ID, sha256(MOCK_JOURNAL));
 
-        counter.increment(receipt.seal, IMAGE_ID, sha256(MOCK_JOURNAL));
-        assertEq(counter.count(address(this)), 1);
+        // mock the callback from the boundless market
+        counter.handleProof(IMAGE_ID, MOCK_JOURNAL, receipt.seal);
+
+        assertEq(counter.count(), 1);
     }
 }

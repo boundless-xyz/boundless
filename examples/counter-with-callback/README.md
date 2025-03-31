@@ -1,4 +1,4 @@
-# Counter Example
+# Counter with Callback Example
 
 > This example should be run against a deployment of the Boundless market.
 > Environment variables for connecting to and interacting with the network are defined in a `.env` file. See [.env.testnet](../../.env.testnet) for testnet environment variables or [.env.localnet-template](../../.env.localnet-template) for local network config.
@@ -61,5 +61,5 @@ export IPFS_GATEWAY_URL="YOUR_IPFS_GATEWAY_URL"
 ```
 
 ```bash
-RUST_LOG=info cargo run --bin example-counter -- --counter-address ${COUNTER_ADDRESS:?}
+RUST_LOG=info cargo run --bin example-counter-with-callback -- --counter-address ${COUNTER_ADDRESS:?}
 ```

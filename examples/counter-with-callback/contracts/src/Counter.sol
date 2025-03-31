@@ -6,7 +6,7 @@ pragma solidity ^0.8.13;
 
 import {ICounter} from "./ICounter.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
-import {BoundlessMarketCallback} from "../../../../contracts/src/BoundlessMarketCallback.sol";
+import {BoundlessMarketCallback} from "boundless-market/BoundlessMarketCallback.sol";
 
 error AlreadyVerified(bytes32 received);
 
@@ -21,13 +21,14 @@ contract Counter is ICounter, BoundlessMarketCallback {
         count = 0;
     }
 
+    // @notice Increments the counter and emits an event when a proof is verified.
+    // @dev This function is called by the Boundless Market when a proof is verified.
+    // @param imageId The ID of the image that was verified.
+    // @param journal The journal from the zkVM program.
+    // @param seal The seal from the zkVM program.
     function _handleProof(bytes32 imageId, bytes calldata journal, bytes calldata seal) internal override {
         count += 1;
 
         emit CounterCallbackCalled(imageId, journal, seal);
-    }
-
-    function getCount() public view returns (uint256) {
-        return count;
     }
 }
