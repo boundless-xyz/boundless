@@ -99,6 +99,8 @@ impl ProvingService {
             .await
             .context("Failed to prove customer proof STARK order")?;
 
+        tracing::debug!("Order {order_id:x} proof id: {proof_id}");
+
         self.db
             .set_order_proof_id(order_id, &proof_id)
             .await
@@ -237,7 +239,7 @@ mod tests {
     use crate::{
         db::SqliteDb,
         now_timestamp,
-        provers::{encode_input, MockProver},
+        provers::{encode_input, DefaultProver},
         OrderStatus,
     };
     use alloy::primitives::{Bytes, U256};
@@ -255,7 +257,7 @@ mod tests {
     async fn prove_order() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let prover: ProverObj = Arc::new(MockProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
@@ -320,7 +322,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
 
-        let prover: ProverObj = Arc::new(MockProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
@@ -379,12 +381,12 @@ mod tests {
         proving_service.find_and_monitor_proofs().await.unwrap();
 
         // Sleep long enough for the tokio tasks to pickup and complete the order in the DB
-        for _ in 0..4 {
+        loop {
             let db_order = db.get_order(order_id).await.unwrap().unwrap();
             if db_order.status != OrderStatus::Proving {
                 break;
             }
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
 
         let order = db.get_order(order_id).await.unwrap().unwrap();

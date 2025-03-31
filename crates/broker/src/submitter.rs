@@ -440,7 +440,7 @@ mod tests {
     use crate::{
         db::SqliteDb,
         now_timestamp,
-        provers::{encode_input, MockProver},
+        provers::{encode_input, DefaultProver},
         AggregationState, Batch, BatchStatus, Order, OrderStatus,
     };
     use alloy::{
@@ -480,7 +480,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -488,7 +488,7 @@ mod tests {
         let customer_provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(customer_signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -518,7 +518,7 @@ mod tests {
         market_customer.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let prover: ProverObj = Arc::new(MockProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         let echo_id = Digest::from(ECHO_ID);
         let echo_id_str = echo_id.to_string();

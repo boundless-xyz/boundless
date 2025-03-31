@@ -24,7 +24,7 @@ use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
     providers::Provider,
-    rpc::types::{BlockTransactionsKind, Log, TransactionReceipt},
+    rpc::types::{Log, TransactionReceipt},
     signers::Signer,
 };
 use alloy_sol_types::{SolCall, SolEvent};
@@ -339,7 +339,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let priority_fee = self
                 .instance
                 .provider()
-                .estimate_eip1559_fees(None)
+                .estimate_eip1559_fees()
                 .await
                 .context("Failed to get priority gas fee")?;
 
@@ -670,7 +670,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let priority_fee = self
                 .instance
                 .provider()
-                .estimate_eip1559_fees(None)
+                .estimate_eip1559_fees()
                 .await
                 .context("Failed to get priority gas fee")?;
 
@@ -730,7 +730,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let priority_fee = self
                 .instance
                 .provider()
-                .estimate_eip1559_fees(None)
+                .estimate_eip1559_fees()
                 .await
                 .context("Failed to get priority gas fee")?;
 
@@ -821,7 +821,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let block = self
             .instance
             .provider()
-            .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+            .get_block_by_number(BlockNumberOrTag::Latest)
             .await
             .context("failed to get block")?
             .context("failed to get block")?;
@@ -1162,7 +1162,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let block = self
             .instance
             .provider()
-            .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+            .get_block_by_number(BlockNumberOrTag::Latest)
             .await
             .context("failed to get block")?
             .context("failed to get block")?;
@@ -1350,8 +1350,9 @@ mod tests {
         contracts::{
             hit_points::default_allowance,
             test_utils::{create_test_ctx, TestCtx},
-            AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType,
-            Offer, Predicate, PredicateType, ProofRequest, ProofStatus, Requirements,
+            AssessorCommitment, AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket,
+            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
+            Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1427,22 +1428,24 @@ mod tests {
         let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
         let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
         let app_claim_digest = app_receipt_claim.digest();
-
-        let assessor_journal = AssessorJournal {
-            requestDigests: vec![request.eip712_signing_hash(&eip712_domain)],
-            selectors: vec![],
-            root: to_b256(app_claim_digest),
-            prover,
-            callbacks: vec![],
-        };
+        let request_digest = request.eip712_signing_hash(&eip712_domain);
+        let assessor_root = AssessorCommitment {
+            index: U256::ZERO,
+            id: request.id,
+            requestDigest: request_digest,
+            claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
+        }
+        .eip712_hash_struct();
+        let assessor_journal =
+            AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
         let assesor_receipt_claim =
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
         let assessor_claim_digest = assesor_receipt_claim.digest();
 
-        let root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
+        let set_builder_root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
         let set_builder_journal = {
             let mut state = GuestState::initial(SET_BUILDER_ID);
-            state.mmr.push(root).unwrap();
+            state.mmr.push(set_builder_root).unwrap();
             state.mmr.finalize().unwrap();
             state.encode()
         };
@@ -1453,7 +1456,7 @@ mod tests {
             InnerReceipt::Fake(FakeReceipt::new(set_builder_receipt_claim)),
             set_builder_journal,
         );
-        let set_verifier_seal = encode_seal(&set_builder_receipt).unwrap();
+        let set_builder_seal = encode_seal(&set_builder_receipt).unwrap();
 
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: Digest::from(SET_BUILDER_ID) };
@@ -1467,7 +1470,7 @@ mod tests {
 
         let fulfillment = Fulfillment {
             id: request.id,
-            requestDigest: request.eip712_signing_hash(&eip712_domain),
+            requestDigest: request_digest,
             imageId: to_b256(Digest::from(ECHO_ID)),
             journal: app_journal.bytes.into(),
             seal: set_inclusion_seal.into(),
@@ -1481,7 +1484,7 @@ mod tests {
         .abi_encode_seal()
         .unwrap();
 
-        (to_b256(root), set_verifier_seal.into(), fulfillment, assessor_seal.into())
+        (to_b256(set_builder_root), set_builder_seal.into(), fulfillment, assessor_seal.into())
     }
 
     #[test]

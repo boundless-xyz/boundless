@@ -33,6 +33,7 @@ bytemuck = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }
 hex = { workspace = true }
+httpmock = "0.7"
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-aggregation = { workspace = true }
@@ -52,6 +53,7 @@ time = "0.3"
 utoipa = { workspace = true }
 
 [dev-dependencies]
+boundless-assessor = { workspace = true }
 boundless-market = { path = ".", features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }

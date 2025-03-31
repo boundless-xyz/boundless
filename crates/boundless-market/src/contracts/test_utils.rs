@@ -25,7 +25,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
-use alloy_primitives::B256;
+use alloy_primitives::{B256, U256};
 use anyhow::{Context, Ok, Result};
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_circuit_recursion::control_id::{ALLOWED_CONTROL_ROOT, BN254_IDENTITY_CONTROL_ID};
@@ -147,6 +147,32 @@ pub async fn deploy_boundless_market<P: Provider>(
     Ok(proxy)
 }
 
+pub async fn deploy_mock_callback<P: Provider>(
+    deployer_provider: P,
+    verifier: Address,
+    boundless_market_address: Address,
+    image_id: impl Into<Digest>,
+    target_gas: U256,
+) -> Result<Address> {
+    let mock_callback_instance = MockCallback::deploy(
+        &deployer_provider,
+        verifier,
+        boundless_market_address,
+        <[u8; 32]>::from(image_id.into()).into(),
+        target_gas,
+    )
+    .await
+    .context("failed to deploy MockCallback contract")?;
+
+    Ok(*mock_callback_instance.address())
+}
+
+pub async fn get_mock_callback_count(provider: &impl Provider, address: Address) -> Result<U256> {
+    let instance = MockCallback::MockCallbackInstance::new(address, provider);
+    let count = instance.getCallCount().call().await?;
+    Ok(count._0)
+}
+
 async fn deploy_contracts(
     anvil: &AnvilInstance,
     set_builder_id: Digest,
@@ -156,7 +182,7 @@ async fn deploy_contracts(
     let deployer_address = deployer_signer.address();
     let deployer_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(deployer_signer.clone()))
-        .on_builtin(&anvil.endpoint())
+        .connect(&anvil.endpoint())
         .await?;
 
     // Deploy contracts
@@ -214,7 +240,7 @@ async fn deploy_contracts(
     deployer_provider.anvil_mine(Some(10), Some(2)).await.unwrap();
     deployer_provider.anvil_set_interval_mining(2).await.unwrap();
 
-    Ok((verifier, set_verifier, hit_points, boundless_market))
+    Ok((verifier_router, set_verifier, hit_points, boundless_market))
 }
 
 // Spin up a test deployment with a RiscZeroMockVerifier if in dev mode or
@@ -242,15 +268,15 @@ pub async fn create_test_ctx_with_rpc_url(
 
     let prover_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(prover_signer.clone()))
-        .on_builtin(rpc_url)
+        .connect(rpc_url)
         .await?;
     let customer_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(customer_signer.clone()))
-        .on_builtin(rpc_url)
+        .connect(rpc_url)
         .await?;
     let verifier_provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(verifier_signer.clone()))
-        .on_builtin(rpc_url)
+        .connect(rpc_url)
         .await?;
 
     let prover_market = BoundlessMarketService::new(

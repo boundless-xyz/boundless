@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.81.0-bookworm AS init
+FROM rust:1.85.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang

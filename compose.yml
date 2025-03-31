@@ -56,7 +56,7 @@ services:
       - GF_LOG_LEVEL=WARN
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_PORT={POSTGRES_PORT}
+      - POSTGRES_PORT=${POSTGRES_PORT}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASS=${POSTGRES_PASSWORD}
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
@@ -89,7 +89,7 @@ services:
         CUDA_OPT_LEVEL: 1
 
     mem_limit: 4G
-    cpu_count: 4
+    cpus: 4
 
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
@@ -119,7 +119,7 @@ services:
       - minio
 
     mem_limit: 256M
-    cpu_count: 1
+    cpus: 1
 
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
@@ -145,7 +145,7 @@ services:
       - minio
 
     mem_limit: 4G
-    cpu_count: 4
+    cpus: 4
 
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
@@ -184,13 +184,13 @@ services:
   # gpu_join_agent0:
   #   <<: *gpu
   #   mem_limit: 2G
-  #   cpu_count: 2
+  #   cpus: 2
   #   entrypoint: /app/agent -t join
 
   # gpu_coproc_agent0:
   #   <<: *gpu
   #   mem_limit: 2G
-  #   cpu_count: 2
+  #   cpus: 2
   #   entrypoint: /app/agent -t coproc
 
 
@@ -235,7 +235,7 @@ services:
       dockerfile: dockerfiles/rest_api.dockerfile
 
     mem_limit: 1G
-    cpu_count: 1
+    cpus: 1
 
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
@@ -263,7 +263,7 @@ services:
       dockerfile: dockerfiles/broker.dockerfile
 
     mem_limit: 2G
-    cpu_count: 2
+    cpus: 2
 
     volumes:
       - type: bind
