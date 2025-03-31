@@ -1202,7 +1202,7 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
 
     // Check verifier contract
     print!("Testing VerifierRouter contract... ");
-    match provider.call(&tx).await {
+    match provider.call(tx).await {
         Ok(_) => println!("✅ Contract responds"),
         Err(e) => println!("❌ Contract error: {}", e),
     }
