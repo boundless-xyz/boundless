@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use crate::ICounter::ICounterInstance;
 use alloy::{
     network::Ethereum,
-    primitives::{utils::parse_ether, Address, Bytes, FixedBytes, B256},
+    primitives::{utils::parse_ether, Address, Bytes, B256},
     providers::Provider,
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
@@ -22,11 +22,9 @@ use boundless_market::{
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
-use risc0_ethereum_contracts::{
-    receipt::Receipt as ContractReceipt, selector::Selector as ContractSelector,
-};
+use risc0_ethereum_contracts::receipt::Receipt as ContractReceipt;
 use risc0_zkvm::{
-    compute_image_id, default_executor, serde as risc0_serde,
+    compute_image_id, default_executor,
     sha::{Digest, Digestible},
     ExecutorEnv, Journal,
 };
@@ -126,18 +124,14 @@ async fn run<P: StorageProvider>(
         .context("failed to build boundless client")?;
 
     // We use a timestamp as input to the ECHO guest code so that the proof is unique.
-    let echo_message = Vec::from(format!("{:?}", SystemTime::now()));
-    let echo_input = Input::builder().write_slice(&echo_message).build_env()?;
+    let echo_input = Vec::from(format!("{:?}", SystemTime::now()));
+    let echo_guest_env = Input::builder().write_slice(&echo_input).build_env()?;
 
     // Request an un-aggregated proof from the Boundless market using the ECHO guest.
-    let (echo_journal, echo_seal) = boundless_proof(
-        &boundless_client,
-        ECHO_ELF,
-        echo_input,
-        Some(ContractSelector::Groth16V1_2),
-    )
-    .await
-    .context("failed to prove ECHO")?;
+    let (echo_journal, echo_seal) =
+        boundless_proof(&boundless_client, ECHO_ELF, echo_guest_env, true)
+            .await
+            .context("failed to prove ECHO")?;
 
     // Decode the resulting RISC0-ZKVM receipt.
     let Ok(ContractReceipt::Base(echo_receipt)) = risc0_ethereum_contracts::receipt::decode_seal(
@@ -150,14 +144,13 @@ async fn run<P: StorageProvider>(
     let echo_claim_digest = echo_receipt.claim().unwrap().digest();
 
     // Build the IDENTITY input with from the ECHO receipt.
-    let identity_input = Input::builder()
-        .write_slice(&risc0_serde::to_vec(&Digest::from(ECHO_ID))?)
-        .write_slice(&risc0_serde::to_vec(&echo_receipt)?)
-        .build_env()?;
+    let identity_input = (Digest::from(ECHO_ID), echo_receipt);
+    let identity_guest_env =
+        Input::builder().write_frame(&postcard::to_allocvec(&identity_input)?).build_env()?;
 
     // Request a proof from the Boundless market using the IDENTITY guest.
     let (identity_journal, identity_seal) =
-        boundless_proof(&boundless_client, IDENTITY_ELF, identity_input, None)
+        boundless_proof(&boundless_client, IDENTITY_ELF, identity_guest_env, false)
             .await
             .context("failed to prove IDENTITY")?;
     debug_assert_eq!(&identity_journal.bytes, echo_claim_digest.as_bytes());
@@ -197,8 +190,8 @@ async fn run<P: StorageProvider>(
 async fn boundless_proof<P, S>(
     client: &Client<P, S>,
     elf: impl AsRef<[u8]>,
-    input: GuestEnv,
-    selector: Option<ContractSelector>,
+    guest_env: GuestEnv,
+    disable_aggregation: bool,
 ) -> Result<(Journal, Bytes)>
 where
     P: Provider<Ethereum> + 'static + Clone,
@@ -212,13 +205,13 @@ where
     let image_url = client.upload_image(elf).await.context("failed to upload image")?;
     tracing::info!("Uploaded image to {}", image_url);
 
-    let input_encoded = input.encode().context("failed to encode input")?;
+    let input_encoded = guest_env.encode().context("failed to encode input")?;
     let input_url = client.upload_input(&input_encoded).await.context("failed to upload input")?;
     tracing::info!("Uploaded input to {}", input_url);
 
     // Execute the guest binary with the input
     let mut env_builder = ExecutorEnv::builder();
-    env_builder.write_slice(&input.stdin);
+    env_builder.write_slice(&guest_env.stdin);
 
     let session_info =
         default_executor().execute(env_builder.build()?, elf).context("failed to execute ELF")?;
@@ -233,8 +226,8 @@ where
 
     // Build the proof requirements with the specified selector
     let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
-    if let Some(selector) = selector {
-        requirements = requirements.with_selector(FixedBytes::from(selector as u32));
+    if disable_aggregation {
+        requirements = requirements.with_unaggregated_proof();
     }
 
     // Build the proof request offer
@@ -303,7 +296,7 @@ mod tests {
         let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let deployer_provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer_signer))
-            .on_builtin(&anvil.endpoint())
+            .connect(&anvil.endpoint())
             .await
             .unwrap();
         let counter = Counter::deploy(&deployer_provider, test_ctx.set_verifier_address).await?;

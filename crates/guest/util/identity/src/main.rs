@@ -15,8 +15,9 @@ use risc0_zkvm::{
 risc0_zkvm::guest::entry!(main);
 
 pub fn main() {
-    let image_id: Digest = env::read();
-    let receipt: Receipt = env::read();
+    let bytes = env::read_frame();
+    let (image_id, receipt): (Digest, Receipt) =
+        postcard::from_bytes(&bytes).expect("failed to deserialize input");
 
     let claim = receipt.claim().unwrap();
     receipt.verify(image_id).unwrap();
