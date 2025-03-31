@@ -24,11 +24,11 @@ These components are the basis for Bento and therefore, they are critical for it
 
 ## Technical Design
 
-Bento's design philosophy is centered around [TaskDB](#taskdb). TaskDB is a database schema in PostgreSQL that acts as a central communications hub, scheduler, and queue for the entire Bento system. 
+Bento's design philosophy is centered around [TaskDB](#taskdb). TaskDB is a database schema in PostgreSQL that acts as a central communications hub, scheduler, and queue for the entire Bento system.
 
 The following diagram is a visual representation of the proving workflow:
 
-<a href="/bento_technical_diagram.png" class="lightgallery">
+<a href="/bento_technical_diagram.png">
   <img src="/bento_technical_diagram.png" alt="Boundless Protocol" />
 </a>
 
@@ -99,7 +99,7 @@ Internally, each "user" of Bento gets their own stream for each type of work. So
 
 ### More on the GPU
 
-The GPU agent does the heavy lifting of proving itself. Work is broken into power of 2 segments sizes (128K, 256K, 500K, 1M, 2M, 4M cycles). The GPU's amount of VRAM will dictate which power of 2 to use as the `SEGMENT_SIZE`. 
+The GPU agent does the heavy lifting of proving itself. Work is broken into power of 2 segments sizes (128K, 256K, 500K, 1M, 2M, 4M cycles). The GPU's amount of VRAM will dictate which power of 2 to use as the `SEGMENT_SIZE`.
 
 As a general rule of thumb, for segment sizes of:
 

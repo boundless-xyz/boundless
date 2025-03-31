@@ -1,13 +1,11 @@
-import path from "node:path";
 import biomePlugin from "vite-plugin-biome";
 import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
 
-
 const SHARED_LINKS = [
   { text: "For Developers", link: "/developers/why" },
   { text: "For Provers", link: "/provers/quick-start" },
-]
+];
 
 const DEVELOPERS_ITEMS = [
   {
@@ -194,11 +192,11 @@ const PROVERS_ITEMS = [
         link: "/provers/performance-optimization",
       },
     ],
-  }
+  },
 ];
 
-const DEVELOPERS_SIDEBAR = [...SHARED_LINKS, ...DEVELOPERS_ITEMS]
-const PROVERS_SIDEBAR = [...SHARED_LINKS, ...PROVERS_ITEMS]
+const DEVELOPERS_SIDEBAR = [...SHARED_LINKS, ...DEVELOPERS_ITEMS];
+const PROVERS_SIDEBAR = [...SHARED_LINKS, ...PROVERS_ITEMS];
 
 export function generateSitemap() {
   const allSidebarItems = [...DEVELOPERS_SIDEBAR, ...PROVERS_SIDEBAR];
@@ -235,17 +233,6 @@ export default defineConfig({
   },
   vite: {
     plugins: [generateSitemap(), biomePlugin()],
-    resolve: {
-      alias: {
-        "lightgallery/fonts": path.resolve(__dirname, "node_modules/lightgallery/fonts"),
-        "lightgallery/images": path.resolve(__dirname, "node_modules/lightgallery/images"),
-      },
-    },
-    server: {
-      fs: {
-        allow: ["node_modules/lightgallery"],
-      },
-    },
   },
   sidebar: {
     "/developers/": DEVELOPERS_SIDEBAR,
@@ -278,9 +265,6 @@ export default defineConfig({
           light: "#FFFFFF",
           dark: "#232225",
         },
-      },
-      content: {
-        width: "calc(90ch + (var(--vocs-content_horizontalPadding) * 2))",
       },
     },
   },

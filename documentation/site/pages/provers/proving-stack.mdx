@@ -20,7 +20,7 @@ Bento is a semi multi-tenant proving cluster for the [RISC Zero zkVM](https://de
 - an API for proof management.
 
 
-<a href="/bento.png" class="lightgallery">
+<a href="/bento.png">
   <img src="/bento.png" alt="Boundless Protocol" />
 </a>
 
@@ -35,7 +35,7 @@ For all provers, a staking balance is necessary to be able to cover requirements
 The [Broker](/prove/broker) is responsible for market interactions (see steps **2b.** and **4a.** in *Figure 1*) including evaluating requests to assign a price, bidding on requests to lock them, issuing proving requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
 Broker configuration is primarily managed through the [`broker.toml`](/prove/broker#settings) file in the Boundless directory.
 
-<a href="/proof-lifecycle.png" class="lightgallery">
+<a href="/proof-lifecycle.png" >
   <img src="/proof-lifecycle.png" alt="Proof Lifecycle" />
 </a>
 
@@ -57,7 +57,7 @@ Bento is **not** responsible for interaction with the Boundless market.
 
 The recommended service for market interaction for provers is the [Broker](/prove/broker) service. The Broker is responsible for both interacting with the Boundless Market i.e., bidding on and fulfilling proof requests *and* sending job requests to the Bento proving cluster.
 
-<a href="/bento_broker.png" class="lightgallery">
+<a href="/bento_broker.png" >
   <img src="/bento_broker.png" alt="Boundless Protocol" />
 </a>
 
