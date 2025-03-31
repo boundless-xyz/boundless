@@ -146,16 +146,17 @@ async fn run<P: StorageProvider>(
     // The requirements are the ECHO_ID and the digest of the journal. In this way, the market can
     // verify that the proof is correct by checking both the committed image id and digest of the
     // journal. Additionally, the requirements specify the callback to be executed by the prover
-    // when the proof is fulfilled. The callback is a contract address and a gas limit. The prover
-    // will call the contract with the journal and seal as arguments. The contract can then verify
-    // the proof and execute the callback. The callback can be any contract that implements the
-    // `IBoundlessMarketCallback` interface.
+    // when the proof is fulfilled.
     let request = ProofRequest::builder()
         .with_image_url(image_url)
         .with_input(input_url)
         .with_requirements(
             Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()))
-                .with_callback(Callback { addr: counter_address, gasLimit: U96::from(1_000_000) }),
+                // The callback is a contract address and a gas limit. The boundless market
+                // will call the contract with the journal and seal as arguments. The contract can then verify
+                // the proof and execute the callback. The callback can be any contract that implements the
+                // `IBoundlessMarketCallback` interface.
+                .with_callback(Callback { addr: counter_address, gasLimit: U96::from(100_000) }),
         )
         // The offer specifies the price range and the timeout for the request.
         .with_offer(
