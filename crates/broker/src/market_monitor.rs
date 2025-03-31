@@ -58,7 +58,7 @@ where
         for i in sample_start..current_block {
             let block = self
                 .provider
-                .get_block_by_number(i.into(), false.into())
+                .get_block_by_number(i.into())
                 .await
                 .with_context(|| format!("Failed get block {i}"))?
                 .with_context(|| format!("Missing block {i}"))?;
@@ -326,7 +326,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -394,7 +394,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );

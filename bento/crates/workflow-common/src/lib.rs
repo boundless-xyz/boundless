@@ -92,6 +92,17 @@ pub struct JoinReq {
     pub right: usize,
 }
 
+/// Union Request
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UnionReq {
+    /// Node index
+    pub idx: usize,
+    /// index of the left branch
+    pub left: usize,
+    /// index of the right branch
+    pub right: usize,
+}
+
 /// Resolve Request
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ResolveReq {
@@ -150,6 +161,8 @@ pub enum TaskType {
     Snark(SnarkReq),
     /// Keccak coproc callback req
     Keccak(KeccakReq),
+    /// Union task
+    Union(UnionReq),
 }
 
 impl TaskType {
@@ -164,6 +177,7 @@ impl TaskType {
             Self::Finalize(_) => "finalize".into(),
             Self::Snark(_) => "snark".into(),
             Self::Keccak(_) => "keccak".into(),
+            Self::Union(_) => "union".into(),
         }
     }
 }

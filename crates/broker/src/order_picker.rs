@@ -757,7 +757,7 @@ mod tests {
             let provider = Arc::new(
                 ProviderBuilder::new()
                     .wallet(EthereumWallet::from(signer.clone()))
-                    .on_builtin(&anvil.endpoint())
+                    .connect(&anvil.endpoint())
                     .await
                     .unwrap(),
             );

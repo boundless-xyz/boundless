@@ -13,7 +13,6 @@ use alloy::{
     network::Ethereum,
     primitives::{utils::parse_ether, Address, U256},
     providers::{Provider, WalletProvider},
-    rpc::types::BlockTransactionsKind,
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
@@ -125,7 +124,7 @@ where
 
         let lock_timestamp = self
             .provider
-            .get_block_by_number(lock_block.into(), BlockTransactionsKind::Hashes)
+            .get_block_by_number(lock_block.into())
             .await
             .with_context(|| format!("failed to get block {lock_block}"))?
             .with_context(|| format!("failed to get block {lock_block}: block not found"))?
@@ -294,7 +293,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -405,7 +404,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );

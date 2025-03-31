@@ -256,7 +256,7 @@ mod tests {
         let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let deployer_provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer_signer))
-            .on_builtin(&anvil.endpoint())
+            .connect(&anvil.endpoint())
             .await
             .unwrap();
         let counter = Counter::deploy(&deployer_provider, test_ctx.set_verifier_address).await?;
