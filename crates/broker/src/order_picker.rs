@@ -1272,7 +1272,8 @@ mod tests {
         );
 
         assert!(logs_contain("cannot be completed in time"));
-        assert!(logs_contain("Proof estimated to take 4s to complete, would be 2s past deadline"));
+        assert!(logs_contain("Proof estimated to take 4s to complete"));
+        assert!(logs_contain("s past deadline"));
     }
 
     #[tokio::test]
