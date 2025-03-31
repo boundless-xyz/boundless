@@ -1,6 +1,6 @@
 ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
 
-FROM rust:1.81.0-bookworm AS builder
+FROM rust:1.85.0-bookworm AS builder
 
 RUN apt-get -qq update && apt-get install -y -q clang
 
@@ -31,7 +31,7 @@ RUN \
     cp /src/bento/target/release/rest_api /src/rest_api && \
     sccache --show-stats
 
-FROM rust:1.81.0-bookworm AS runtime
+FROM rust:1.85.0-bookworm AS runtime
 
 RUN mkdir /app/ && \
     apt -qq update && \
