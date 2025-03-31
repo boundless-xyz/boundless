@@ -32,7 +32,7 @@ const DEVELOPERS_ITEMS = [
     ],
   },
   {
-    text: "For App Devs",
+    text: "Build on Boundless",
     items: [
       {
         text: "Quick Start",
@@ -72,11 +72,6 @@ const DEVELOPERS_ITEMS = [
           },
         ],
       },
-    ],
-  },
-  {
-    text: "For Solidity Devs",
-    items: [
       {
         text: "Smart Contracts",
         items: [
@@ -94,35 +89,35 @@ const DEVELOPERS_ITEMS = [
           },
         ],
       },
+    ],
+  },
+  {
+    text: "ZK Coprocessing with Steel",
+    items: [
       {
-        text: "Steel: Boundless ZK Coprocessing",
-        items: [
-          {
-            text: "Quick Start",
-            link: "/developers/solidity/steel/quick-start",
-          },
-          {
-            text: "What is Steel?",
-            link: "/developers/solidity/steel/what-is-steel",
-          },
-          {
-            text: "How does Steel work?",
-            link: "/developers/solidity/steel/how-it-works",
-          },
-          {
-            text: "Steel Commitments",
-            link: "/developers/solidity/steel/commitments",
-          },
-          {
-            text: "Steel History",
-            link: "/developers/solidity/steel/history",
-          },
-        ],
+        text: "Quick Start",
+        link: "/developers/solidity/steel/quick-start",
+      },
+      {
+        text: "What is Steel?",
+        link: "/developers/solidity/steel/what-is-steel",
+      },
+      {
+        text: "How does Steel work?",
+        link: "/developers/solidity/steel/how-it-works",
+      },
+      {
+        text: "Steel Commitments",
+        link: "/developers/solidity/steel/commitments",
+      },
+      {
+        text: "Steel History",
+        link: "/developers/solidity/steel/history",
       },
     ],
   },
   {
-    text: "For Rollup Devs",
+    text: "Hybrid ZK/OP Rollups with Kailua",
     items: [
       {
         text: "Why Kailua?",
