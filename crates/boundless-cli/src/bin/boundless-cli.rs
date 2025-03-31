@@ -367,12 +367,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-            let client = ClientBuilder::default()
+            let client = ClientBuilder::new()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
                 .with_set_verifier_address(args.set_verifier_address)
                 .with_storage_provider_config(offer_args.storage_config.clone())
+                .await?
                 .with_order_stream_url(order_stream_url)
                 .with_timeout(args.tx_timeout)
                 .build()
@@ -399,13 +400,14 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-            let client = ClientBuilder::default()
+            let client = ClientBuilder::new()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
                 .with_set_verifier_address(args.set_verifier_address)
                 .with_order_stream_url(order_stream_url.clone())
                 .with_storage_provider_config(storage_config)
+                .await?
                 .with_timeout(args.tx_timeout)
                 .build()
                 .await?;
@@ -445,7 +447,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
             tracing::info!("Proof for request id 0x{request_id:x} verified successfully.");
         }
         Command::GetSetInclusionReceipt { request_id, image_id } => {
-            let client = ClientBuilder::default()
+            let client = ClientBuilder::new()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)
@@ -477,7 +479,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
                 let reader = BufReader::new(file);
                 serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
             } else if let Some(request_id) = request_id {
-                let client = ClientBuilder::default()
+                let client = ClientBuilder::new()
                     .with_private_key(args.private_key.clone())
                     .with_rpc_url(args.rpc_url.clone())
                     .with_boundless_market_address(args.boundless_market_address)
@@ -516,7 +518,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Option<U256>> {
 
             let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
 
-            let client = ClientBuilder::default()
+            let client = ClientBuilder::new()
                 .with_private_key(args.private_key.clone())
                 .with_rpc_url(args.rpc_url.clone())
                 .with_boundless_market_address(args.boundless_market_address)

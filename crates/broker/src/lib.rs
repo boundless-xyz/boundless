@@ -423,11 +423,7 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if risc0_zkvm::is_dev_mode() {
-            tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
-            Receipts generated from this process are invalid and should never be used in production.");
-            Arc::new(provers::DefaultProver::new())
-        } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
+        let prover: provers::ProverObj = if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
             tracing::info!("Configured to run with Bonsai backend");
@@ -450,10 +446,8 @@ where
                 )
                 .context("Failed to initialize Bento client")?,
             )
-        } else if cfg!(test) {
-            Arc::new(provers::DefaultProver::new())
         } else {
-            anyhow::bail!("Failed to select a proving backend");
+            Arc::new(provers::DefaultProver::new())
         };
 
         // Spin up the order picker to pre-flight and find orders to lock

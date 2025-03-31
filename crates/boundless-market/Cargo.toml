@@ -33,6 +33,7 @@ bytemuck = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }
 hex = { workspace = true }
+httpmock = "0.7"
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-aggregation = { workspace = true }
