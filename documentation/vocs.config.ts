@@ -117,7 +117,7 @@ const DEVELOPERS_ITEMS = [
         link: "/developers/steel/history",
       },
       {
-        text: "Steel Crate Docs""
+        text: "Steel Crate Docs",
         link: "https://risc0.github.io/risc0-ethereum/risc0_steel/",
       },
 
