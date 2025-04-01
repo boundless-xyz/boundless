@@ -52,7 +52,6 @@ time = "0.3"
 utoipa = { workspace = true }
 
 [dev-dependencies]
-boundless-assessor = { workspace = true }
 boundless-market = { path = ".", features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
