@@ -2514,7 +2514,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -2564,7 +2564,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
@@ -2609,7 +2609,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -2638,7 +2638,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -2664,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-chains",
@@ -2714,7 +2714,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -3537,7 +3537,7 @@ dependencies = [
 
 [[package]]
 name = "doc-test"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
@@ -4332,7 +4332,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -4350,7 +4350,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -6086,7 +6086,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
