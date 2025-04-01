@@ -24,6 +24,12 @@
 pub use alloy;
 
 #[cfg(not(target_os = "zkvm"))]
+/// A ProviderLayer module.
+///
+/// It can be added to an alloy Provider to log warnings and errors
+/// when the balance of a given address falls below certain thresholds.
+pub mod balance_alerts_layer;
+#[cfg(not(target_os = "zkvm"))]
 /// Client module for interacting with the Boundless Market API.
 pub mod client;
 /// Contracts module for interacting with the Boundless Market smart contracts.

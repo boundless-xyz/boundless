@@ -17,8 +17,10 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::{RpcError, TransportErrorKind},
 };
-use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider};
-use boundless_market::contracts::boundless_market::{BoundlessMarketService, MarketError};
+use boundless_market::{
+    balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider},
+    contracts::boundless_market::{BoundlessMarketService, MarketError},
+};
 use db::{DbError, DbObj, SqliteDb};
 use thiserror::Error;
 use tokio::time::Duration;

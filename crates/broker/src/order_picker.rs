@@ -659,7 +659,7 @@ mod tests {
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use chrono::Utc;
-    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
@@ -771,6 +771,7 @@ mod tests {
                 Address::ZERO,
                 hp_contract,
                 Digest::from(ASSESSOR_GUEST_ID),
+                format!("file://{ASSESSOR_GUEST_PATH}"),
                 Some(signer.address()),
             )
             .await
