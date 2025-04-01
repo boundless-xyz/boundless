@@ -1663,16 +1663,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "balance-alerts-layer"
-version = "0.6.0"
-dependencies = [
- "alloy",
- "anyhow",
- "async-trait",
- "tracing",
-]
-
-[[package]]
 name = "base16ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1868,7 +1858,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -1881,7 +1871,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -1890,7 +1880,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
- "balance-alerts-layer",
  "bytemuck",
  "chrono",
  "clap",
@@ -1921,14 +1910,13 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "alloy-chains",
  "anyhow",
  "async-channel 2.3.1",
  "async-trait",
- "balance-alerts-layer",
  "bincode",
  "bonsai-sdk",
  "boundless-assessor",
@@ -3313,7 +3301,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3331,7 +3319,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "risc0-build",
