@@ -4,6 +4,7 @@
 
 pragma solidity ^0.8.13;
 
+import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {BoundlessMarketCallback} from "boundless-market/BoundlessMarketCallback.sol";
 import {ICounter} from "./ICounter.sol";
 
