@@ -857,6 +857,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory request = client.request(1);
         bytes memory clientSignature = client.sign(request);
         // Prover signs ProofRequest struct rather than LockRequest struct.
+        // NOTE: This was how the contract worked in a previous version. This is included as a regression test.
         bytes memory badProverSignature = testProver.sign(request);
 
         // NOTE: Error is "InsufficientBalance" because we will recover _some_ address.
