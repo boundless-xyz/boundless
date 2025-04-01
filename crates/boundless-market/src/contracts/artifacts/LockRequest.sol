@@ -17,7 +17,7 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 using LockRequestLibrary for LockRequest global;
 
 /// @title Lock Request Struct and Library
-/// @notice Wraps a ProofRequest. Ensures domain separation between client signatures and prover signatures.
+/// @notice Message sent by a prover to indicate that they intend to lock the given request.
 struct LockRequest {
     /// @notice The proof request that the prover is locking.
     ProofRequest request;
