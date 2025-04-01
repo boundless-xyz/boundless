@@ -201,7 +201,7 @@ where
         if skip_preflight {
             // If we skip preflight we lockin the order asap
             self.db
-                .set_order_lock(order_id, 0, expiration)
+                .set_order_lock(order_id, 0)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
             return Ok(true);
@@ -380,7 +380,7 @@ where
             );
             // set the target timestamp to 0 so we schedule the lock ASAP.
             self.db
-                .set_order_lock(order_id, 0, expiration)
+                .set_order_lock(order_id, 0)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
@@ -403,7 +403,7 @@ where
             );
 
             self.db
-                .set_order_lock(order_id, target_timestamp, expiration)
+                .set_order_lock(order_id, target_timestamp)
                 .await
                 .with_context(|| format!("Failed to set_order_lock for order {order_id:x}"))?;
         }
@@ -739,8 +739,6 @@ mod tests {
                 input_id: None,
                 proof_id: None,
                 compressed_proof_id: None,
-                expire_timestamp: None,
-                lock_expire_timestamp: None,
                 client_sig: Bytes::new(),
                 lock_price: None,
                 error_msg: None,

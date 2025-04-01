@@ -416,6 +416,11 @@ impl ProofRequest {
         self.offer.biddingStart + self.offer.timeout as u64
     }
 
+    /// Returns the time, in seconds since the UNIX epoch, at which the request lock expires.
+    pub fn lock_expires_at(&self) -> u64 {
+        self.offer.biddingStart + self.offer.lockTimeout as u64
+    }
+
     /// Check that the request is valid and internally consistent.
     ///
     /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min

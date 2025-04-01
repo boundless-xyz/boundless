@@ -109,8 +109,6 @@ fn generate_test_order(id: u32) -> Order {
         input_id: None,
         proof_id: Some(format!("proof_{}", id)),
         compressed_proof_id: Some(format!("compressed_proof_{}", id)),
-        expire_timestamp: Some(1000),
-        lock_expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
         error_msg: None,
@@ -191,8 +189,8 @@ proptest! {
                                     ExistingOrderOperation::GetOrder => {
                                         db.get_order(U256::from(id)).await.unwrap();
                                     },
-                                    ExistingOrderOperation::SetOrderLock { lock_timestamp, expire_timestamp } => {
-                                        db.set_order_lock(U256::from(id), lock_timestamp as u64, expire_timestamp as u64).await.unwrap();
+                                    ExistingOrderOperation::SetOrderLock { lock_timestamp, expire_timestamp: _ } => {
+                                        db.set_order_lock(U256::from(id), lock_timestamp as u64).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetProvingStatus { lock_price } => {
                                         db.set_proving_status(U256::from(id), U256::from(lock_price)).await.unwrap();

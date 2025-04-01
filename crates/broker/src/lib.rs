@@ -190,14 +190,6 @@ struct Order {
     ///
     /// Populated after proof completion. if the proof is compressed
     compressed_proof_id: Option<String>,
-    /// UNIX timestamp the order expires at
-    ///
-    /// Populated during order picking
-    expire_timestamp: Option<u64>,
-    /// UNIX timestamp the order lock expires at
-    ///
-    /// Populated during order picking    
-    lock_expire_timestamp: Option<u64>,
     /// Client Signature
     client_sig: Bytes,
     /// Price the lockin was set at
@@ -217,8 +209,6 @@ impl Order {
             input_id: None,
             proof_id: None,
             compressed_proof_id: None,
-            expire_timestamp: None,
-            lock_expire_timestamp: None,
             client_sig,
             lock_price: None,
             error_msg: None,
@@ -226,6 +216,14 @@ impl Order {
     }
     pub fn is_unaggregated(&self) -> bool {
         is_unaggregated_selector(self.request.requirements.selector)
+    }
+
+    pub fn expires_at(&self) -> u64 {
+        self.request.expires_at()
+    }
+
+    pub fn lock_expires_at(&self) -> u64 {
+        self.request.lock_expires_at()
     }
 }
 
