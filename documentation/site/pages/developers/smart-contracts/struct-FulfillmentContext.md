@@ -2,8 +2,7 @@
 
 A struct for storing validated fulfillment information in transient storage
 
-*This struct is designed to be packed into a single uint256 for efficient transient storage*
-
+_This struct is designed to be packed into a single uint256 for efficient transient storage_
 
 ```solidity
 struct FulfillmentContext {
@@ -11,4 +10,3 @@ struct FulfillmentContext {
     uint96 price;
 }
 ```
-

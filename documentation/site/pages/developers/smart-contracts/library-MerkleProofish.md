@@ -1,9 +1,8 @@
 # MerkleProofish
 
-
 ## Functions
-### processTree
 
+### processTree
 
 ```solidity
 function processTree(bytes32[] memory leaves) internal pure returns (bytes32 root);
@@ -11,8 +10,7 @@ function processTree(bytes32[] memory leaves) internal pure returns (bytes32 roo
 
 ### _hashPair
 
-*Sorts the pair (a, b) and hashes the result.*
-
+_Sorts the pair (a, b) and hashes the result._
 
 ```solidity
 function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32);
@@ -20,10 +18,8 @@ function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32);
 
 ### _efficientHash
 
-*Implementation of keccak256(abi.encode(a, b)) that doesn't allocate or expand memory.*
-
+_Implementation of keccak256(abi.encode(a, b)) that doesn't allocate or expand memory._
 
 ```solidity
 function _efficientHash(bytes32 a, bytes32 b) private pure returns (bytes32 value);
 ```
-

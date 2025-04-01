@@ -12,7 +12,6 @@ Our smart contracts are built using Solidity and are organized into several key 
 
 :::
 
-
 ## Interfaces
 
 - [interface.IBoundlessMarketCallback](/developers/smart-contracts/interface-IBoundlessMarketCallback)

@@ -2,11 +2,10 @@
 
 Stores information about requests that have been locked.
 
-*RequestLock is an internal structure that is modified at various points in the proof lifecycle.
+_RequestLock is an internal structure that is modified at various points in the proof lifecycle.
 Fields can be valid or invalid depending where in the lifecycle we are. Integrators should not rely on RequestLock
 for determining the status of a request. Instead, they should always use BoundlessMarket's public functions.
-Packed to fit into 3 slots.*
-
+Packed to fit into 3 slots._
 
 ```solidity
 struct RequestLock {
@@ -19,4 +18,3 @@ struct RequestLock {
     bytes32 requestDigest;
 }
 ```
-

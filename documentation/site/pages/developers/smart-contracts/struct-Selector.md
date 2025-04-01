@@ -1,7 +1,6 @@
 # Selector
 
-*This is only used as part of the AssessorJournal and AssessorReceipt.*
-
+_This is only used as part of the AssessorJournal and AssessorReceipt._
 
 ```solidity
 struct Selector {
@@ -9,4 +8,3 @@ struct Selector {
     bytes4 value;
 }
 ```
-

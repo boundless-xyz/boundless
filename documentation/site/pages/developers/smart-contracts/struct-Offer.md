@@ -2,7 +2,6 @@
 
 Represents an offer and provides functions to validate and compute offer-related data.
 
-
 ```solidity
 struct Offer {
     uint256 minPrice;
@@ -14,4 +13,3 @@ struct Offer {
     uint256 lockStake;
 }
 ```
-

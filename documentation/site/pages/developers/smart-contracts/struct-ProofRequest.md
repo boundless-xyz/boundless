@@ -2,7 +2,6 @@
 
 Represents a proof request with its associated data and functions.
 
-
 ```solidity
 struct ProofRequest {
     RequestId id;
@@ -12,4 +11,3 @@ struct ProofRequest {
     Offer offer;
 }
 ```
-

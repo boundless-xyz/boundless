@@ -1,6 +1,5 @@
 # Requirements
 
-
 ```solidity
 struct Requirements {
     bytes32 imageId;
@@ -9,4 +8,3 @@ struct Requirements {
     bytes4 selector;
 }
 ```
-

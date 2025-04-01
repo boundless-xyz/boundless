@@ -11,4 +11,3 @@ uint256 constant REQUEST_FLAGS_BITWIDTH = 2;
 ```solidity
 uint256 constant REQUEST_FLAGS_INITIAL_BITS = 64;
 ```
-

@@ -2,7 +2,6 @@
 
 Represents the structured commitment used as a leaf in the Assessor guest Merkle tree guest.
 
-
 ```solidity
 struct AssessorCommitment {
     uint256 index;
@@ -11,4 +10,3 @@ struct AssessorCommitment {
     bytes32 claimDigest;
 }
 ```
-

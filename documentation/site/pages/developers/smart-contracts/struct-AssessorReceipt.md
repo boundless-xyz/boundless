@@ -2,7 +2,6 @@
 
 Represents the output of the assessor and proof of correctness, allowing request fulfillment.
 
-
 ```solidity
 struct AssessorReceipt {
     bytes seal;
@@ -11,4 +10,3 @@ struct AssessorReceipt {
     address prover;
 }
 ```
-

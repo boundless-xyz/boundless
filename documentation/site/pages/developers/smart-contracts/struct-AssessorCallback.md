@@ -1,6 +1,5 @@
 # AssessorCallback
 
-
 ```solidity
 struct AssessorCallback {
     uint16 index;
@@ -8,4 +7,3 @@ struct AssessorCallback {
     uint96 gasLimit;
 }
 ```
-
