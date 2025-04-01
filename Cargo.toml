@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "crates/assessor",
-    "crates/balance-alerts-layer",
     "crates/boundless-cli",
     "crates/boundless-market",
     "crates/broker",
@@ -23,7 +22,6 @@ repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
 async-stream = "0.3"
-balance-alerts-layer = { version = "0.6.0", path = "crates/balance-alerts-layer" }
 boundless-assessor = { version = "0.6.0", path = "crates/assessor" }
 boundless-cli = { version = "0.6.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.6.0", path = "crates/boundless-market" }

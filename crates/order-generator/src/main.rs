@@ -16,8 +16,8 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
-use balance_alerts_layer::BalanceAlertConfig;
 use boundless_market::{
+    balance_alerts_layer::BalanceAlertConfig,
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
