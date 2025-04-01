@@ -223,7 +223,7 @@ impl DefaultProver {
 
         self.prove(
             self.assessor_elf.clone(),
-            assessor_input.to_vec(),
+            assessor_input.encode(),
             receipts,
             ProverOpts::succinct(),
         )

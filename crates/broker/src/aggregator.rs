@@ -197,7 +197,7 @@ impl AggregatorService {
             domain: eip712_domain(self.market_addr, self.chain_id),
             prover_address: self.prover_addr,
         };
-        let input_data = input.to_vec();
+        let input_data = input.encode();
 
         let input_id = self
             .prover

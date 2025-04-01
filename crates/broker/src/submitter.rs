@@ -578,7 +578,7 @@ mod tests {
                     }],
                     prover_address: prover_addr,
                 }
-                .to_vec(),
+                .encode(),
             )
             .await
             .unwrap();

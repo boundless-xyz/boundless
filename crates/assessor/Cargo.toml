@@ -14,7 +14,7 @@ alloy-sol-types = { workspace = true, features = ["eip712-serde"] }
 anyhow = { workspace = true }
 boundless-market = { workspace = true }
 postcard = { workspace = true, features = ["alloc"] }
-risc0-zkvm = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["unstable"] }
 serde = { workspace = true }
 
 [dev-dependencies]

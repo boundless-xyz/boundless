@@ -82,14 +82,14 @@ pub struct AssessorInput {
 }
 
 impl AssessorInput {
-    /// Serializes the AssessorInput to a Vec<u8> using postcard.
-    pub fn to_vec(&self) -> Vec<u8> {
-        let bytes = postcard::to_allocvec(self).unwrap();
-        let length = bytes.len() as u32;
-        let mut result = Vec::with_capacity(4 + bytes.len());
-        result.extend_from_slice(&length.to_le_bytes());
-        result.extend_from_slice(&bytes);
-        result
+    /// Serialize the [AssessorInput] to a bytes vector.
+    pub fn encode(&self) -> Vec<u8> {
+        postcard::to_allocvec(&self).unwrap()
+    }
+
+    /// Deserialize the [AssessorInput] from a slice of bytes.
+    pub fn decode(bytes: &[u8]) -> Result<Self, impl core::error::Error> {
+        postcard::from_bytes(bytes)
     }
 }
 
@@ -200,7 +200,7 @@ mod tests {
             prover_address: Address::ZERO,
         };
         let mut env_builder = ExecutorEnv::builder();
-        env_builder.write_slice(&assessor_input.to_vec());
+        env_builder.write_frame(&assessor_input.encode());
         for receipt in receipts {
             env_builder.add_assumption(receipt);
         }
