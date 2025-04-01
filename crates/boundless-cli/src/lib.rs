@@ -223,13 +223,7 @@ impl DefaultProver {
 
         let stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
 
-        self.prove(
-            self.assessor_elf.clone(),
-            stdin,
-            receipts,
-            ProverOpts::succinct(),
-        )
-        .await
+        self.prove(self.assessor_elf.clone(), stdin, receipts, ProverOpts::succinct()).await
     }
 
     /// Fulfills an order as a singleton, returning the relevant data:
