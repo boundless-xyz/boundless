@@ -557,8 +557,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         uint256 initialBalance = OWNER_WALLET.addr.balance;
         // Withdraw funds from the treasury
-        console.log("boundlessMarket address");
-        console.log(address(boundlessMarket));
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.Withdrawal(address(boundlessMarket), 1 ether);
         vm.prank(OWNER_WALLET.addr);

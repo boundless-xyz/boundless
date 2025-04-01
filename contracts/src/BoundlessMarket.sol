@@ -699,7 +699,7 @@ contract BoundlessMarket is
 
         // Calculate the portion of stake that should be burned vs sent to the prover.
         uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_BPS / 10000;
-        
+
         // If a prover fulfilled the request after the lock deadline, that prover
         // receives the unburned portion of the stake as a reward.
         // Otherwise the request expired unfulfilled, unburnt stake accrues to the market treasury,
