@@ -21,6 +21,10 @@ use boundless_market::{
 use thiserror::Error;
 use tokio::task::JoinSet;
 
+// fraction the stake the protocol gives to the prover who fills an order that was locked by another prover but expired
+// e.g. a value of 1 means 1/4 of the original stake is given to the prover who fills the order
+const FRACTION_STAKE_REWARD: u64 = 4;
+
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum PriceOrderErr {
@@ -117,16 +121,23 @@ where
             return Ok(false);
         };
 
-        // is the order expired already?
-        // TODO: Handle lockTimeout separately from timeout.
-
-        let expiration = order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
+        // Lock expiration is the timestamp before which the order must be filled in order to avoid slashing
+        let lock_expiration =
+            order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
+        // order expiration is the timestamp after which the order can no longer be filled by anyone.
+        let order_expiration =
+            order.request.offer.biddingStart + order.request.offer.timeout as u64;
 
         let now = now_timestamp();
-        if expiration <= now {
-            tracing::warn!("Removing order {order_id:x} because it has expired");
-            self.db.skip_order(order_id).await.context("Failed to delete expired order")?;
-            return Ok(false);
+
+        // If order_expiration > lock_expiration the period in-between is when order can be filled
+        // by anyone without staking to partially claim the slashed stake
+        let open_slashed_order = lock_expiration <= now && order_expiration > now;
+
+        let (expiration, lockin_stake) = if open_slashed_order {
+            (order_expiration, U256::ZERO)
+        } else {
+            (lock_expiration, U256::from(order.request.offer.lockStake))
         };
 
         // Does the order expire within the min deadline
@@ -143,7 +154,6 @@ where
             parse_ether(&config.market.max_stake).context("Failed to parse max_stake")?
         };
 
-        let lockin_stake = U256::from(order.request.offer.lockStake);
         if lockin_stake > max_stake {
             tracing::warn!("Removing high stake order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
@@ -332,13 +342,19 @@ where
         }
 
         let one_mill = U256::from(1_000_000);
+        let total_cycles = U256::from(proof_res.stats.total_cycles);
 
-        let mcycle_price_min = (U256::from(order.request.offer.minPrice)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
-        let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
+        let (mcycle_price_min, mcycle_price_max) = if open_slashed_order {
+            // in the case of an open slashed order the reward is a fraction of the lock stake and is constant
+            let mcycle_price =
+                (order.request.offer.lockStake / U256::from(FRACTION_STAKE_REWARD) / total_cycles)
+                    * one_mill;
+            (mcycle_price, mcycle_price)
+        } else {
+            let mcycle_price_min = (order.request.offer.minPrice / total_cycles) * one_mill;
+            let mcycle_price_max = (order.request.offer.maxPrice / total_cycles) * one_mill;
+            (mcycle_price_min, mcycle_price_max)
+        };
 
         tracing::info!(
             "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
