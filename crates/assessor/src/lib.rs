@@ -113,8 +113,6 @@ pub struct AssessorInput {
     pub prover_address: Address,
 }
 
-
-
 impl AssessorInput {
     /// Serialize the [AssessorInput] to a bytes vector.
     pub fn encode(&self) -> Vec<u8> {
