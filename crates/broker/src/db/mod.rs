@@ -103,6 +103,10 @@ pub trait BrokerDb {
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_proof_id(&self, order_id: U256, proof_id: &str) -> Result<(), DbError>;
+    async fn get_lock_expired_unexpired_orders(
+        &self,
+        timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_compressed_proof_id(
         &self,
         order_id: U256,
@@ -625,6 +629,26 @@ impl BrokerDb for SqliteDb {
         }
 
         Ok(())
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    async fn get_lock_expired_unexpired_orders(
+        &self,
+        timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            "SELECT * FROM orders WHERE data->>'request'->>'offer'->>'lockTimeout' <= $1 AND data->>'request'->>'offer'->>'timeout' > $1",
+        )
+        .bind(timestamp as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let orders: Result<Vec<_>, _> = orders
+            .into_iter()
+            .map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data)))
+            .collect();
+
+        orders
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x}")))]
@@ -1184,6 +1208,41 @@ mod tests {
         assert_eq!(submit_order.1, order.proof_id.unwrap());
         assert_eq!(submit_order.2, order.request.requirements.imageId);
         assert_eq!(submit_order.3, order.lock_price.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn get_lock_expired_unexpired_orders(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        let mut order = create_order();
+        order.request.offer.lockTimeout = 100;
+        order.request.offer.timeout = 200;
+        db.add_order(U256::from(1), order.clone()).await.unwrap();
+
+        let mut order = create_order();
+        order.request.offer.lockTimeout = 150;
+        order.request.offer.timeout = 250;
+        db.add_order(U256::from(2), order.clone()).await.unwrap();
+
+        // both still locked
+        let result = db.get_lock_expired_unexpired_orders(99).await.unwrap();
+        assert_eq!(result.len(), 0);
+
+        // 1 unlocked, 2 still locked
+        let result = db.get_lock_expired_unexpired_orders(149).await.unwrap();
+        assert_eq!(result.len(), 1);
+
+        // 1 and 2 unlocked
+        let result = db.get_lock_expired_unexpired_orders(151).await.unwrap();
+        assert_eq!(result.len(), 2);
+
+        // 1 expired 2 unlocked
+        let result = db.get_lock_expired_unexpired_orders(201).await.unwrap();
+        assert_eq!(result.len(), 1);
+
+        // both expired
+        let result = db.get_lock_expired_unexpired_orders(251).await.unwrap();
+        assert_eq!(result.len(), 0);
     }
 
     #[sqlx::test]
