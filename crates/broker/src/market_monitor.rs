@@ -16,9 +16,7 @@ use alloy::{
 
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService,
-    IBoundlessMarket::{self},
-    ProofStatus, RequestId,
+    boundless_market::BoundlessMarketService, IBoundlessMarket, RequestId, RequestStatus,
 };
 use futures_util::StreamExt;
 
@@ -71,7 +69,7 @@ where
         for i in sample_start..current_block {
             let block = self
                 .provider
-                .get_block_by_number(i.into(), false.into())
+                .get_block_by_number(i.into())
                 .await
                 .with_context(|| format!("Failed get block {i}"))?
                 .with_context(|| format!("Missing block {i}"))?;
@@ -159,7 +157,7 @@ where
                     }
                 };
 
-            if !matches!(req_status, ProofStatus::Unknown) {
+            if !matches!(req_status, RequestStatus::Unknown) {
                 tracing::debug!(
                     "Skipping order {} reason: order status no longer bidding: {:?}",
                     calldata.request.id,
@@ -359,7 +357,7 @@ mod tests {
         boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
         InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
-    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use risc0_zkvm::sha::Digest;
 
     #[tokio::test]
@@ -369,7 +367,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -380,6 +378,7 @@ mod tests {
             Address::ZERO,
             Address::ZERO,
             Digest::from(ASSESSOR_GUEST_ID),
+            format!("file://{ASSESSOR_GUEST_PATH}"),
             Some(signer.address()),
         )
         .await
@@ -436,7 +435,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );

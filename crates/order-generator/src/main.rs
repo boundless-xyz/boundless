@@ -16,8 +16,8 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
-use balance_alerts_layer::BalanceAlertConfig;
 use boundless_market::{
+    balance_alerts_layer::BalanceAlertConfig,
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
@@ -159,7 +159,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         Some(path) => std::fs::read(path)?,
         None => {
             // A build of the echo guest, which simply commits the bytes it reads from inputs.
-            let url = "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy";
+            let url = "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu";
             fetch_http(&Url::parse(url)?).await?
         }
     };
@@ -268,8 +268,8 @@ mod tests {
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
     use boundless_market::contracts::{test_utils::create_test_ctx, IBoundlessMarket};
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use tracing_test::traced_test;
 
     use super::*;
@@ -278,7 +278,15 @@ mod tests {
     #[traced_test]
     async fn test_main() {
         let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),

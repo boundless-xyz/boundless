@@ -659,7 +659,7 @@ mod tests {
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use chrono::Utc;
-    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
@@ -756,7 +756,7 @@ mod tests {
             let provider = Arc::new(
                 ProviderBuilder::new()
                     .wallet(EthereumWallet::from(signer.clone()))
-                    .on_builtin(&anvil.endpoint())
+                    .connect(&anvil.endpoint())
                     .await
                     .unwrap(),
             );
@@ -770,6 +770,7 @@ mod tests {
                 Address::ZERO,
                 hp_contract,
                 Digest::from(ASSESSOR_GUEST_ID),
+                format!("file://{ASSESSOR_GUEST_PATH}"),
                 Some(signer.address()),
             )
             .await
@@ -1376,11 +1377,14 @@ mod tests {
         let order = pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
         ctx.db.set_order_complete(order).await.unwrap();
 
+        // Await other pricing task to avoid race conditions
+        pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
+
         let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
         assert_eq!(capacity, Some(1));
-        assert_eq!(pricing_tasks.len(), 1);
+        assert_eq!(pricing_tasks.len(), 0);
 
         ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, capacity.unwrap()).await.unwrap();
-        assert_eq!(pricing_tasks.len(), 2);
+        assert_eq!(pricing_tasks.len(), 1);
     }
 }

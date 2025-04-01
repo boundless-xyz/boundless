@@ -8,7 +8,7 @@ use alloy::{
     node_bindings::Anvil,
     primitives::{Address, Bytes, U256},
     providers::Provider,
-    rpc::types::{BlockNumberOrTag, BlockTransactionsKind},
+    rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
 use boundless_market::contracts::{
@@ -16,8 +16,8 @@ use boundless_market::contracts::{
     Requirements,
 };
 use futures_util::StreamExt;
-use guest_assessor::ASSESSOR_GUEST_ID;
-use guest_set_builder::SET_BUILDER_ID;
+use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use risc0_zkvm::sha::Digest;
 
 async fn create_order(
@@ -56,7 +56,15 @@ async fn create_order(
 async fn test_basic_usage() {
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+    let ctx = create_test_ctx(
+        &anvil,
+        SET_BUILDER_ID,
+        format!("file://{SET_BUILDER_PATH}"),
+        ASSESSOR_GUEST_ID,
+        format!("file://{ASSESSOR_GUEST_PATH}"),
+    )
+    .await
+    .unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-slasher");
     let args = [
@@ -76,6 +84,7 @@ async fn test_basic_usage() {
 
     println!("{} {:?}", exe_path, args);
 
+    #[allow(clippy::zombie_processes)]
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
 
     // Subscribe to slash events before operations
@@ -86,7 +95,7 @@ async fn test_basic_usage() {
     // Use the chain's timestamps to avoid inconsistencies with system time.
     let now = ctx
         .customer_provider
-        .get_block_by_number(BlockNumberOrTag::Latest, BlockTransactionsKind::Hashes)
+        .get_block_by_number(BlockNumberOrTag::Latest)
         .await
         .unwrap()
         .unwrap()

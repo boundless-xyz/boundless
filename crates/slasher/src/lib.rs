@@ -5,7 +5,7 @@
 use std::{cmp::min, sync::Arc};
 
 use alloy::{
-    network::{Ethereum, EthereumWallet},
+    network::{Ethereum, EthereumWallet, TransactionResponse},
     primitives::{Address, U256},
     providers::{
         fillers::{
@@ -14,12 +14,13 @@ use alloy::{
         },
         Identity, Provider, ProviderBuilder, RootProvider,
     },
-    rpc::types::BlockTransactionsKind,
     signers::local::PrivateKeySigner,
     transports::{RpcError, TransportErrorKind},
 };
-use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider};
-use boundless_market::contracts::boundless_market::{BoundlessMarketService, MarketError};
+use boundless_market::{
+    balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider},
+    contracts::boundless_market::{BoundlessMarketService, MarketError},
+};
 use db::{DbError, DbObj, SqliteDb};
 use thiserror::Error;
 use tokio::time::Duration;
@@ -242,7 +243,7 @@ where
                 .await?
                 .unwrap();
 
-            let sender = tx.from;
+            let sender = tx.from();
 
             // Skip if sender is in the skip list
             if self.config.skip_addresses.contains(&sender) {
@@ -396,7 +397,7 @@ where
             .boundless_market
             .instance()
             .provider()
-            .get_block_by_number(block_number.into(), BlockTransactionsKind::Hashes)
+            .get_block_by_number(block_number.into())
             .await?
             .unwrap()
             .header

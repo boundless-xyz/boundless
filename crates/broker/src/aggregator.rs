@@ -269,7 +269,7 @@ impl AggregatorService {
                 None => None,
             };
             (
-                config.batcher.batch_size,
+                config.batcher.min_batch_size,
                 config.batcher.batch_max_time,
                 batch_max_fees,
                 config.batcher.batch_max_journal_bytes,
@@ -386,7 +386,7 @@ impl AggregatorService {
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
-        unaggregated_proofs: &[AggregationOrder],
+        groth16_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<String> {
         let assessor_proof_id = if finalize {
@@ -395,7 +395,7 @@ impl AggregatorService {
                 .iter()
                 .copied()
                 .chain(new_proofs.iter().map(|p| p.order_id))
-                .chain(unaggregated_proofs.iter().map(|p| p.order_id))
+                .chain(groth16_proofs.iter().map(|p| p.order_id))
                 .collect();
 
             tracing::debug!(
@@ -432,7 +432,7 @@ impl AggregatorService {
             .update_batch(
                 batch_id,
                 &aggregation_state,
-                &[new_proofs, unaggregated_proofs].concat(),
+                &[new_proofs, groth16_proofs].concat(),
                 assessor_proof_id,
             )
             .await
@@ -456,12 +456,12 @@ impl AggregatorService {
                     .get_aggregation_proofs()
                     .await
                     .context("Failed to get pending agg proofs from DB")?;
-                // Fetch all unaggregated proofs that are ready to be submitted from the DB.
-                let new_unaggregated_proofs = self
+                // Fetch all groth16 proofs that are ready to be submitted from the DB.
+                let new_groth16_proofs = self
                     .db
-                    .get_unaggregated_proofs()
+                    .get_groth16_proofs()
                     .await
-                    .context("Failed to get unaggregated proofs from DB")?;
+                    .context("Failed to get groth16 proofs from DB")?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.
@@ -469,7 +469,7 @@ impl AggregatorService {
                     .check_finalize(
                         batch_id,
                         &batch,
-                        &[new_proofs.clone(), new_unaggregated_proofs.clone()].concat(),
+                        &[new_proofs.clone(), new_groth16_proofs.clone()].concat(),
                     )
                     .await?;
 
@@ -480,13 +480,7 @@ impl AggregatorService {
                 }
 
                 let aggregation_proof_id = self
-                    .aggregate_proofs(
-                        batch_id,
-                        &batch,
-                        &new_proofs,
-                        &new_unaggregated_proofs,
-                        finalize,
-                    )
+                    .aggregate_proofs(batch_id, &batch, &new_proofs, &new_groth16_proofs, finalize)
                     .await?;
                 (aggregation_proof_id, finalize)
             }
@@ -577,7 +571,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -585,7 +579,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(2);
+            config.batcher.min_batch_size = Some(2);
         }
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
@@ -729,7 +723,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -737,7 +731,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(2);
+            config.batcher.min_batch_size = Some(2);
         }
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
@@ -896,7 +890,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -904,7 +898,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(2);
+            config.batcher.min_batch_size = Some(2);
             config.batcher.batch_max_fees = Some("0.1".into());
         }
 
@@ -1000,7 +994,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -1008,7 +1002,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(2);
+            config.batcher.min_batch_size = Some(2);
             config.batcher.block_deadline_buffer_secs = 100;
         }
 
@@ -1111,7 +1105,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -1119,7 +1113,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(10);
+            config.batcher.min_batch_size = Some(10);
             // set config such that the batch max journal size is exceeded
             // if two ECHO sized journals are included in a batch
             config.market.max_journal_bytes = 20;

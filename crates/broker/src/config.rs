@@ -195,7 +195,8 @@ pub struct BatcherConfig {
     /// Max batch duration before publishing (in seconds)
     pub batch_max_time: Option<u64>,
     /// Batch size (in proofs) before publishing
-    pub batch_size: Option<u64>,
+    #[serde(alias = "batch_size")]
+    pub min_batch_size: Option<u64>,
     /// Max combined journal size (in bytes) that once exceeded will trigger a publish
     #[serde(default = "defaults::batch_max_journal_bytes")]
     pub batch_max_journal_bytes: usize,
@@ -227,7 +228,7 @@ impl Default for BatcherConfig {
     fn default() -> Self {
         Self {
             batch_max_time: None,
-            batch_size: Some(2),
+            min_batch_size: Some(2),
             batch_max_journal_bytes: defaults::batch_max_journal_bytes(),
             batch_max_fees: None,
             block_deadline_buffer_secs: 120,
@@ -419,7 +420,7 @@ proof_retry_sleep_ms = 500
 
 [batcher]
 batch_max_time = 300
-batch_size = 2
+min_batch_size = 2
 batch_max_fees = "0.1"
 block_deadline_buffer_secs = 120"#;
 
@@ -449,7 +450,7 @@ proof_retry_sleep_ms = 500
 
 [batcher]
 batch_max_time = 300
-batch_size = 2
+batch_size = 3
 block_deadline_buffer_secs = 120
 txn_timeout = 45
 batch_poll_time_ms = 1200
@@ -496,7 +497,7 @@ error = ?"#;
         assert_eq!(config.prover.assessor_set_guest_path, None);
 
         assert_eq!(config.batcher.batch_max_time, Some(300));
-        assert_eq!(config.batcher.batch_size, Some(2));
+        assert_eq!(config.batcher.min_batch_size, Some(2));
         assert_eq!(config.batcher.batch_max_fees, Some("0.1".into()));
         assert_eq!(config.batcher.block_deadline_buffer_secs, 120);
         assert_eq!(config.batcher.txn_timeout, None);
@@ -553,6 +554,7 @@ error = ?"#;
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
             assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
+            assert_eq!(config.batcher.min_batch_size, Some(3));
             assert!(config.batcher.single_txn_fulfill);
         }
         tracing::debug!("closing...");

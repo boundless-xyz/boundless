@@ -23,6 +23,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_assessor::{AssessorInput, Fulfillment};
+use chrono::{DateTime, Local};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
@@ -41,7 +42,7 @@ use boundless_market::{
     },
     input::GuestEnv,
     order_stream_client::Order,
-    selector::{is_unaggregated_selector, SupportedSelectors},
+    selector::{is_groth16_selector, SupportedSelectors},
 };
 
 alloy::sol!(
@@ -78,6 +79,12 @@ impl OrderFulfilled {
             assessorReceipt: assessor_receipt,
         })
     }
+}
+
+/// Converts a timestamp to a [DateTime] in the local timezone.
+pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
+    let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
+    t.with_timezone(&Local)
 }
 
 /// Fetches the content of a URL.
@@ -302,7 +309,7 @@ impl DefaultProver {
             order_path,
             verifier_parameters.digest(),
         );
-        let order_seal = if is_unaggregated_selector(selector) {
+        let order_seal = if is_groth16_selector(selector) {
             let receipt = self.compress(&order_receipt).await?;
             encode_seal(&receipt)?
         } else {
@@ -400,7 +407,7 @@ mod tests {
     async fn test_fulfill_with_selector() {
         let signer = PrivateKeySigner::random();
         let (request, signature) =
-            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V1_2)).await;
+            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V2_0)).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());

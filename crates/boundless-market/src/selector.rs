@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 
 use alloy_primitives::FixedBytes;
+use clap::ValueEnum;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::selector::{Selector, SelectorType};
 use risc0_zkvm::{
@@ -25,6 +26,20 @@ use risc0_zkvm::{
 };
 
 use crate::contracts::UNSPECIFIED_SELECTOR;
+
+/// Define the selector types.
+///
+/// This is used to indicate the type of proof that is being requested.
+#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[non_exhaustive]
+pub enum ProofType {
+    /// Any proof type.
+    Any,
+    /// Groth16 proof type.
+    Groth16,
+    /// Inclusion proof type.
+    InclusionProof,
+}
 
 /// A struct to hold the supported selectors.
 #[derive(Clone, Debug)]
@@ -36,7 +51,7 @@ impl Default for SupportedSelectors {
     fn default() -> Self {
         let mut supported_selectors = Self::new()
             .with_selector(UNSPECIFIED_SELECTOR)
-            .with_selector(FixedBytes::from(Selector::Groth16V1_2 as u32));
+            .with_selector(FixedBytes::from(Selector::Groth16V2_0 as u32));
         if is_dev_mode() {
             supported_selectors =
                 supported_selectors.with_selector(FixedBytes::from(Selector::FakeReceipt as u32));
@@ -83,8 +98,8 @@ impl SupportedSelectors {
     }
 }
 
-/// Check if a selector is an unaggregated selector.
-pub fn is_unaggregated_selector(selector: FixedBytes<4>) -> bool {
+/// Check if a selector is a groth16 selector.
+pub fn is_groth16_selector(selector: FixedBytes<4>) -> bool {
     let sel = Selector::from_bytes(selector.into());
     match sel {
         Some(selector) => {
@@ -102,7 +117,7 @@ mod tests {
     #[test]
     fn test_supported_selectors() {
         let mut supported_selectors = SupportedSelectors::new();
-        let selector = FixedBytes::from(Selector::Groth16V1_2 as u32);
+        let selector = FixedBytes::from(Selector::Groth16V2_0 as u32);
         supported_selectors = supported_selectors.with_selector(selector);
         assert!(supported_selectors.is_supported(&selector));
         supported_selectors.remove(selector);
@@ -110,8 +125,8 @@ mod tests {
     }
 
     #[test]
-    fn test_is_unaggregated_selector() {
-        let selector = FixedBytes::from(Selector::Groth16V1_2 as u32);
-        assert!(is_unaggregated_selector(selector));
+    fn test_is_groth16_selector() {
+        let selector = FixedBytes::from(Selector::Groth16V2_0 as u32);
+        assert!(is_groth16_selector(selector));
     }
 }

@@ -15,7 +15,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
-    selector::is_unaggregated_selector,
+    selector::is_groth16_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::{ArgAction, Parser};
@@ -217,8 +217,8 @@ impl Order {
             error_msg: None,
         }
     }
-    pub fn is_unaggregated(&self) -> bool {
-        is_unaggregated_selector(self.request.requirements.selector)
+    pub fn is_groth16(&self) -> bool {
+        is_groth16_selector(self.request.requirements.selector)
     }
 }
 
@@ -689,7 +689,7 @@ pub mod test_utils {
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
             config.market.mcycle_price = "0.00001".into();
-            config.batcher.batch_size = Some(1);
+            config.batcher.min_batch_size = Some(1);
             config.write(config_file.path()).await.unwrap();
 
             let args = Args {

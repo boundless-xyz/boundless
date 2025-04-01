@@ -35,7 +35,10 @@ use std::time::Duration;
 #[cfg(not(target_os = "zkvm"))]
 use thiserror::Error;
 #[cfg(not(target_os = "zkvm"))]
-use token::IHitPoints::{self, IHitPointsErrors};
+use token::{
+    IHitPoints::{self, IHitPointsErrors},
+    IERC20::IERC20Errors,
+};
 use url::Url;
 
 use risc0_zkvm::sha::Digest;
@@ -84,8 +87,15 @@ pub mod token {
     }
 
     alloy::sol! {
+        #[derive(Debug)]
         #[sol(rpc)]
         interface IERC20 {
+            error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed);
+            error ERC20InvalidSender(address sender);
+            error ERC20InvalidReceiver(address receiver);
+            error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed);
+            error ERC20InvalidApprover(address approver);
+            error ERC20InvalidSpender(address spender);
             function approve(address spender, uint256 value) external returns (bool);
             function balanceOf(address account) external view returns (uint256);
         }
@@ -122,7 +132,7 @@ pub mod token {
 
 /// Status of a proof request
 #[derive(Debug, PartialEq)]
-pub enum ProofStatus {
+pub enum RequestStatus {
     /// The request has expired.
     Expired,
     /// The request is locked in and waiting for fulfillment.
@@ -234,7 +244,7 @@ impl From<RequestId> for U256 {
         let addr = U160::try_from(value.addr).unwrap();
         let smart_contract_signed_flag =
             if value.smart_contract_signed { U256::from(1) } else { U256::ZERO };
-        smart_contract_signed_flag << 192 | (U256::from(addr) << 32) | U256::from(value.index)
+        (smart_contract_signed_flag << 192) | (U256::from(addr) << 32) | U256::from(value.index)
     }
 }
 
@@ -546,16 +556,16 @@ impl Requirements {
         Self { selector, ..self }
     }
 
-    /// Set the selector for an unaggregated proof.
+    /// Set the selector for a groth16 proof.
     ///
     /// This will set the selector to the appropriate value based on the current environment.
     /// In dev mode, the selector will be set to `FakeReceipt`, otherwise it will be set
-    /// to `Groth16V1_2`.
+    /// to `Groth16V2_0`.
     #[cfg(not(target_os = "zkvm"))]
-    pub fn with_unaggregated_proof(self) -> Self {
+    pub fn with_groth16_proof(self) -> Self {
         match risc0_zkvm::is_dev_mode() {
             true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
-            false => Self { selector: FixedBytes::from(Selector::Groth16V1_2 as u32), ..self },
+            false => Self { selector: FixedBytes::from(Selector::Groth16V2_0 as u32), ..self },
         }
     }
 }
@@ -723,6 +733,10 @@ pub enum TxnErr {
     #[error("HitPoints Err: {0:?}")]
     HitPointsErr(IHitPoints::IHitPointsErrors),
 
+    /// Error from the ERC20 contract.
+    #[error("IERC20 Err: {0:?}")]
+    ERC20Err(token::IERC20::IERC20Errors),
+
     /// Missing data while decoding the error response from the contract.
     #[error("decoding err, missing data, code: {0} msg: {1}")]
     MissingData(i64, String),
@@ -744,9 +758,9 @@ pub enum TxnErr {
 #[cfg(not(target_os = "zkvm"))]
 impl From<ContractErr> for TxnErr {
     fn from(err: ContractErr) -> Self {
-        match err {
+        match &err {
             ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
-                let Some(data) = ts_err.data else {
+                let Some(data) = &ts_err.data else {
                     return TxnErr::MissingData(ts_err.code, ts_err.message.to_string());
                 };
 
@@ -756,16 +770,19 @@ impl From<ContractErr> for TxnErr {
                     return Self::BytesDecode;
                 };
 
-                // Trial deocde the error with each possible contract ABI. Right now, there are two.
+                // Trial deocde the error with each possible contract ABI.
                 if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data, true) {
-                    return Self::BoundlessMarketErr(decoded_error);
-                }
-                if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data, true) {
-                    return Self::HitPointsErr(decoded_error);
-                }
-                match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
-                    Ok(decoded_error) => Self::SetVerifierErr(decoded_error),
-                    Err(err) => Self::DecodeErr(err, data),
+                    Self::BoundlessMarketErr(decoded_error)
+                } else if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data, true) {
+                    Self::HitPointsErr(decoded_error)
+                } else if let Ok(decoded_error) =
+                    IRiscZeroSetVerifierErrors::abi_decode(&data, true)
+                {
+                    Self::SetVerifierErr(decoded_error)
+                } else if let Ok(decoded_error) = IERC20Errors::abi_decode(&data, true) {
+                    Self::ERC20Err(decoded_error)
+                } else {
+                    Self::ContractErr(err)
                 }
             }
             _ => Self::ContractErr(err),
