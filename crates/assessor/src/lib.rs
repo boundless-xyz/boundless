@@ -19,7 +19,7 @@
 use alloy_primitives::{Address, PrimitiveSignature};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use anyhow::{bail, Result};
-use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest};
+use boundless_market::contracts::{EIP712DomainSaltless, ProofRequest};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
 
@@ -47,7 +47,7 @@ impl Fulfillment {
         // public key. It would save ~1M cycles.
         let recovered = signature.recover_address_from_prehash(&hash)?;
         let client_addr = self.request.client_address()?;
-        if recovered != self.request.client_address()? {
+        if recovered != client_addr {
             bail!("Invalid signature: mismatched addr {recovered} - {client_addr}");
         }
         Ok(hash.into())
@@ -76,7 +76,7 @@ pub struct AssessorInput {
     /// The EIP-712 domain contains the chain ID and smart contract address.
     /// This smart contract address is used solely to construct the EIP-712 Domain
     /// and complete signature checks on the requests.
-    pub domain: EIP721DomainSaltless,
+    pub domain: EIP712DomainSaltless,
     /// The address of the prover.
     pub prover_address: Address,
 }
@@ -160,7 +160,7 @@ mod tests {
     fn test_domain_serde() {
         let domain = eip712_domain(Address::ZERO, 1);
         let bytes = postcard::to_allocvec(&domain).unwrap();
-        let domain2: EIP721DomainSaltless = postcard::from_bytes(&bytes).unwrap();
+        let domain2: EIP712DomainSaltless = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(domain, domain2);
     }
 

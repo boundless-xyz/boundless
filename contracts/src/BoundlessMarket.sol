@@ -559,8 +559,7 @@ contract BoundlessMarket is
                 clientAccount.balance -= clientOwes;
             }
         } else {
-            int256 delta = uint256(price).toInt256() - uint256(lockPrice).toInt256();
-            uint96 clientOwed = (-delta).toUint256().toUint96();
+            uint96 clientOwed = lockPrice - price;
             clientAccount.balance += clientOwed;
         }
 
@@ -598,10 +597,8 @@ contract BoundlessMarket is
         uint96 price = context.price;
 
         Account storage clientAccount = accounts[client];
-        if (!fulfilled) {
-            clientAccount.setRequestFulfilled(idx);
-            emit RequestFulfilled(id);
-        }
+        clientAccount.setRequestFulfilled(idx);
+        emit RequestFulfilled(id);
 
         // Deduct the funds from client account.
         if (clientAccount.balance < price) {
@@ -702,8 +699,7 @@ contract BoundlessMarket is
 
         // Calculate the portion of stake that should be burned vs sent to the prover.
         uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_BPS / 10000;
-        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
-
+        
         // If a prover fulfilled the request after the lock deadline, that prover
         // receives the unburned portion of the stake as a reward.
         // Otherwise the request expired unfulfilled, unburnt stake accrues to the market treasury,
@@ -713,13 +709,14 @@ contract BoundlessMarket is
         if (lock.isProverPaidAfterLockDeadline()) {
             // At this point lock.prover is the prover that ultimately fulfilled the request, not
             // the prover that locked the request. Transfer them the unburnt stake.
-            accounts[lock.prover].stakeBalance += transferValue;
+            accounts[stakeRecipient].stakeBalance += transferValue;
         } else {
             stakeRecipient = address(this);
-            accounts[address(this)].stakeBalance += transferValue;
+            accounts[stakeRecipient].stakeBalance += transferValue;
             accounts[client].balance += lock.price;
         }
 
+        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
         emit ProverSlashed(requestId, burnValue, transferValue, stakeRecipient);
     }
 
@@ -759,6 +756,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
+    /// @dev We withdraw from address(this) but send to msg.sender, so _withdraw is not used.
     function withdrawFromTreasury(uint256 value) public onlyOwner {
         if (accounts[address(this)].balance < value.toUint96()) {
             revert InsufficientBalance(address(this));
@@ -890,12 +888,5 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function eip712DomainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
-    }
-
-    /// Internal utility function to revert with a pre-encoded error.
-    function revertWith(bytes memory err) internal pure {
-        assembly {
-            revert(add(err, 0x20), mload(err))
-        }
     }
 }

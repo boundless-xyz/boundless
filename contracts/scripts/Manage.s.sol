@@ -124,6 +124,9 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         require(marketAddress != address(0), "BoundlessMarket proxy address must be set in config");
         console2.log("Using BoundlessMarket proxy at address", marketAddress);
 
+        address stakeToken = deploymentConfig.stakeToken;
+        require(stakeToken != address(0), "stake-token address must be set in config");
+
         // Get the current assessor image ID and guest URL
         BoundlessMarket market = BoundlessMarket(marketAddress);
         (bytes32 currentImageID, string memory currentGuestUrl) = market.imageInfo();
@@ -134,7 +137,7 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         bytes32 assessorImageId = deploymentConfig.assessorImageId;
 
         UpgradeOptions memory opts;
-        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(verifier, assessorImageId);
+        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(verifier, assessorImageId, stakeToken);
         opts.referenceContract = "build-info-reference:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/reference-contract/build-info-reference";
 
