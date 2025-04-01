@@ -97,7 +97,6 @@ async fn run<P: StorageProvider>(
     set_verifier_address: Address,
     counter_address: Address,
 ) -> Result<()> {
-    // Create a Boundless client from the provided parameters.
     let client = ClientBuilder::<P>::default()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
@@ -109,25 +108,16 @@ async fn run<P: StorageProvider>(
         .await
         .context("failed to build boundless client")?;
 
-    // Upload the ECHO ELF to the storage provider so that it can be fetched by the market.
     let image_url = client.upload_image(ECHO_ELF).await.context("failed to upload image")?;
     tracing::info!("Uploaded image to {}", image_url);
 
-    // We use a timestamp as input to the ECHO guest code as the Counter contract
-    // accepts only unique proofs. Using the same input twice would result in the same proof.
     let echo_message = format! {"{:?}", SystemTime::now()};
     let echo_input = Input::builder().write_slice(echo_message.as_bytes()).build_env()?;
 
-    // Encode the input and upload it to the storage provider.
     let input_encoded = echo_input.encode().context("failed to encode input")?;
     let input_url = client.upload_input(&input_encoded).await.context("failed to upload input")?;
     tracing::info!("Uploaded input to {}", input_url);
 
-    // Dry run the ECHO ELF with the input to get the journal and cycle count.
-    // This can be useful to estimate the cost of the poof request.
-    // It can also be useful to ensure the guest can be executed correctly and we do not send into
-    // the market unprovable proof requests. If you have a different mechanism to get the expected
-    // journal and set a price, you can skip this step.
     let env = ExecutorEnv::builder().write_slice(&echo_input.stdin).build()?;
     let session_info =
         default_executor().execute(env, ECHO_ELF).context("failed to execute ELF")?;
@@ -139,14 +129,6 @@ async fn run<P: StorageProvider>(
         .div_ceil(1_000_000);
     let journal = session_info.journal;
 
-    // Create a proof request with the image, input, requirements and offer.
-    // The ELF (i.e. image) is specified by the image URL.
-    // The input can be specified by an URL, as in this example, or can be posted on chain by using
-    // the `with_inline` method with the input bytes.
-    // The requirements are the ECHO_ID and the digest of the journal. In this way, the market can
-    // verify that the proof is correct by checking both the committed image id and digest of the
-    // journal. Additionally, the requirements specify the callback to be executed by the prover
-    // when the proof is fulfilled.
     let request = ProofRequest::builder()
         .with_image_url(image_url)
         .with_input(input_url)
@@ -158,43 +140,21 @@ async fn run<P: StorageProvider>(
                 // `IBoundlessMarketCallback` interface.
                 .with_callback(Callback { addr: counter_address, gasLimit: U96::from(100_000) }),
         )
-        // The offer specifies the price range and the timeout for the request.
         .with_offer(
             Offer::default()
-                // The market uses a reverse Dutch auction mechanism to match requests with provers.
-                // Each request has a price range that a prover can bid on. One way to set the price
-                // is to choose a desired (min and max) price per million cycles and multiply it
-                // by the number of cycles. Alternatively, you can use the `with_min_price` and
-                // `with_max_price` methods to set the price directly.
                 .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-                // NOTE: If your offer is not being accepted, try increasing the max price.
                 .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
-                // The timeout is the maximum number of seconds the request can stay
-                // unfulfilled in the market before it expires. If a prover locks in
-                // the request and does not fulfill it before the timeout, the prover can be
-                // slashed.
                 .with_timeout(1000)
-                // The lock timeout is the time, in seconds, the prover has to fulfill the request.
-                // If a prover locks in the request and does not fulfill it before the lock timeout,
-                // the prover can be slashed.
                 .with_lock_timeout(1000),
         )
         .build()?;
 
-    // Send the request and wait for it to be completed.
     let (request_id, expires_at) = client.submit_request(&request).await?;
     tracing::info!("Request {} submitted", request_id);
 
-    // Wait for the request to be fulfilled by the market. The market will return the journal and
-    // seal.
     tracing::info!("Waiting for request {} to be fulfilled", request_id);
-    let (_journal, _seal) = client
-        .wait_for_request_fulfillment(
-            request_id,
-            Duration::from_secs(5), // check every 5 seconds
-            expires_at,
-        )
-        .await?;
+    let (_journal, _seal) =
+        client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at).await?;
     tracing::info!("Request {} fulfilled", request_id);
 
     // We interact with the Counter contract by calling the getCount function to check that the callback

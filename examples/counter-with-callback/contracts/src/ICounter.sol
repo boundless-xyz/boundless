@@ -11,8 +11,11 @@ import {IBoundlessMarketCallback} from "boundless-market/IBoundlessMarketCallbac
 interface ICounter is IBoundlessMarketCallback {
     // @notice Emitted when the counter is incremented.
     event CounterCallbackCalled(bytes32 imageId, bytes journal, bytes seal);
+
+    // @notice AlreadyVerified is an error that is thrown when a proof has already been verified.
+    error AlreadyVerified();
+
     // @notice Retrieves the current count.
     // @return The current count.
-
     function count() external view returns (uint256);
 }
