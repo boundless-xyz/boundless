@@ -415,6 +415,13 @@ struct MainArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load environment variables from .env file if it exists
+    match dotenvy::dotenv() {
+        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
+        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
+        Err(e) => bail!("failed to load .env file: {}", e),
+    }
+
     let args = match MainArgs::try_parse() {
         Ok(args) => args,
         Err(err) => {

@@ -197,7 +197,8 @@ localnet action="up": check-deps
             --rpc-url http://localhost:$ANVIL_PORT \
             --deposit-amount $DEPOSIT_AMOUNT > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
         echo "Localnet is running!"
-        echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
+        echo "Make sure to run 'source <(just localnet-env)' to load the environment variables before interacting with the network."
+        echo "Alternatively, you can copy the content of `.env.localnet` into the `.env` file."
     elif [ "{{action}}" = "down" ]; then
         if [ -f {{PID_FILE}} ]; then
             while read pid; do
@@ -210,6 +211,24 @@ localnet action="up": check-deps
         echo "Available actions: up, down"
         exit 1
     fi
+
+localnet-env:
+	#!/usr/bin/env bash
+	if [ -f .env.localnet ]; then
+		grep -v '^#' .env.localnet | tr -d '"' | xargs -I {} echo export {}
+	else
+		echo "Error: .env.localnet file not found." >&2
+		exit 1
+	fi
+
+testnet-env:
+	#!/usr/bin/env bash
+	if [ -f .env.testnet ]; then
+		grep -v '^#' .env.testnet | tr -d '"' | xargs -I {} echo export {}
+	else
+		echo "Error: .env.testnet file not found." >&2
+		exit 1
+	fi
 
 # Update cargo dependencies
 cargo-update:
