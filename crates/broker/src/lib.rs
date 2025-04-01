@@ -159,6 +159,8 @@ enum OrderStatus {
     Failed,
     /// Order was analyzed and marked as skipable
     Skipped,
+    /// Order was observed to be slashed
+    Slashed,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -192,6 +194,10 @@ struct Order {
     ///
     /// Populated during order picking
     expire_timestamp: Option<u64>,
+    /// UNIX timestamp the order lock expires at
+    ///
+    /// Populated during order picking    
+    lock_expire_timestamp: Option<u64>,
     /// Client Signature
     client_sig: Bytes,
     /// Price the lockin was set at
@@ -212,6 +218,7 @@ impl Order {
             proof_id: None,
             compressed_proof_id: None,
             expire_timestamp: None,
+            lock_expire_timestamp: None,
             client_sig,
             lock_price: None,
             error_msg: None,

@@ -132,9 +132,9 @@ where
 
         // If order_expiration > lock_expiration the period in-between is when order can be filled
         // by anyone without staking to partially claim the slashed stake
-        let open_slashed_order = lock_expiration <= now && order_expiration > now;
+        let slashed_unexpired = lock_expiration <= now && order_expiration > now;
 
-        let (expiration, lockin_stake) = if open_slashed_order {
+        let (expiration, lockin_stake) = if slashed_unexpired {
             (order_expiration, U256::ZERO)
         } else {
             (lock_expiration, U256::from(order.request.offer.lockStake))
@@ -344,7 +344,7 @@ where
         let one_mill = U256::from(1_000_000);
         let total_cycles = U256::from(proof_res.stats.total_cycles);
 
-        let (mcycle_price_min, mcycle_price_max) = if open_slashed_order {
+        let (mcycle_price_min, mcycle_price_max) = if slashed_unexpired {
             // in the case of an open slashed order the reward is a fraction of the lock stake and is constant
             let mcycle_price =
                 (order.request.offer.lockStake / U256::from(FRACTION_STAKE_REWARD) / total_cycles)
@@ -740,6 +740,7 @@ mod tests {
                 proof_id: None,
                 compressed_proof_id: None,
                 expire_timestamp: None,
+                lock_expire_timestamp: None,
                 client_sig: Bytes::new(),
                 lock_price: None,
                 error_msg: None,

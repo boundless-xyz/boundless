@@ -280,7 +280,6 @@ mod tests {
         test_utils::{deploy_boundless_market, deploy_hit_points},
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
-    use chrono::Utc;
     use guest_assessor::ASSESSOR_GUEST_ID;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
@@ -350,20 +349,8 @@ mod tests {
         let client_sig =
             request.sign_request(&signer, market_address, chain_id).await.unwrap().as_bytes();
 
-        let order = Order {
-            status: OrderStatus::Locking,
-            updated_at: Utc::now(),
-            target_timestamp: Some(0),
-            request,
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
-            expire_timestamp: None,
-            client_sig: client_sig.into(),
-            lock_price: None,
-            error_msg: None,
-        };
+        let order =
+            Order { status: OrderStatus::Locking, ..Order::new(request, client_sig.into()) };
         let request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
         assert_eq!(request_id, order_id);
 
@@ -464,17 +451,8 @@ mod tests {
             .into();
         let order = Order {
             status: OrderStatus::Locking,
-            updated_at: Utc::now(),
             target_timestamp: Some(0),
-            request,
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
-            expire_timestamp: None,
-            client_sig,
-            lock_price: None,
-            error_msg: None,
+            ..Order::new(request, client_sig)
         };
 
         let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();

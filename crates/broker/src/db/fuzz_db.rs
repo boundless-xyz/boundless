@@ -110,6 +110,7 @@ fn generate_test_order(id: u32) -> Order {
         proof_id: Some(format!("proof_{}", id)),
         compressed_proof_id: Some(format!("compressed_proof_{}", id)),
         expire_timestamp: Some(1000),
+        lock_expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
         error_msg: None,

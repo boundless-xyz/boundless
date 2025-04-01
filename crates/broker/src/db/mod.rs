@@ -82,6 +82,11 @@ pub trait BrokerDb {
     ) -> Result<(ProofRequest, String, B256, U256), DbError>;
     async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError>;
     async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError>;
+    async fn update_slashed_unexpired_for_pricing(
+        &self,
+        limit: u32,
+        timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
         &self,
@@ -284,6 +289,42 @@ impl BrokerDb for SqliteDb {
             "#,
         )
         .bind(OrderStatus::New)
+        .bind(i64::from(limit))
+        .bind(OrderStatus::Pricing)
+        .bind(Utc::now().timestamp())
+        .fetch_all(&self.pool)
+        .await?;
+
+        let result: Result<Vec<_>, _> = orders
+            .into_iter()
+            .map(|order| Ok((U256::from_str_radix(&order.id, 16)?, order.data)))
+            .collect();
+
+        result
+    }
+
+    #[instrument(level = "trace", skip_all, fields(limit = %limit, timestamp = %timestamp))]
+    async fn update_slashed_unexpired_for_pricing(
+        &self,
+        limit: u32,
+        timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            r#"
+            WITH orders_to_update AS (
+                SELECT id
+                FROM orders
+                WHERE data->>'status' = $1 AND data->>'lock_expire_timestamp' > $2
+                LIMIT $3
+            )
+            UPDATE orders
+            SET data = json_set(json_set(data, '$.status', $4), '$.updated_at', $5)
+            WHERE id IN (SELECT id FROM orders_to_update)
+            RETURNING *
+            "#,
+        )
+        .bind(OrderStatus::Slashed)
+        .bind(i64::try_from(timestamp).map_err(|_| DbError::BadBlockNumb(timestamp.to_string()))?)
         .bind(i64::from(limit))
         .bind(OrderStatus::Pricing)
         .bind(Utc::now().timestamp())
@@ -1091,11 +1132,8 @@ mod tests {
     use risc0_zkvm::sha::Digest;
 
     fn create_order() -> Order {
-        Order {
-            status: OrderStatus::New,
-            updated_at: Utc::now(),
-            target_timestamp: None,
-            request: ProofRequest::new(
+        Order::new(
+            ProofRequest::new(
                 1,
                 &Address::ZERO,
                 Requirements::new(
@@ -1117,15 +1155,8 @@ mod tests {
                     lockStake: U256::from(0),
                 },
             ),
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
-            expire_timestamp: None,
-            client_sig: Bytes::new(),
-            lock_price: None,
-            error_msg: None,
-        }
+            Bytes::new(),
+        )
     }
 
     #[sqlx::test]
