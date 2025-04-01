@@ -51,4 +51,16 @@ library LockRequestLibrary {
             )
         );
     }
+
+    /// @notice Computes the EIP-712 digest for the given lock request.
+    /// @param proofRequestEip712Digest The EIP-712 digest of the proof request.
+    /// @return The EIP-712 digest of the lock request.
+    function eip712DigestFromPrecomputedDigest(bytes32 proofRequestEip712Digest) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                LOCK_REQUEST_TYPEHASH,
+                proofRequestEip712Digest
+            )
+        );
+    }
 }

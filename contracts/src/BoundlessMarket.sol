@@ -27,7 +27,7 @@ import {AssessorCommitment} from "./types/AssessorCommitment.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
-import {LockRequest} from "./types/LockRequest.sol";
+import {LockRequest, LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
 import {FulfillmentContext, FulfillmentContextLibrary} from "./types/FulfillmentContext.sol";
@@ -135,8 +135,7 @@ contract BoundlessMarket is
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
-        address prover = _extractProverAddress(LockRequest({request: request}), proverSignature);
+        (bytes32 requestHash, address prover) = _verifyClientSignatureAndExtractProverAddress(request, client, clientSignature, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
@@ -880,13 +879,27 @@ contract BoundlessMarket is
         return requestHash;
     }
 
-    function _extractProverAddress(LockRequest memory request, bytes calldata proverSignature)
+    function _verifyClientSignatureAndExtractProverAddress(ProofRequest calldata request, address clientAddr, bytes calldata clientSignature, bytes calldata proverSignature)
         internal
         view
-        returns (address)
+        returns (bytes32 requestHash, address proverAddress)
     {
-        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
-        return ECDSA.recover(requestHash, proverSignature);
+        bytes32 proofRequestEip712Digest = request.eip712Digest();
+        requestHash = _hashTypedDataV4(proofRequestEip712Digest);
+        if (request.id.isSmartContractSigned()) {
+            if (IERC1271(clientAddr).isValidSignature(requestHash, clientSignature) != IERC1271.isValidSignature.selector) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        } else {
+            if (ECDSA.recover(requestHash, clientSignature) != clientAddr) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        }
+
+        bytes32 lockRequestHash = _hashTypedDataV4(LockRequestLibrary.eip712DigestFromPrecomputedDigest(proofRequestEip712Digest));
+        proverAddress = ECDSA.recover(lockRequestHash, proverSignature);
+
+        return (requestHash, proverAddress);
     }
 
     /// @inheritdoc IBoundlessMarket
