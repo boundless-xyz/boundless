@@ -212,6 +212,35 @@ where
         anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
     }
 
+    /// Monitors the OrderFulfilled events and updates the database accordingly.
+    async fn monitor_order_fulfillments(
+        market_addr: Address,
+        provider: Arc<P>,
+        db: DbObj,
+    ) -> Result<()> {
+        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        let event = market.instance().RequestFulfilled_filter().watch().await?;
+        tracing::info!("Subscribed to RequestFulfilled event");
+
+        event
+            .into_stream()
+            .for_each(|log_res| async {
+                match log_res {
+                    Ok((event, _)) => {
+                        if let Err(e) = db.set_order_complete(U256::from(event.requestId)).await {
+                            tracing::error!("Failed to update order status to Complete: {e:?}");
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                    }
+                }
+            })
+            .await;
+
+        anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
+    }
+
     async fn process_log(
         event: IBoundlessMarket::RequestSubmitted,
         log: Log,
@@ -289,6 +318,14 @@ where
                 tracing::error!("Monitor failed to find open orders on startup: {err:?}");
                 SupervisorErr::Recover(err)
             })?;
+
+            Self::monitor_order_fulfillments(market_addr, provider.clone(), db.clone())
+                .await
+                .map_err(|err| {
+                    tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");
+
+                    SupervisorErr::Recover(err)
+                })?;
 
             Self::monitor_orders(market_addr, provider, db).await.map_err(|err| {
                 tracing::error!("Monitor for new blocks failed, restarting: {err:?}");
