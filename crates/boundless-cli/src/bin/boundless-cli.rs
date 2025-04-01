@@ -77,6 +77,7 @@ use boundless_market::{
         PredicateType, ProofRequest, Requirements, UNSPECIFIED_SELECTOR,
     },
     input::{GuestEnv, InputBuilder},
+    selector::ProofType,
     storage::{StorageProvider, StorageProviderConfig},
 };
 
@@ -196,9 +197,9 @@ enum RequestCommands {
         #[clap(long, default_value = "false")]
         no_preflight: bool,
 
-        /// Request an unaggregated proof (i.e., a Groth16).
-        #[clap(long)]
-        unaggregated: bool,
+        /// Set the proof type.
+        #[clap(long, value_enum, default_value_t = ProofType::Any)]
+        proof_type: ProofType,
 
         /// Address of the callback to use in the requirements.
         #[clap(long, requires = "callback_gas_limit")]
@@ -364,9 +365,9 @@ struct SubmitOfferRequirements {
     /// Gas limit of the callback to use in the requirements.
     #[clap(long, requires = "callback_addr")]
     callback_gas_limit: Option<u64>,
-    /// Request an unaggregated proof (i.e., a Groth16).
+    /// Request a groth16 proof (i.e., a Groth16).
     #[clap(long)]
-    unaggregated: bool,
+    proof_type: ProofType,
 }
 
 /// Common configuration options for all commands
@@ -602,7 +603,7 @@ where
             offchain,
             order_stream_url,
             no_preflight,
-            unaggregated,
+            proof_type,
             callback_address,
             callback_gas_limit,
         } => {
@@ -640,7 +641,7 @@ where
                     wait: *wait,
                     offchain: *offchain,
                     preflight: !*no_preflight,
-                    unaggredated: *unaggregated,
+                    proof_type: proof_type.clone(),
                     callback_address: *callback_address,
                     callback_gas_limit: *callback_gas_limit,
                 },
@@ -904,8 +905,8 @@ where
         offer.clone(),
     );
 
-    if args.reqs.unaggregated {
-        request.requirements = request.requirements.with_unaggregated_proof();
+    if args.reqs.proof_type == ProofType::Groth16 {
+        request.requirements = request.requirements.with_groth16_proof();
     }
 
     tracing::debug!("Request details: {}", serde_json::to_string_pretty(&request)?);
@@ -961,7 +962,7 @@ struct SubmitOptions {
     wait: bool,
     offchain: bool,
     preflight: bool,
-    unaggredated: bool,
+    proof_type: ProofType,
     callback_address: Option<Address>,
     callback_gas_limit: Option<u64>,
 }
@@ -1007,8 +1008,8 @@ where
         request.id = request_yaml.id;
     }
 
-    if opts.unaggredated {
-        request.requirements = request.requirements.with_unaggregated_proof();
+    if opts.proof_type == ProofType::Groth16 {
+        request.requirements = request.requirements.with_groth16_proof();
     }
 
     // Configure callback if provided
@@ -1145,10 +1146,16 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
     let wallet = EthereumWallet::from(args.config.private_key.clone());
     let provider = ProviderBuilder::new().wallet(wallet).on_http(args.config.rpc_url.clone());
 
-    match provider.get_chain_id().await {
-        Ok(chain_id) => println!("✅ Connected to chain ID: {}", chain_id),
-        Err(e) => println!("❌ Failed to connect: {}", e),
-    }
+    let rpc_ok = match provider.get_chain_id().await {
+        Ok(chain_id) => {
+            println!("✅ Connected to chain ID: {}", chain_id);
+            true
+        }
+        Err(e) => {
+            println!("❌ Failed to connect: {}", e);
+            false
+        }
+    };
 
     // Check market contract
     print!("Testing Boundless Market contract... ");
@@ -1158,10 +1165,16 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
         args.config.private_key.address(),
     );
 
-    match boundless_market.get_chain_id().await {
-        Ok(_) => println!("✅ Contract responds"),
-        Err(e) => println!("❌ Contract error: {}", e),
-    }
+    let market_ok = match boundless_market.get_chain_id().await {
+        Ok(_) => {
+            println!("✅ Contract responds");
+            true
+        }
+        Err(e) => {
+            println!("❌ Contract error: {}", e);
+            false
+        }
+    };
 
     // Check set verifier contract
     print!("Testing Set Verifier contract... ");
@@ -1202,15 +1215,16 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
 
     // Check verifier contract
     print!("Testing VerifierRouter contract... ");
-    match provider.call(tx).await {
-        Ok(_) => println!("✅ Contract responds"),
-        Err(e) => println!("❌ Contract error: {}", e),
-    }
-
-    // Check if environment is ready
-    let rpc_ok = provider.get_chain_id().await.is_ok();
-    let market_ok = boundless_market.get_chain_id().await.is_ok();
-    let verifier_ok = set_verifier.image_info().await.is_ok();
+    let verifier_ok = match provider.call(tx).await {
+        Ok(_) => {
+            println!("✅ Contract responds");
+            true
+        }
+        Err(e) => {
+            println!("❌ Contract error: {}", e);
+            false
+        }
+    };
 
     println!(
         "\nEnvironment Setup: {}",
@@ -1236,7 +1250,7 @@ mod tests {
             test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx},
             RequestStatus,
         },
-        selector::is_unaggregated_selector,
+        selector::is_groth16_selector,
     };
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
@@ -1470,7 +1484,7 @@ mod tests {
                 offchain: false,
                 order_stream_url: None,
                 no_preflight: false,
-                unaggregated: false,
+                proof_type: ProofType::Any,
                 callback_address: None,
                 callback_gas_limit: None,
             })),
@@ -1500,7 +1514,7 @@ mod tests {
                 offchain: true,
                 order_stream_url: Some(order_stream_url),
                 no_preflight: true,
-                unaggregated: false,
+                proof_type: ProofType::Any,
                 callback_address: None,
                 callback_gas_limit: None,
             })),
@@ -1541,7 +1555,7 @@ mod tests {
                     journal_prefix: Some(String::default()),
                     callback_address: None,
                     callback_gas_limit: None,
-                    unaggregated: false,
+                    proof_type: ProofType::Any,
                 },
             }))),
         };
@@ -1675,7 +1689,7 @@ mod tests {
                 offchain: false,
                 order_stream_url: None,
                 no_preflight: true,
-                unaggregated: false,
+                proof_type: ProofType::Any,
                 callback_address: None,
                 callback_gas_limit: None,
             })),
@@ -1815,7 +1829,7 @@ mod tests {
                 offchain: false,
                 order_stream_url: None,
                 no_preflight: true,
-                unaggregated: false,
+                proof_type: ProofType::Any,
                 callback_address: Some(callback_address),
                 callback_gas_limit: Some(100000),
             })),
@@ -1869,7 +1883,7 @@ mod tests {
                 offchain: false,
                 order_stream_url: None,
                 no_preflight: true,
-                unaggregated: true,
+                proof_type: ProofType::Groth16,
                 callback_address: None,
                 callback_gas_limit: None,
             })),
@@ -1894,7 +1908,7 @@ mod tests {
         let (_journal, seal) =
             ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
         let selector: FixedBytes<4> = seal[0..4].try_into().unwrap();
-        assert!(is_unaggregated_selector(selector))
+        assert!(is_groth16_selector(selector))
     }
 
     #[sqlx::test]
@@ -1930,7 +1944,7 @@ mod tests {
                 offchain: true,
                 order_stream_url: Some(order_stream_url.clone()),
                 no_preflight: true,
-                unaggregated: false,
+                proof_type: ProofType::Any,
                 callback_address: None,
                 callback_gas_limit: None,
             })),

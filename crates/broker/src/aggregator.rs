@@ -386,7 +386,7 @@ impl AggregatorService {
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
-        unaggregated_proofs: &[AggregationOrder],
+        groth16_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<String> {
         let assessor_proof_id = if finalize {
@@ -395,7 +395,7 @@ impl AggregatorService {
                 .iter()
                 .copied()
                 .chain(new_proofs.iter().map(|p| p.order_id))
-                .chain(unaggregated_proofs.iter().map(|p| p.order_id))
+                .chain(groth16_proofs.iter().map(|p| p.order_id))
                 .collect();
 
             tracing::debug!(
@@ -432,7 +432,7 @@ impl AggregatorService {
             .update_batch(
                 batch_id,
                 &aggregation_state,
-                &[new_proofs, unaggregated_proofs].concat(),
+                &[new_proofs, groth16_proofs].concat(),
                 assessor_proof_id,
             )
             .await
@@ -456,12 +456,12 @@ impl AggregatorService {
                     .get_aggregation_proofs()
                     .await
                     .context("Failed to get pending agg proofs from DB")?;
-                // Fetch all unaggregated proofs that are ready to be submitted from the DB.
-                let new_unaggregated_proofs = self
+                // Fetch all groth16 proofs that are ready to be submitted from the DB.
+                let new_groth16_proofs = self
                     .db
-                    .get_unaggregated_proofs()
+                    .get_groth16_proofs()
                     .await
-                    .context("Failed to get unaggregated proofs from DB")?;
+                    .context("Failed to get groth16 proofs from DB")?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.
@@ -469,7 +469,7 @@ impl AggregatorService {
                     .check_finalize(
                         batch_id,
                         &batch,
-                        &[new_proofs.clone(), new_unaggregated_proofs.clone()].concat(),
+                        &[new_proofs.clone(), new_groth16_proofs.clone()].concat(),
                     )
                     .await?;
 
@@ -480,13 +480,7 @@ impl AggregatorService {
                 }
 
                 let aggregation_proof_id = self
-                    .aggregate_proofs(
-                        batch_id,
-                        &batch,
-                        &new_proofs,
-                        &new_unaggregated_proofs,
-                        finalize,
-                    )
+                    .aggregate_proofs(batch_id, &batch, &new_proofs, &new_groth16_proofs, finalize)
                     .await?;
                 (aggregation_proof_id, finalize)
             }

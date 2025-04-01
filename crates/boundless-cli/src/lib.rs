@@ -42,7 +42,7 @@ use boundless_market::{
     },
     input::GuestEnv,
     order_stream_client::Order,
-    selector::{is_unaggregated_selector, SupportedSelectors},
+    selector::{is_groth16_selector, SupportedSelectors},
 };
 
 alloy::sol!(
@@ -309,7 +309,7 @@ impl DefaultProver {
             order_path,
             verifier_parameters.digest(),
         );
-        let order_seal = if is_unaggregated_selector(selector) {
+        let order_seal = if is_groth16_selector(selector) {
             let receipt = self.compress(&order_receipt).await?;
             encode_seal(&receipt)?
         } else {

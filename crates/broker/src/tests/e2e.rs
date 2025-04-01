@@ -17,7 +17,7 @@ use boundless_market::{
         test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count},
         Callback, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     },
-    selector::is_unaggregated_selector,
+    selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
 };
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
@@ -32,7 +32,7 @@ use url::Url;
 fn generate_request(
     id: u32,
     addr: &Address,
-    unaggregated: bool,
+    proof_type: ProofType,
     image_url: impl Into<String>,
     callback: Option<Callback>,
 ) -> ProofRequest {
@@ -40,8 +40,8 @@ fn generate_request(
         Digest::from(ECHO_ID),
         Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
     );
-    if unaggregated {
-        requirements = requirements.with_unaggregated_proof();
+    if proof_type == ProofType::Groth16 {
+        requirements = requirements.with_groth16_proof();
     }
     if let Some(callback) = callback {
         requirements = requirements.with_callback(callback);
@@ -180,7 +180,7 @@ async fn simple_e2e() {
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        false,
+        ProofType::Any,
         image_url,
         None,
     );
@@ -258,7 +258,7 @@ async fn simple_e2e_with_callback() {
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        false,
+        ProofType::Any,
         image_url,
         Some(callback),
     );
@@ -339,7 +339,7 @@ async fn e2e_with_selector() {
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        true,
+        ProofType::Groth16,
         image_url,
         None,
     );
@@ -359,7 +359,7 @@ async fn e2e_with_selector() {
             .await
             .unwrap();
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
-        assert!(is_unaggregated_selector(selector));
+        assert!(is_groth16_selector(selector));
     })
     .await;
 }
@@ -408,7 +408,7 @@ async fn e2e_with_multiple_requests() {
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
         &ctx.customer_signer.address(),
-        false,
+        ProofType::Any,
         &image_url,
         None,
     );
@@ -417,19 +417,16 @@ async fn e2e_with_multiple_requests() {
         // Submit the first order
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
-        let request_unaggregated = generate_request(
+        let request_groth16 = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
             &ctx.customer_signer.address(),
-            true,
+            ProofType::Groth16,
             &image_url,
             None,
         );
 
-        // Submit the second (unaggregated) order
-        ctx.customer_market
-            .submit_request(&request_unaggregated, &ctx.customer_signer)
-            .await
-            .unwrap();
+        // Submit the second (groth16) order
+        ctx.customer_market.submit_request(&request_groth16, &ctx.customer_signer).await.unwrap();
 
         let (_, seal) = ctx
             .customer_market
@@ -441,19 +438,19 @@ async fn e2e_with_multiple_requests() {
             .await
             .unwrap();
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
-        assert!(!is_unaggregated_selector(selector));
+        assert!(!is_groth16_selector(selector));
 
         let (_, seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
-                U256::from(request_unaggregated.id),
+                U256::from(request_groth16.id),
                 Duration::from_secs(1),
                 request.expires_at(),
             )
             .await
             .unwrap();
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
-        assert!(is_unaggregated_selector(selector));
+        assert!(is_groth16_selector(selector));
     })
     .await;
 }

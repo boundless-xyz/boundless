@@ -16,7 +16,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, encode_seal, AssessorJournal, AssessorReceipt,
         Fulfillment,
     },
-    selector::is_unaggregated_selector,
+    selector::is_groth16_selector,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -185,7 +185,7 @@ where
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
 
-                let seal = if is_unaggregated_selector(order_request.requirements.selector) {
+                let seal = if is_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(*order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
