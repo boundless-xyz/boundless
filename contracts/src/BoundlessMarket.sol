@@ -27,6 +27,7 @@ import {AssessorCommitment} from "./types/AssessorCommitment.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
+import {LockRequest} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
 import {FulfillmentContext, FulfillmentContextLibrary} from "./types/FulfillmentContext.sol";
@@ -135,7 +136,7 @@ contract BoundlessMarket is
     ) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
         bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
-        address prover = _extractProverAddress(requestHash, proverSignature);
+        address prover = _extractProverAddress(LockRequest({request: request}), proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
@@ -879,11 +880,12 @@ contract BoundlessMarket is
         return requestHash;
     }
 
-    function _extractProverAddress(bytes32 requestHash, bytes calldata proverSignature)
+    function _extractProverAddress(LockRequest memory request, bytes calldata proverSignature)
         internal
-        pure
+        view
         returns (address)
     {
+        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         return ECDSA.recover(requestHash, proverSignature);
     }
 

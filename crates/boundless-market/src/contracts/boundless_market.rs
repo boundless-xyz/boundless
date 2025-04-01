@@ -377,7 +377,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     ///
-    /// This method uses the provided signature to authenticate the prover.
+    /// This method uses the provided signature to authenticate the prover. Note that the prover
+    /// signature must be over the LockRequest struct, not the ProofRequest struct.
     pub async fn lock_request_with_signature(
         &self,
         request: &ProofRequest,
