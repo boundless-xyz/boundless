@@ -268,8 +268,8 @@ mod tests {
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
     use boundless_market::contracts::{test_utils::create_test_ctx, IBoundlessMarket};
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use tracing_test::traced_test;
 
     use super::*;
@@ -278,7 +278,15 @@ mod tests {
     #[traced_test]
     async fn test_main() {
         let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),

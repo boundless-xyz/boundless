@@ -16,7 +16,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, encode_seal, AssessorJournal, AssessorReceipt,
         Fulfillment,
     },
-    selector::is_unaggregated_selector,
+    selector::is_groth16_selector,
 };
 use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -185,7 +185,7 @@ where
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
 
-                let seal = if is_unaggregated_selector(order_request.requirements.selector) {
+                let seal = if is_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(*order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
@@ -459,8 +459,8 @@ mod tests {
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
-    use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
-    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
+    use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
     use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
@@ -494,10 +494,14 @@ mod tests {
         );
 
         let verifier = deploy_mock_verifier(provider.clone()).await.unwrap();
-        let set_verifier =
-            deploy_set_verifier(provider.clone(), verifier, Digest::from(SET_BUILDER_ID))
-                .await
-                .unwrap();
+        let set_verifier = deploy_set_verifier(
+            provider.clone(),
+            verifier,
+            Digest::from(SET_BUILDER_ID),
+            format!("file://{SET_BUILDER_PATH}"),
+        )
+        .await
+        .unwrap();
         let hit_points = deploy_hit_points(prover_addr, provider.clone()).await.unwrap();
         let market_address = deploy_boundless_market(
             prover_addr,
@@ -505,6 +509,7 @@ mod tests {
             set_verifier,
             hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
+            format!("file://{ASSESSOR_GUEST_PATH}"),
             Some(prover_addr),
         )
         .await
