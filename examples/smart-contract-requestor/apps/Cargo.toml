@@ -1,5 +1,5 @@
 [package]
-name = "example-smart-contract-client"
+name = "example-smart-contract-requestor"
 version = "0.1.0"
 edition = "2021"
 publish = false

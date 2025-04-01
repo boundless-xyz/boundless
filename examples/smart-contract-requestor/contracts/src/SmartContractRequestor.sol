@@ -12,8 +12,8 @@ import {PredicateType} from "boundless-market/types/Predicate.sol";
 import {BoundlessMarketLib} from "boundless-market/libraries/BoundlessMarketLib.sol";
 import {IBoundlessMarket} from "boundless-market/IBoundlessMarket.sol";
 
-/// @dev Simple mock implementation of an ERC-1271 compliant SCW.
-contract SmartContractClient is IERC1271 {
+/// @dev Sample implementation of an ERC-1271 compliant Smart Contract Requestor for the Boundless Market.
+contract SmartContractRequestor is IERC1271 {
     address private owner;
 
     // The magic value for ERC-1271 isValidSignature.

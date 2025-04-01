@@ -47,9 +47,9 @@ struct Args {
     /// Address of the BoundlessMarket contract.
     #[clap(short, long, env)]
     boundless_market_address: Address,
-    /// Address of the smart contract client.
+    /// Address of the smart contract requestor.
     #[clap(short, long, env)]
-    smart_contract_client_address: Address,
+    smart_contract_requestor_address: Address,
 }
 
 #[tokio::main]
@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
         args.storage_config,
         args.boundless_market_address,
         args.set_verifier_address,
-        args.smart_contract_client_address,
+        args.smart_contract_requestor_address,
     )
     .await?;
 
@@ -89,7 +89,7 @@ async fn run(
     storage_config: Option<StorageProviderConfig>,
     boundless_market_address: Address,
     set_verifier_address: Address,
-    smart_contract_client_address: Address,
+    smart_contract_requestor_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
     let boundless_client = ClientBuilder::new()
@@ -103,7 +103,7 @@ async fn run(
         .build()
         .await?;
 
-    // For smart contract clients, the request id is especially important as it acts as a nonce, ensuring that clients
+    // For smart contract requestors, the request id is especially important as it acts as a nonce, ensuring that clients
     // do not pay for multiple requests that represent the same batch of work.
     //
     // This means you must be careful to design a nonce structure that maps to each batch of work you are requesting.
@@ -119,7 +119,7 @@ async fn run(
     // Create the request id, using days_since_epoch as the index, and with the smart contract signed flag set.
     // The smart contract signed flag is used to indicate that the request is "signed" by the smart contract
     // and must be validated using ERC-1271's isValidSignature function, and not a regular ECDSA recovery.
-    let request_id = RequestId::new(smart_contract_client_address, days_since_epoch)
+    let request_id = RequestId::new(smart_contract_requestor_address, days_since_epoch)
         .set_smart_contract_signed_flag();
 
     // Create the requirements for the request. We use the predicate type `DigestMatch` to ensure that the journal
@@ -217,13 +217,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::SmartContractClient::SmartContractClientInstance;
+    use crate::tests::SmartContractRequestor::SmartContractRequestorInstance;
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
         primitives::Address,
         providers::{Provider, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
+        sol_types::SolCall,
     };
     use boundless_market::contracts::{
         hit_points::default_allowance,
@@ -240,12 +241,12 @@ mod tests {
 
     alloy::sol!(
         #![sol(rpc, all_derives)]
-        SmartContractClient,
-        "../contracts/out/SmartContractClient.sol/SmartContractClient.json"
+        SmartContractRequestor,
+        "../contracts/out/SmartContractRequestor.sol/SmartContractRequestor.json"
     );
 
     // Returns the address of the smart contract requestor and the provider of the owner of the contract.
-    async fn deploy_smart_contract_client<P: Provider + 'static + Clone + WalletProvider>(
+    async fn deploy_smart_contract_requestor<P: Provider + 'static + Clone + WalletProvider>(
         anvil: &AnvilInstance,
         test_ctx: &TestCtx<P>,
     ) -> Result<(Address, impl Provider + WalletProvider + Clone + 'static)> {
@@ -256,7 +257,7 @@ mod tests {
             .on_builtin(&anvil.endpoint())
             .await
             .unwrap();
-        let smart_contract_client = SmartContractClient::deploy(
+        let smart_contract_requestor = SmartContractRequestor::deploy(
             &deployer_provider,
             deployer_address,
             test_ctx.boundless_market_address,
@@ -265,7 +266,7 @@ mod tests {
         )
         .await?;
 
-        Ok((*smart_contract_client.address(), deployer_provider.clone()))
+        Ok((*smart_contract_requestor.address(), deployer_provider.clone()))
     }
 
     #[tokio::test]
@@ -282,21 +283,21 @@ mod tests {
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await
             .unwrap();
-        let (smart_contract_client_address, smart_contract_client_owner) =
-            deploy_smart_contract_client(&anvil, &ctx).await.unwrap();
+        let (smart_contract_requestor_address, smart_contract_requestor_owner) =
+            deploy_smart_contract_requestor(&anvil, &ctx).await.unwrap();
 
         let value_to_fund = parse_ether("0.5").unwrap();
 
-        let smart_contract_client = SmartContractClientInstance::new(
-            smart_contract_client_address,
-            smart_contract_client_owner.clone(),
+        let smart_contract_requestor = SmartContractRequestorInstance::new(
+            smart_contract_requestor_address,
+            smart_contract_requestor_owner.clone(),
         )
         .clone();
 
         // Fund the smart contract client with ETH and deposit to the market.
         let deposit_call = IBoundlessMarket::depositCall {}.abi_encode();
 
-        let pending_deposit_tx = smart_contract_client
+        let pending_deposit_tx = smart_contract_requestor
             .execute(ctx.boundless_market_address, deposit_call.into(), value_to_fund)
             .value(value_to_fund)
             .send()
@@ -321,7 +322,7 @@ mod tests {
                 Some(StorageProviderConfig::dev_mode()),
                 ctx.boundless_market_address,
                 ctx.set_verifier_address,
-                smart_contract_client_address,
+                smart_contract_requestor_address,
             ),
         )
         .await;

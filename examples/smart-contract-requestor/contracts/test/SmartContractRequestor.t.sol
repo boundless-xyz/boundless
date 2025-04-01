@@ -4,7 +4,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {SmartContractClient} from "../src/SmartContractClient.sol";
+import {SmartContractRequestor} from "../src/SmartContractRequestor.sol";
 import {ProofRequest} from "boundless-market/types/ProofRequest.sol";
 import {PredicateType} from "boundless-market/types/Predicate.sol";
 import {ImageID} from "boundless-market/libraries/UtilImageID.sol";
@@ -23,16 +23,8 @@ contract MockBoundlessMarket {
     }
 }
 
-contract TestContract {
-    uint256 public value;
-
-    function setValue(uint256 _value) external {
-        value = _value;
-    }
-}
-
-contract SmartContractClientTest is Test {
-    SmartContractClient public client;
+contract SmartContractRequestorTest is Test {
+    SmartContractRequestor public client;
     MockBoundlessMarket public market;
     address public owner;
     address public user;
@@ -43,7 +35,7 @@ contract SmartContractClientTest is Test {
         owner = address(0x1);
         user = address(0x2);
         market = new MockBoundlessMarket();
-        client = new SmartContractClient(owner, address(market), START_DAY, END_DAY);
+        client = new SmartContractRequestor(owner, address(market), START_DAY, END_DAY);
     }
 
     function test_Receive() public {
