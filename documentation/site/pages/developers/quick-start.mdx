@@ -1,0 +1,80 @@
+
+# Quick Start
+
+The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) is the best way to get started. It provides a starter application which has the following components:
+
+* A zkVM guest program, [`is-even`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/guests/is-even/src/main.rs)
+* A smart contract, [`EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol)
+* An example [starter application](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/apps/src/main.rs) which:
+    *  uploads the zkVM guest to IPFS (optional)
+    *  submits a request to the market for a proof that "4" is an even number
+    *  waits for the request to be fulfilled and receives the proof from the Boundless market
+    *  submits the received proof to the `EvenNumber` contract for verification.
+
+## Setup the app locally
+
+### Clone the repository
+
+```sh
+git clone https://github.com/boundless-xyz/boundless-foundry-template && cd boundless-foundry-template
+```
+
+### Set up your environment variables
+
+Export your Sepolia wallet private key as an environment variable (making sure it has enough funds):
+
+```bash
+export WALLET_PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
+```
+
+For provers to access the zkVM guest ELF binary, it must be uploaded to IPFS. This example uses [Pinata](https://pinata.cloud/). Pinata has a free tier with plenty of quota to get started. Create an account, generate an API key, and set the JWT as an environment variable:
+
+```bash
+export PINATA_JWT="YOUR_PINATA_JWT"
+```
+
+To load the rest of the environment variables (i.e. Boundless contract deployments), run:
+
+```bash
+. ./.env
+```
+
+:::note[Deploy your own version of EvenNumber.sol]
+If you'd like to deploy your own version of the `EvenNumber.sol` contract, please run:
+`forge script contracts/scripts/Deploy.s.sol --rpc-url ${RPC_URL:?} --broadcast -vv`
+and save the deployed contract address to the .env file.
+:::
+
+### Run the example app
+
+The [example app](apps/src/main.rs) will upload your zkVM guest to IPFS, submit a request to the market for a proof that "4" is an even number, wait for the request to be fulfilled, and then submit that proof to the EvenNumber contract, setting the value to "4".
+
+To run the example:
+
+```bash
+RUST_LOG=info cargo run --bin app -- --even-number-address ${EVEN_NUMBER_ADDRESS:?} --number 4
+```
+
+The output will look something like:
+
+```sh
+2025-03-25T17:25:28.113609Z  INFO app: Uploaded image to https://gateway.pinata.cloud/ipfs/QmVCK98gXuyqbf4CRJ4qKyXhMX7omfxKT6Qv9Ckgg1JSPm
+2025-03-25T17:25:28.113827Z  INFO app: Number to publish: 4
+2025-03-25T17:25:28.114031Z  INFO app: input builder: InputBuilder { stdin: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4] }
+2025-03-25T17:25:28.183218Z  INFO risc0_zkvm::host::server::exec::executor: execution time: 1.983083ms
+2025-03-25T17:25:28.185290Z  INFO app: Sending input inline with request
+2025-03-25T17:25:43.176884Z  INFO app: Request 0x2008ac70b2920c9a345ea7fff1ded1fd4302bdf0e3eb397f submitted
+2025-03-25T17:25:43.176913Z  INFO app: Waiting for 0x2008ac70b2920c9a345ea7fff1ded1fd4302bdf0e3eb397f to be fulfilled
+```
+
+and the app will query the status of the proof request until it is fulfilled. Once it fulfilled, you'll see output confirming the receipt of the proof, and confirmation of the transaction sent onchain calling the `set` function with the proof as calldata:
+
+```sh
+2025-03-25T17:28:15.465350Z  INFO app: Request 0x2008ac70b2920c9a345ea7fff1ded1fd4302bdf0e3eb397f fulfilled
+2025-03-25T17:28:15.465481Z  INFO app: Broadcasting tx calling EvenNumber set function
+2025-03-25T17:28:15.746652Z  INFO app: Sent tx 0xef84dc7a6395c62697d51828771d55c092a8d94320ff55dd95066e44ade5455e
+2025-03-25T17:28:26.176615Z  INFO app: Tx 0xef84dc7a6395c62697d51828771d55c092a8d94320ff55dd95066e44ade5455e confirmed
+2025-03-25T17:28:26.258037Z  INFO app: The number variable for contract at address: 0x29340e3f2264d3dab1c89328b1abbce756e2ad5b is set to 4
+```
+
+You've now requested your first proof from Boundless, received that proof and sent that proof onchain for verification. Effectively, you've offloaded computation offchain with the same trust model as onchain, all thanks to the power of ZK. This is the true power of verifiable compute. To learn more about each individual step, please refer to [Build A Program](/)

@@ -1,5 +1,5 @@
-import PricingCalculator from "../../../../components/pricing-calculator";
-import { StripRustCodeComments } from "../../../../components/strip-rust-code-comments";
+import PricingCalculator from "../../../components/pricing-calculator";
+import { StripRustCodeComments } from "../../../components/strip-rust-code-comments";
 
 # Request a Proof
 
@@ -52,9 +52,9 @@ let boundless_client = ClientBuilder::default()
 ```
 </StripRustCodeComments>
 
-For the latest deployment address, please see [Deployments](/deployments).
+For the latest deployment address, please see [Deployments](/developers/smart-contracts/deployments).
 
-> Relevant links: [Sepolia Faucet](https://www.sepoliafaucet.io), [Sepolia Public RPCs](https://chainlist.org/chain/11155111), [Boundless Deployments Reference](/deployments)
+> Relevant links: [Sepolia Faucet](https://www.sepoliafaucet.io), [Sepolia Public RPCs](https://chainlist.org/chain/11155111), [Boundless Deployments Reference](/developers/smart-contracts/deployments)
 
 ### 2. Upload Program Executable to IPFS
 
@@ -297,7 +297,7 @@ To submit a proof, a valid `request.yaml` is required, this config file will spe
   - This includes the minimum and maximum price for the proof request, the block number to open bidding, the price ramp up period, how many blocks before the request should timeout, and the lock-in stake the prover has to escrow to submit a bid.
 
 :::note[Note]
-During this current Boundless phase, provers require HP tokens for lock-in stake. They receive 100 HP tokens, so setting 5 per lock-in stake is the recommended amount (i.e., they can fail 20 proof requests before they run out of HP.) Setting it higher may cause provers to deprioritize your proof requests. To learn more about HP tokens, please read [Hitpoint Tokens](/prove/broker#hitpoints-hp-tokens).
+During this current Boundless phase, provers require HP tokens for lock-in stake. They receive 100 HP tokens, so setting 5 per lock-in stake is the recommended amount (i.e., they can fail 20 proof requests before they run out of HP.) Setting it higher may cause provers to deprioritize your proof requests. To learn more about HP tokens, please read [Hitpoint Tokens](/provers/broker#hitpoints-hp-tokens).
 :::
 
 

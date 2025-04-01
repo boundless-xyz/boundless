@@ -7,10 +7,10 @@ import { StripRustCodeComments } from "../../components/strip-rust-code-comments
 
 # Proof Lifecycle
 
-> Prerequisite Reading: [Why Boundless?](/developers/why), [What is Boundless?](/developers/what)
+> Prerequisite Reading: [Why Boundless?](/introduction/why-boundless), [What is Boundless?](/introduction/what-is-boundless)
 
 :::note[Note]
-Please refer to the [Boundless Terminology](/developers/terminology) page, and the [zkVM Terminology](https://dev.risczero.com/terminology) page for any unfamiliar terms.
+Please refer to the [Boundless Terminology](/terminology) page, and the [zkVM Terminology](https://dev.risczero.com/terminology) page for any unfamiliar terms.
 :::
 
 On this page, the entirety of a proof's lifetime in the Boundless Market is covered; starting from a proof request to bid submission and lock in by a prover, through to proof submission and finally to proof verification.
@@ -36,11 +36,13 @@ This overview is aimed at app developers i.e., requestors, and therefore for sim
 
 ### 1. The App Developer Writes a Program for the zkVM
 
-> see [Build A Program](/developers/tutorials/build), and [Getting Started with the zkVM](https://dev.risczero.com/api/zkvm/quickstart).
+> see [Build A Program](/build/build-a-program), and [Getting Started with the zkVM](https://dev.risczero.com/api/zkvm/quickstart).
 
 The app developer begins their Boundless journey by writing an application for the zkVM in Rust. The zkVM provides a zero-knowledge proof of the correct execution of this program. A proof of execution is a receipt; it contains the output― the journal and the cryptographic proof - the seal. The seal is the cryptographic proof. In [zkVM terminology](https://dev.risczero.com/terminology#seal), the seal usually refers to a zk-STARK or SNARK. In Boundless, the seal is a Merkle inclusion proof into an aggregated proof.
 
 With a zkVM program ready, the app developer will require some way to carry out proving. This can be done [locally](https://dev.risczero.com/api/generating-proofs/local-proving), but requires significant hardware investment and maintenance long-term, especially to enable parallelized GPU proving The Boundless Market allows for anyone to request a proof, regardless of their hardware, they are known as requestors. Boundless handles the connection between requestors and provers i.e., people with dedicated and significant proving hardware, to facilitate proving in a decentralized and permissionless manner.
+
+> To read more about the specifics of the proofs returned from the Boundless market, please see [Use a Proof](/build/use-a-proof).
 
 > For more zkVM documentation, please see [Getting Started with the zkVM](https://dev.risczero.com/api/zkvm/quickstart).
 
@@ -76,7 +78,7 @@ For example, an offer might specify:
 | Timeout                  | 100 blocks              |
 | Lock-in stake            | 5 HP                    |
 
-For more details, please see [Pricing a Request](/developers/tutorials/request#pricing-a-request).
+For more details, please see [Pricing a Request](/build/request-a-proof#pricing-a-request).
 
 #### BoundlessMarket.sol - `submitRequest`
 
@@ -202,4 +204,4 @@ function set(uint256 x, bytes calldata seal) public {
 
 ### 6. Proof Utilization
 
-Now that the request has been fulfilled the application is ready to grab the proof and use it in an application. Details about how to use a proof can be found in the [Use a Proof](/developers/tutorials/use) section.
+Now that the request has been fulfilled the application is ready to grab the proof and use it in an application. Details about how to use a proof can be found in the [Use a Proof](/build/use-a-proof) section.

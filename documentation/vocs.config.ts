@@ -34,26 +34,30 @@ const DEVELOPERS_ITEMS = [
     items: [
       {
         text: "Quick Start",
-        link: "/developers/apps/quick-start",
+        link: "/developers/quick-start",
       },
       {
         text: "Tutorials",
         items: [
           {
             text: "Build a Program",
-            link: "/developers/apps/tutorials/build",
+            link: "/developers/tutorials/build",
           },
           {
             text: "Request a Proof",
-            link: "/developers/apps/tutorials/request",
+            link: "/developers/tutorials/request",
           },
           {
             text: "Pricing a Request",
-            link: "/developers/apps/tutorials/pricing",
+            link: "/developers/tutorials/pricing",
+          },
+          {
+            text: "Use a Proof",
+            link: "/developers/tutorials/use",
           },
           {
             text: "Troubleshooting",
-            link: "/developers/apps/tutorials/troubleshooting",
+            link: "/developers/tutorials/troubleshooting",
           },
         ],
       },
@@ -62,11 +66,11 @@ const DEVELOPERS_ITEMS = [
         items: [
           {
             text: "Boundless SDK",
-            link: "/developers/apps/tooling/sdk",
+            link: "/developers/tooling/sdk",
           },
           {
             text: "Boundless CLI",
-            link: "/developers/apps/tooling/cli",
+            link: "/developers/tooling/cli",
           },
         ],
       },
@@ -75,15 +79,15 @@ const DEVELOPERS_ITEMS = [
         items: [
           {
             text: "Boundless Smart Contract Reference",
-            link: "/developers/solidity/smart-contract-docs",
+            link: "/developers/smart-contracts/smart-contract-docs",
           },
           {
             text: "RISC Zero Verifier Contracts",
-            link: "/developers/solidity/verifier-contracts",
+            link: "/developers/smart-contracts/verifier-contracts",
           },
           {
             text: "Chains & Deployments",
-            link: "/developers/solidity/deployments",
+            link: "/developers/smart-contracts/deployments",
           },
         ],
       },
@@ -94,23 +98,23 @@ const DEVELOPERS_ITEMS = [
     items: [
       {
         text: "Quick Start",
-        link: "/developers/solidity/steel/quick-start",
+        link: "/developers/steel/quick-start",
       },
       {
         text: "What is Steel?",
-        link: "/developers/solidity/steel/what-is-steel",
+        link: "/developers/steel/what-is-steel",
       },
       {
         text: "How does Steel work?",
-        link: "/developers/solidity/steel/how-it-works",
+        link: "/developers/steel/how-it-works",
       },
       {
         text: "Steel Commitments",
-        link: "/developers/solidity/steel/commitments",
+        link: "/developers/steel/commitments",
       },
       {
         text: "Steel History",
-        link: "/developers/solidity/steel/history",
+        link: "/developers/steel/history",
       },
     ],
   },
@@ -119,11 +123,11 @@ const DEVELOPERS_ITEMS = [
     items: [
       {
         text: "Why Kailua?",
-        link: "/developers/rollups/why",
+        link: "/developers/kailua/why",
       },
       {
         text: "Quick Start",
-        link: "/developers/rollups/quick-start",
+        link: "/developers/kailua/quick-start",
       },
       {
         text: "Kailua Book",
@@ -139,24 +143,24 @@ const PROVERS_ITEMS = [
     items: [
       {
         text: "Why use Boundless?",
-        link: "/developers/why",
+        link: "/provers/why",
       },
       {
         text: "What is Boundless?",
-        link: "/developers/what",
+        link: "/provers/what",
       },
       {
         text: "Proof Lifecycle",
-        link: "/developers/proof-lifecycle",
+        link: "/provers/proof-lifecycle",
       },
       {
         text: "Terminology",
-        link: "/developers/terminology",
+        link: "/provers/terminology",
       },
     ],
   },
   {
-    text: "Running a Prover",
+    text: "Getting Started",
     items: [
       {
         text: "Who should run a prover?",
@@ -191,6 +195,11 @@ const PROVERS_ITEMS = [
         text: "Performance Optimization",
         link: "/provers/performance-optimization",
       },
+      {
+        text: "Bento Technical Design",
+        link: "/provers/bento",
+      },
+
     ],
   },
 ];
