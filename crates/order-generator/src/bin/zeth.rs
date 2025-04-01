@@ -15,8 +15,8 @@ use alloy::{
     transports::Transport,
 };
 use anyhow::{anyhow, bail, Result};
-use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::{
+    balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
     client::{Client, ClientBuilder},
     contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
     storage::{StorageProvider, StorageProviderConfig},
