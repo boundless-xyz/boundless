@@ -35,7 +35,7 @@ use thiserror::Error;
 use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
-    eip712_domain, AssessorReceipt, EIP721DomainSaltless, Fulfillment,
+    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
@@ -213,7 +213,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// Get the EIP-712 domain associated with the market contract.
     ///
     /// If not cached, this function will fetch the chain ID with an RPC call.
-    pub async fn eip712_domain(&self) -> Result<EIP721DomainSaltless, MarketError> {
+    pub async fn eip712_domain(&self) -> Result<EIP712DomainSaltless, MarketError> {
         Ok(eip712_domain(*self.instance.address(), self.get_chain_id().await?))
     }
 

@@ -149,7 +149,7 @@ pub enum RequestStatus {
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 /// EIP-712 domain separator without the salt field.
-pub struct EIP721DomainSaltless {
+pub struct EIP712DomainSaltless {
     /// The name of the domain.
     pub name: Cow<'static, str>,
     /// The protocol version.
@@ -160,7 +160,7 @@ pub struct EIP721DomainSaltless {
     pub verifying_contract: Address,
 }
 
-impl EIP721DomainSaltless {
+impl EIP712DomainSaltless {
     /// Returns the EIP-712 domain with the salt field set to zero.
     pub fn alloy_struct(&self) -> Eip712Domain {
         eip712_domain! {
@@ -807,8 +807,8 @@ impl IHitPointsErrors {
 
 #[cfg(not(target_os = "zkvm"))]
 /// The EIP-712 domain separator for the Boundless Market contract.
-pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
-    EIP721DomainSaltless {
+pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP712DomainSaltless {
+    EIP712DomainSaltless {
         name: "IBoundlessMarket".into(),
         version: "1".into(),
         chain_id,

@@ -18,7 +18,7 @@
 
 use alloy_primitives::{Address, PrimitiveSignature, SignatureError};
 use alloy_sol_types::{Eip712Domain, SolStruct};
-use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest, RequestError};
+use boundless_market::contracts::{EIP712DomainSaltless, ProofRequest, RequestError};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
 
@@ -108,7 +108,7 @@ pub struct AssessorInput {
     /// The EIP-712 domain contains the chain ID and smart contract address.
     /// This smart contract address is used solely to construct the EIP-712 Domain
     /// and complete signature checks on the requests.
-    pub domain: EIP721DomainSaltless,
+    pub domain: EIP712DomainSaltless,
     /// The address of the prover.
     pub prover_address: Address,
 }
@@ -192,7 +192,7 @@ mod tests {
     fn test_domain_serde() {
         let domain = eip712_domain(Address::ZERO, 1);
         let bytes = postcard::to_allocvec(&domain).unwrap();
-        let domain2: EIP721DomainSaltless = postcard::from_bytes(&bytes).unwrap();
+        let domain2: EIP712DomainSaltless = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(domain, domain2);
     }
 
