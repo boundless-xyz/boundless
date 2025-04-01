@@ -116,6 +116,11 @@ const DEVELOPERS_ITEMS = [
         text: "Steel History",
         link: "/developers/steel/history",
       },
+      {
+        text: "Steel Crate Docs""
+        link: "https://risc0.github.io/risc0-ethereum/risc0_steel/",
+      },
+
     ],
   },
   {
