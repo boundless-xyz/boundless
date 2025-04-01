@@ -1082,7 +1082,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(request, clientSignature);
         } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
-            boundlessMarket.lockRequestWithSignature(request, clientSignature, testProver.signLockRequest(LockRequest({request: request})));
+            boundlessMarket.lockRequestWithSignature(
+                request, clientSignature, testProver.signLockRequest(LockRequest({request: request}))
+            );
         }
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -1142,7 +1144,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(request, clientSignature);
         } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
-            boundlessMarket.lockRequestWithSignature(request, clientSignature, testProver.signLockRequest(LockRequest({request: request})));
+            boundlessMarket.lockRequestWithSignature(
+                request, clientSignature, testProver.signLockRequest(LockRequest({request: request}))
+            );
         }
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -1220,7 +1224,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
 
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.signLockRequest(LockRequest({request: request})));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
+        );
 
         Client otherProver = getProver(2);
         address otherProverAddress = otherProver.addr();
@@ -1291,7 +1297,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         ProofRequest memory request = client.request(3);
 
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.signLockRequest(LockRequest({request: request})));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
+        );
         // address(3) is just a standin for some other address.
         address mockOtherProverAddr = address(uint160(3));
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -1861,7 +1869,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory validClientSignature = client.sign(request);
         bytes memory invalidClientSignature = bytes("invalid");
 
-        boundlessMarket.lockRequestWithSignature(request, validClientSignature, testProver.signLockRequest(LockRequest({request: request})));
+        boundlessMarket.lockRequestWithSignature(
+            request, validClientSignature, testProver.signLockRequest(LockRequest({request: request}))
+        );
         vm.warp(request.offer.lockDeadline() + 1);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
@@ -2004,7 +2014,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 vm.warp(request.offer.timeAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
-                boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.signLockRequest(LockRequest({request: request})));
+                boundlessMarket.lockRequestWithSignature(
+                    request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
+                );
 
                 requests[idx] = request;
                 journals[idx] = APP_JOURNAL;
@@ -2081,7 +2093,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // First request
         Client client = getClient(0);
         ProofRequest memory request = client.request(uint32(0));
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.signLockRequest(LockRequest({request: request})));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
+        );
         requests[0] = request;
         journals[0] = APP_JOURNAL;
 
@@ -2094,7 +2108,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             selector: bytes4(0),
             callback: Callback({addr: address(0), gasLimit: 0})
         });
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.signLockRequest(LockRequest({request: request})));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
+        );
         requests[1] = request;
         journals[1] = APP_JOURNAL_2;
 
@@ -2191,7 +2207,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 vm.warp(request.offer.timeAtPrice(desiredPrice));
                 expectedRevenue += desiredPrice;
 
-                boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.signLockRequest(LockRequest({request: request})));
+                boundlessMarket.lockRequestWithSignature(
+                    request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
+                );
 
                 requests[idx] = request;
                 journals[idx] = APP_JOURNAL;
@@ -2392,7 +2410,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(requestA, clientSignatureA);
         } else if (lockinMethod == LockRequestMethod.LockRequestWithSig) {
-            boundlessMarket.lockRequestWithSignature(requestA, clientSignatureA, testProver.signLockRequest(LockRequest({request: requestA})));
+            boundlessMarket.lockRequestWithSignature(
+                requestA, clientSignatureA, testProver.signLockRequest(LockRequest({request: requestA}))
+            );
         }
 
         // Attempt to fill request B.
@@ -2558,7 +2578,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory request = client.request(1);
 
         // Lock to "testProver" but "prover2" fulfills the request
-        boundlessMarket.lockRequestWithSignature(request, client.sign(request), testProver.signLockRequest(LockRequest({request: request})));
+        boundlessMarket.lockRequestWithSignature(
+            request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
+        );
 
         Client testProver2 = getClient(2);
         (address testProver2Address,,,) = testProver2.wallet();
@@ -2898,7 +2920,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory clientSignature = client.sign(request);
 
         // Lock request with testProver
-        boundlessMarket.lockRequestWithSignature(request, clientSignature, testProver.signLockRequest(LockRequest({request: request})));
+        boundlessMarket.lockRequestWithSignature(
+            request, clientSignature, testProver.signLockRequest(LockRequest({request: request}))
+        );
 
         // Have otherProver fulfill without requiring payment
         Client otherProver = getProver(2);
@@ -2940,7 +2964,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory clientSignature = client.sign(request);
 
         // Lock request with testProver
-        boundlessMarket.lockRequestWithSignature(request, clientSignature, testProver.signLockRequest(LockRequest({request: request})));
+        boundlessMarket.lockRequestWithSignature(
+            request, clientSignature, testProver.signLockRequest(LockRequest({request: request}))
+        );
 
         // Have otherProver fulfill without requiring payment
         Client otherProver = getProver(2);

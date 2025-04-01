@@ -16,17 +16,15 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 using LockRequestLibrary for LockRequest global;
 
-/// @title Proof Request Struct and Library
-/// @notice Represents a proof request with its associated data and functions.
+/// @title Lock Request Struct and Library
+/// @notice Wraps a ProofRequest. Ensures domain separation between client signatures and prover signatures.
 struct LockRequest {
-    /// @notice Unique ID for this request, constructed from the client address and a 32-bit index.
+    /// @notice The proof request that the prover is locking.
     ProofRequest request;
 }
 
 library LockRequestLibrary {
-    /// @dev Id is uint256 as for user defined types, the eip712 type hash uses the underlying type.
-    string constant LOCK_REQUEST_TYPE =
-        "LockRequest(ProofRequest request)";
+    string constant LOCK_REQUEST_TYPE = "LockRequest(ProofRequest request)";
 
     bytes32 constant LOCK_REQUEST_TYPEHASH = keccak256(
         abi.encodePacked(
@@ -44,23 +42,14 @@ library LockRequestLibrary {
     /// @param lockRequest The lock request to compute the digest for.
     /// @return The EIP-712 digest of the lock request.
     function eip712Digest(LockRequest memory lockRequest) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                LOCK_REQUEST_TYPEHASH,
-                lockRequest.request.eip712Digest()
-            )
-        );
+        return keccak256(abi.encode(LOCK_REQUEST_TYPEHASH, lockRequest.request.eip712Digest()));
     }
 
-    /// @notice Computes the EIP-712 digest for the given lock request.
+    /// @notice Computes the EIP-712 digest for the given lock request from a precomputed EIP-712 proof request digest.
+    /// @dev This avoids recomputing the proof request digest in the case where the proof request digest has already been computed.
     /// @param proofRequestEip712Digest The EIP-712 digest of the proof request.
     /// @return The EIP-712 digest of the lock request.
-    function eip712DigestFromProofRequestDigest(bytes32 proofRequestEip712Digest) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                LOCK_REQUEST_TYPEHASH,
-                proofRequestEip712Digest
-            )
-        );
+    function eip712DigestFromPrecomputedDigest(bytes32 proofRequestEip712Digest) internal pure returns (bytes32) {
+        return keccak256(abi.encode(LOCK_REQUEST_TYPEHASH, proofRequestEip712Digest));
     }
 }

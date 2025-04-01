@@ -135,7 +135,8 @@ contract BoundlessMarket is
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        (bytes32 requestHash, address prover) = _verifyClientSignatureAndExtractProverAddress(request, client, clientSignature, proverSignature);
+        (bytes32 requestHash, address prover) =
+            _verifyClientSignatureAndExtractProverAddress(request, client, clientSignature, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
@@ -879,15 +880,19 @@ contract BoundlessMarket is
         return requestHash;
     }
 
-    function _verifyClientSignatureAndExtractProverAddress(ProofRequest calldata request, address clientAddr, bytes calldata clientSignature, bytes calldata proverSignature)
-        internal
-        view
-        returns (bytes32 requestHash, address proverAddress)
-    {
+    function _verifyClientSignatureAndExtractProverAddress(
+        ProofRequest calldata request,
+        address clientAddr,
+        bytes calldata clientSignature,
+        bytes calldata proverSignature
+    ) internal view returns (bytes32 requestHash, address proverAddress) {
         bytes32 proofRequestEip712Digest = request.eip712Digest();
         requestHash = _hashTypedDataV4(proofRequestEip712Digest);
         if (request.id.isSmartContractSigned()) {
-            if (IERC1271(clientAddr).isValidSignature(requestHash, clientSignature) != IERC1271.isValidSignature.selector) {
+            if (
+                IERC1271(clientAddr).isValidSignature(requestHash, clientSignature)
+                    != IERC1271.isValidSignature.selector
+            ) {
                 revert IBoundlessMarket.InvalidSignature();
             }
         } else {
@@ -896,7 +901,8 @@ contract BoundlessMarket is
             }
         }
 
-        bytes32 lockRequestHash = _hashTypedDataV4(LockRequestLibrary.eip712DigestFromPrecomputedDigest(proofRequestEip712Digest));
+        bytes32 lockRequestHash =
+            _hashTypedDataV4(LockRequestLibrary.eip712DigestFromPrecomputedDigest(proofRequestEip712Digest));
         proverAddress = ECDSA.recover(lockRequestHash, proverSignature);
 
         return (requestHash, proverAddress);
