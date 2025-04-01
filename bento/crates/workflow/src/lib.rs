@@ -313,6 +313,10 @@ impl Agent {
                 tasks::keccak::keccak(self, &task.job_id, &req).await.context("Keccak failed")?,
             )
             .context("failed to serialize keccak response")?,
+            TaskType::Union(req) => serde_json::to_value(
+                tasks::union::union(self, &task.job_id, &req).await.context("Union failed")?,
+            )
+            .context("failed to serialize union response")?,
         };
 
         taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, res)

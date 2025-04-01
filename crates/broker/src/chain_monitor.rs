@@ -2,7 +2,6 @@
 //
 // All rights reserved.
 
-use alloy::rpc::types::BlockTransactionsKind;
 use alloy_chains::NamedChain;
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,7 +62,7 @@ impl<P: Provider> ChainMonitorService<P> {
         }
         let current_timestamp = self
             .provider
-            .get_block_by_number(block_number.into(), BlockTransactionsKind::Hashes)
+            .get_block_by_number(block_number.into())
             .await
             .with_context(|| format!("failed to get block {block_number}"))?
             .with_context(|| format!("failed to get block {block_number}: block not found"))?
@@ -137,7 +136,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );

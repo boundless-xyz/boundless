@@ -142,12 +142,13 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let boundless_client = ClientBuilder::default()
+    let boundless_client = ClientBuilder::new()
         .with_rpc_url(args.rpc_url.clone())
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url.clone())
         .with_storage_provider_config(args.storage_config.clone())
+        .await?
         .with_private_key(args.private_key.clone())
         .with_bidding_start_delay(args.bidding_start_delay)
         .with_balance_alerts(balance_alerts)
@@ -158,7 +159,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         Some(path) => std::fs::read(path)?,
         None => {
             // A build of the echo guest, which simply commits the bytes it reads from inputs.
-            let url = "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy";
+            let url = "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu";
             fetch_http(&Url::parse(url)?).await?
         }
     };

@@ -228,7 +228,7 @@ impl From<RequestId> for U256 {
         let addr = U160::try_from(value.addr).unwrap();
         let smart_contract_signed_flag =
             if value.smart_contract_signed { U256::from(1) } else { U256::ZERO };
-        smart_contract_signed_flag << 192 | (U256::from(addr) << 32) | U256::from(value.index)
+        (smart_contract_signed_flag << 192) | (U256::from(addr) << 32) | U256::from(value.index)
     }
 }
 
@@ -528,12 +528,12 @@ impl Requirements {
     ///
     /// This will set the selector to the appropriate value based on the current environment.
     /// In dev mode, the selector will be set to `FakeReceipt`, otherwise it will be set
-    /// to `Groth16V1_2`.
+    /// to `Groth16V2_0`.
     #[cfg(not(target_os = "zkvm"))]
     pub fn with_unaggregated_proof(self) -> Self {
         match risc0_zkvm::is_dev_mode() {
             true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
-            false => Self { selector: FixedBytes::from(Selector::Groth16V1_2 as u32), ..self },
+            false => Self { selector: FixedBytes::from(Selector::Groth16V2_0 as u32), ..self },
         }
     }
 }

@@ -61,7 +61,7 @@ contract Deploy is Script, RiscZeroCheats {
             // TODO: Create a more robust way of getting a URI for guests, and ensure that it is
             // in-sync with the configured image ID.
             string memory setBuilderPath =
-                "/target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder";
+                "/target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin";
             string memory cwd = vm.envString("PWD");
             string memory setBuilderGuestUrl = string.concat("file://", cwd, setBuilderPath);
             console2.log("Set builder URI", setBuilderGuestUrl);
@@ -74,7 +74,7 @@ contract Deploy is Script, RiscZeroCheats {
             bytes32 setBuilderImageId = abi.decode(vm.ffi(argv), (bytes32));
 
             string memory assessorPath =
-                "/target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest";
+                "/target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin";
             assessorGuestUrl = string.concat("file://", cwd, assessorPath);
             console2.log("Assessor URI", assessorGuestUrl);
 
