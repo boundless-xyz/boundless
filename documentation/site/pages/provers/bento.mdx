@@ -57,7 +57,7 @@ In order to share intermediate files (such as segments) between workers, Redis i
 :::warning[Warning]
 The Redis node's memory configuration is important for the size of proofs running. Because each segment is \~5 - 10 MB in size it is possible to overload Redis's node memory with too much data if the STARK proof is large enough and the GPU workers are not consuming the segments fast enough.
 
-We recommend a high memory node for the Redis container as well as active monitoring / alerts (see [monitoring](/prove/monitoring) for more details) on the Redis node to ensure it does not overflow the possible memory.
+We recommend a high memory node for the Redis container as well as active monitoring / alerts (see [monitoring](/provers/monitoring) for more details) on the Redis node to ensure it does not overflow the possible memory.
 :::
 
 ### TaskDB
@@ -107,7 +107,7 @@ As a general rule of thumb, for segment sizes of:
 - 2 million cycles requires 17\~18GB of GPU VRAM
 - 4 million cycles requires 32\~34GB of GPU VRAM
 
-The performance optimization guide has a whole section on [segment size benchmarking](/prove/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
+The performance optimization guide has a whole section on [segment size benchmarking](/provers/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
 
 ### More on SNARK
 

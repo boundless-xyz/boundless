@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Broker is a service that runs within the [Bento](/prove/proving-stack#what-is-bento) proving stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
+The Broker is a service that runs within the [Bento](/provers/proving-stack#what-is-bento) proving stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
 
 ## Broker Configuration
 
@@ -20,7 +20,7 @@ To apply for access to HP tokens and become a prover, please fill out this [form
 
 In the current phase, the Boundless market will only accept hitpoint (HP) tokens as stake for proving lock-ins. Provers stake HP tokens to participate in proof generation, and failure to meet performance standards results in slashing of your provers HP. These HP tokens can only be used within the Boundless market and as such, they are **non-transferrable** and **hold no monetary value**.
 
-Please refer to the [Deployments](/deployments) page for the correct Boundless market contract address.
+Please refer to the [Deployments](/developers/smart-contracts/deployments) page for the correct Boundless market contract address.
 
 ### Deposit / Balance
 
@@ -33,7 +33,7 @@ It is recommend that a broker keep a balance on the market >= `max_stake` (confi
 
 :::note[Note]
 You will need the Boundless CLI installed to deposit/check your balance.
-Please see [Installing the Boundless CLI](/build/request-a-proof#installing-the-boundless-cli) for instructions.
+Please see [Installing the Boundless CLI](/developers/tutorials/request#installing-the-boundless-cli) for instructions.
 :::
 
 ```sh [Terminal]
@@ -83,7 +83,7 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 ### Make sure Bento is running
 
 :::warning[Warning]
-A Broker needs a [Bento](/prove/proving-stack#what-is-bento) instance to operate. Please follow the [quick start](/prove/quick-start) guide to get Bento up and running.
+A Broker needs a [Bento](/provers/proving-stack#what-is-bento) instance to operate. Please follow the [quick start](/provers/quick-start) guide to get Bento up and running.
 :::
 
 To check Bento is running correctly, you can send a sample proof workload:

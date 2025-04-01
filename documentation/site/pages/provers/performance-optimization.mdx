@@ -23,7 +23,7 @@ You can also adjust the CUDA optimization level via `CUDA_OPT_LEVEL` in the `exe
 
 ### Isolating Tests
 
-Operating competing workloads can lead to unpredictable results. We recommend isolating your test system from other workloads to ensure that the performance tuning results are consistent and reliable. This includes stopping configured [Broker](/prove/broker#stopping-the-broker-service) services:
+Operating competing workloads can lead to unpredictable results. We recommend isolating your test system from other workloads to ensure that the performance tuning results are consistent and reliable. This includes stopping configured [Broker](/provers/broker#stopping-the-broker-service) services:
 
 ```sh [Terminal]
 docker ps
@@ -50,7 +50,7 @@ start_services() {
 
 ### Defining a Test Harness
 
-It is recommended to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate. 
+It is recommended to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate.
 
 To try a realistic example:
 
@@ -58,7 +58,7 @@ To try a realistic example:
 RUST_LOG=info cargo run --bin bento_cli -- -f /path/to/elf -i /path/to/input`
 ```
 
-If you intend to operate across a variety of different workloads (such as those that may be fed by the [Broker](/prove/broker)), you can also use the following command to generate a synthetic workload:
+If you intend to operate across a variety of different workloads (such as those that may be fed by the [Broker](/provers/broker)), you can also use the following command to generate a synthetic workload:
 
 ```sh [Terminal]
 RUST_LOG=info cargo run --bin bento_cli -- -c <ITERATION_COUNT>
@@ -153,7 +153,7 @@ The key tuning parameter of continuations is `SEGMENT_SIZE` in the `.env.broker`
 ### Testing the GPU has enough memory to handle the Segment Size
 
 :::tip[Note]
-Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker](/prove/broker#stopping-the-broker-service) is not running.
+Boundless should be restarted upon changing the `SEGMENT_SIZE` value, and verify that [Broker](/provers/broker#stopping-the-broker-service) is not running.
 :::
 
 Once you have selected a `MAXIMUM` segment size you should verify that the GPU does in fact have enough memory to complete.
@@ -321,5 +321,5 @@ This means that our example system is bound by some other factor such as bus ban
 Some further suggestions:
 
 - Reconfigure the system back to higher `PO2` with single agent per GPU and establish a new baseline performance level to compare against.
-- For lower `SEGMENT_SIZE` configurations, experiment with `cpu_count` and `mem_limit` (removing, increasing, or decreasing) to see if the performance can be improved. 
+- For lower `SEGMENT_SIZE` configurations, experiment with `cpu_count` and `mem_limit` (removing, increasing, or decreasing) to see if the performance can be improved.
 - In cases where bus contention is the limiting factor, running fewer agents at higher maximum `SEGMENT_SIZE` may be optimal. Systems in this configuration should avoid GPU expansion, and instead opt to expand into remote workers.
