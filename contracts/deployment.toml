@@ -3,23 +3,6 @@ name = "Anvil"
 id = 31337
 etherscan-url = ""
 
-[chains.anvil.prod]
-# Accounts
-admin = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-
-# Contracts
-verifier = "0x0000000000000000000000000000000000000000"
-set-verifier = "0x0000000000000000000000000000000000000000"
-boundless-market = "0x0000000000000000000000000000000000000000"
-stake-token = "0x0000000000000000000000000000000000000000"
-
-# Guests info
-deployment-commit = "a1852ce12f73071a4a2ca4e3a2f1583862e4ac57" # v0.7.0
-assessor-image-id = "0x87e1425a336c792766245af7fd59ef982b20068253bcf110eb89a371b6a95970"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeihtiztzo5xbmqilwoaltfwfc4vdrzofrzwk3x7qgqjmgdhkl4upbu"
-
-
-[chains.anvil.staging]
 # Accounts
 admin = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
@@ -36,12 +19,10 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeihtiztzo5xbmqilwoa
 
 ###
 
-[chains.ethereum-sepolia]
-name = "Ethereum Sepolia"
+[chains.ethereum-sepolia-prod]
+name = "Ethereum Sepolia [production]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
-
-[chains.ethereum-sepolia.prod]
 version = "v0.7.0"
 
 # Accounts
@@ -58,7 +39,12 @@ deployment-commit = "a1852ce12f73071a4a2ca4e3a2f1583862e4ac57" # v0.7.0
 assessor-image-id = "0x87e1425a336c792766245af7fd59ef982b20068253bcf110eb89a371b6a95970"
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeihtiztzo5xbmqilwoaltfwfc4vdrzofrzwk3x7qgqjmgdhkl4upbu"
 
-[chains.ethereum-sepolia.staging]
+###
+
+[chains.ethereum-sepolia-staging]
+name = "Ethereum Sepolia [staging]"
+id = 11155111
+etherscan-url = "https://sepolia.etherscan.io/"
 version = "v0.7.0"
 
 # Accounts
