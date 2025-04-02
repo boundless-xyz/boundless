@@ -146,6 +146,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    ```zsh
    cargo risczero build --manifest-path crates/guest/assessor/assessor-guest/Cargo.toml
    ```
+   >Note: make sure to have insalled `cargo-risczero` with the `experimental` feature; to do so run from the risc0 repo `cargo install --force --path risc0/cargo-risczero -F experimental`
 
    This will output the image ID and file location.
 
