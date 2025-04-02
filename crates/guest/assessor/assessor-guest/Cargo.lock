@@ -1122,7 +1122,7 @@ dependencies = [
  "alloy-sol-types",
  "boundless-assessor",
  "boundless-market",
- "risc0-aggregation",
+ "risc0-aggregation 0.5.0",
  "risc0-zkvm",
 ]
 
@@ -1853,7 +1853,7 @@ dependencies = [
  "httpmock",
  "rand 0.9.0",
  "reqwest",
- "risc0-aggregation",
+ "risc0-aggregation 0.5.0",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
  "rmp-serde",
@@ -4686,6 +4686,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "risc0-aggregation"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f69c8785b64129589935c3b955b33e15ea426609d0f6cc00ce4234aa06133e73"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "bytemuck",
+ "hex",
+ "risc0-binfmt",
+ "risc0-zkp",
+ "risc0-zkvm",
+ "serde",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "risc0-bigint2"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4810,7 +4827,7 @@ dependencies = [
  "anyhow",
  "cfg-if",
  "hex",
- "risc0-aggregation",
+ "risc0-aggregation 0.4.0",
  "risc0-zkvm",
  "serde",
  "thiserror 2.0.12",
