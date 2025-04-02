@@ -37,10 +37,10 @@ use url::Url;
 
 use boundless_market::{
     contracts::{
-        AssessorJournal, AssessorReceipt, EIP721DomainSaltless,
+        AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
         Fulfillment as BoundlessFulfillment, InputType,
     },
-    input::GuestEnv,
+    input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
     selector::{is_groth16_selector, SupportedSelectors},
 };
@@ -139,7 +139,7 @@ pub struct DefaultProver {
     set_builder_image_id: Digest,
     assessor_elf: Vec<u8>,
     address: Address,
-    domain: EIP721DomainSaltless,
+    domain: EIP712DomainSaltless,
     supported_selectors: SupportedSelectors,
 }
 
@@ -149,7 +149,7 @@ impl DefaultProver {
         set_builder_elf: Vec<u8>,
         assessor_elf: Vec<u8>,
         address: Address,
-        domain: EIP721DomainSaltless,
+        domain: EIP712DomainSaltless,
     ) -> Result<Self> {
         let set_builder_image_id = compute_image_id(&set_builder_elf)?;
         let supported_selectors =
@@ -228,13 +228,9 @@ impl DefaultProver {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
 
-        self.prove(
-            self.assessor_elf.clone(),
-            assessor_input.to_vec(),
-            receipts,
-            ProverOpts::succinct(),
-        )
-        .await
+        let stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
+
+        self.prove(self.assessor_elf.clone(), stdin, receipts, ProverOpts::succinct()).await
     }
 
     /// Fulfills an order as a singleton, returning the relevant data:

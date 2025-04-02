@@ -35,7 +35,7 @@ use thiserror::Error;
 use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
-    eip712_domain, AssessorReceipt, EIP721DomainSaltless, Fulfillment,
+    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
@@ -213,7 +213,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// Get the EIP-712 domain associated with the market contract.
     ///
     /// If not cached, this function will fetch the chain ID with an RPC call.
-    pub async fn eip712_domain(&self) -> Result<EIP721DomainSaltless, MarketError> {
+    pub async fn eip712_domain(&self) -> Result<EIP712DomainSaltless, MarketError> {
         Ok(eip712_domain(*self.instance.address(), self.get_chain_id().await?))
     }
 
@@ -401,7 +401,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     ///
-    /// This method uses the provided signature to authenticate the prover.
+    /// This method uses the provided signature to authenticate the prover. Note that the prover
+    /// signature must be over the LockRequest struct, not the ProofRequest struct.
     pub async fn lock_request_with_signature(
         &self,
         request: &ProofRequest,

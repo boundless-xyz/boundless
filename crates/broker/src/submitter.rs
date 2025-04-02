@@ -451,12 +451,17 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
-    use boundless_market::contracts::{
-        hit_points::default_allowance,
-        test_utils::{
-            deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
+    use boundless_market::{
+        contracts::{
+            hit_points::default_allowance,
+            test_utils::{
+                deploy_boundless_market, deploy_hit_points, deploy_mock_verifier,
+                deploy_set_verifier,
+            },
+            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+            Requirements,
         },
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+        input::InputBuilder,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
@@ -571,21 +576,18 @@ mod tests {
             .unwrap()
             .as_bytes();
 
-        let assessor_input = prover
-            .upload_input(
-                AssessorInput {
-                    domain: boundless_market::contracts::eip712_domain(market_address, chain_id),
-                    fills: vec![Fulfillment {
-                        request: order_request.clone(),
-                        signature: client_sig.into(),
-                        journal: echo_receipt.journal.bytes.clone(),
-                    }],
-                    prover_address: prover_addr,
-                }
-                .to_vec(),
-            )
-            .await
-            .unwrap();
+        let assessor_input = AssessorInput {
+            domain: boundless_market::contracts::eip712_domain(market_address, chain_id),
+            fills: vec![Fulfillment {
+                request: order_request.clone(),
+                signature: client_sig.into(),
+                journal: echo_receipt.journal.bytes.clone(),
+            }],
+            prover_address: prover_addr,
+        };
+        let assessor_stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
+
+        let assessor_input = prover.upload_input(assessor_stdin).await.unwrap();
 
         let assessor_proof = prover
             .prove_and_monitor_stark(&assessor_id_str, &assessor_input, vec![echo_proof.id.clone()])
