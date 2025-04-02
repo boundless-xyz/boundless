@@ -26,15 +26,16 @@ library ConfigLoader {
     function loadConfig(string memory configFilePath)
         internal
         view
-        returns (string memory config, string memory chainKey)
+        returns (string memory config, string memory chainKey, string memory environment)
     {
         // Load the config file
         config = VM.readFile(configFilePath);
 
         // Get the config profile from the environment variable, or leave it empty
         chainKey = VM.envOr("CHAIN_KEY", string(""));
+        environment = VM.envString("ENVIRONMENT");
 
-        // If no profile is set, select the default one based on the chainId
+        // If no profile is set, select the default one based on the chainId and staging
         if (bytes(chainKey).length == 0) {
             string[] memory chainKeys = VM.parseTomlKeys(config, ".chains");
             for (uint256 i = 0; i < chainKeys.length; i++) {
@@ -45,17 +46,17 @@ library ConfigLoader {
             }
         }
 
-        return (config, chainKey);
+        return (config, chainKey, environment);
     }
 
     function loadDeploymentConfig(string memory configFilePath) internal view returns (DeploymentConfig memory) {
-        (string memory config, string memory chainKey) = loadConfig(configFilePath);
-        return ConfigParser.parseConfig(config, chainKey);
+        (string memory config, string memory chainKey, string memory environment) = loadConfig(configFilePath);
+        return ConfigParser.parseConfig(config, chainKey, environment);
     }
 }
 
 library ConfigParser {
-    function parseConfig(string memory config, string memory chainKey)
+    function parseConfig(string memory config, string memory chainKey, string memory environment)
         internal
         pure
         returns (DeploymentConfig memory)
@@ -63,16 +64,17 @@ library ConfigParser {
         DeploymentConfig memory deploymentConfig;
 
         string memory chain = string.concat(".chains.", chainKey);
+        string memory chainEnv = string.concat(chain, ".", environment);
 
         deploymentConfig.name = stdToml.readString(config, string.concat(chain, ".name"));
         deploymentConfig.chainId = stdToml.readUint(config, string.concat(chain, ".id"));
-        deploymentConfig.admin = stdToml.readAddress(config, string.concat(chain, ".admin"));
-        deploymentConfig.verifier = stdToml.readAddress(config, string.concat(chain, ".verifier"));
-        deploymentConfig.setVerifier = stdToml.readAddress(config, string.concat(chain, ".set-verifier"));
-        deploymentConfig.boundlessMarket = stdToml.readAddress(config, string.concat(chain, ".boundless-market"));
-        deploymentConfig.stakeToken = stdToml.readAddress(config, string.concat(chain, ".stake-token"));
-        deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));
-        deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
+        deploymentConfig.admin = stdToml.readAddress(config, string.concat(chainEnv, ".admin"));
+        deploymentConfig.verifier = stdToml.readAddress(config, string.concat(chainEnv, ".verifier"));
+        deploymentConfig.setVerifier = stdToml.readAddress(config, string.concat(chainEnv, ".set-verifier"));
+        deploymentConfig.boundlessMarket = stdToml.readAddress(config, string.concat(chainEnv, ".boundless-market"));
+        deploymentConfig.stakeToken = stdToml.readAddress(config, string.concat(chainEnv, ".stake-token"));
+        deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chainEnv, ".assessor-image-id"));
+        deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chainEnv, ".assessor-guest-url"));
 
         return deploymentConfig;
     }
