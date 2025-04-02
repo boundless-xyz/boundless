@@ -16,7 +16,6 @@ alloy-chains = "=0.1.67"
 anyhow = { workspace = true }
 async-channel = "2.3"
 async-trait = { workspace = true }
-balance-alerts-layer = { workspace = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
@@ -64,7 +63,7 @@ proptest-derive = "0.5"
 rand = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
 tokio = { workspace = true, features = ["full"] }
-tracing-test = "0.2"
+tracing-test = { workspace = true }
 
 [features]
 test-utils = ["boundless-market/test-utils"]

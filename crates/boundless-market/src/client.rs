@@ -33,14 +33,13 @@ use alloy::{
 use alloy_primitives::{PrimitiveSignature, B256};
 use alloy_sol_types::SolStruct;
 use anyhow::{anyhow, Context, Result};
-use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use url::Url;
 
-use crate::storage::StorageProviderConfig;
 use crate::{
+    balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider},
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
         ProofRequest, RequestError,
@@ -49,7 +48,7 @@ use crate::{
     order_stream_client::{Client as OrderStreamClient, Order},
     storage::{
         storage_provider_from_env, BuiltinStorageProvider, BuiltinStorageProviderError,
-        StorageProvider,
+        StorageProvider, StorageProviderConfig,
     },
 };
 

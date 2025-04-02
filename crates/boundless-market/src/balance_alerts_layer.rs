@@ -28,6 +28,9 @@ pub struct BalanceAlertConfig {
     pub error_threshold: Option<U256>,
 }
 
+/// A layer that can be added to an alloy Provider
+/// to log warnings and errors when the balance of a given address
+/// falls below certain thresholds.
 #[derive(Debug, Clone, Default)]
 pub struct BalanceAlertLayer {
     config: BalanceAlertConfig,
@@ -50,6 +53,7 @@ pub struct BalanceAlertLayer {
 ///     }));
 /// ```
 impl BalanceAlertLayer {
+    /// Creates a new BalanceAlertLayer with the given configuration.
     pub fn new(config: BalanceAlertConfig) -> Self {
         Self { config }
     }
@@ -66,6 +70,8 @@ where
     }
 }
 
+/// A provider that checks the balance of a given address
+/// and logs warnings and errors when the balance falls below certain thresholds.
 #[derive(Clone, Debug)]
 pub struct BalanceAlertProvider<P> {
     inner: P,

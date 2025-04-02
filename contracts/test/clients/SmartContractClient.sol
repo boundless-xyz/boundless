@@ -13,6 +13,7 @@ import "forge-std/Test.sol";
 import {MockSmartContractWallet} from "./MockSmartContractWallet.sol";
 import "forge-std/Vm.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
+import {LockRequest} from "../../src/types/LockRequest.sol";
 import {RequestIdLibrary} from "../../src/types/RequestId.sol";
 import {Input, InputType} from "../../src/types/Input.sol";
 import {Offer} from "../../src/types/Offer.sol";
@@ -70,6 +71,10 @@ contract SmartContractClient is BaseClient, Test {
     }
 
     function sign(ProofRequest calldata) public view override returns (bytes memory) {
+        return expectedSignature;
+    }
+
+    function signLockRequest(LockRequest calldata) public view override returns (bytes memory) {
         return expectedSignature;
     }
 

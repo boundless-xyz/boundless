@@ -12,13 +12,12 @@ use alloy::{
     },
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
-    transports::Transport,
 };
 use anyhow::{anyhow, bail, Result};
-use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
 use boundless_market::{
+    balance_alerts_layer::BalanceAlertConfig,
     client::{Client, ClientBuilder},
-    contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
+    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     storage::{StorageProvider, StorageProviderConfig},
 };
 use clap::Parser;
@@ -129,20 +128,18 @@ async fn main() -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(wallet)
-        .on_http(args.zeth_rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.zeth_rpc_url.clone());
     let rpc = Some(args.zeth_rpc_url.to_string());
     let chain_id = provider.get_chain_id().await?;
     let chain = Some(NamedChain::try_from(chain_id).map_err(|_| anyhow!("Unknown chain"))?);
 
-    let boundless_client = ClientBuilder::default()
+    let boundless_client = ClientBuilder::new()
         .with_rpc_url(args.rpc_url)
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url)
         .with_storage_provider_config(args.storage_config.clone())
+        .await?
         .with_private_key(args.private_key)
         .with_balance_alerts(balance_alerts)
         .build()
@@ -262,15 +259,14 @@ struct RequestParams {
     offchain: bool,
 }
 
-async fn submit_request<T, P, S>(
+async fn submit_request<P, S>(
     build_args: BuildArgs,
     chain_id: u64,
-    boundless_client: Client<T, P, S>,
+    boundless_client: Client<P, S>,
     params: RequestParams,
 ) -> Result<U256>
 where
-    T: Transport + Clone,
-    P: Provider<T, Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
 {
     // preflight the block building process

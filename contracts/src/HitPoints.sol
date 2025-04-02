@@ -67,11 +67,6 @@ contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, AccessContr
 
     /// @inheritdoc IHitPoints
     function mint(address account, uint256 value) external onlyRole(MINTER) {
-        // Ensure the new balance won't exceed uint96 max
-        uint256 newBalance = balanceOf(account) + value;
-        if (newBalance > MAX_BALANCE) {
-            revert BalanceExceedsLimit(account, balanceOf(account), value);
-        }
         _mint(account, value);
     }
 

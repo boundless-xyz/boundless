@@ -14,7 +14,6 @@ release = false
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-balance-alerts-layer = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true }
 dotenvy = { workspace = true }

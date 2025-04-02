@@ -19,6 +19,7 @@ import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {Account} from "../../src/types/Account.sol";
 import {FulfillmentContext} from "../../src/types/FulfillmentContext.sol";
 import {RequestLock} from "../../src/types/RequestLock.sol";
+import {LockRequest} from "../../src/types/LockRequest.sol";
 import {Fulfillment} from "../../src/types/Fulfillment.sol";
 import {AssessorJournal} from "../../src/types/AssessorJournal.sol";
 import {Offer} from "../../src/types/Offer.sol";
@@ -60,6 +61,8 @@ abstract contract BaseClient {
     function addr() public view virtual returns (address);
 
     function sign(ProofRequest calldata req) public virtual returns (bytes memory);
+
+    function signLockRequest(LockRequest calldata req) public virtual returns (bytes memory);
 
     function defaultOffer() public view returns (Offer memory) {
         return Offer({

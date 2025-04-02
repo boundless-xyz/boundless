@@ -18,7 +18,6 @@ required-features = ["zeth"]
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 anyhow = { workspace = true }
-balance-alerts-layer = { workspace = true }
 boundless-market = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true, features = ["env"] }
