@@ -3,10 +3,11 @@
 A fundamental operation in smart contracts is to look up data from other contracts, such as the ERC20 token balance of a specific address. This operation is known as a “view call” \- it “views” state without altering it. Steel allows developers to query EVM state, within the zkVM, by just defining the Solidity method they wish to view call (using alloy’s [sol\! macro][sol-macro]).
 
 ```rust
-sol! {
+alloy::sol!(
     interface IERC20 {
         function balanceOf(address account) external view returns (uint);
 }
+);
 ```
 
 _This code is taken from the erc20-counter example, which you can find [here]._
@@ -29,7 +30,7 @@ let returns = Contract::new(contract, &evm_env)
   .call();
 
 // Check that the given account holds at least 1 token.
-assert!(returns._0 >= U256::from(1));   
+assert!(returns._0 >= U256::from(1));
 
 // Commit the block hash and number used when deriving `view_call_env` to the journal.
 let journal = Journal {
@@ -58,10 +59,10 @@ let mut env = EthEvmEnv::builder()
     .build()
     .await?;
 
-// Preflight the call to prepare the input that is required to execute the function in the guest without RPC access. 
+// Preflight the call to prepare the input that is required to execute the function in the guest without RPC access.
 let mut contract = Contract::preflight(args.token_contract, &mut env);
 
-let evm_input = env.into_input().await?
+let evm_input = env.into_input().await?;
 ```
 
 The `preflight` step calls the RPC provider for the necessary state and for the Merkle storage proofs via `eth_getProof` ([EIP-1186]). These Merkle proofs are given to the guest which verifies them to prove that the RPC data is valid, without having to run a full node and without trusting the host or RPC provider.
@@ -79,7 +80,7 @@ contract {
         validate Steel commitment
 
         verify proof
-        doSomethingElse() 
+        doSomethingElse()
     }
 }
 ```
@@ -96,11 +97,11 @@ function increment(bytes calldata journalData, bytes calldata seal) external {
     Journal memory journal = abi.decode(journalData, (Journal));
     require(journal.tokenContract == tokenContract, "Invalid token address");
     require(Steel.validateCommitment(journal.commitment), "Invalid commitment");
-  
+
     // Verify the proof
     bytes32 journalHash = sha256(journalData);
     verifier.verify(seal, imageID, journalHash);
-    
+
     // If the balance is at least one, update the counter
     counter += 1;
 }

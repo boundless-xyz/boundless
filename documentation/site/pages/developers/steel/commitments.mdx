@@ -20,7 +20,7 @@ let mut env = EthEvmEnv::builder()
 This block is used for RPC queries (i.e. `getStorageAt`) during the `preflight` call. Once the preflighting is done, `into_input` is called:
 
 ```rust
-let evm_input = env.into_input().await?
+let evm_input = env.into_input().await?;
 ```
 
 During this `into_input` step, the preflight data is packed into a form that can be read and validated in the guest.

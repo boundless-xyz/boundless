@@ -113,11 +113,13 @@ With Requirements:
 ```solidity
 struct Requirements {
     bytes32 imageId;
+    Callback callback;
     Predicate predicate;
+    bytes4 selector;
 }
 ```
 
-The requirements of the proof specify the exact program that must be run (identified by the [Image ID](https://dev.risczero.com/terminology#image-id)). The predicate refers to a specific constraint on the value of the journal, the public outputs. During proof verification, the image ID and the journal are checked to make sure that the proof fulfills the request.
+The requirements of the proof specify the exact program that must be run (identified by the [Image ID](https://dev.risczero.com/terminology#image-id)). The predicate refers to a specific constraint on the value of the journal, the public outputs. During proof verification, the image ID and the journal are checked to make sure that the proof fulfills the request. The callback specifies a callback required to be called when the proof is delivered. The selector specifies the required proof type (e.g., Groth16 or Merkle inclusion proof).
 
 ### 3. Provers Bid on the Request
 
@@ -174,7 +176,7 @@ When the prover fulfills their request, the requestor will (the app developer) w
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
 # async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::default().build().await?;
+# let boundless_client = ClientBuilder::new().build().await?;
 # let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 let (_journal, seal) = boundless_client
   .wait_for_request_fulfillment(
