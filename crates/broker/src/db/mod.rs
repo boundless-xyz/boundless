@@ -91,7 +91,7 @@ pub trait BrokerDb {
     ) -> Result<(), DbError>;
     async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError>;
     async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError>;
-    async fn set_order_complete(&self, id: U256) -> Result<(), DbError>;
+    async fn set_order_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError>;
     async fn skip_order(&self, id: U256) -> Result<(), DbError>;
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
@@ -415,8 +415,8 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x}")))]
-    async fn set_order_complete(&self, id: U256) -> Result<(), DbError> {
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x}"), status = %format!("{status:?}")))]
+    async fn set_order_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -427,7 +427,7 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(OrderStatus::Done)
+        .bind(status)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
         .execute(&self.pool)
@@ -1279,13 +1279,13 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn set_order_complete(pool: SqlitePool) {
+    async fn set_order_status(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
         let order = create_order();
         db.add_order(id, order.clone()).await.unwrap();
 
-        db.set_order_complete(id).await.unwrap();
+        db.set_order_status(id, OrderStatus::Done).await.unwrap();
 
         let db_order = db.get_order(id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Done);
