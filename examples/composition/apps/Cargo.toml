@@ -13,7 +13,7 @@ dotenvy = { workspace = true }
 guest-util = { workspace = true }
 postcard = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
-risc0-zkvm = { workspace = true, default-features = true }
+risc0-zkvm = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
@@ -25,3 +25,6 @@ broker = { workspace = true, features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 test-log = "0.2"
+
+[features]
+cuda = ["risc0-zkvm/cuda"]

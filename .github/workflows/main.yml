@@ -449,7 +449,7 @@ jobs:
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: cargo test
-        run: cargo test --locked
+        run: cargo test --all-features --locked
         working-directory: ${{ matrix.workspace }}
         env:
           RUST_LOG: "info,broker=debug,boundless_market=debug"

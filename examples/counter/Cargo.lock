@@ -5800,7 +5800,6 @@ checksum = "da62ed54fa6cfd16b93b79ca48f2d58f6ee818a630f5132e61a43003b65478a1"
 dependencies = [
  "anyhow",
  "bincode",
- "bonsai-sdk",
  "borsh",
  "bytemuck",
  "bytes",
