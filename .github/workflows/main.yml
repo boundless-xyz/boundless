@@ -453,10 +453,11 @@ jobs:
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: cargo test
-        run: cargo test --all-features --locked
+        run: cargo test --all-features --locked -- --nocapture
         working-directory: ${{ matrix.workspace }}
         env:
-          RUST_LOG: "info,broker=debug,boundless_market=debug"
+          RUST_LOG: "info"
+          RISC0_INFO: 1
 
       - name: sccache stats
         run: sccache --show-stats
