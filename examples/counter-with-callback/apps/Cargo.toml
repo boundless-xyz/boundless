@@ -25,4 +25,4 @@ guest-set-builder = { workspace = true }
 test-log = "0.2"
 
 [features]
-cuda = ["risc0-zkvm/prove", "risc0-zkvm/cuda"]
+cuda = ["risc0-zkvm/cuda"]

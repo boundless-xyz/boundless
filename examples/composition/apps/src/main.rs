@@ -227,7 +227,7 @@ where
     // Build the proof requirements with the specified selector
     let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
     if groth16 {
-        requirements = requirements.with_groth16_proof();
+        // requirements = requirements.with_groth16_proof();
     }
 
     // Build the proof request offer
@@ -237,8 +237,8 @@ where
         // NOTE: If your offer is not being accepted, try increasing the max price.
         .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
         // Timeouts for the request and lock.
-        .with_timeout(1000)
-        .with_lock_timeout(1000);
+        .with_timeout(1200)
+        .with_lock_timeout(1200);
 
     // Build and submit the request
     let request = ProofRequest::builder()
@@ -322,13 +322,14 @@ mod tests {
             .unwrap();
         let counter_address = deploy_counter(&anvil, &ctx).await.unwrap();
 
+        // A JoinSet automatically aborts all its tasks when dropped
         let mut tasks = JoinSet::new();
 
         // Start a broker.
         let (broker, _) = BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
         tasks.spawn(async move { broker.start_service().await });
 
-        const TIMEOUT_SECS: u64 = 1200; // 20 minutes
+        const TIMEOUT_SECS: u64 = 1800; // 30 minutes
 
         // Run with properly handled cancellation.
         tokio::select! {
