@@ -456,7 +456,7 @@ jobs:
         run: cargo test --all-features --locked -- --nocapture
         working-directory: ${{ matrix.workspace }}
         env:
-          RUST_LOG: "info"
+          RUST_LOG: "info,broker=debug,boundless_market=debug"
 
       - name: sccache stats
         run: sccache --show-stats

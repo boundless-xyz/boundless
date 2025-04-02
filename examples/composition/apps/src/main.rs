@@ -227,7 +227,7 @@ where
     // Build the proof requirements with the specified selector
     let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
     if groth16 {
-        // requirements = requirements.with_groth16_proof();
+        requirements = requirements.with_groth16_proof();
     }
 
     // Build the proof request offer
