@@ -26,65 +26,111 @@ Below is an example of the **Boundless** end-to-end programmatic workflow:
 ```rust
 use boundless_market::client::ClientBuilder;
 use alloy::signers::local::LocalSigner;
-
+# use alloy::primitives::Address;
+# use url::Url;
+# async fn init_client(rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
 let client = ClientBuilder::new()
-    .with_rpc_url("https://your-eth-rpc")
-    .with_boundless_market_address("0xMarketAddress")
-    .with_set_verifier_address("0xVerifierAddress")
+    .with_rpc_url(rpc_url)
+    .with_boundless_market_address(market_address)
+    .with_set_verifier_address(set_verifier_address)
     .with_wallet(LocalSigner::random().into())
     .build()
     .await?;
+# Ok(())
+# }
 ```
 
 ### 2. Upload ELF and Input
 
+<StripRustCodeComments>
 ```rust
+# use boundless_market::client::ClientBuilder;
+# use alloy::signers::local::LocalSigner;
+# use alloy::primitives::Address;
+# use url::Url;
+# async fn upload_elf_and_input(rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
+# let client = ClientBuilder::new()
+#    .with_rpc_url(rpc_url)
+#    .with_boundless_market_address(market_address)
+#    .with_set_verifier_address(set_verifier_address)
+#    .with_wallet(LocalSigner::random().into())
+#    .build()
+#    .await?;
 let elf_url = client.upload_image(&std::fs::read("guest.elf")?).await?;
 let input_url = client.upload_input(&[0x41, 0x42, 0x43]).await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 ### 3. Submit Proof Request
 
+<StripRustCodeComments>
 ```rust
-use boundless_market::contracts::{ProofRequest, Requirements, Predicate, Offer};
-
-let request = ProofRequest::new(
-    0,
-    &client.wallet().address(),
-    Requirements::new([0u8; 32], Predicate::prefix_match([])),
-    elf_url,
-    input_url.into(),
-    Offer {
-        minPrice: 1000.into(),
-        maxPrice: 2000.into(),
-        biddingStart: 1690000000,
-        rampUpPeriod: 60,
-        timeout: 3600,
-        lockTimeout: 1800,
-        lockStake: 500.into(),
-    }
-);
-
+# use alloy::providers::Provider;
+# use alloy::network::Ethereum;
+# use boundless_market::contracts::{ProofRequest, Requirements, Predicate, Offer};
+# use boundless_market::client::Client;
+# use boundless_market::storage::StorageProvider;
+# async fn submit_request<P, S>(client: Client<P, S>, request: ProofRequest) -> anyhow::Result<()>
+# where
+#    P: Provider<Ethereum> + 'static + Clone,
+#    S: StorageProvider + Clone,
+# {
 let (request_id, expires_at) = client.submit_request(&request).await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 ### 4. Await Fulfillment
 
+<StripRustCodeComments>
 ```rust
+# use std::time::Duration;
+# use alloy::network::Ethereum;
+# use alloy::providers::Provider;
+# use boundless_market::contracts::{ProofRequest, Requirements, Predicate, Offer};
+# use boundless_market::client::Client;
+# use boundless_market::storage::StorageProvider;
+# async fn submit_request<P, S>(client: Client<P, S>, request: ProofRequest) -> anyhow::Result<()>
+# where
+#    P: Provider<Ethereum> + 'static + Clone,
+#    S: StorageProvider + Clone,
+# {
+# let (request_id, expires_at) = client.submit_request(&request).await?;
 let (journal, seal) = client
     .wait_for_request_fulfillment(request_id, Duration::from_secs(10), expires_at)
     .await?;
+# Ok(())
+# }
+
 ```
+</StripRustCodeComments>
 
 ### 5. Fetch Proof Results
 
+<StripRustCodeComments>
 ```rust
+# use alloy::network::Ethereum;
+# use alloy::primitives::U256;
+# use alloy::providers::Provider;
+# use boundless_market::client::Client;
+# use boundless_market::storage::StorageProvider;
+# async fn fetch_results<P, S>(client: Client<P, S>, request_id: U256) -> anyhow::Result<()>
+# where
+#    P: Provider<Ethereum> + 'static + Clone,
+#    S: StorageProvider + Clone,
+# {
 // If not using wait_for_request_fulfillment:
 let (journal, seal) = client.boundless_market.get_request_fulfillment(request_id).await?;
 
 // Advanced: Set-Inclusion Receipt
 let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32].into()).await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 ## SDK Modules
 
@@ -112,16 +158,22 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 ## Example: Full Proof Submission
 
 ```rust
-use boundless_market::{client::ClientBuilder, contracts::*, input::InputBuilder};
-use alloy::signers::LocalSigner;
+use boundless_market::{
+  client::ClientBuilder,
+  contracts::{ProofRequest, Requirements, Predicate, Offer},
+  input::InputBuilder
+  storage::StorageProvider,
+  };
+use alloy::signers::local::LocalSigner;
+use alloy::primitives::{Address, U256};
 use std::time::Duration;
+use url::Url;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn proof_submission(rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
     let client = ClientBuilder::new()
-        .with_rpc_url("https://your-eth-rpc")
-        .with_boundless_market_address("0xMarket")
-        .with_set_verifier_address("0xVerifier")
+        .with_rpc_url(rpc_url)
+        .with_boundless_market_address(market_address)
+        .with_set_verifier_address(set_verifier_address)
         .with_wallet(LocalSigner::random().into())
         .build()
         .await?;
@@ -131,18 +183,18 @@ async fn main() -> anyhow::Result<()> {
 
     let request = ProofRequest::new(
         0,
-        &client.wallet().address(),
+        &client.caller(),
         Requirements::new([0u8; 32], Predicate::prefix_match(&[])),
         elf_url,
-        input_url.into(),
+        input_url,
         Offer {
-            minPrice: 1_000,
-            maxPrice: 2_000,
+            minPrice: U256::from(1_000),
+            maxPrice: U256::from(2_000),
             biddingStart: 0,
             rampUpPeriod: 60,
             timeout: 3600,
             lockTimeout: 1800,
-            lockStake: 500,
+            lockStake: U256::from(500),
         }
     );
 

@@ -14,7 +14,20 @@ _This code is taken from the erc20-counter example, which you can find [here]._
 
 The sol\! macro parses Solidity syntax to generate Rust types; this is used to call the `balanceOf` function, within the [guest program], using `balanceOfCall`:
 
+<StripRustCodeComments>
 ```rust
+# use alloy::primitives::{Address, U256};
+# use alloy::sol_types::SolValue;
+# use boundless_market::contracts::token::IERC20;
+# use risc0_steel::{Commitment, Contract, ethereum::{EthEvmInput, ETH_SEPOLIA_CHAIN_SPEC}};
+# use risc0_zkvm::guest::env;
+# alloy::sol! {
+#    struct Journal {
+#        Commitment commitment;
+#        address tokenAddress;
+#    }
+# }
+# fn commitment() {
 // GUEST PROGRAM
 // Read the input from the guest environment.
 let input: EthEvmInput = env::read();
@@ -34,11 +47,13 @@ assert!(returns._0 >= U256::from(1));
 
 // Commit the block hash and number used when deriving `view_call_env` to the journal.
 let journal = Journal {
-    commitment: env.into_commitment(),
+    commitment: evm_env.into_commitment(),
     tokenAddress: contract,
 };
 env::commit_slice(&journal.abi_encode());
+# }
 ```
+</StripRustCodeComments>
 
 ## Proving smart contract execution within the zkVM
 
@@ -46,12 +61,17 @@ The zkVM guest has no network connection, and there is no way to call an RPC pro
 
 Steel’s key innovation is the use of [revm] for simulation of an _EVM environment_ within the guest program. This EVM environment has the necessary state populated from RPC calls, and verified with Merkle storage proofs, to carry out verifiable execution of view calls. In the [host program], the [preflight call] constructs the EVM environment, `evm_env` which is passed through as input to the guest program:
 
+<StripRustCodeComments>
 ```rust
+# use alloy::providers::ProviderBuilder;
+# use alloy::primitives::Address;
+# use risc0_steel::{ethereum::EthEvmEnv, Contract};
+# use url::Url;
+# async fn preflight(eth_rpc_url: Url, token_contract: Address) -> Result<(), Box<dyn std::error::Error>> {
 // HOST PROGRAM
 // Create an alloy provider from RPC URL
 let provider = ProviderBuilder::new()
-    .with_recommended_fillers()
-    .on_http(args.eth_rpc_url);
+    .on_http(eth_rpc_url);
 
 // Create an EVM environment from that provider defaulting to the latest block.
 let mut env = EthEvmEnv::builder()
@@ -60,10 +80,13 @@ let mut env = EthEvmEnv::builder()
     .await?;
 
 // Preflight the call to prepare the input that is required to execute the function in the guest without RPC access.
-let mut contract = Contract::preflight(args.token_contract, &mut env);
+let mut contract = Contract::preflight(token_contract, &mut env);
 
 let evm_input = env.into_input().await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 The `preflight` step calls the RPC provider for the necessary state and for the Merkle storage proofs via `eth_getProof` ([EIP-1186]). These Merkle proofs are given to the guest which verifies them to prove that the RPC data is valid, without having to run a full node and without trusting the host or RPC provider.
 

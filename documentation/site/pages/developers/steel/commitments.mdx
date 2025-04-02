@@ -8,20 +8,42 @@ Concretely, a Steel commitment consists of a block identifier, and the block has
 
 Steel uses [revm] to generate an EVM execution environment, `EvmEnv` within the guest. When you create the `EvmEnv`, you can specify a block (the default is the latest block).
 
+<StripRustCodeComments>
 ```rust
+# use alloy::providers::ProviderBuilder;
+# use url::Url;
+# async fn preflight(rpc_url: Url) -> Result<(), Box<dyn std::error::Error>> {
+# let provider = ProviderBuilder::new().on_http(rpc_url);
 // Create an EVM environment from that provider
 let mut env = EthEvmEnv::builder()
     .provider(provider.clone())
     .block_number(20842508)
     .build()
     .await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 This block is used for RPC queries (i.e. `getStorageAt`) during the `preflight` call. Once the preflighting is done, `into_input` is called:
 
+<StripRustCodeComments>
 ```rust
+# use alloy::providers::ProviderBuilder;
+# use risc0_steel::{ethereum::EthEvmEnv};
+# use url::Url;
+# async fn preflight(rpc_url: Url) -> Result<(), Box<dyn std::error::Error>> {
+# let provider = ProviderBuilder::new().on_http(rpc_url);
+# let mut env = EthEvmEnv::builder()
+#    .provider(provider.clone())
+#    .block_number(20842508)
+#    .build()
+#    .await?;
 let evm_input = env.into_input().await?;
+# Ok(())
+# }
 ```
+</StripRustCodeComments>
 
 During this `into_input` step, the preflight data is packed into a form that can be read and validated in the guest.
 
@@ -31,7 +53,11 @@ Within the guest, calling `into_env` checks that all Merkle tries are consistent
 
 _This blockhash is Steel's trust anchor; it needs to be recomputed within the guest to validate the integrity of the RPC data._
 
+<StripRustCodeComments>
 ```rust
+# use risc0_steel::{ethereum::{EthEvmInput, ETH_SEPOLIA_CHAIN_SPEC}};
+# use risc0_zkvm::guest::env;
+# fn commitment() {
 // Read the input from the guest environment.
 let input: EthEvmInput = env::read();
 let contract: Address = env::read();
@@ -39,17 +65,36 @@ let account: Address = env::read();
 
 // Converts the input into a `EvmEnv`
 let env = input.into_env().with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);
+# }
 ```
+</StripRustCodeComments>
 
 For the Steel commitment, it is this block hash, computed within the guest, that is committed to the journal:
 
+<StripRustCodeComments>
 ```rust
+# use alloy::primitives::Address;
+# use alloy::sol_types::SolValue;
+# use risc0_steel::{Commitment, ethereum::{EthEvmInput, ETH_SEPOLIA_CHAIN_SPEC}};
+# use risc0_zkvm::guest::env;
+# use risc0_zkvm::Journal;
+# alloy::sol! {
+#    struct Journal {
+#        Commitment commitment;
+#        address tokenAddress;
+#    }
+# }
+# fn commitment(input: EthEvmInput, contract: Address) {
+# let evm_env = input.into_env().with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);
+    // Commit the block hash and number used when deriving `view_call_env` to the journal.
 let journal = Journal {
-    commitment: env.into_commitment(),
+    commitment: evm_env.into_commitment(),
     tokenAddress: contract,
 };
 env::commit_slice(&journal.abi_encode());
+# }
 ```
+</StripRustCodeComments>
 
 This block hash has to be compared onchain, alongside the verification of the proof, to validate that the Steel proof is correct and to verify the integrity of RPC data.
 
