@@ -280,7 +280,6 @@ mod tests {
         test_utils::{deploy_boundless_market, deploy_hit_points},
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
-    use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;

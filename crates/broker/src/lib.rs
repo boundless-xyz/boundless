@@ -219,12 +219,10 @@ impl Order {
         is_groth16_selector(self.request.requirements.selector)
     }
 
+    /// The timestamp at which the order expires
+    /// Note this is NOT the same as when the lock expires
     pub fn expires_at(&self) -> u64 {
         self.request.expires_at()
-    }
-
-    pub fn lock_expires_at(&self) -> u64 {
-        self.request.lock_expires_at()
     }
 }
 
