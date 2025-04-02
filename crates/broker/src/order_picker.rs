@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::now_timestamp;
+use crate::{now_timestamp, OrderStatus};
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -132,7 +132,13 @@ where
 
         // If order_expiration > lock_expiration the period in-between is when order can be filled
         // by anyone without staking to partially claim the slashed stake
-        let slashed_unexpired = lock_expiration <= now && order_expiration > now;
+        let slashed_unexpired = order.status == OrderStatus::Slashed
+            && lock_expiration <= now
+            && order_expiration > now;
+
+        if slashed_unexpired {
+            tracing::info!("Order {order_id:x} is slashed but unfulfilled");
+        }
 
         let (expiration, lockin_stake) = if slashed_unexpired {
             (order_expiration, U256::ZERO)
@@ -344,22 +350,20 @@ where
         let one_mill = U256::from(1_000_000);
         let total_cycles = U256::from(proof_res.stats.total_cycles);
 
-        let (mcycle_price_min, mcycle_price_max) = if slashed_unexpired {
-            // in the case of an open slashed order the reward is a fraction of the lock stake and is constant
-            let mcycle_price =
-                (order.request.offer.lockStake / U256::from(FRACTION_STAKE_REWARD) / total_cycles)
-                    * one_mill;
-            (mcycle_price, mcycle_price)
+        let (min_price, max_price) = if slashed_unexpired {
+            let price = order.request.offer.lockStake / U256::from(FRACTION_STAKE_REWARD);
+            (price, price)
         } else {
-            let mcycle_price_min = (order.request.offer.minPrice / total_cycles) * one_mill;
-            let mcycle_price_max = (order.request.offer.maxPrice / total_cycles) * one_mill;
-            (mcycle_price_min, mcycle_price_max)
+            (U256::from(order.request.offer.minPrice), U256::from(order.request.offer.maxPrice))
         };
+
+        let mcycle_price_min = (min_price / total_cycles) * one_mill;
+        let mcycle_price_max = (max_price / total_cycles) * one_mill;
 
         tracing::info!(
             "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
-            format_ether(U256::from(order.request.offer.minPrice)),
-            format_ether(U256::from(order.request.offer.maxPrice)),
+            format_ether(U256::from(min_price)),
+            format_ether(U256::from(max_price)),
             proof_res.stats.total_cycles,
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
@@ -1404,5 +1408,36 @@ mod tests {
 
         ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, capacity.unwrap()).await.unwrap();
         assert_eq!(pricing_tasks.len(), 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn price_slashed_unfulfilled_order() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
+
+        let mut order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
+        order.status = OrderStatus::Slashed;
+        order.request.offer.biddingStart = now_timestamp();
+        order.request.offer.lockTimeout = 0;
+        order.request.offer.timeout = 10000;
+        order.request.offer.lockStake = parse_ether("0.1").unwrap();
+
+        let order_id = order.request.id;
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        assert!(logs_contain(&format!("Order {order_id:x} is slashed but unfulfilled")));
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Locking);
     }
 }

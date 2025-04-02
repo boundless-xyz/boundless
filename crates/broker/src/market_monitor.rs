@@ -326,15 +326,13 @@ where
             tokio::select! {
                 Err(err) = Self::monitor_orders(market_addr, provider.clone(), db.clone()) => {
                     tracing::error!("Monitor for new orders failed, restarting: {err:?}");
-                    return Err(SupervisorErr::Recover(err))
+                    Err(SupervisorErr::Recover(err))
                 }
                 Err(err) = Self::monitor_order_slashings(market_addr, provider.clone(), db.clone()) => {
                     tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");
-                    return Err(SupervisorErr::Recover(err))
+                    Err(SupervisorErr::Recover(err))
                 }
-            };
-
-            Ok(())
+            }
         })
     }
 }
@@ -486,7 +484,7 @@ mod tests {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(max_price),
                 biddingStart: now_timestamp() - 5,
-                timeout: 1000,
+                timeout: 5000,
                 lockTimeout: 1000,
                 rampUpPeriod: 1,
                 lockStake: U256::from(0),
