@@ -161,7 +161,7 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 use boundless_market::{
   client::ClientBuilder,
   contracts::{ProofRequest, Requirements, Predicate, Offer},
-  input::InputBuilder
+  input::InputBuilder,
   storage::StorageProvider,
   };
 use alloy::signers::local::LocalSigner;
