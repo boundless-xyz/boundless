@@ -15,7 +15,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
-    selector::is_unaggregated_selector,
+    selector::is_groth16_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::{ArgAction, Parser};
@@ -215,8 +215,8 @@ impl Order {
             error_msg: None,
         }
     }
-    pub fn is_unaggregated(&self) -> bool {
-        is_unaggregated_selector(self.request.requirements.selector)
+    pub fn is_groth16(&self) -> bool {
+        is_groth16_selector(self.request.requirements.selector)
     }
 
     pub fn expires_at(&self) -> u64 {

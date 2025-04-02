@@ -27,6 +27,7 @@ import {AssessorCommitment} from "./types/AssessorCommitment.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
+import {LockRequest, LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
 import {FulfillmentContext, FulfillmentContextLibrary} from "./types/FulfillmentContext.sol";
@@ -134,8 +135,8 @@ contract BoundlessMarket is
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
-        address prover = _extractProverAddress(requestHash, proverSignature);
+        (bytes32 requestHash, address prover) =
+            _verifyClientSignatureAndExtractProverAddress(request, client, clientSignature, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
@@ -559,8 +560,7 @@ contract BoundlessMarket is
                 clientAccount.balance -= clientOwes;
             }
         } else {
-            int256 delta = uint256(price).toInt256() - uint256(lockPrice).toInt256();
-            uint96 clientOwed = (-delta).toUint256().toUint96();
+            uint96 clientOwed = lockPrice - price;
             clientAccount.balance += clientOwed;
         }
 
@@ -598,10 +598,8 @@ contract BoundlessMarket is
         uint96 price = context.price;
 
         Account storage clientAccount = accounts[client];
-        if (!fulfilled) {
-            clientAccount.setRequestFulfilled(idx);
-            emit RequestFulfilled(id);
-        }
+        clientAccount.setRequestFulfilled(idx);
+        emit RequestFulfilled(id);
 
         // Deduct the funds from client account.
         if (clientAccount.balance < price) {
@@ -702,7 +700,6 @@ contract BoundlessMarket is
 
         // Calculate the portion of stake that should be burned vs sent to the prover.
         uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_BPS / 10000;
-        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
 
         // If a prover fulfilled the request after the lock deadline, that prover
         // receives the unburned portion of the stake as a reward.
@@ -713,13 +710,14 @@ contract BoundlessMarket is
         if (lock.isProverPaidAfterLockDeadline()) {
             // At this point lock.prover is the prover that ultimately fulfilled the request, not
             // the prover that locked the request. Transfer them the unburnt stake.
-            accounts[lock.prover].stakeBalance += transferValue;
+            accounts[stakeRecipient].stakeBalance += transferValue;
         } else {
             stakeRecipient = address(this);
-            accounts[address(this)].stakeBalance += transferValue;
+            accounts[stakeRecipient].stakeBalance += transferValue;
             accounts[client].balance += lock.price;
         }
 
+        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
         emit ProverSlashed(requestId, burnValue, transferValue, stakeRecipient);
     }
 
@@ -759,6 +757,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
+    /// @dev We withdraw from address(this) but send to msg.sender, so _withdraw is not used.
     function withdrawFromTreasury(uint256 value) public onlyOwner {
         if (accounts[address(this)].balance < value.toUint96()) {
             revert InsufficientBalance(address(this));
@@ -879,23 +878,36 @@ contract BoundlessMarket is
         return requestHash;
     }
 
-    function _extractProverAddress(bytes32 requestHash, bytes calldata proverSignature)
-        internal
-        pure
-        returns (address)
-    {
-        return ECDSA.recover(requestHash, proverSignature);
+    function _verifyClientSignatureAndExtractProverAddress(
+        ProofRequest calldata request,
+        address clientAddr,
+        bytes calldata clientSignature,
+        bytes calldata proverSignature
+    ) internal view returns (bytes32 requestHash, address proverAddress) {
+        bytes32 proofRequestEip712Digest = request.eip712Digest();
+        requestHash = _hashTypedDataV4(proofRequestEip712Digest);
+        if (request.id.isSmartContractSigned()) {
+            if (
+                IERC1271(clientAddr).isValidSignature(requestHash, clientSignature)
+                    != IERC1271.isValidSignature.selector
+            ) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        } else {
+            if (ECDSA.recover(requestHash, clientSignature) != clientAddr) {
+                revert IBoundlessMarket.InvalidSignature();
+            }
+        }
+
+        bytes32 lockRequestHash =
+            _hashTypedDataV4(LockRequestLibrary.eip712DigestFromPrecomputedDigest(proofRequestEip712Digest));
+        proverAddress = ECDSA.recover(lockRequestHash, proverSignature);
+
+        return (requestHash, proverAddress);
     }
 
     /// @inheritdoc IBoundlessMarket
     function eip712DomainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
-    }
-
-    /// Internal utility function to revert with a pre-encoded error.
-    function revertWith(bytes memory err) internal pure {
-        assembly {
-            revert(add(err, 0x20), mload(err))
-        }
     }
 }

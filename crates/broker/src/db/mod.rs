@@ -116,7 +116,7 @@ pub trait BrokerDb {
     ) -> Result<(), DbError>;
     async fn set_aggregation_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError>;
     async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
-    async fn get_unaggregated_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
+    async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
     async fn complete_batch(&self, batch_id: usize, g16_proof_id: String) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;
@@ -755,7 +755,7 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_unaggregated_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
+    async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders

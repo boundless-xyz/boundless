@@ -29,7 +29,7 @@ impl ProvingService {
         &self,
         order_id: U256,
         stark_proof_id: &str,
-        is_unaggregated: bool,
+        is_groth16: bool,
         snark_proof_id: Option<String>,
     ) -> Result<()> {
         let proof_res = self
@@ -38,7 +38,7 @@ impl ProvingService {
             .await
             .context("Monitoring proof (stark) failed")?;
 
-        if is_unaggregated && snark_proof_id.is_none() {
+        if is_groth16 && snark_proof_id.is_none() {
             let compressed_proof_id =
                 self.prover.compress(stark_proof_id).await.context("Failed to compress proof")?;
             self.db
@@ -51,7 +51,7 @@ impl ProvingService {
                 })?;
         };
 
-        let status = match is_unaggregated {
+        let status = match is_groth16 {
             false => OrderStatus::PendingAgg,
             true => OrderStatus::SkipAggregation,
         };
@@ -106,7 +106,7 @@ impl ProvingService {
             .await
             .with_context(|| format!("Failed to set order {order_id:x} proof id: {}", proof_id))?;
 
-        self.monitor_proof(order_id, &proof_id, order.is_unaggregated(), None).await?;
+        self.monitor_proof(order_id, &proof_id, order.is_groth16(), None).await?;
 
         Ok(())
     }
@@ -133,14 +133,14 @@ impl ProvingService {
                 }
                 continue;
             };
-            let is_unaggregated = order.is_unaggregated();
+            let is_groth16 = order.is_groth16();
             let compressed_proof_id = order.compressed_proof_id;
             // TODO: Manage these tasks in a joinset?
             // They should all be fail-able without triggering a larger failure so it should be
             // fine.
             tokio::spawn(async move {
                 match prove_serv
-                    .monitor_proof(order_id, &proof_id, is_unaggregated, compressed_proof_id)
+                    .monitor_proof(order_id, &proof_id, is_groth16, compressed_proof_id)
                     .await
                 {
                     Ok(_) => tracing::info!("Successfully complete order proof {order_id:x}"),

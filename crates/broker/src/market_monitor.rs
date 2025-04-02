@@ -14,7 +14,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, IBoundlessMarket, ProofStatus,
+    boundless_market::BoundlessMarketService, IBoundlessMarket, RequestStatus,
 };
 use futures_util::StreamExt;
 
@@ -146,7 +146,7 @@ where
                     }
                 };
 
-            if !matches!(req_status, ProofStatus::Unknown) {
+            if !matches!(req_status, RequestStatus::Unknown) {
                 tracing::debug!(
                     "Skipping order {} reason: order status no longer bidding: {:?}",
                     calldata.request.id,
@@ -356,7 +356,7 @@ mod tests {
         boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
         InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
-    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use risc0_zkvm::sha::Digest;
 
     #[tokio::test]
@@ -377,6 +377,7 @@ mod tests {
             Address::ZERO,
             Address::ZERO,
             Digest::from(ASSESSOR_GUEST_ID),
+            format!("file://{ASSESSOR_GUEST_PATH}"),
             Some(signer.address()),
         )
         .await

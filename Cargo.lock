@@ -2312,18 +2312,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "balance-alerts-layer"
-version = "0.6.0"
-dependencies = [
- "alloy 0.12.6",
- "anyhow",
- "async-trait",
- "tokio",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
 name = "base16ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2526,12 +2514,11 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
  "alloy-sol-types",
- "anyhow",
  "boundless-market",
  "guest-assessor",
  "guest-util",
@@ -2539,12 +2526,13 @@ dependencies = [
  "risc0-zkvm",
  "serde",
  "test-log",
+ "thiserror 2.0.11",
  "tokio",
 ]
 
 [[package]]
 name = "boundless-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -2553,6 +2541,7 @@ dependencies = [
  "boundless-assessor",
  "boundless-market",
  "bytemuck",
+ "chrono",
  "clap",
  "dotenvy",
  "guest-assessor",
@@ -2560,6 +2549,7 @@ dependencies = [
  "guest-util",
  "hex",
  "libc",
+ "order-stream",
  "reqwest",
  "risc0-aggregation",
  "risc0-ethereum-contracts",
@@ -2567,6 +2557,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sqlx",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.19",
@@ -2576,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
@@ -2585,8 +2577,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
- "balance-alerts-layer",
- "boundless-assessor",
  "boundless-market",
  "bytemuck",
  "chrono",
@@ -2622,11 +2612,10 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
- "balance-alerts-layer",
  "boundless-market",
  "bytemuck",
  "clap",
@@ -2652,12 +2641,11 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
  "async-trait",
- "balance-alerts-layer",
  "boundless-market",
  "clap",
  "dotenvy",
@@ -2679,14 +2667,13 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-chains",
  "anyhow",
  "async-channel 2.3.1",
  "async-trait",
- "balance-alerts-layer",
  "bincode",
  "bonsai-sdk",
  "boundless-assessor",
@@ -2730,7 +2717,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -3553,7 +3540,7 @@ dependencies = [
 
 [[package]]
 name = "doc-test"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
@@ -4348,7 +4335,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -4366,7 +4353,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -6102,7 +6089,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",

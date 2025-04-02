@@ -23,6 +23,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_assessor::{AssessorInput, Fulfillment};
+use chrono::{DateTime, Local};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
@@ -36,12 +37,12 @@ use url::Url;
 
 use boundless_market::{
     contracts::{
-        AssessorJournal, AssessorReceipt, EIP721DomainSaltless,
+        AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
         Fulfillment as BoundlessFulfillment, InputType,
     },
-    input::GuestEnv,
+    input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
-    selector::{is_unaggregated_selector, SupportedSelectors},
+    selector::{is_groth16_selector, SupportedSelectors},
 };
 
 alloy::sol!(
@@ -78,6 +79,12 @@ impl OrderFulfilled {
             assessorReceipt: assessor_receipt,
         })
     }
+}
+
+/// Converts a timestamp to a [DateTime] in the local timezone.
+pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
+    let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
+    t.with_timezone(&Local)
 }
 
 /// Fetches the content of a URL.
@@ -132,7 +139,7 @@ pub struct DefaultProver {
     set_builder_image_id: Digest,
     assessor_elf: Vec<u8>,
     address: Address,
-    domain: EIP721DomainSaltless,
+    domain: EIP712DomainSaltless,
     supported_selectors: SupportedSelectors,
 }
 
@@ -142,7 +149,7 @@ impl DefaultProver {
         set_builder_elf: Vec<u8>,
         assessor_elf: Vec<u8>,
         address: Address,
-        domain: EIP721DomainSaltless,
+        domain: EIP712DomainSaltless,
     ) -> Result<Self> {
         let set_builder_image_id = compute_image_id(&set_builder_elf)?;
         let supported_selectors =
@@ -221,13 +228,9 @@ impl DefaultProver {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
 
-        self.prove(
-            self.assessor_elf.clone(),
-            assessor_input.to_vec(),
-            receipts,
-            ProverOpts::succinct(),
-        )
-        .await
+        let stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
+
+        self.prove(self.assessor_elf.clone(), stdin, receipts, ProverOpts::succinct()).await
     }
 
     /// Fulfills an order as a singleton, returning the relevant data:
@@ -302,7 +305,7 @@ impl DefaultProver {
             order_path,
             verifier_parameters.digest(),
         );
-        let order_seal = if is_unaggregated_selector(selector) {
+        let order_seal = if is_groth16_selector(selector) {
             let receipt = self.compress(&order_receipt).await?;
             encode_seal(&receipt)?
         } else {
