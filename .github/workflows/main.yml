@@ -387,6 +387,8 @@ jobs:
           - examples/counter
           - examples/counter-with-callback
           - examples/composition
+    env:
+      SCCACHE_RECACHE: 1
     steps:
       - name: checkout code
         uses: actions/checkout@v4
