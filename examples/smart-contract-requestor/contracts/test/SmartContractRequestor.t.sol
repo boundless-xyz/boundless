@@ -93,4 +93,3 @@ contract SmartContractRequestorTest is Test {
         return keccak256(abi.encodePacked("\x19\x01", market.DOMAIN_SEPARATOR(), dataHash));
     }
 }
-
