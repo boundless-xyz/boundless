@@ -184,7 +184,7 @@ async fn proof_submission(rpc_url: Url, market_address: Address, set_verifier_ad
     let request = ProofRequest::new(
         0,
         &client.caller(),
-        Requirements::new([0u8; 32], Predicate::prefix_match(&[])),
+        Requirements::new([0u8; 32], Predicate::prefix_match([])),
         elf_url,
         input_url,
         Offer {
