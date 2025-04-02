@@ -17,7 +17,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
-    ProofStatus,
+    RequestStatus,
 };
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
@@ -103,7 +103,7 @@ where
             .get_status(order_id, Some(order.request.expires_at()))
             .await
             .context("Failed to get order status")?;
-        if order_status != ProofStatus::Unknown {
+        if order_status != RequestStatus::Unknown {
             tracing::warn!("Order {order_id:x} not open: {order_status:?}, skipping");
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
@@ -281,7 +281,7 @@ mod tests {
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use chrono::Utc;
-    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
@@ -306,6 +306,7 @@ mod tests {
             Address::ZERO,
             hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
+            format!("file://{ASSESSOR_GUEST_PATH}"),
             Some(signer.address()),
         )
         .await
@@ -416,6 +417,7 @@ mod tests {
             Address::ZERO,
             hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
+            format!("file://{ASSESSOR_GUEST_PATH}"),
             Some(signer.address()),
         )
         .await

@@ -10,8 +10,10 @@ use alloy::{
 };
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
-use balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
-use boundless_market::contracts::boundless_market::BoundlessMarketService;
+use boundless_market::{
+    balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
+    contracts::boundless_market::BoundlessMarketService,
+};
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
 use tracing_subscriber::fmt::format::FmtSpan;

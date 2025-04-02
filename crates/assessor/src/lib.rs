@@ -16,12 +16,41 @@
 
 #![deny(missing_docs)]
 
-use alloy_primitives::{Address, PrimitiveSignature};
+use alloy_primitives::{Address, PrimitiveSignature, SignatureError};
 use alloy_sol_types::{Eip712Domain, SolStruct};
-use anyhow::{bail, Result};
-use boundless_market::contracts::{EIP721DomainSaltless, ProofRequest};
+use boundless_market::contracts::{EIP712DomainSaltless, ProofRequest, RequestError};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use serde::{Deserialize, Serialize};
+
+/// Errors that may occur in the assessor.
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum Error {
+    /// Deserialization error originating from [postcard].
+    #[error("postcard deserialize error: {0}")]
+    PostcardDeserializeError(#[from] postcard::Error),
+
+    /// Signature parsing or verification error.
+    #[error("signature error: {0}")]
+    AlloySignatureError(#[from] SignatureError),
+
+    /// Malformed proof request error.
+    #[error("proof request error: {0}")]
+    RequestError(#[from] RequestError),
+
+    /// Signature verification error.
+    #[error("invalid signature: mismatched addr {recovered_addr} - {expected_addr}")]
+    SignatureVerificationError {
+        /// Address recovered when trying to verify the ECDSA signature.
+        recovered_addr: Address,
+        /// Address expected from decoding the [ProofRequest].
+        expected_addr: Address,
+    },
+
+    /// Predicate evaluation failure from [ProofRequest] [Requirements]
+    #[error("predicate evaluation failed")]
+    PredicateEvaluationError,
+}
 
 /// Fulfillment contains a signed request, including offer and requirements,
 /// that the prover has completed, and the journal committed
@@ -39,7 +68,7 @@ pub struct Fulfillment {
 impl Fulfillment {
     // TODO: Change this to use a thiserror error type.
     /// Verifies the signature of the request.
-    pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32]> {
+    pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32], Error> {
         let hash = self.request.eip712_signing_hash(domain);
         let signature = PrimitiveSignature::try_from(self.signature.as_slice())?;
         // NOTE: This could be optimized by accepting the public key as input, checking it against
@@ -47,15 +76,18 @@ impl Fulfillment {
         // public key. It would save ~1M cycles.
         let recovered = signature.recover_address_from_prehash(&hash)?;
         let client_addr = self.request.client_address()?;
-        if recovered != self.request.client_address()? {
-            bail!("Invalid signature: mismatched addr {recovered} - {client_addr}");
+        if recovered != client_addr {
+            return Err(Error::SignatureVerificationError {
+                recovered_addr: recovered,
+                expected_addr: client_addr,
+            });
         }
         Ok(hash.into())
     }
     /// Evaluates the requirements of the request.
-    pub fn evaluate_requirements(&self) -> Result<()> {
+    pub fn evaluate_requirements(&self) -> Result<(), Error> {
         if !self.request.requirements.predicate.eval(&self.journal) {
-            bail!("Predicate evaluation failed");
+            return Err(Error::PredicateEvaluationError);
         }
         Ok(())
     }
@@ -76,20 +108,20 @@ pub struct AssessorInput {
     /// The EIP-712 domain contains the chain ID and smart contract address.
     /// This smart contract address is used solely to construct the EIP-712 Domain
     /// and complete signature checks on the requests.
-    pub domain: EIP721DomainSaltless,
+    pub domain: EIP712DomainSaltless,
     /// The address of the prover.
     pub prover_address: Address,
 }
 
 impl AssessorInput {
-    /// Serializes the AssessorInput to a Vec<u8> using postcard.
-    pub fn to_vec(&self) -> Vec<u8> {
-        let bytes = postcard::to_allocvec(self).unwrap();
-        let length = bytes.len() as u32;
-        let mut result = Vec::with_capacity(4 + bytes.len());
-        result.extend_from_slice(&length.to_le_bytes());
-        result.extend_from_slice(&bytes);
-        result
+    /// Serialize the [AssessorInput] to a bytes vector.
+    pub fn encode(&self) -> Vec<u8> {
+        postcard::to_allocvec(&self).unwrap()
+    }
+
+    /// Deserialize the [AssessorInput] from a slice of bytes.
+    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(postcard::from_bytes(bytes)?)
     }
 }
 
@@ -160,7 +192,7 @@ mod tests {
     fn test_domain_serde() {
         let domain = eip712_domain(Address::ZERO, 1);
         let bytes = postcard::to_allocvec(&domain).unwrap();
-        let domain2: EIP721DomainSaltless = postcard::from_bytes(&bytes).unwrap();
+        let domain2: EIP712DomainSaltless = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(domain, domain2);
     }
 
@@ -200,7 +232,7 @@ mod tests {
             prover_address: Address::ZERO,
         };
         let mut env_builder = ExecutorEnv::builder();
-        env_builder.write_slice(&assessor_input.to_vec());
+        env_builder.write_frame(&assessor_input.encode());
         for receipt in receipts {
             env_builder.add_assumption(receipt);
         }

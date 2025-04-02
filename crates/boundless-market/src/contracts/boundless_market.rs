@@ -35,9 +35,9 @@ use thiserror::Error;
 use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 use super::{
-    eip712_domain, AssessorReceipt, EIP721DomainSaltless, Fulfillment,
+    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
     IBoundlessMarket::{self, IBoundlessMarketInstance},
-    Offer, ProofRequest, ProofStatus, RequestError, RequestId, TxnErr, TXN_CONFIRM_TIMEOUT,
+    Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Boundless market errors.
@@ -213,7 +213,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// Get the EIP-712 domain associated with the market contract.
     ///
     /// If not cached, this function will fetch the chain ID with an RPC call.
-    pub async fn eip712_domain(&self) -> Result<EIP721DomainSaltless, MarketError> {
+    pub async fn eip712_domain(&self) -> Result<EIP712DomainSaltless, MarketError> {
         Ok(eip712_domain(*self.instance.address(), self.get_chain_id().await?))
     }
 
@@ -377,7 +377,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// deliver. At this point, the price for fulfillment is also set, based on the reverse Dutch
     /// auction parameters and the block at which this transaction is processed.
     ///
-    /// This method uses the provided signature to authenticate the prover.
+    /// This method uses the provided signature to authenticate the prover. Note that the prover
+    /// signature must be over the LockRequest struct, not the ProofRequest struct.
     pub async fn lock_request_with_signature(
         &self,
         request: &ProofRequest,
@@ -777,35 +778,35 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(res._0)
     }
 
-    /// Returns the [ProofStatus] of a request.
+    /// Returns the [RequestStatus] of a request.
     ///
     /// The `expires_at` parameter is the time at which the request expires.
     pub async fn get_status(
         &self,
         request_id: U256,
         expires_at: Option<u64>,
-    ) -> Result<ProofStatus, MarketError> {
+    ) -> Result<RequestStatus, MarketError> {
         let timestamp = self.get_latest_block_timestamp().await?;
 
         if self.is_fulfilled(request_id).await.context("Failed to check fulfillment status")? {
-            return Ok(ProofStatus::Fulfilled);
+            return Ok(RequestStatus::Fulfilled);
         }
 
         if let Some(expires_at) = expires_at {
             if timestamp > expires_at {
-                return Ok(ProofStatus::Expired);
+                return Ok(RequestStatus::Expired);
             }
         }
 
         if self.is_locked(request_id).await.context("Failed to check locked status")? {
             let deadline = self.instance.requestDeadline(request_id).call().await?._0;
             if timestamp > deadline && deadline > 0 {
-                return Ok(ProofStatus::Expired);
+                return Ok(RequestStatus::Expired);
             };
-            return Ok(ProofStatus::Locked);
+            return Ok(RequestStatus::Locked);
         }
 
-        Ok(ProofStatus::Unknown)
+        Ok(RequestStatus::Unknown)
     }
 
     async fn get_latest_block_number(&self) -> Result<u64, MarketError> {
@@ -962,8 +963,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
     ) -> Result<(Bytes, Bytes), MarketError> {
         match self.get_status(request_id, None).await? {
-            ProofStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
-            ProofStatus::Fulfilled => self.query_fulfilled_event(request_id, None, None).await,
+            RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
+            RequestStatus::Fulfilled => self.query_fulfilled_event(request_id, None, None).await,
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
     }
@@ -1004,8 +1005,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         loop {
             let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
-                ProofStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
-                ProofStatus::Fulfilled => {
+                RequestStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
+                RequestStatus::Fulfilled => {
                     return self.query_fulfilled_event(request_id, None, None).await;
                 }
                 _ => {
@@ -1035,7 +1036,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let id: u32 = nonce.try_into().context("Failed to convert nonce to u32")?;
         let request_id = RequestId::u256(self.caller, id);
         match self.get_status(request_id, None).await? {
-            ProofStatus::Unknown => Ok(id),
+            RequestStatus::Unknown => Ok(id),
             _ => Err(MarketError::Error(anyhow!("index already in use"))),
         }
     }
@@ -1058,7 +1059,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let id: u32 = rand::random();
             let request_id = RequestId::u256(self.caller, id);
             match self.get_status(request_id, None).await? {
-                ProofStatus::Unknown => return Ok(id),
+                RequestStatus::Unknown => return Ok(id),
                 _ => continue,
             }
         }
@@ -1351,7 +1352,7 @@ mod tests {
             hit_points::default_allowance,
             test_utils::{create_test_ctx, TestCtx},
             AssessorCommitment, AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket,
-            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, ProofStatus,
+            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestStatus,
             Requirements,
         },
         input::InputBuilder,
@@ -1365,8 +1366,8 @@ mod tests {
         sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
     };
     use alloy_sol_types::SolCall;
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use guest_util::ECHO_ID;
     use risc0_aggregation::{
         merkle_root, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
@@ -1530,7 +1531,15 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         // Deposit prover balances
         ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
@@ -1556,7 +1565,15 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let mut ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let mut ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let deposit = U256::from(10);
 
@@ -1607,7 +1624,15 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let request = new_request(1, &ctx).await;
 
@@ -1627,7 +1652,15 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1670,7 +1703,7 @@ mod tests {
         assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
-                == ProofStatus::Locked
+                == RequestStatus::Locked
         );
 
         // mock the fulfillment
@@ -1703,7 +1736,15 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1746,7 +1787,7 @@ mod tests {
         assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
-                == ProofStatus::Locked
+                == RequestStatus::Locked
         );
 
         // mock the fulfillment
@@ -1785,7 +1826,15 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1856,7 +1905,15 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -1899,7 +1956,7 @@ mod tests {
         assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
-                == ProofStatus::Locked
+                == RequestStatus::Locked
         );
 
         // Test behavior when payment requirements are not met.

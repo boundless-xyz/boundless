@@ -14,11 +14,11 @@ library BoundlessMarketLib {
     /// @dev This function exists to provide a type-safe way to ABI-encode constructor args, for
     /// use in the deployment process with OpenZeppelin Upgrades. Must be kept in sync with the
     /// signature of the BoundlessMarket constructor.
-    function encodeConstructorArgs(IRiscZeroVerifier verifier, bytes32 assessorId)
+    function encodeConstructorArgs(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract)
         internal
         pure
         returns (bytes memory)
     {
-        return abi.encode(verifier, assessorId);
+        return abi.encode(verifier, assessorId, stakeTokenContract);
     }
 }

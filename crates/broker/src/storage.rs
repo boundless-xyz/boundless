@@ -15,6 +15,7 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum StorageErr {
     #[error("Failed to parse URL")]
     UriParseErr(#[from] url::ParseError),
