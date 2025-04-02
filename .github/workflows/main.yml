@@ -380,7 +380,7 @@ jobs:
       - run: cargo publish -p boundless-market --dry-run
 
   examples:
-    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    runs-on: [self-hosted, Linux, X64, prod, cuda, nvidia_rtx_a5000]
     strategy:
       matrix:
         workspace:
@@ -451,8 +451,6 @@ jobs:
       - name: cargo test
         run: cargo test --locked
         working-directory: ${{ matrix.workspace }}
-        env:
-          RISC0_DEV_MODE: 1
 
       - name: sccache stats
         run: sccache --show-stats

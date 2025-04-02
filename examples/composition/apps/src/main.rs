@@ -304,7 +304,6 @@ mod tests {
     }
 
     #[test(tokio::test)]
-    #[ignore = "does not work with RISC0_DEV_MODE=1"]
     async fn test_main() -> Result<()> {
         // Setup anvil and deploy contracts.
         let anvil = Anvil::new().spawn();
