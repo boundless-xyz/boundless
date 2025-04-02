@@ -385,6 +385,7 @@ jobs:
       matrix:
         workspace:
           - examples/counter
+          - examples/counter-with-callback
           - examples/composition
     steps:
       - name: checkout code
