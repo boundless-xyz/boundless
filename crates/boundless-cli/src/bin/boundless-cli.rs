@@ -1269,8 +1269,7 @@ mod tests {
     // generate a test request
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
-            id,
-            addr,
+            RequestId::new(*addr, id),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
