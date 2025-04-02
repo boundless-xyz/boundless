@@ -509,7 +509,7 @@ mod tests {
         boundless_market.lock_request(&proving_request, &client_sig.into(), None).await.unwrap();
 
         // let the order timeout and slash
-        provider.anvil_mine(Some(2), Some(2000)).await.unwrap();
+        provider.anvil_mine(Some(2), Some(6000)).await.unwrap();
         boundless_market.slash(proving_request.id).await.unwrap();
 
         // Wait for the block to be mined and the slashing event to be detected
