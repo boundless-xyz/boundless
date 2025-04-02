@@ -349,8 +349,11 @@ mod tests {
         let client_sig =
             request.sign_request(&signer, market_address, chain_id).await.unwrap().as_bytes();
 
-        let order =
-            Order { status: OrderStatus::Locking, ..Order::new(request, client_sig.into()) };
+        let order = Order {
+            status: OrderStatus::Locking,
+            target_timestamp: Some(0),
+            ..Order::new(request, client_sig.into())
+        };
         let request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
         assert_eq!(request_id, order_id);
 
