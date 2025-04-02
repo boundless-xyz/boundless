@@ -457,7 +457,6 @@ jobs:
         working-directory: ${{ matrix.workspace }}
         env:
           RUST_LOG: "info"
-          RISC0_INFO: 1
 
       - name: sccache stats
         run: sccache --show-stats
