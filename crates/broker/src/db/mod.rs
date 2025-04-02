@@ -1512,13 +1512,13 @@ mod tests {
         let agg_proof = &agg_proofs[0];
         assert_eq!(agg_proof.order_id, U256::from(1u64));
         assert_eq!(agg_proof.proof_id, "test_id1");
-        assert_eq!(agg_proof.expiration, 10);
+        assert_eq!(agg_proof.expiration, 100);
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let agg_proof = &agg_proofs[1];
         assert_eq!(agg_proof.order_id, U256::from(2u64));
         assert_eq!(agg_proof.proof_id, "test_id2");
-        assert_eq!(agg_proof.expiration, 10);
+        assert_eq!(agg_proof.expiration, 100);
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let db_order = db.get_order(U256::from(1u64)).await.unwrap().unwrap();
