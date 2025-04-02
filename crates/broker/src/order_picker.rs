@@ -535,10 +535,11 @@ where
         if capacity == 0 {
             return Ok(());
         }
+        let new_orders = self.db.update_orders_for_pricing(capacity).await?;
+        let lock_expired_orders =
+            self.db.update_slashed_unexpired_for_pricing(capacity, now_timestamp()).await?;
 
-        let order_res = self.db.update_orders_for_pricing(capacity).await?;
-
-        for (order_id, order) in order_res {
+        for (order_id, order) in new_orders.into_iter().chain(lock_expired_orders.into_iter()) {
             let picker_clone = self.clone();
             tasks.spawn(async move {
                 match picker_clone.price_order(order_id, &order).await {
