@@ -4,12 +4,12 @@
 
 use crate::{
     redis::{self, AsyncCommands},
-    tasks::{deserialize_obj, serialize_obj, COPROC_CB_PATH},
+    tasks::{deserialize_obj, serialize_obj},
     Agent,
 };
 use anyhow::{Context, Result};
 use uuid::Uuid;
-use workflow_common::UnionReq;
+use workflow_common::{UnionReq, KECCAK_RECEIPT_PATH};
 
 /// Run the union operation
 pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<()> {
@@ -17,7 +17,7 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
     let mut conn = redis::get_connection(&agent.redis_pool).await?;
 
     // setup redis keys
-    let keccak_receipts_prefix = format!("job:{job_id}:{COPROC_CB_PATH}");
+    let keccak_receipts_prefix = format!("job:{job_id}:{KECCAK_RECEIPT_PATH}");
     let left_receipt_key = format!("{keccak_receipts_prefix}:{0}", request.left);
     let right_receipt_key = format!("{keccak_receipts_prefix}:{0}", request.right);
 
