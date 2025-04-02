@@ -1390,7 +1390,7 @@ mod tests {
 
         // Finish pricing an order and mark it as complete to free up capacity
         let order = pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();
-        ctx.db.set_order_complete(order).await.unwrap();
+        ctx.db.set_order_status(order, OrderStatus::Done).await.unwrap();
 
         // Await other pricing task to avoid race conditions
         pricing_tasks.join_next().await.unwrap().unwrap().unwrap().unwrap();

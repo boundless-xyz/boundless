@@ -22,7 +22,7 @@ use crate::{
     chain_monitor::ChainMonitorService,
     db::DbError,
     task::{RetryRes, RetryTask, SupervisorErr},
-    DbObj, Order,
+    DbObj, Order, OrderStatus,
 };
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
@@ -212,14 +212,14 @@ where
         anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
     }
 
-    /// Monitors the OrderFulfilled events and updates the database accordingly.
-    async fn monitor_order_fulfillments(
+    /// Monitors the ProverSlashed events and updates the database accordingly.
+    async fn monitor_order_slashings(
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
     ) -> Result<()> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
-        let event = market.instance().RequestFulfilled_filter().watch().await?;
+        let event = market.instance().ProverSlashed_filter().watch().await?;
         tracing::info!("Subscribed to RequestFulfilled event");
 
         event
@@ -227,7 +227,10 @@ where
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, _)) => {
-                        if let Err(e) = db.set_order_complete(U256::from(event.requestId)).await {
+                        if let Err(e) = db
+                            .set_order_status(U256::from(event.requestId), OrderStatus::Slashed)
+                            .await
+                        {
                             tracing::error!("Failed to update order status to Complete: {e:?}");
                         }
                     }
@@ -319,7 +322,7 @@ where
                 SupervisorErr::Recover(err)
             })?;
 
-            Self::monitor_order_fulfillments(market_addr, provider.clone(), db.clone())
+            Self::monitor_order_slashings(market_addr, provider.clone(), db.clone())
                 .await
                 .map_err(|err| {
                     tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");

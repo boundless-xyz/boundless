@@ -31,7 +31,7 @@ use crate::{
     db::DbObj,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
-    Batch,
+    Batch, OrderStatus,
 };
 
 #[derive(Clone)]
@@ -345,7 +345,9 @@ where
         }
 
         for fulfillment in fulfillments.iter() {
-            if let Err(db_err) = self.db.set_order_complete(U256::from(fulfillment.id)).await {
+            if let Err(db_err) =
+                self.db.set_order_status(U256::from(fulfillment.id), OrderStatus::Done).await
+            {
                 tracing::error!(
                     "Failed to set order complete during proof submission: {:x} {db_err:?}",
                     fulfillment.id

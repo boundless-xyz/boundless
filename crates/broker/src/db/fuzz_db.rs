@@ -53,7 +53,7 @@ enum ExistingOrderOperation {
     GetOrder,
     SetOrderLock { lock_timestamp: u32, expire_timestamp: u32 },
     SetProvingStatus { lock_price: u64 },
-    SetOrderComplete,
+    SetOrderStatus { status: OrderStatus },
     SkipOrder,
     SetOrderFailure { failure_str: String },
     SetOrderProofId { proof_id: String },
@@ -195,8 +195,8 @@ proptest! {
                                     ExistingOrderOperation::SetProvingStatus { lock_price } => {
                                         db.set_proving_status(U256::from(id), U256::from(lock_price)).await.unwrap();
                                     },
-                                    ExistingOrderOperation::SetOrderComplete => {
-                                        db.set_order_complete(U256::from(id)).await.unwrap();
+                                    ExistingOrderOperation::SetOrderStatus{ status } => {
+                                        db.set_order_status(U256::from(id), status).await.unwrap();
                                     },
                                     ExistingOrderOperation::SkipOrder => {
                                         db.skip_order(U256::from(id)).await.unwrap();

@@ -211,6 +211,12 @@ where
         Ok(order_count)
     }
 
+    /// Scan through all known orders that have reached their lock timeout but have not expired.
+    /// For each of these orders, check if they have been filled and if they have not mark them as slashed
+    async fn check_for_unfilled_slashed_orders(&self) -> Result<()> {
+        todo!();
+    }
+
     // TODO:
     // need to call set_failed() correctly whenever a order triggers a hard failure
     pub async fn start_monitor(&self, block_limit: Option<u64>) -> Result<()> {
