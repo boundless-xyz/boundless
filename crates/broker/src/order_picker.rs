@@ -22,7 +22,9 @@ use thiserror::Error;
 use tokio::task::JoinSet;
 
 // fraction the stake the protocol gives to the prover who fills an order that was locked by another prover but expired
-// e.g. a value of 1 means 1/4 of the original stake is given to the prover who fills the order
+// e.g. a value of 1 means 1/4 of the original stake is given to the prover who fills the order.
+// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
+// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
 const FRACTION_STAKE_REWARD: u64 = 4;
 
 #[derive(Error, Debug)]
@@ -94,9 +96,13 @@ where
     async fn price_order(&self, order_id: U256, order: &Order) -> Result<bool, PriceOrderErr> {
         tracing::debug!("Processing order {order_id:x}: {order:?}");
 
-        let (min_deadline, allowed_addresses_opt) = {
+        let (min_deadline, allowed_addresses_opt, fill_slashed_orders_altruistically) = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            (config.market.min_deadline, config.market.allow_client_addresses.clone())
+            (
+                config.market.min_deadline,
+                config.market.allow_client_addresses.clone(),
+                config.market.fill_slashed_orders_altruistically,
+            )
         };
 
         // Initial sanity checks:
@@ -375,17 +381,25 @@ where
             order.request.offer.lockStake,
         );
 
+        // If configured to do so then take the order regardless of it is profitable
+        let ignore_profitability = if slashed_unexpired && fill_slashed_orders_altruistically {
+            tracing::info!("Ignoring profitability check for order {order_id:x}");
+            true
+        } else {
+            false
+        };
+
         // Skip the order if it will never be worth it
-        if mcycle_price_max < config_min_mcycle_price {
+        if mcycle_price_max < config_min_mcycle_price && !ignore_profitability {
             tracing::warn!("Removing under priced order {order_id:x}");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(false);
         }
 
-        if mcycle_price_min >= config_min_mcycle_price {
+        if mcycle_price_min >= config_min_mcycle_price || ignore_profitability {
             tracing::info!(
                 "Selecting order {order_id:x} at price {} - ASAP",
-                format_ether(U256::from(order.request.offer.minPrice))
+                format_ether(U256::from(min_price))
             );
             // set the target timestamp to 0 so we schedule the lock ASAP.
             self.db
@@ -1443,6 +1457,39 @@ mod tests {
         ctx.picker.price_order(order_id, &order).await.unwrap();
 
         assert!(logs_contain(&format!("Order {order_id:x} is slashed but unfulfilled")));
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Locking);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn price_unprofitable_slashed_unfulfilled_order_if_configured() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.fill_slashed_orders_altruistically = true;
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        let min_price = 200000000000u64;
+        let max_price = 400000000000u64;
+
+        let mut order = ctx
+            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
+            .await;
+        order.status = OrderStatus::Slashed;
+        order.request.offer.biddingStart = now_timestamp();
+        order.request.offer.lockTimeout = 0;
+        order.request.offer.timeout = 10000;
+        order.request.offer.lockStake = parse_ether("0").unwrap(); // no stake means no reward for filling after it is slashed
+
+        let order_id = order.request.id;
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        assert!(logs_contain(&format!("Order {order_id:x} is slashed but unfulfilled")));
+        assert!(logs_contain(&format!("Ignoring profitability check for order {order_id:x}")));
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
