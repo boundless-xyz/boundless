@@ -220,13 +220,14 @@ where
     ) -> Result<()> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
         let event = market.instance().ProverSlashed_filter().watch().await?;
-        tracing::info!("Subscribed to RequestFulfilled event");
+        tracing::info!("Subscribed to ProverSlashed event");
 
         event
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, _)) => {
+                        tracing::info!("Detected request slashed {:x}", event.requestId);
                         if let Err(e) = db
                             .set_order_status(U256::from(event.requestId), OrderStatus::Slashed)
                             .await
@@ -322,19 +323,16 @@ where
                 SupervisorErr::Recover(err)
             })?;
 
-            Self::monitor_order_slashings(market_addr, provider.clone(), db.clone())
-                .await
-                .map_err(|err| {
+            tokio::select! {
+                Err(err) = Self::monitor_orders(market_addr, provider.clone(), db.clone()) => {
+                    tracing::error!("Monitor for new orders failed, restarting: {err:?}");
+                    return Err(SupervisorErr::Recover(err))
+                }
+                Err(err) = Self::monitor_order_slashings(market_addr, provider.clone(), db.clone()) => {
                     tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");
-
-                    SupervisorErr::Recover(err)
-                })?;
-
-            Self::monitor_orders(market_addr, provider, db).await.map_err(|err| {
-                tracing::error!("Monitor for new blocks failed, restarting: {err:?}");
-
-                SupervisorErr::Recover(err)
-            })?;
+                    return Err(SupervisorErr::Recover(err))
+                }
+            };
 
             Ok(())
         })
@@ -353,8 +351,9 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
-        InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        boundless_market::BoundlessMarketService,
+        test_utils::{deploy_boundless_market, deploy_hit_points},
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use risc0_zkvm::sha::Digest;
@@ -425,6 +424,102 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(orders, 1);
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn detect_slashing_event() {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(signer.clone()))
+                .connect(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+        provider.anvil_set_auto_mine(true).await.unwrap();
+
+        let hp_token_address = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
+        let market_address = deploy_boundless_market(
+            signer.address(),
+            provider.clone(),
+            Address::ZERO,
+            hp_token_address,
+            Digest::from(ASSESSOR_GUEST_ID),
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+        let boundless_market = BoundlessMarketService::new(
+            market_address,
+            provider.clone(),
+            provider.default_signer_address(),
+        );
+
+        // spawn the chain and market monitors
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn());
+        let market_monitor = MarketMonitor::new(
+            0,
+            market_address,
+            provider.clone(),
+            db.clone(),
+            chain_monitor.clone(),
+        );
+        tokio::spawn(market_monitor.spawn());
+
+        // Submit a request
+        let min_price = 1;
+        let max_price = 10;
+        let proving_request = ProofRequest {
+            id: boundless_market.request_id_from_nonce().await.unwrap(),
+            requirements: Requirements::new(
+                Digest::ZERO,
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
+            imageUrl: "test".to_string(),
+            input: Input { inputType: InputType::Url, data: Default::default() },
+            offer: Offer {
+                minPrice: U256::from(min_price),
+                maxPrice: U256::from(max_price),
+                biddingStart: now_timestamp() - 5,
+                timeout: 1000,
+                lockTimeout: 1000,
+                rampUpPeriod: 1,
+                lockStake: U256::from(0),
+            },
+        };
+        boundless_market.submit_request(&proving_request, &signer).await.unwrap();
+
+        // Wait for the block to be mined and the order to be detected
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Ensure it was detected
+        let order = db.get_order(proving_request.id).await.unwrap();
+        assert!(order.is_some());
+
+        // lock it in so it can be slashed
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let client_sig = proving_request
+            .sign_request(&signer, market_address, chain_id)
+            .await
+            .unwrap()
+            .as_bytes();
+        boundless_market.lock_request(&proving_request, &client_sig.into(), None).await.unwrap();
+
+        // let the order timeout and slash
+        provider.anvil_mine(Some(2), Some(2000)).await.unwrap();
+        boundless_market.slash(proving_request.id).await.unwrap();
+
+        // Wait for the block to be mined and the slashing event to be detected
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Ensure the order was slashed in the db
+        let order = db.get_order(proving_request.id).await.unwrap().unwrap();
+        assert!(order.status == OrderStatus::Slashed);
     }
 
     #[tokio::test]
