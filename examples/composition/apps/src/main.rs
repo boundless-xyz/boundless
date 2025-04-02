@@ -191,7 +191,7 @@ async fn boundless_proof<P, S>(
     client: &Client<P, S>,
     elf: impl AsRef<[u8]>,
     guest_env: GuestEnv,
-    disable_aggregation: bool,
+    groth16: bool,
 ) -> Result<(Journal, Bytes)>
 where
     P: Provider<Ethereum> + 'static + Clone,
@@ -226,8 +226,8 @@ where
 
     // Build the proof requirements with the specified selector
     let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
-    if disable_aggregation {
-        requirements = requirements.with_unaggregated_proof();
+    if groth16 {
+        requirements = requirements.with_groth16_proof();
     }
 
     // Build the proof request offer
@@ -278,8 +278,8 @@ mod tests {
     };
     use boundless_market::storage::MockStorageProvider;
     use broker::test_utils::BrokerBuilder;
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use test_log::test;
     use tokio::task::JoinSet;
 
@@ -307,7 +307,15 @@ mod tests {
     async fn test_main() -> Result<()> {
         // Setup anvil and deploy contracts.
         let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await
