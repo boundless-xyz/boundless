@@ -34,7 +34,7 @@ library ConfigLoader {
         // Get the config profile from the environment variable, or leave it empty
         chainKey = VM.envOr("CHAIN_KEY", string(""));
 
-        // If no profile is set, select the default one based on the chainId and staging
+        // If no profile is set, select the default one based on the chainId
         if (bytes(chainKey).length == 0) {
             string[] memory chainKeys = VM.parseTomlKeys(config, ".chains");
             for (uint256 i = 0; i < chainKeys.length; i++) {
