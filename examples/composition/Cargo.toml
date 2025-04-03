@@ -32,10 +32,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 
-# Always optimize; building and running the guest takes much longer without optimization.
-[profile.dev]
+# Enable optimizations in tests; otherwise, test with local proving take much longer to run
+[profile.test]
 opt-level = 3
-
-[profile.release]
-debug = 1
-lto = true
