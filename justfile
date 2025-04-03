@@ -250,7 +250,7 @@ cargo-update:
     cd examples/counter && cargo update
 
 # Start the bento service
-bento action="start" env_file="./.env.broker" flags="":
+bento action="start" env_file="./.env.broker" compose_flags="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
         ENV_FILE="{{env_file}}"
@@ -286,11 +286,11 @@ bento action="start" env_file="./.env.broker" flags="":
         fi
 
         echo "Starting Docker Compose services using environment file: $ENV_FILE"
-        docker compose {{flags}} --env-file "$ENV_FILE" up --build -d
+        docker compose {{compose_flags}} --env-file "$ENV_FILE" up --build -d
         echo "Docker Compose services have been started."
     elif [ "{{action}}" = "stop" ]; then
         echo "Stopping Docker Compose services using environment file: $ENV_FILE"
-        if docker compose {{flags}} --env-file "$ENV_FILE" down; then
+        if docker compose {{compose_flags}} --env-file "$ENV_FILE" down; then
             echo "Docker Compose services have been stopped and removed."
         else
             echo "Error: Failed to stop Docker Compose services."
@@ -298,7 +298,7 @@ bento action="start" env_file="./.env.broker" flags="":
         fi
     elif [ "{{action}}" = "clean" ]; then
         echo "Stopping and cleaning Docker Compose services using environment file: $ENV_FILE"
-        if docker compose {{flags}} --env-file "$ENV_FILE" down -v; then
+        if docker compose {{compose_flags}} --env-file "$ENV_FILE" down -v; then
             echo "Docker Compose services have been stopped and volumes have been removed."
         else
             echo "Error: Failed to clean Docker Compose services."
