@@ -14,7 +14,7 @@ interface ProverPipelineArgs {
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "prover";
 // The branch that we should deploy from on push.
-const BRANCH_NAME = "willpote/deploy-prover";
+const BRANCH_NAME = "main";
 // The buildspec for the CodeBuild project that deploys our Pulumi stacks to the staging and prod accounts.
 // Note in pre-build we assume the deployment role for the given account before running pulumi commands, so
 // that we deploy to the target account.
