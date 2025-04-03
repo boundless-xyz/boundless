@@ -53,9 +53,8 @@ RUN \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
     source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release --bin broker && \
-    cp /src/target/release/broker /src/broker
-
-RUN sccache --show-stats
+    cp /src/target/release/broker /src/broker && \
+    sccache --show-stats
 
 FROM rust:1.85.0-bookworm AS runtime
 
