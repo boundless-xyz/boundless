@@ -231,13 +231,57 @@ cargo-update:
     cargo update
     cd examples/counter && cargo update
 
-# Start or stop the broker service
-broker action="start" env_file="":
+# Run the broker service with a bento cluster for proving.
+broker action="start" env_file="./.env.broker":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
-        ./scripts/boundless_service.sh {{action}} --env-file {{env_file}}
+        ENV_FILE="{{env_file}}"
     else
-        ./scripts/boundless_service.sh {{action}}
+        ENV_FILE="./.env.broker"
+    fi
+
+    if ! command -v docker &> /dev/null; then
+        echo "Error: Docker command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if ! docker compose version &> /dev/null; then
+        echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if [ "{{action}}" = "start" ]; then
+        if [ "$ENV_FILE" = "./.env.broker" ] && [ ! -f "$ENV_FILE" ]; then
+            echo "Creating $ENV_FILE from template..."
+            if [ -f ".env.broker-template" ]; then
+                cp .env.broker-template "$ENV_FILE"
+                echo "Please review and update values in $ENV_FILE before running the service again."
+            else
+                echo "Error: .env.broker-template not found."
+                exit 1
+            fi
+        fi
+
+        if [ ! -f "$ENV_FILE" ]; then
+            echo "Error: Environment file $ENV_FILE does not exist."
+            exit 1
+        fi
+
+        echo "Starting Docker Compose services using environment file: $ENV_FILE"
+        docker compose --profile broker --env-file "$ENV_FILE" up --build -d
+        echo "Docker Compose services have been started."
+    elif [ "{{action}}" = "stop" ]; then
+        echo "Stopping Docker Compose services using environment file: $ENV_FILE"
+        if docker compose --profile broker --env-file "$ENV_FILE" down; then
+            echo "Docker Compose services have been stopped and removed."
+        else
+            echo "Error: Failed to stop Docker Compose services."
+            exit 1
+        fi
+    else
+        echo "Unknown action: {{action}}"
+        echo "Available actions: start, stop"
+        exit 1
     fi
 
 # Run the setup script
