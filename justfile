@@ -249,8 +249,8 @@ cargo-update:
     cargo update
     cd examples/counter && cargo update
 
-# Run the broker service with a bento cluster for proving.
-broker action="start" env_file="./.env.broker":
+# Start the bento service
+bento action="start" env_file="./.env.broker" flags="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
         ENV_FILE="{{env_file}}"
@@ -286,11 +286,11 @@ broker action="start" env_file="./.env.broker":
         fi
 
         echo "Starting Docker Compose services using environment file: $ENV_FILE"
-        docker compose --profile broker --env-file "$ENV_FILE" up --build -d
+        docker compose {{flags}} --env-file "$ENV_FILE" up --build -d
         echo "Docker Compose services have been started."
     elif [ "{{action}}" = "stop" ]; then
         echo "Stopping Docker Compose services using environment file: $ENV_FILE"
-        if docker compose --profile broker --env-file "$ENV_FILE" down; then
+        if docker compose {{flags}} --env-file "$ENV_FILE" down; then
             echo "Docker Compose services have been stopped and removed."
         else
             echo "Error: Failed to stop Docker Compose services."
@@ -298,7 +298,7 @@ broker action="start" env_file="./.env.broker":
         fi
     elif [ "{{action}}" = "clean" ]; then
         echo "Stopping and cleaning Docker Compose services using environment file: $ENV_FILE"
-        if docker compose --profile broker --env-file "$ENV_FILE" down -v; then
+        if docker compose {{flags}} --env-file "$ENV_FILE" down -v; then
             echo "Docker Compose services have been stopped and volumes have been removed."
         else
             echo "Error: Failed to clean Docker Compose services."
@@ -309,6 +309,10 @@ broker action="start" env_file="./.env.broker":
         echo "Available actions: start, stop, clean"
         exit 1
     fi
+
+# Run the broker service with a bento cluster for proving.
+broker action="start" env_file="./.env.broker":
+    just bento "{{action}}" "{{env_file}}" "--profile broker"
 
 # Run the setup script
 bento-setup:
