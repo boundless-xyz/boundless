@@ -232,7 +232,7 @@ cargo-update:
     cd examples/counter && cargo update
 
 # Start the bento service
-bento action="start" env_file="./.env.broker" compose_flags="":
+bento action="up" env_file="./.env.broker" compose_flags="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
         ENV_FILE="{{env_file}}"
@@ -250,7 +250,7 @@ bento action="start" env_file="./.env.broker" compose_flags="":
         exit 1
     fi
 
-    if [ "{{action}}" = "start" ]; then
+    if [ "{{action}}" = "up" ]; then
         if [ "$ENV_FILE" = "./.env.broker" ] && [ ! -f "$ENV_FILE" ]; then
             echo "Creating $ENV_FILE from template..."
             if [ -f ".env.broker-template" ]; then
@@ -270,7 +270,7 @@ bento action="start" env_file="./.env.broker" compose_flags="":
         echo "Starting Docker Compose services using environment file: $ENV_FILE"
         docker compose {{compose_flags}} --env-file "$ENV_FILE" up --build -d
         echo "Docker Compose services have been started."
-    elif [ "{{action}}" = "stop" ]; then
+    elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services using environment file: $ENV_FILE"
         if docker compose {{compose_flags}} --env-file "$ENV_FILE" down; then
             echo "Docker Compose services have been stopped and removed."
@@ -288,12 +288,12 @@ bento action="start" env_file="./.env.broker" compose_flags="":
         fi
     else
         echo "Unknown action: {{action}}"
-        echo "Available actions: start, stop, clean"
+        echo "Available actions: up, down, clean"
         exit 1
     fi
 
 # Run the broker service with a bento cluster for proving.
-broker action="start" env_file="./.env.broker":
+broker action="up" env_file="./.env.broker":
     just bento "{{action}}" "{{env_file}}" "--profile broker"
 
 # Run the setup script
