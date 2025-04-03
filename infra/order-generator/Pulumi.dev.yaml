@@ -1,0 +1,15 @@
+config:
+  aws:region: us-west-2
+  BASE_STACK: organization/bootstrap/services-dev
+  BOUNDLESS_MARKET_ADDR: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
+  DOCKER_TAG: latest
+  DOCKER_DIR: "../../"
+  INTERVAL: "300"
+  LOCK_STAKE: "0.1"
+  LOG_LEVEL: debug
+  ORDER_STREAM_URL: https://order-stream.beboundless.xyz
+  PINATA_GATEWAY_URL: https://bronze-persistent-ladybug-168.mypinata.cloud
+  RAMP_UP: "20"
+  SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
+  MIN_PRICE_PER_MCYCLE: "0.000005"
+  MAX_PRICE_PER_MCYCLE: "0.001"

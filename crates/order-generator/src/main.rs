@@ -77,7 +77,7 @@ struct MainArgs {
     #[clap(long, default_value = "0")]
     ramp_up: u32,
     /// Number of seconds before the request lock-in expires.
-    #[clap(long, default_value = "1200")]
+    #[clap(long, default_value = "900")]
     lock_timeout: u32,
     /// Number of seconds before the request expires.
     #[clap(long, default_value = "1800")]
