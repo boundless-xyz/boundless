@@ -24,7 +24,12 @@ fn try_keccak_bytes_to_input(input: &[u8]) -> Result<Vec<[u64; 25]>> {
 }
 
 /// Run the keccak prove + lift operation
-pub async fn keccak(agent: &Agent, job_id: &Uuid, task_id: &str, request: &KeccakReq) -> Result<()> {
+pub async fn keccak(
+    agent: &Agent,
+    job_id: &Uuid,
+    task_id: &str,
+    request: &KeccakReq,
+) -> Result<()> {
     let mut conn = redis::get_connection(&agent.redis_pool).await?;
 
     let keccak_input_path = format!("job:{job_id}:{}:{}", COPROC_CB_PATH, request.claim_digest);

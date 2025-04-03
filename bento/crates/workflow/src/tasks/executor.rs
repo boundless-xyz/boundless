@@ -163,7 +163,8 @@ async fn process_task(
         TaskCmd::Finalize => {
             let keccak_count = u64::from(!tree_task.keccak_depends_on.is_empty());
             // Optionally create the Resolve task ahead of the finalize
-            let assumption_count = i32::try_from(assumptions.len() as u64 + keccak_count).context("Invalid assumption count conversion")?;
+            let assumption_count = i32::try_from(assumptions.len() as u64 + keccak_count)
+                .context("Invalid assumption count conversion")?;
 
             let mut prereqs = vec![tree_task.depends_on[0].to_string()];
             let mut union_max_idx: Option<usize> = None;
@@ -192,8 +193,6 @@ async fn process_task(
             )
             .await
             .context("create_task (resolve) failure during resolve creation")?;
-
-
 
             let task_def = serde_json::to_value(TaskType::Finalize(FinalizeReq {
                 max_idx: tree_task.depends_on[0],
