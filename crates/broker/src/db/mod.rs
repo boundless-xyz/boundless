@@ -1247,6 +1247,73 @@ mod tests {
         assert_eq!(price_order[1].1.status, OrderStatus::Pricing);
     }
 
+    /// Create a db with two slashed orders with different lockTimeouts and timeouts
+    async fn init_db_slashed_unexpired_tests(pool: SqlitePool) -> DbObj {
+        let db = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let mut order = create_order();
+        order.status = OrderStatus::New;
+        order.request.offer.lockTimeout = 100;
+        order.request.offer.timeout = 200;
+        db.add_order(U256::from(1), order.clone()).await.unwrap();
+
+        let mut order = create_order();
+        order.status = OrderStatus::New;
+        order.request.offer.lockTimeout = 150;
+        order.request.offer.timeout = 250;
+        db.add_order(U256::from(2), order.clone()).await.unwrap();
+        db
+    }
+
+    #[sqlx::test]
+    async fn update_slashed_unexpired_for_pricing_skips_locked(pool: SqlitePool) {
+        // // both still locked
+        let db = init_db_slashed_unexpired_tests(pool).await;
+        let result = db.update_slashed_unexpired_for_pricing(2, 99).await.unwrap();
+
+        assert_eq!(result.len(), 0);
+        assert_eq!(db.get_order(U256::from(1)).await.unwrap().unwrap().status, OrderStatus::New);
+        assert_eq!(db.get_order(U256::from(2)).await.unwrap().unwrap().status, OrderStatus::New);
+    }
+
+    #[sqlx::test]
+    async fn update_slashed_unexpired_for_pricing_handles_overlap(pool: SqlitePool) {
+        // // 1 unlocked, 2 unlocked
+        let db = init_db_slashed_unexpired_tests(pool).await;
+        let result = db.update_slashed_unexpired_for_pricing(2, 149).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            OrderStatus::Pricing
+        );
+        assert_eq!(db.get_order(U256::from(2)).await.unwrap().unwrap().status, OrderStatus::New);
+    }
+
+    #[sqlx::test]
+    async fn update_slashed_unexpired_for_pricing_picks_unlocked(pool: SqlitePool) {
+        // // 1 and 2 unlocked
+        let db = init_db_slashed_unexpired_tests(pool).await;
+        let result = db.update_slashed_unexpired_for_pricing(2, 151).await.unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            OrderStatus::Pricing
+        );
+        assert_eq!(
+            db.get_order(U256::from(2)).await.unwrap().unwrap().status,
+            OrderStatus::Pricing
+        );
+    }
+
+    #[sqlx::test]
+    async fn update_slashed_unexpired_for_pricing_skips_expired(pool: SqlitePool) {
+        // // both expired
+        let db = init_db_slashed_unexpired_tests(pool).await;
+        let result = db.update_slashed_unexpired_for_pricing(2, 251).await.unwrap();
+        assert_eq!(result.len(), 0);
+        assert_eq!(db.get_order(U256::from(1)).await.unwrap().unwrap().status, OrderStatus::New);
+        assert_eq!(db.get_order(U256::from(2)).await.unwrap().unwrap().status, OrderStatus::New);
+    }
+
     #[sqlx::test]
     async fn get_active_pricing_orders(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());

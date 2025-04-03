@@ -160,8 +160,6 @@ enum OrderStatus {
     Failed,
     /// Order was analyzed and marked as skipable
     Skipped,
-    /// Order was observed to be slashed on-chain
-    Slashed,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

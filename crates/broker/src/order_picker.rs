@@ -137,9 +137,8 @@ where
         let now = now_timestamp();
         // If order_expiration > lock_expiration the period in-between is when order can be filled
         // by anyone without staking to partially claim the slashed stake
-        let slashed_unexpired = order.status == OrderStatus::Slashed
-            && lock_expiration <= now
-            && order_expiration > now;
+        let slashed_unexpired =
+            order.status != OrderStatus::Done && lock_expiration <= now && order_expiration > now;
 
         if slashed_unexpired {
             tracing::info!("Order {order_id:x} is slashed but unfulfilled");
@@ -1446,7 +1445,7 @@ mod tests {
         let mut order = ctx
             .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
             .await;
-        order.status = OrderStatus::Slashed;
+        order.status = OrderStatus::New;
         order.request.offer.biddingStart = now_timestamp();
         order.request.offer.lockTimeout = 0;
         order.request.offer.timeout = 10000;
@@ -1478,7 +1477,7 @@ mod tests {
         let mut order = ctx
             .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
             .await;
-        order.status = OrderStatus::Slashed;
+        order.status = OrderStatus::New;
         order.request.offer.biddingStart = now_timestamp();
         order.request.offer.lockTimeout = 0;
         order.request.offer.timeout = 10000;

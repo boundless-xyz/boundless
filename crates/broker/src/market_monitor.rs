@@ -212,27 +212,27 @@ where
         anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
     }
 
-    /// Monitors the ProverSlashed events and updates the database accordingly.
-    async fn monitor_order_slashings(
+    /// Monitors the RequestFulfilled events and updates the database accordingly.
+    async fn monitor_order_fulfillments(
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
     ) -> Result<()> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
-        let event = market.instance().ProverSlashed_filter().watch().await?;
-        tracing::info!("Subscribed to ProverSlashed event");
+        let event = market.instance().RequestFulfilled_filter().watch().await?;
+        tracing::info!("Subscribed to RequestFulfilled event");
 
         event
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, _)) => {
-                        tracing::info!("Detected request slashed {:x}", event.requestId);
+                        tracing::info!("Detected request fulfilled {:x}", event.requestId);
                         if let Err(e) = db
-                            .set_order_status(U256::from(event.requestId), OrderStatus::Slashed)
+                            .set_order_status(U256::from(event.requestId), OrderStatus::Done)
                             .await
                         {
-                            tracing::error!("Failed to update order status to Complete: {e:?}");
+                            tracing::error!("Failed to update order status to Done: {e:?}");
                         }
                     }
                     Err(err) => {
@@ -328,7 +328,7 @@ where
                     tracing::error!("Monitor for new orders failed, restarting: {err:?}");
                     Err(SupervisorErr::Recover(err))
                 }
-                Err(err) = Self::monitor_order_slashings(market_addr, provider.clone(), db.clone()) => {
+                Err(err) = Self::monitor_order_fulfillments(market_addr, provider.clone(), db.clone()) => {
                     tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");
                     Err(SupervisorErr::Recover(err))
                 }
@@ -449,7 +449,7 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn detect_slashing_event() {
+    async fn detect_fulfilled_event() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
@@ -522,7 +522,7 @@ mod tests {
         let order = db.get_order(proving_request.id).await.unwrap();
         assert!(order.is_some());
 
-        // lock it in so it can be slashed
+        // lock it in and fill it without using order_picker
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig = proving_request
             .sign_request(&signer, market_address, chain_id)
@@ -531,15 +531,8 @@ mod tests {
             .as_bytes();
         boundless_market.lock_request(&proving_request, &client_sig.into(), None).await.unwrap();
 
-        // let the order timeout and slash
-        provider.anvil_mine(Some(2), Some(6000)).await.unwrap();
-        boundless_market.slash(proving_request.id).await.unwrap();
-
-        // Wait for the block to be mined and the slashing event to be detected
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-        // Ensure the order was slashed in the db
+        // Ensure the order was set to filled in the db
         let order = db.get_order(proving_request.id).await.unwrap().unwrap();
-        assert!(order.status == OrderStatus::Slashed);
+        assert!(order.status == OrderStatus::Done);
     }
 }
