@@ -296,9 +296,17 @@ broker action="start" env_file="./.env.broker":
             echo "Error: Failed to stop Docker Compose services."
             exit 1
         fi
+    elif [ "{{action}}" = "clean" ]; then
+        echo "Stopping and cleaning Docker Compose services using environment file: $ENV_FILE"
+        if docker compose --profile broker --env-file "$ENV_FILE" down -v; then
+            echo "Docker Compose services have been stopped and volumes have been removed."
+        else
+            echo "Error: Failed to clean Docker Compose services."
+            exit 1
+        fi
     else
         echo "Unknown action: {{action}}"
-        echo "Available actions: start, stop"
+        echo "Available actions: start, stop, clean"
         exit 1
     fi
 
