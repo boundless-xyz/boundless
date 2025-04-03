@@ -11,7 +11,7 @@ alloy-sol-types = { version = "0.8", features = ["eip712-serde"] }
 boundless-assessor = { path = "../../../assessor" }
 boundless-market = { path = "../../../boundless-market", default-features = false }
 risc0-aggregation = { version = "0.4.0-rc.2", default-features = false, features = ["verify"] }
-risc0-zkvm = { version = "2.0.0", default-features = false, features = ["std", "unstable"] }
+risc0-zkvm = { version = "2.0.1", default-features = false, features = ["std", "unstable"] }
 
 [patch.crates-io]
 # use optimized risc0 circuit
