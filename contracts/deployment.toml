@@ -13,18 +13,17 @@ boundless-market = "0x0000000000000000000000000000000000000000"
 stake-token = "0x0000000000000000000000000000000000000000"
 
 # Guests info
-deployment-commit = "59aa93eab78cda637eb76cc71b1799fa68ddcc53" # v0.3.0
-assessor-image-id = "0xfcf21d487a37ca422f0eab16168086337ee9d661a207bd0d5963c68d24622b9c"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/QmaM8vvRRF2WrnySNeryrKtbBavvTehfwqWKY1fJCrsuL7"
-
+deployment-commit = "04ee417aa0cac149a0962125e44e899acb3122f4" # v0.7.0
+assessor-image-id = "0x9b914519efb6109de0507a63d5f32e8695bbe0efda1ec152df6fde5eb030a73b"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeif5523ugt54zotjpiqhaeiu4fhz2wrvcwa7m35vqmqahnhjxsvrky"
 
 ###
 
-[chains.ethereum-sepolia]
-name = "Ethereum Sepolia"
+[chains.ethereum-sepolia-prod]
+name = "Ethereum Sepolia [production]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
-version = "v0.4.1"
+version = "v0.7.0"
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
@@ -36,5 +35,28 @@ boundless-market = "0x006b92674E2A8d397884e293969f8eCD9f615f4C"
 stake-token = "0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9"
 
 # Guests info
-assessor-image-id = "0x60eb87bfeb2a77aad71734d8c5decc295b63f72bb38bdcfad76cd4e887b280c8"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeicdigxq3d4rue4cddonxvi3obrsa457nct26bz266vegfkatp7l6a"
+deployment-commit = "04ee417aa0cac149a0962125e44e899acb3122f4" # v0.7.0
+assessor-image-id = "0x9b914519efb6109de0507a63d5f32e8695bbe0efda1ec152df6fde5eb030a73b"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeif5523ugt54zotjpiqhaeiu4fhz2wrvcwa7m35vqmqahnhjxsvrky"
+
+###
+
+[chains.ethereum-sepolia-staging]
+name = "Ethereum Sepolia [staging]"
+id = 11155111
+etherscan-url = "https://sepolia.etherscan.io/"
+version = "v0.7.0"
+
+# Accounts
+admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+
+# Contracts
+verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+set-verifier = "0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd"
+boundless-market = "0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16"
+stake-token = "0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9"
+
+# Guests info
+deployment-commit = "04ee417aa0cac149a0962125e44e899acb3122f4" # v0.7.0
+assessor-image-id = "0x9b914519efb6109de0507a63d5f32e8695bbe0efda1ec152df6fde5eb030a73b"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeif5523ugt54zotjpiqhaeiu4fhz2wrvcwa7m35vqmqahnhjxsvrky"
