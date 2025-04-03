@@ -44,7 +44,7 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
 
                 tracing::info!("Resolving {} assumption(s)", assumptions.len());
                 assumptions_len =
-                    Some(assumptions.len().try_into().context("Failed to convert to i64")?);
+                    Some(assumptions.len().try_into().context("Failed to convert to u64")?);
 
                 let mut union_claim = String::new();
                 if let Some(idx) = request.union_max_idx {
