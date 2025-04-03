@@ -16,7 +16,7 @@
 
 #![deny(missing_docs)]
 
-use alloy_primitives::{Address, PrimitiveSignature, SignatureError};
+use alloy_primitives::{Address, Keccak256, PrimitiveSignature, SignatureError};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use boundless_market::contracts::{EIP712DomainSaltless, ProofRequest, RequestError};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
@@ -125,6 +125,43 @@ impl AssessorInput {
     }
 }
 
+/// Processes a vector of leaves to compute the Merkle root.
+pub fn process_tree(values: Vec<Digest>) -> Digest {
+    let n = values.len();
+    if n == 0 {
+        panic!("process_tree: empty input");
+    }
+    if n == 1 {
+        return values[0];
+    }
+    let mut n = values.len();
+    let mut leaves = values.clone();
+    while n > 1 {
+        let next_level_length = (n + 1) / 2;
+        for i in 0..(n / 2) {
+            leaves[i] = commutative_keccak256(&leaves[2 * i], &leaves[2 * i + 1]);
+        }
+        if n % 2 == 1 {
+            leaves[next_level_length - 1] = leaves[n - 1];
+        }
+        n = next_level_length;
+    }
+    leaves[0]
+}
+
+/// Computes the hash of a sorted pair of [Digest].
+fn commutative_keccak256(a: &Digest, b: &Digest) -> Digest {
+    let mut hasher = Keccak256::new();
+    if a.as_bytes() < b.as_bytes() {
+        hasher.update(a.as_bytes());
+        hasher.update(b.as_bytes());
+    } else {
+        hasher.update(b.as_bytes());
+        hasher.update(a.as_bytes());
+    }
+    hasher.finalize().0.into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,7 +170,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
+        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId,
         Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
@@ -146,8 +183,7 @@ mod tests {
 
     fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
         ProofRequest::new(
-            id,
-            &signer,
+            RequestId::new(signer, id),
             Requirements::new(
                 Digest::from_bytes(image_id.0),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
