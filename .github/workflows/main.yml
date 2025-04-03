@@ -159,7 +159,9 @@ jobs:
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
-        run: cargo clippy --all-targets
+        run: |
+          cargo build -p sample-guest-methods -q
+          RISC0_SKIP_BUILD=1 cargo clippy --all-targets
 
       - name: cargo doc
         run: cargo doc
