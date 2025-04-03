@@ -68,19 +68,10 @@ jobs:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
-        with:
-          toolchain: '1.85'
-
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-
       - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: '2.0.0'
-          toolchain-version: '1.85.0'
+        uses: ./.github/actions/risczero
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: install cargo-sort
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -144,10 +135,10 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
 
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
-        with:
-          toolchain: '1.85'
+      - name: install cargo risczero
+        uses: ./.github/actions/risczero
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -207,10 +198,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
-        with:
-          toolchain: '1.85'
+      - name: install cargo risczero
+        uses: ./.github/actions/risczero
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch CI AWS Creds
         id: aws-creds
@@ -252,19 +243,13 @@ jobs:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
-        with:
-          toolchain: '1.85'
-
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
       - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: '2.0.0'
-          toolchain-version: '1.85.0'
+        uses: ./.github/actions/risczero
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: check order-stream
         run: cargo check --locked -p order-stream --bin order_stream
@@ -398,19 +383,13 @@ jobs:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
-        with:
-          toolchain: '1.85'
-
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
       - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: '2.0.0'
-          toolchain-version: '1.85.0'
+        uses: ./.github/actions/risczero
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: install cargo-sort
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3

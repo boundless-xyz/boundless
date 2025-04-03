@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as ProvingClient;
 use clap::Parser;
 use risc0_zkvm::{compute_image_id, serde::to_vec};
-use sample_guest_common::IterReq::CompositionKeccakUnion;
+use sample_guest_common::IterReq::{CompositionKeccakUnion, Iter};
 use sample_guest_methods::METHOD_NAME_ID;
 use std::path::PathBuf;
 
@@ -64,8 +64,7 @@ async fn main() -> Result<()> {
         )?;
         (image, input)
     } else if let Some(iter_count) = args.iter_count {
-        let input = sample_guest_common::IterReq::Iter(iter_count);
-        let input = risc0_zkvm::serde::to_vec(&input).expect("Failed to r0 to_vec");
+        let input = to_vec(&Iter(iter_count)).expect("Failed to r0 to_vec");
         let input = bytemuck::cast_slice(&input).to_vec();
         (sample_guest_methods::METHOD_NAME_ELF.to_vec(), input)
     } else {
