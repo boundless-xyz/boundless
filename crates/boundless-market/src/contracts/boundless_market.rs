@@ -1394,7 +1394,8 @@ mod tests {
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use guest_util::ECHO_ID;
     use risc0_aggregation::{
-        merkle_root, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
+        merkle_path, merkle_root, GuestState, SetInclusionReceipt,
+        SetInclusionReceiptVerifierParameters,
     };
     use risc0_ethereum_contracts::encode_seal;
     use risc0_zkvm::{
@@ -1469,7 +1470,8 @@ mod tests {
         let set_builder_root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
         let set_builder_journal = {
             let mut state = GuestState::initial(SET_BUILDER_ID);
-            state.mmr.push(set_builder_root).unwrap();
+            state.mmr.push(app_claim_digest).unwrap();
+            state.mmr.push(assessor_claim_digest).unwrap();
             state.mmr.finalize().unwrap();
             state.encode()
         };
@@ -1486,7 +1488,7 @@ mod tests {
             SetInclusionReceiptVerifierParameters { image_id: Digest::from(SET_BUILDER_ID) };
         let set_inclusion_seal = SetInclusionReceipt::from_path_with_verifier_params(
             ReceiptClaim::ok(ECHO_ID, MaybePruned::Pruned(app_journal.digest())),
-            vec![assessor_claim_digest],
+            merkle_path(&[app_claim_digest, assessor_claim_digest], 0),
             verifier_parameters.digest(),
         )
         .abi_encode_seal()
@@ -1502,7 +1504,7 @@ mod tests {
 
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
-            vec![app_claim_digest],
+            merkle_path(&[app_claim_digest, assessor_claim_digest], 1),
             verifier_parameters.digest(),
         )
         .abi_encode_seal()
