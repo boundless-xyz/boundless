@@ -529,7 +529,7 @@ mod tests {
         contracts::{
             hit_points::default_allowance,
             test_utils::{create_test_ctx, TestCtx},
-            Offer, Predicate, ProofRequest, Requirements,
+            Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
         input::InputBuilder,
         order_stream_client::{order_stream, Client},
@@ -596,8 +596,7 @@ mod tests {
 
     fn new_request(idx: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
-            idx,
-            addr,
+            RequestId::new(*addr, idx),
             Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
             "http://image_uri.null",
             InputBuilder::new().build_inline().unwrap(),

@@ -278,7 +278,7 @@ mod tests {
     };
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, deploy_hit_points},
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
@@ -325,8 +325,7 @@ mod tests {
         let max_price = 2;
 
         let request = ProofRequest::new(
-            1,
-            &signer.address(),
+            RequestId::new(signer.address(), 1),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -436,8 +435,7 @@ mod tests {
         let max_price = 2;
 
         let request = ProofRequest::new(
-            boundless_market.index_from_nonce().await.unwrap(),
-            &signer.address(),
+            RequestId::new(signer.address(), boundless_market.index_from_nonce().await.unwrap()),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

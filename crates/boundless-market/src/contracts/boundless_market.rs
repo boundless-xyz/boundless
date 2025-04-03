@@ -295,6 +295,30 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
+    /// on, with a signature specified as Bytes.
+    pub async fn submit_request_with_signature_bytes(
+        &self,
+        request: &ProofRequest,
+        signature: &Bytes,
+    ) -> Result<U256, MarketError> {
+        tracing::debug!("calling submitRequest({:x?})", request);
+        let call =
+            self.instance.submitRequest(request.clone(), signature.clone()).from(self.caller);
+        let pending_tx = call.send().await?;
+        tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
+
+        let receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        // Look for the logs for submitting the transaction.
+        let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
+        Ok(U256::from(log.inner.data.requestId))
+    }
+
+    /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on. Deposits funds to the client account if there are not enough to cover the max price on
     /// the offer.
     pub async fn submit_request(
@@ -1352,8 +1376,8 @@ mod tests {
             hit_points::default_allowance,
             test_utils::{create_test_ctx, TestCtx},
             AssessorCommitment, AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket,
-            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestStatus,
-            Requirements,
+            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+            RequestStatus, Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1370,7 +1394,8 @@ mod tests {
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use guest_util::ECHO_ID;
     use risc0_aggregation::{
-        merkle_root, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
+        merkle_path, merkle_root, GuestState, SetInclusionReceipt,
+        SetInclusionReceiptVerifierParameters,
     };
     use risc0_ethereum_contracts::encode_seal;
     use risc0_zkvm::{
@@ -1397,8 +1422,7 @@ mod tests {
 
     async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         ProofRequest::new(
-            idx,
-            &ctx.customer_signer.address(),
+            RequestId::new(ctx.customer_signer.address(), idx),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -1446,7 +1470,8 @@ mod tests {
         let set_builder_root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
         let set_builder_journal = {
             let mut state = GuestState::initial(SET_BUILDER_ID);
-            state.mmr.push(set_builder_root).unwrap();
+            state.mmr.push(app_claim_digest).unwrap();
+            state.mmr.push(assessor_claim_digest).unwrap();
             state.mmr.finalize().unwrap();
             state.encode()
         };
@@ -1463,7 +1488,7 @@ mod tests {
             SetInclusionReceiptVerifierParameters { image_id: Digest::from(SET_BUILDER_ID) };
         let set_inclusion_seal = SetInclusionReceipt::from_path_with_verifier_params(
             ReceiptClaim::ok(ECHO_ID, MaybePruned::Pruned(app_journal.digest())),
-            vec![assessor_claim_digest],
+            merkle_path(&[app_claim_digest, assessor_claim_digest], 0),
             verifier_parameters.digest(),
         )
         .abi_encode_seal()
@@ -1479,7 +1504,7 @@ mod tests {
 
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
             ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
-            vec![app_claim_digest],
+            merkle_path(&[app_claim_digest, assessor_claim_digest], 1),
             verifier_parameters.digest(),
         )
         .abi_encode_seal()
@@ -2023,8 +2048,7 @@ mod tests {
     #[test]
     fn test_decode_calldata() {
         let request = ProofRequest::new(
-            0,
-            &Address::ZERO,
+            RequestId::new(Address::ZERO, 0),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

@@ -406,10 +406,11 @@ contract BoundlessMarketTest is Test {
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 
-        root = MerkleProofish._hashPair(batchRoot, assessorClaim.digest());
+        bytes32 assessorLeaf = TestUtils.hashLeaf(assessorClaim.digest());
+        root = MerkleProofish._hashPair(batchRoot, assessorLeaf);
 
         // compute all the inclusion proofs for the fullfillments
-        TestUtils.fillInclusionProofs(setVerifier, fills, assessorClaim.digest(), tree);
+        TestUtils.fillInclusionProofs(setVerifier, fills, assessorLeaf, tree);
         // compute the assessor fill
         assessorReceipt = AssessorReceipt({
             seal: TestUtils.mockAssessorSeal(setVerifier, batchRoot),

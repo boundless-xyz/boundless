@@ -15,7 +15,7 @@ use boundless_market::{
     contracts::{
         hit_points::default_allowance,
         test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count},
-        Callback, Input, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
@@ -47,8 +47,7 @@ fn generate_request(
         requirements = requirements.with_callback(callback);
     }
     ProofRequest::new(
-        id,
-        addr,
+        RequestId::new(*addr, id),
         requirements,
         image_url,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),

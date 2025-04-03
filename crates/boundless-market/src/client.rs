@@ -379,6 +379,22 @@ where
         Ok((request_id, request.expires_at()))
     }
 
+    /// Submit a proof request with a signature bytes.
+    ///
+    /// Accepts a signature bytes to be used as the request signature.
+    pub async fn submit_request_with_signature_bytes(
+        &self,
+        request: &ProofRequest,
+        signature: &Bytes,
+    ) -> Result<(U256, u64), ClientError> {
+        let request = request.clone();
+        request.validate()?;
+
+        let request_id =
+            self.boundless_market.submit_request_with_signature_bytes(&request, signature).await?;
+        Ok((request_id, request.expires_at()))
+    }
+
     /// Submit a proof request offchain via the order stream service.
     ///
     /// Accepts a signer to sign the request.

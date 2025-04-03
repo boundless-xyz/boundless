@@ -4,13 +4,13 @@
 
 use crate::{
     redis::{self, AsyncCommands},
-    tasks::{serialize_obj, COPROC_CB_PATH, RECEIPT_PATH},
+    tasks::{serialize_obj, COPROC_CB_PATH},
     Agent,
 };
 use anyhow::{anyhow, bail, Context, Result};
-use risc0_zkvm::{MaybePruned, ProveKeccakRequest};
+use risc0_zkvm::ProveKeccakRequest;
 use uuid::Uuid;
-use workflow_common::KeccakReq;
+use workflow_common::{KeccakReq, KECCAK_RECEIPT_PATH};
 
 fn try_keccak_bytes_to_input(input: &[u8]) -> Result<Vec<[u64; 25]>> {
     let chunks = input.chunks_exact(std::mem::size_of::<[u64; 25]>());
@@ -24,7 +24,12 @@ fn try_keccak_bytes_to_input(input: &[u8]) -> Result<Vec<[u64; 25]>> {
 }
 
 /// Run the keccak prove + lift operation
-pub async fn keccak(agent: &Agent, job_id: &Uuid, request: &KeccakReq) -> Result<()> {
+pub async fn keccak(
+    agent: &Agent,
+    job_id: &Uuid,
+    task_id: &str,
+    request: &KeccakReq,
+) -> Result<()> {
     let mut conn = redis::get_connection(&agent.redis_pool).await?;
 
     let keccak_input_path = format!("job:{job_id}:{}:{}", COPROC_CB_PATH, request.claim_digest);
@@ -53,15 +58,11 @@ pub async fn keccak(agent: &Agent, job_id: &Uuid, request: &KeccakReq) -> Result
         .prove_keccak(&keccak_req)
         .context("Failed to prove_keccak")?;
 
-    let claim_digest = match keccak_receipt.claim {
-        MaybePruned::Value(_) => unreachable!(),
-        MaybePruned::Pruned(claim_digest) => claim_digest,
-    };
-
     let job_prefix = format!("job:{job_id}");
-    let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}:{claim_digest}");
+    let receipts_key = format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{task_id}");
     let keccak_receipt_bytes =
         serialize_obj(&keccak_receipt).context("Failed to serialize keccak receipt")?;
+
     redis::set_key_with_expiry(
         &mut conn,
         &receipts_key,

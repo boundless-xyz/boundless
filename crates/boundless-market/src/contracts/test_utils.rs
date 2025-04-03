@@ -213,7 +213,8 @@ async fn deploy_contracts(
         }
     };
     let set_verifier =
-        deploy_set_verifier(&deployer_provider, verifier, set_builder_id, set_builder_url).await?;
+        deploy_set_verifier(&deployer_provider, verifier_router, set_builder_id, set_builder_url)
+            .await?;
 
     let router_instance = RiscZeroVerifierRouter::RiscZeroVerifierRouterInstance::new(
         verifier_router,

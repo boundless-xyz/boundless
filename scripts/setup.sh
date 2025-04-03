@@ -260,18 +260,6 @@ EOF
     success "Docker configured to use NVIDIA runtime by default."
 }
 
-# Function to verify Docker with NVIDIA support
-verify_docker_nvidia() {
-    info "Verifying Docker and NVIDIA setup..."
-
-    if docker run --rm --gpus all nvidia/cuda:12.2.0-devel-ubuntu22.04 nvidia-smi >> "$LOG_FILE" 2>&1; then
-        success "Docker with NVIDIA support is working correctly."
-    else
-        error "Docker with NVIDIA support verification failed."
-        exit 1
-    fi
-}
-
 # Function to perform system cleanup
 cleanup() {
     info "Cleaning up unnecessary packages..."
@@ -335,9 +323,6 @@ install_cuda
 
 # Cleanup
 cleanup
-
-# Verify Docker with NVIDIA support
-verify_docker_nvidia
 
 success "All tasks completed successfully!"
 

@@ -91,6 +91,8 @@ check-format:
     cargo fmt --all --check
     cd examples/counter && cargo sort --workspace --check
     cd examples/counter && cargo fmt --all --check
+    cd examples/smart-contract-requestor && cargo sort --workspace --check
+    cd examples/smart-contract-requestor && cargo fmt --all --check
     cd bento && cargo sort --workspace --check
     cd bento && cargo fmt --all --check
     cd documentation && bun run check
@@ -112,6 +114,8 @@ format:
     cargo fmt --all
     cd examples/counter && cargo sort --workspace
     cd examples/counter && cargo fmt --all
+    cd examples/smart-contract-requestor && cargo sort --workspace
+    cd examples/smart-contract-requestor && cargo fmt --all
     cd bento && cargo sort --workspace
     cd bento && cargo fmt --all
     cd documentation && bun run format-markdown

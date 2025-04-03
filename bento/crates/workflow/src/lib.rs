@@ -310,7 +310,9 @@ impl Agent {
             )
             .context("failed to serialize snark response")?,
             TaskType::Keccak(req) => serde_json::to_value(
-                tasks::keccak::keccak(self, &task.job_id, &req).await.context("Keccak failed")?,
+                tasks::keccak::keccak(self, &task.job_id, &task.task_id, &req)
+                    .await
+                    .context("Keccak failed")?,
             )
             .context("failed to serialize keccak response")?,
             TaskType::Union(req) => serde_json::to_value(

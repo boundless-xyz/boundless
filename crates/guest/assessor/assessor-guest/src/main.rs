@@ -10,12 +10,11 @@ extern crate alloc;
 use alloc::vec::Vec;
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};
-use boundless_assessor::AssessorInput;
+use boundless_assessor::{process_tree, AssessorInput};
 use boundless_market::contracts::{
     AssessorCallback, AssessorCommitment, AssessorJournal, RequestId, Selector,
     UNSPECIFIED_SELECTOR,
 };
-use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
     sha::{Digest, Digestible},
@@ -86,8 +85,8 @@ fn main() {
         }
     }
 
-    // recompute the merkle root of the aggregation set
-    let root = merkle_root(&leaves);
+    // compute the merkle root of the commitments
+    let root = process_tree(leaves);
 
     let journal = AssessorJournal {
         callbacks,
