@@ -32,6 +32,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 
-# Enable optimizations in tests; otherwise, test with local proving take much longer to run
-[profile.test]
+# Always optimize; otherwise, local proving takes much longer to run
+[profile.dev]
 opt-level = 3
