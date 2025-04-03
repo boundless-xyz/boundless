@@ -30,22 +30,10 @@ docker ps
 docker stop <BROKER_CONTAINER_ID>
 ```
 
-Alternatively you can modify your `scripts/boundless_service.sh` to remove `--profile broker`.
+Alternatively you can start Bento without running the broker service:
 
-```sh [scripts/boundless_service.sh]
-start_services() {
-    # Trap SIGINT (Ctrl-C) and SIGTERM to execute cleanup
-    trap cleanup SIGINT SIGTERM
-
-    log_info "Starting Docker Compose services using environment file: $ENV_FILE"
-
-    # Start Docker Compose in foreground mode
-    docker compose --profile broker --env-file "$ENV_FILE" up --build -d # [!code --]
-    docker compose --env-file "$ENV_FILE" up --build -d # [!code ++]
-
-    # After docker compose up exits normally (without interruption)
-    log_success "Docker Compose services have been started."
-}
+```sh [Terminal]
+just bento
 ```
 
 ### Defining a Test Harness
