@@ -1122,7 +1122,6 @@ dependencies = [
  "alloy-sol-types",
  "boundless-assessor",
  "boundless-market",
- "risc0-aggregation",
  "risc0-zkvm",
 ]
 
@@ -4670,9 +4669,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cff9128409d1648a1f35f19c7c3be01b1285c1d93f9864c0b2f5ee4569ad84a"
+checksum = "f69c8785b64129589935c3b955b33e15ea426609d0f6cc00ce4234aa06133e73"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -4800,9 +4799,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-ethereum-contracts"
-version = "2.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aab5317511d1edfea2c33d5ac6ae6f8ea8d9182c7321194d5cb747d7b5752e38"
+checksum = "cb37936cba1c031cef537d225b58b11a3f919bd95484e05d4c74174ee36c123c"
 dependencies = [
  "alloy",
  "alloy-primitives",

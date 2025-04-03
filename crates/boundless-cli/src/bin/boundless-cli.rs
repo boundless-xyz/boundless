@@ -786,7 +786,9 @@ where
 
             let (fill, root_receipt, assessor_receipt) = prover.fulfill(order.clone()).await?;
             let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt)?;
+            tracing::debug!("Submitting root {} to SetVerifier", order_fulfilled.root);
             set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
+            tracing::debug!("Successfully submitted root to SetVerifier");
 
             // If the request is not locked in, we need to "price" which checks the requirements
             // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
