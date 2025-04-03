@@ -3,8 +3,8 @@
 // All rights reserved.
 
 use anyhow::{Context, Error as AnyhowErr, Result};
-use async_trait::async_trait;
 use axum::{
+    async_trait,
     body::{to_bytes, Body},
     extract::{FromRequestParts, Host, Path, State},
     http::{request::Parts, StatusCode},
