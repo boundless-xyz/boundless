@@ -5,7 +5,7 @@
 use alloy::primitives::{utils, Address, U256};
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
-use boundless_market::contracts::eip712_domain;
+use boundless_market::{contracts::eip712_domain, input::InputBuilder};
 use chrono::Utc;
 use risc0_aggregation::GuestState;
 use risc0_zkvm::{
@@ -197,13 +197,10 @@ impl AggregatorService {
             domain: eip712_domain(self.market_addr, self.chain_id),
             prover_address: self.prover_addr,
         };
-        let input_data = input.to_vec();
+        let stdin = InputBuilder::new().write_frame(&input.encode()).stdin;
 
-        let input_id = self
-            .prover
-            .upload_input(input_data)
-            .await
-            .context("Failed to upload assessor input")?;
+        let input_id =
+            self.prover.upload_input(stdin).await.context("Failed to upload assessor input")?;
 
         let proof_res = self
             .prover
@@ -386,7 +383,7 @@ impl AggregatorService {
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
-        unaggregated_proofs: &[AggregationOrder],
+        groth16_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<String> {
         let assessor_proof_id = if finalize {
@@ -395,7 +392,7 @@ impl AggregatorService {
                 .iter()
                 .copied()
                 .chain(new_proofs.iter().map(|p| p.order_id))
-                .chain(unaggregated_proofs.iter().map(|p| p.order_id))
+                .chain(groth16_proofs.iter().map(|p| p.order_id))
                 .collect();
 
             tracing::debug!(
@@ -432,7 +429,7 @@ impl AggregatorService {
             .update_batch(
                 batch_id,
                 &aggregation_state,
-                &[new_proofs, unaggregated_proofs].concat(),
+                &[new_proofs, groth16_proofs].concat(),
                 assessor_proof_id,
             )
             .await
@@ -456,12 +453,12 @@ impl AggregatorService {
                     .get_aggregation_proofs()
                     .await
                     .context("Failed to get pending agg proofs from DB")?;
-                // Fetch all unaggregated proofs that are ready to be submitted from the DB.
-                let new_unaggregated_proofs = self
+                // Fetch all groth16 proofs that are ready to be submitted from the DB.
+                let new_groth16_proofs = self
                     .db
-                    .get_unaggregated_proofs()
+                    .get_groth16_proofs()
                     .await
-                    .context("Failed to get unaggregated proofs from DB")?;
+                    .context("Failed to get groth16 proofs from DB")?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.
@@ -469,7 +466,7 @@ impl AggregatorService {
                     .check_finalize(
                         batch_id,
                         &batch,
-                        &[new_proofs.clone(), new_unaggregated_proofs.clone()].concat(),
+                        &[new_proofs.clone(), new_groth16_proofs.clone()].concat(),
                     )
                     .await?;
 
@@ -480,13 +477,7 @@ impl AggregatorService {
                 }
 
                 let aggregation_proof_id = self
-                    .aggregate_proofs(
-                        batch_id,
-                        &batch,
-                        &new_proofs,
-                        &new_unaggregated_proofs,
-                        finalize,
-                    )
+                    .aggregate_proofs(batch_id, &batch, &new_proofs, &new_groth16_proofs, finalize)
                     .await?;
                 (aggregation_proof_id, finalize)
             }
@@ -561,7 +552,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
     use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
@@ -626,8 +617,7 @@ mod tests {
 
         // First order
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -670,8 +660,7 @@ mod tests {
 
         // Second order
         let order_request = ProofRequest::new(
-            1,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 1),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -780,8 +769,7 @@ mod tests {
 
         // First order
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -839,8 +827,7 @@ mod tests {
 
         // Second order
         let order_request = ProofRequest::new(
-            1,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 1),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -945,8 +932,7 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -1054,8 +1040,7 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -1171,8 +1156,7 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },

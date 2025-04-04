@@ -160,7 +160,7 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
                   "s3:GetObject",
                   "s3:ListBucket",
                   "s3:PutObject",
-                  "s3:DeleteObject"
+                  "s3:DeleteObject",
               ],
               "Resource": [
                   pulumi.interpolate`${this.bucket.arn}`,

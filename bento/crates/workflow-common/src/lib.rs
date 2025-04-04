@@ -19,6 +19,9 @@ pub const PROVE_WORK_TYPE: &str = "prove";
 /// keccak/coproc worker stream identifier
 pub const COPROC_WORK_TYPE: &str = "coproc";
 
+/// Keccak receipts directory for job dir
+pub const KECCAK_RECEIPT_PATH: &str = "keccak_receipts";
+
 /// join worker stream identifier
 pub const JOIN_WORK_TYPE: &str = "join";
 
@@ -108,6 +111,8 @@ pub struct UnionReq {
 pub struct ResolveReq {
     /// Index of the final joined receipt
     pub max_idx: usize,
+    /// Index of the union task
+    pub union_max_idx: Option<usize>,
 }
 
 /// Input request

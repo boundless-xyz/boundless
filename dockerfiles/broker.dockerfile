@@ -11,8 +11,16 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
     source /root/.bashrc && \
     foundryup
 
-RUN curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install rust 1.85.0
+# Github token can be provided as a secret with the name githubTokenSecret. Useful
+# for shared build environments where Github rate limiting is an issue.
+RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
+    if [ -f /run/secrets/githubTokenSecret ]; then \
+        GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
+        GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install rust 1.85.0; \
+    else \
+        curl -L https://risczero.com/install | bash && \
+        PATH="$PATH:/root/.risc0/bin" rzup install rust 1.85.0; \
+    fi
 
 FROM init AS builder
 

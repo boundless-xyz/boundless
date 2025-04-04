@@ -15,7 +15,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
-    selector::is_unaggregated_selector,
+    selector::is_groth16_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::{ArgAction, Parser};
@@ -217,8 +217,8 @@ impl Order {
             error_msg: None,
         }
     }
-    pub fn is_unaggregated(&self) -> bool {
-        is_unaggregated_selector(self.request.requirements.selector)
+    pub fn is_groth16(&self) -> bool {
+        is_groth16_selector(self.request.requirements.selector)
     }
 }
 
@@ -316,7 +316,8 @@ where
                 .build()
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading assessor image from: {image_uri}");
-            let image_data = image_uri.fetch().await.context("Failed to download sot image")?;
+            let image_data =
+                image_uri.fetch().await.context("Failed to download assessor image")?;
 
             Ok((Digest::from_bytes(image_id.0), image_data))
         }
@@ -351,7 +352,8 @@ where
                 .build()
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading aggregation-set image from: {image_uri}");
-            let image_data = image_uri.fetch().await.context("Failed to download sot image")?;
+            let image_data =
+                image_uri.fetch().await.context("Failed to download aggregation-set image")?;
 
             Ok((Digest::from_bytes(image_id.0), image_data))
         }

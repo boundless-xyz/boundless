@@ -21,14 +21,14 @@ use boundless_market::{
     contracts::{
         hit_points::default_allowance,
         test_utils::{create_test_ctx_with_rpc_url, TestCtx},
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     },
     input::InputBuilder,
 };
 use broker::test_utils::BrokerBuilder;
 use clap::Parser;
-use guest_assessor::ASSESSOR_GUEST_ID;
-use guest_set_builder::SET_BUILDER_ID;
+use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use guest_util::{ECHO_ELF, ECHO_ID};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use risc0_zkp::core::digest::Digest;
@@ -77,8 +77,10 @@ async fn request_spawner<P: Provider>(
 
     while !shutdown.load(Ordering::Relaxed) {
         let request = ProofRequest::new(
-            ctx.customer_market.index_from_nonce().await?,
-            &ctx.customer_signer.address(),
+            RequestId::new(
+                ctx.customer_signer.address(),
+                ctx.customer_market.index_from_nonce().await?,
+            ),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -162,9 +164,16 @@ async fn main() -> Result<()> {
 
     // Setup test context
     let ctx = Arc::new(
-        create_test_ctx_with_rpc_url(&anvil, &rpc_url, SET_BUILDER_ID, ASSESSOR_GUEST_ID)
-            .await
-            .context("Failed to create test context")?,
+        create_test_ctx_with_rpc_url(
+            &anvil,
+            &rpc_url,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .context("Failed to create test context")?,
     );
     let (broker_task, _config_file) =
         spawn_broker(&ctx, Url::parse(&rpc_url).unwrap(), &args.database_url).await?;

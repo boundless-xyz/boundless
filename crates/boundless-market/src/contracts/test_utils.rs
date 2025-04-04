@@ -84,12 +84,13 @@ pub async fn deploy_set_verifier<P: Provider>(
     deployer_provider: P,
     verifier_address: Address,
     set_builder_id: Digest,
+    set_builder_url: String,
 ) -> Result<Address> {
     let instance = RiscZeroSetVerifier::deploy(
         deployer_provider,
         verifier_address,
         <[u8; 32]>::from(set_builder_id).into(),
-        String::default(),
+        set_builder_url,
     )
     .await
     .context("failed to deploy RiscZeroSetVerifier")?;
@@ -112,6 +113,7 @@ pub async fn deploy_boundless_market<P: Provider>(
     verifier: Address,
     hit_points: Address,
     assessor_guest_id: Digest,
+    assessor_guest_url: String,
     allowed_prover: Option<Address>,
 ) -> Result<Address> {
     let market_instance = BoundlessMarket::deploy(
@@ -126,9 +128,12 @@ pub async fn deploy_boundless_market<P: Provider>(
     let proxy_instance = ERC1967Proxy::deploy(
         &deployer_provider,
         *market_instance.address(),
-        BoundlessMarket::initializeCall { initialOwner: owner_address, imageUrl: "".to_string() }
-            .abi_encode()
-            .into(),
+        BoundlessMarket::initializeCall {
+            initialOwner: owner_address,
+            imageUrl: assessor_guest_url,
+        }
+        .abi_encode()
+        .into(),
     )
     .await
     .context("failed to deploy BoundlessMarket proxy")?;
@@ -176,7 +181,9 @@ pub async fn get_mock_callback_count(provider: &impl Provider, address: Address)
 async fn deploy_contracts(
     anvil: &AnvilInstance,
     set_builder_id: Digest,
+    set_builder_url: String,
     assessor_guest_id: Digest,
+    assessor_guest_url: String,
 ) -> Result<(Address, Address, Address, Address)> {
     let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
     let deployer_address = deployer_signer.address();
@@ -205,7 +212,9 @@ async fn deploy_contracts(
             )
         }
     };
-    let set_verifier = deploy_set_verifier(&deployer_provider, verifier, set_builder_id).await?;
+    let set_verifier =
+        deploy_set_verifier(&deployer_provider, verifier_router, set_builder_id, set_builder_url)
+            .await?;
 
     let router_instance = RiscZeroVerifierRouter::RiscZeroVerifierRouterInstance::new(
         verifier_router,
@@ -232,6 +241,7 @@ async fn deploy_contracts(
         verifier_router,
         hit_points,
         assessor_guest_id,
+        assessor_guest_url,
         None,
     )
     .await?;
@@ -248,19 +258,39 @@ async fn deploy_contracts(
 pub async fn create_test_ctx(
     anvil: &AnvilInstance,
     set_builder_id: impl Into<Digest>,
+    set_builder_url: String,
     assessor_guest_id: impl Into<Digest>,
+    assessor_guest_url: String,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint(), set_builder_id, assessor_guest_id).await
+    create_test_ctx_with_rpc_url(
+        anvil,
+        &anvil.endpoint(),
+        set_builder_id,
+        set_builder_url,
+        assessor_guest_id,
+        assessor_guest_url,
+    )
+    .await
 }
 
 pub async fn create_test_ctx_with_rpc_url(
     anvil: &AnvilInstance,
     rpc_url: &str,
     set_builder_id: impl Into<Digest>,
+    set_builder_url: String,
     assessor_guest_id: impl Into<Digest>,
+    assessor_guest_url: String,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
     let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
-        deploy_contracts(anvil, set_builder_id.into(), assessor_guest_id.into()).await.unwrap();
+        deploy_contracts(
+            anvil,
+            set_builder_id.into(),
+            set_builder_url,
+            assessor_guest_id.into(),
+            assessor_guest_url,
+        )
+        .await
+        .unwrap();
 
     let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
     let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();

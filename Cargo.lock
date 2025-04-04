@@ -2312,18 +2312,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "balance-alerts-layer"
-version = "0.6.0"
-dependencies = [
- "alloy 0.12.6",
- "anyhow",
- "async-trait",
- "tokio",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
 name = "base16ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2526,12 +2514,11 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
  "alloy-sol-types",
- "anyhow",
  "boundless-market",
  "guest-assessor",
  "guest-util",
@@ -2539,12 +2526,13 @@ dependencies = [
  "risc0-zkvm",
  "serde",
  "test-log",
+ "thiserror 2.0.11",
  "tokio",
 ]
 
 [[package]]
 name = "boundless-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -2553,6 +2541,7 @@ dependencies = [
  "boundless-assessor",
  "boundless-market",
  "bytemuck",
+ "chrono",
  "clap",
  "dotenvy",
  "guest-assessor",
@@ -2560,6 +2549,7 @@ dependencies = [
  "guest-util",
  "hex",
  "libc",
+ "order-stream",
  "reqwest",
  "risc0-aggregation",
  "risc0-ethereum-contracts",
@@ -2567,6 +2557,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sqlx",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.19",
@@ -2576,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
@@ -2585,8 +2577,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
- "balance-alerts-layer",
- "boundless-assessor",
  "boundless-market",
  "bytemuck",
  "chrono",
@@ -2622,11 +2612,10 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
- "balance-alerts-layer",
  "boundless-market",
  "bytemuck",
  "clap",
@@ -2652,12 +2641,11 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
  "async-trait",
- "balance-alerts-layer",
  "boundless-market",
  "clap",
  "dotenvy",
@@ -2679,14 +2667,13 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-chains",
  "anyhow",
  "async-channel 2.3.1",
  "async-trait",
- "balance-alerts-layer",
  "bincode",
  "bonsai-sdk",
  "boundless-assessor",
@@ -2730,7 +2717,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -3553,7 +3540,7 @@ dependencies = [
 
 [[package]]
 name = "doc-test"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
@@ -4348,29 +4335,29 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "risc0-build-ethereum 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "guest-set-builder"
-version = "0.4.0"
-source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.4.0#38591d7a1302d437b76937bd3e0432005b33f616"
+version = "0.6.0"
+source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.6.0#728ec4b0432ddb49d8416b7a3c3cfdfe052356f9"
 dependencies = [
  "risc0-build",
- "risc0-build-ethereum 2.0.0 (git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.4.0)",
+ "risc0-build-ethereum 2.0.2 (git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.6.0)",
 ]
 
 [[package]]
 name = "guest-util"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "risc0-build-ethereum 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -6102,7 +6089,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
@@ -7466,9 +7453,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.4.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cff9128409d1648a1f35f19c7c3be01b1285c1d93f9864c0b2f5ee4569ad84a"
+checksum = "72138752938dca6433e7e8169aa2be89b07c5dd6e26e185ddc082dacabcef055"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -7502,9 +7489,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-build"
-version = "2.0.1"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8f4a3e21f17465e618cd3ed755b121627f2c188d1416be1cec2757cffe1adf8"
+checksum = "eb85162c19a2ba2151c02f1f157804cd89e163ca694afda399fc3f415c03a3de"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -7526,9 +7513,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-build-ethereum"
-version = "2.0.0"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "191b22ae67d5e44b1e9672e510cd313394beae51b463b38a111bef8d68f79d06"
+checksum = "0c8b7b8783476577c025a7c5463044212b62a8cb9c0bd18921b5a2bff6acbf9d"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -7540,8 +7527,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-build-ethereum"
-version = "2.0.0"
-source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.4.0#38591d7a1302d437b76937bd3e0432005b33f616"
+version = "2.0.2"
+source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.6.0#728ec4b0432ddb49d8416b7a3c3cfdfe052356f9"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -7568,9 +7555,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-keccak"
-version = "1.4.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d400df98740acb35306194f8979ca45c2a6b63b8f8686198d99ce126c335d64a"
+checksum = "dc6af6fc80443a05d9e8e25aeba78082fc58e8a3c6a6b92017cae0a404494ba9"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -7590,9 +7577,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-keccak-sys"
-version = "1.4.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1e65d67e9280cd8cdbda728f60730b2ed9cb89ffeceea7c7e87e8ab67f1fcbe"
+checksum = "a25d00769a0f855d4973e8a85dbffe6e13889ca6a4703cf98d0a2976bdc2be17"
 dependencies = [
  "cc",
  "cust",
@@ -7606,9 +7593,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "1.4.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14fa62cd0d2a33cb1c8e6b4bcba54a615f6def8d43324922f67c1a9ef6c410e3"
+checksum = "1c7bdd11df4ed470b3c032ac4c5bfb2729f6151af33ee255b66169de0c35611e"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -7632,9 +7619,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion-sys"
-version = "1.4.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c906975448dd9359d4b28b7e067868a769177950ba27c86949239770d6541bc"
+checksum = "0a7f8aee9b6b299fc5c3259a1a6e00a49a17dfd55811e90070840a887b113645"
 dependencies = [
  "glob",
  "risc0-build-kernel",
@@ -7645,9 +7632,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "2.0.1"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e543671f49a94fb87cf7a75441def1ace5ee827190f0be233154e8aef4e8003"
+checksum = "c98a4d9e438aac2e661b8376f6dd48b17a0949b29dbb0aed6e88e62de0bd5940"
 dependencies = [
  "anyhow",
  "auto_ops",
@@ -7706,9 +7693,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-ethereum-contracts"
-version = "2.0.0"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aab5317511d1edfea2c33d5ac6ae6f8ea8d9182c7321194d5cb747d7b5752e38"
+checksum = "b8efeee8c8d3df619ae4680afdfd3dc8d269d6035a3fc12b62f180206eee1e3c"
 dependencies = [
  "alloy 0.12.6",
  "alloy-primitives",
@@ -7741,9 +7728,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "1.4.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3090293edf52c603dd3021588cf42c231501ae51c88086f7b732ac48c6684d6"
+checksum = "a800c55717c52f764325bdb18a164843d417a4c8c8a123b7d4206705c11a54c3"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -7820,9 +7807,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "2.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da62ed54fa6cfd16b93b79ca48f2d58f6ee818a630f5132e61a43003b65478a1"
+checksum = "5881af78a17ca292037ef38383233f8d617ab679d68cc07c865e3ddabef1db80"
 dependencies = [
  "addr2line 0.22.0",
  "anyhow",

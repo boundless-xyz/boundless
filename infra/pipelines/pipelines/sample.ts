@@ -43,7 +43,7 @@ const BUILD_SPEC = `
 // deploying to prod.
 export class SamplePipeline extends pulumi.ComponentResource {
   constructor(name: string, args: SamplePipelineArgs, opts?: pulumi.ComponentResourceOptions) {
-    super("boundless:pipelines:SamplePipeline", name, args, opts);
+    super(`boundless:pipelines:${APP_NAME}Pipeline`, name, args, opts);
 
     const { connection, artifactBucket, role } = args;
 

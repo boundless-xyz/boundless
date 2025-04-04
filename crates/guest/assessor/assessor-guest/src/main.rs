@@ -7,15 +7,14 @@
 
 extern crate alloc;
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};
-use boundless_assessor::AssessorInput;
+use boundless_assessor::{process_tree, AssessorInput};
 use boundless_market::contracts::{
     AssessorCallback, AssessorCommitment, AssessorJournal, RequestId, Selector,
     UNSPECIFIED_SELECTOR,
 };
-use risc0_aggregation::merkle_root;
 use risc0_zkvm::{
     guest::env,
     sha::{Digest, Digestible},
@@ -24,12 +23,8 @@ use risc0_zkvm::{
 risc0_zkvm::guest::entry!(main);
 
 fn main() {
-    let mut len: u32 = 0;
-    env::read_slice(core::slice::from_mut(&mut len));
-    let mut bytes = vec![0u8; len as usize];
-    env::read_slice(&mut bytes);
-
-    let input: AssessorInput = postcard::from_bytes(&bytes).expect("failed to deserialize input");
+    let bytes = env::read_frame();
+    let input = AssessorInput::decode(&bytes).expect("failed to deserialize input");
 
     // Ensure that the number of fills is within the bounds of the supported max set size.
     // This limitation is imposed by the Selector struct, which uses a u16 to store the index of the
@@ -90,8 +85,8 @@ fn main() {
         }
     }
 
-    // recompute the merkle root of the aggregation set
-    let root = merkle_root(&leaves);
+    // compute the merkle root of the commitments
+    let root = process_tree(leaves);
 
     let journal = AssessorJournal {
         callbacks,

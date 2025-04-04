@@ -10,11 +10,13 @@ use alloy::{
     primitives::{Address, U256},
     providers::Provider,
     rpc::types::{Filter, Log},
+    sol,
     sol_types::{SolCall, SolEvent},
 };
+
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, IBoundlessMarket, ProofStatus,
+    boundless_market::BoundlessMarketService, IBoundlessMarket, RequestId, RequestStatus,
 };
 use futures_util::StreamExt;
 
@@ -34,6 +36,15 @@ pub struct MarketMonitor<P> {
     db: DbObj,
     chain_monitor: Arc<ChainMonitorService<P>>,
 }
+
+sol! {
+    #[sol(rpc)]
+    interface IERC1271 {
+        function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4 magicValue);
+    }
+}
+
+const ERC1271_MAGIC_VALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
 
 impl<P> MarketMonitor<P>
 where
@@ -146,7 +157,7 @@ where
                     }
                 };
 
-            if !matches!(req_status, ProofStatus::Unknown) {
+            if !matches!(req_status, RequestStatus::Unknown) {
                 tracing::debug!(
                     "Skipping order {} reason: order status no longer bidding: {:?}",
                     calldata.request.id,
@@ -229,7 +240,37 @@ where
         let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
             .context("Failed to decode calldata")?;
 
-        if let Err(err) =
+        // Check the request id flag to determine if the request is smart contract signed. If so we verify the
+        // ERC1271 signature by calling isValidSignature on the smart contract client. Otherwise we verify the
+        // the signature as an ECDSA signature.
+        let request_id = RequestId::from_lossy(calldata.request.id);
+        if request_id.smart_contract_signed {
+            let erc1271 = IERC1271::new(request_id.addr, provider);
+            let request_hash = calldata.request.signing_hash(market_addr, chain_id)?;
+            tracing::info!(
+                "Validating ERC1271 signature for request 0x{:x}, calling contract: {} with hash {:x}",
+                calldata.request.id,
+                request_id.addr,
+                request_hash
+            );
+            match erc1271
+                .isValidSignature(request_hash, calldata.clientSignature.clone())
+                .call()
+                .await
+            {
+                Ok(res) => {
+                    let magic_value = res.magicValue;
+                    if magic_value != ERC1271_MAGIC_VALUE {
+                        tracing::warn!("Invalid ERC1271 signature for request 0x{:x}, contract: {} returned magic value: 0x{:x}", calldata.request.id, request_id.addr, magic_value);
+                        return Ok(());
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to call ERC1271 isValidSignature for request 0x{:x}, contract: {} - {err:?}", calldata.request.id, request_id.addr);
+                    return Ok(());
+                }
+            }
+        } else if let Err(err) =
             calldata.request.verify_signature(&calldata.clientSignature, market_addr, chain_id)
         {
             tracing::warn!(
@@ -316,7 +357,7 @@ mod tests {
         boundless_market::BoundlessMarketService, test_utils::deploy_boundless_market, Input,
         InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
-    use guest_assessor::ASSESSOR_GUEST_ID;
+    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use risc0_zkvm::sha::Digest;
 
     #[tokio::test]
@@ -337,6 +378,7 @@ mod tests {
             Address::ZERO,
             Address::ZERO,
             Digest::from(ASSESSOR_GUEST_ID),
+            format!("file://{ASSESSOR_GUEST_PATH}"),
             Some(signer.address()),
         )
         .await

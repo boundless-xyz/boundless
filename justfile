@@ -91,6 +91,8 @@ check-format:
     cargo fmt --all --check
     cd examples/counter && cargo sort --workspace --check
     cd examples/counter && cargo fmt --all --check
+    cd examples/smart-contract-requestor && cargo sort --workspace --check
+    cd examples/smart-contract-requestor && cargo fmt --all --check
     cd bento && cargo sort --workspace --check
     cd bento && cargo fmt --all --check
     cd documentation && bun run check
@@ -112,6 +114,8 @@ format:
     cargo fmt --all
     cd examples/counter && cargo sort --workspace
     cd examples/counter && cargo fmt --all
+    cd examples/smart-contract-requestor && cargo sort --workspace
+    cd examples/smart-contract-requestor && cargo fmt --all
     cd bento && cargo sort --workspace
     cd bento && cargo fmt --all
     cd documentation && bun run format-markdown
@@ -166,15 +170,18 @@ localnet action="up": check-deps
         echo "Deploying contracts..."
         DEPLOYER_PRIVATE_KEY=$DEPLOYER_PRIVATE_KEY CHAIN_KEY=$CHAIN_KEY RISC0_DEV_MODE=$RISC0_DEV_MODE BOUNDLESS_MARKET_OWNER=$ADMIN_ADDRESS forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$ANVIL_PORT --broadcast -vv || { echo "Failed to deploy contracts"; just localnet down; exit 1; }
         echo "Fetching contract addresses..."
+        VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroVerifierRouter") | select(.transactionType == "CREATE") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
         SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
         BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
         HIT_POINTS_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
         echo "Contract deployed at addresses:"
+        echo "VERIFIER_ADDRESS=$VERIFIER_ADDRESS"
         echo "SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
         echo "BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
         echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS"
         echo "Updating .env.localnet file..."
         # Update the environment variables in .env.localnet
+        sed -i.bak "s/^VERIFIER_ADDRESS=.*/VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
         # Add HIT_POINTS_ADDRESS to .env.localnet
@@ -194,7 +201,8 @@ localnet action="up": check-deps
             --rpc-url http://localhost:$ANVIL_PORT \
             --deposit-amount $DEPOSIT_AMOUNT > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
         echo "Localnet is running!"
-        echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
+        echo "Make sure to run 'source <(just env localnet)' to load the environment variables before interacting with the network."
+        echo "Alternatively, you can copy the content of `.env.localnet` into the `.env` file."
     elif [ "{{action}}" = "down" ]; then
         if [ -f {{PID_FILE}} ]; then
             while read pid; do
@@ -207,6 +215,16 @@ localnet action="up": check-deps
         echo "Available actions: up, down"
         exit 1
     fi
+
+env NETWORK:
+	#!/usr/bin/env bash
+	FILE=".env.{{NETWORK}}"
+	if [ -f "$FILE" ]; then
+		grep -v '^#' "$FILE" | tr -d '"' | xargs -I {} echo export {}
+	else
+		echo "Error: $FILE file not found." >&2
+		exit 1
+	fi
 
 # Update cargo dependencies
 cargo-update:

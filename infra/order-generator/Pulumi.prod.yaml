@@ -1,0 +1,22 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGhTGWfygcd809D1S2Fd+rMAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMVv5DUpngmsfLMmx7AgEQgDviJhApZO0WXeLkLgH/qVH+jz3Ya+EgfbkdzV0geaV+p1P6xc4j+4SGQl/lgb0vOIhDMT/vnrLH0pAmaA==
+config:
+  aws:region: us-west-2
+  order-generator:BASE_STACK: organization/bootstrap/services-prod
+  order-generator:BOUNDLESS_MARKET_ADDR: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
+  order-generator:DOCKER_DIR: ../../
+  order-generator:DOCKER_TAG: latest
+  order-generator:INTERVAL: "300"
+  order-generator:LOCK_STAKE: "0.1"
+  order-generator:LOG_LEVEL: debug
+  order-generator:MAX_PRICE_PER_MCYCLE: "0.001"
+  order-generator:MIN_PRICE_PER_MCYCLE: "0.000005"
+  order-generator:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
+  order-generator:RAMP_UP: "600"
+  order-generator:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
+  order-generator:PINATA_JWT:
+    secure: v1:VGD4b3duR8qDgPcf:hg7a9hzbcbo/Sqj79fp06XpgLsioFNM0gkumdtHBXWQNblz/srhGHjFDaCxkv+GO3jirWewM/woviNaPr4xJlhNPIjkHrhUB0OrVgshGAUwls7T+5uKSbTXhyT5UacEwa+nJvCdn5vwWwlUIT55xjADfRvlzeQYDaqA7UV0t7D4LX9Bn6kY/nM7cfhxodLEEuQGWhve5vlNZ6TQwtcPv/jGh3rC9610Z8DoThYXuRQbbI80MokDBW+7JWy3hZbaTvOMNE7aUaFKU8OVjXzPsYxo4K2v8CkS+2f/DwOBeLy/qtELKd0T8fVbjFSx38i4xDW3RKTic+R49llwb3awK4FCW1bfNxmq9rr6eXEQk3AisVyVpLnlpz2ssCez+fsJDNV7FBrGpT1RmUCxzHsJyGFa/OWVXYVHEBBa21OJnq5IjhAbWHdJZQTsAeqNNGXtfsFpCoUp6bCpyhlYwP0qoup35d1OetvRlmpXjgVUKerDaQ0+T7khtlBB4oIbtdc5BdYb6FL/CcaFZvtGcE9IX6CGAtSuVqbgICgqsHd5E8YvT856UjZ1vFQQ7KO0XlPnNcwpHgx6DbM1vKPZ7ogywcDFx51wnJKhczYPfV5CecmjGWelYH+UjOxsZFVUhB2+FOPwSDc8uTlFqTlhFc/hJX1yLfvo6SzNBVVtRnI33XYBvkJEBESs3Nu/EwuodK8YYAuIQMomsNP7rSTYfiRbKjrFdsZJIuLPZW94u5EcLyLnRNlWZHmDzgLLiMXzcZUBfhQ5Do7s43ab6Nt1tYTpSOpojV6RVzJlTDorm6fd2WhZ8nDJL1h2fdxG8LmnTZu4HeIsa65FFXVIbQos9Lulk8S1oEBYqOYiPRawJMP9mRGW/vwphWkCZ4X/HZoDI+UOZINhczxd1i2ohTd9/t3KUL163ZHQE79qg
+  order-generator:ETH_RPC_URL:
+    secure: v1:twrk+dT5Vx8qgsN7:53h05tUm38CcNtraUTMvvmBd3GUgnoxG0y3HFYX+frD3ezl23vTQ2pIq9k161VT1bOafHpJPeP6as/ColwueOmHwR5eKRFQnbTFuDAJo5JhuFPcqRg==
+  order-generator:PRIVATE_KEY:
+    secure: v1:25pS7o3uXdXBhVnr:wI2TSP/t+n9h4pbUkvp2QnBv/X1mDL+bTbinU+CH2Ws02jYw6uEkyYBWv1ehIUwrjc+5U1iogYZsjvTFJGDMA4O57hST4tmRny7Dn4khH6A=
