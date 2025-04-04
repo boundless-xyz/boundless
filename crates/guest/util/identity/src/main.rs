@@ -1,16 +1,26 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
-//! Verify the receipt claim given as input and commit it.
+//! Verify the receipt given as input and commit to its claim digest.
 
 #![no_main]
 
-use risc0_zkvm::{guest::env, ReceiptClaim};
+use risc0_zkvm::{
+    guest::env,
+    sha::{Digest, Digestible},
+    Receipt,
+};
 
 risc0_zkvm::guest::entry!(main);
 
 pub fn main() {
-    let claim: ReceiptClaim = env::read();
-    env::verify_integrity(&claim).unwrap();
+    let bytes = env::read_frame();
+    let (image_id, receipt): (Digest, Receipt) =
+        postcard::from_bytes(&bytes).expect("failed to deserialize input");
+
+    let claim = receipt.claim().unwrap();
+    receipt.verify(image_id).unwrap();
+
+    env::commit_slice(&claim.digest().as_bytes());
 }
