@@ -1,0 +1,24 @@
+# Compiler files
+cache/
+out/
+
+# Ignores development broadcast logs
+/broadcast
+/broadcast/*/31337/
+/broadcast/*/11155111/
+/broadcast/**/dry-run/
+
+# Dotenv file
+# .env
+
+# Generted by Cargo
+debug/
+target/
+
+# Misc
+.DS_Store
+.idea
+
+# Ignore generated files
+contracts/src/ImageID.sol
+contracts/test/Elf.sol

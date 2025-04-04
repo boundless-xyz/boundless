@@ -12,6 +12,7 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{bail, Context, Result};
+use boundless_market::storage::BuiltinStorageProvider;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{Input, Offer, Predicate, ProofRequest, RequestId, Requirements},
@@ -37,7 +38,7 @@ struct Args {
     order_stream_url: Option<Url>,
     /// Storage provider to use
     #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
+    storage_config: StorageProviderConfig,
     /// Private key used to interact with the Counter contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -71,7 +72,7 @@ async fn main() -> Result<()> {
         args.private_key,
         args.rpc_url,
         args.order_stream_url,
-        args.storage_config,
+        BuiltinStorageProvider::from_config(&args.storage_config).await?,
         args.boundless_market_address,
         args.set_verifier_address,
         args.smart_contract_requestor_address,
@@ -81,27 +82,27 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn run(
+/// Main logic which creates the Boundless client, executes the proofs and submits the tx.
+async fn run<P: StorageProvider>(
     private_key: PrivateKeySigner,
     rpc_url: Url,
     order_stream_url: Option<Url>,
-    storage_config: Option<StorageProviderConfig>,
+    storage_provider: P,
     boundless_market_address: Address,
     set_verifier_address: Address,
     smart_contract_requestor_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client = ClientBuilder::new()
-        .with_storage_provider_config(storage_config.clone())
-        .await?
+    let boundless_client = ClientBuilder::<P>::default()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)
         .with_order_stream_url(order_stream_url)
+        .with_storage_provider(Some(storage_provider))
         .with_private_key(private_key)
         .build()
-        .await?;
+        .await
+        .context("failed to build boundless client")?;
 
     // For smart contract requestors, the request id is especially important as it acts as a nonce, ensuring that clients
     // do not pay for multiple requests that represent the same batch of work.
@@ -188,7 +189,7 @@ async fn prepare_guest_input<P, S>(
 ) -> Result<(u64, Url, Url, Journal)>
 where
     P: Provider<Ethereum> + 'static + Clone,
-    S: StorageProvider + Clone,
+    S: StorageProvider,
 {
     // Prepare the image and input for the guest program.
     let image_url =
@@ -217,6 +218,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::tests::SmartContractRequestor::SmartContractRequestorInstance;
     use alloy::{
         network::EthereumWallet,
@@ -231,13 +233,12 @@ mod tests {
         test_utils::{create_test_ctx, TestCtx},
         IBoundlessMarket::{self},
     };
+    use boundless_market::storage::MockStorageProvider;
     use broker::test_utils::BrokerBuilder;
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-    use tokio::time::timeout;
-    use tracing_subscriber::EnvFilter;
-
-    use super::*;
+    use test_log::test;
+    use tokio::task::JoinSet;
 
     alloy::sol!(
         #![sol(rpc, all_derives)]
@@ -269,13 +270,8 @@ mod tests {
         Ok((*smart_contract_requestor.address(), deployer_provider.clone()))
     }
 
-    #[tokio::test]
-    // This test should run in dev mode, otherwise a storage provider and a prover backend are
-    // required. To run in dev mode, set the `RISC0_DEV_MODE` environment variable to `true`,
-    // e.g.: `RISC0_DEV_MODE=true cargo test`
-    async fn test_main() {
-        tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
-
+    #[test(tokio::test)]
+    async fn test_main() -> Result<()> {
         // Setup anvil and deploy contracts
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(
@@ -313,46 +309,36 @@ mod tests {
             .unwrap();
         pending_deposit_tx.watch().await.unwrap();
 
-        // Start a broker
-        let (broker, _config_file) =
-            BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await.unwrap();
-        let broker_task = tokio::spawn(async move {
-            broker.start_service().await.unwrap();
-        });
+        // A JoinSet automatically aborts all its tasks when dropped
+        let mut tasks = JoinSet::new();
 
-        // Run the main function with a timeout of 60 seconds
-        let result = timeout(
-            Duration::from_secs(60),
-            run(
+        // Start a broker
+        let (broker, _) = BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
+        tasks.spawn(async move { broker.start_service().await });
+
+        const TIMEOUT_SECS: u64 = 300; // 5 minutes
+
+        // Run with properly handled cancellation.
+        tokio::select! {
+            run_result = run(
                 ctx.customer_signer,
                 anvil.endpoint_url(),
                 None,
-                Some(StorageProviderConfig::dev_mode()),
+                MockStorageProvider::start(),
                 ctx.boundless_market_address,
                 ctx.set_verifier_address,
                 smart_contract_requestor_address,
-            ),
-        )
-        .await;
+            ) => run_result?,
 
-        // Check the result of the timeout
-        match result {
-            Ok(run_result) => {
-                // If the run completed, check for errors
-                run_result.unwrap();
-            }
-            Err(_) => {
-                // If timeout occurred, abort the broker task and fail the test
-                broker_task.abort();
-                panic!("The run function did not complete within 60 seconds.");
+            broker_task_result = tasks.join_next() => {
+                panic!("Broker exited unexpectedly: {:?}", broker_task_result.unwrap());
+            },
+
+            _ = tokio::time::sleep(Duration::from_secs(TIMEOUT_SECS)) => {
+                panic!("The run function did not complete within {} seconds", TIMEOUT_SECS)
             }
         }
 
-        // Check for a broker panic
-        if broker_task.is_finished() {
-            broker_task.await.unwrap();
-        } else {
-            broker_task.abort();
-        }
+        Ok(())
     }
 }

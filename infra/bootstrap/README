@@ -1,19 +1,19 @@
 # Bootstrap
 
-The stack is used to bootstrap a service account with resources that are needed for deployments. 
+The stack is used to bootstrap a service accounts with resources that are needed for deployments. 
 
-This stack should only be needed to be deployed once, when a new service account is created. 
+This stack should only be needed to be deployed once, when a new service account is created.
 
 Must be deployed as an admin user in each service account.
 
-Currently this just creates a deployment role that is assumed by the ops account in order to deploy Boundless services cross-account.
+Currently this creates a deployment role that is assumed by the ops account in order to deploy Boundless services cross-account, and a VPC.
 
-Each service account has its own stack, since stacks are coupled to AWS accounts.
+Each service account has its own Pulumi stack file, since stacks are coupled to AWS accounts.
 
 To update staging:
 
 ```
-pulumi login
+pulumi login "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
 pulumi stack select services-staging
 pulumi up
 ```
