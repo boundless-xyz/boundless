@@ -12,7 +12,7 @@ config:
   order-generator:MAX_PRICE_PER_MCYCLE: "0.001"
   order-generator:MIN_PRICE_PER_MCYCLE: "0.000005"
   order-generator:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
-  order-generator:RAMP_UP: "20"
+  order-generator:RAMP_UP: "600"
   order-generator:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
   order-generator:PRIVATE_KEY:
     secure: v1:/PAo8IW1iSC4PfVa:j+e1NmKVKprC8cRWBPmmQ5GT9O4ppUeU2VYFdpPiZDZHHCW6GCrTbHO+1BWu1rinjCT1lppKhzXhxBXlVabTVdwPOfjYZO7lF4g+dQjqq5U=
