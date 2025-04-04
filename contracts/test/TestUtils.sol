@@ -15,7 +15,7 @@ import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;
 
-    bytes32 internal constant LEAF_TAG = bytes32("_____risc0_aggregation::LEAF_TAG");
+    bytes8 internal constant LEAF_TAG = bytes8("LEAF_TAG");
 
     function mockAssessor(
         Fulfillment[] memory fills,
