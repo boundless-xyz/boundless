@@ -21,7 +21,10 @@ use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
-    storage::{storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider, StorageProviderConfig},
+    storage::{
+        storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider,
+        StorageProviderConfig,
+    },
 };
 use clap::{Args, Parser};
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
