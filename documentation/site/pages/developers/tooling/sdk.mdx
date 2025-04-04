@@ -162,21 +162,22 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 ```rust
 use boundless_market::{
   client::ClientBuilder,
-  contracts::{ProofRequest, Requirements, Predicate, Offer},
+  contracts::{ProofRequest, RequestId, Requirements, Predicate, Offer},
   input::InputBuilder,
   storage::StorageProvider,
   };
 use alloy::signers::local::LocalSigner;
+use alloy::signers::local::PrivateKeySigner;
 use alloy::primitives::{Address, U256};
 use std::time::Duration;
 use url::Url;
 
-async fn proof_submission(rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
+async fn proof_submission(signer: &PrivateKeySigner, rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
     let client = ClientBuilder::new()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(market_address)
         .with_set_verifier_address(set_verifier_address)
-        .with_wallet(LocalSigner::random().into())
+        .with_wallet(signer.clone().into())
         .build()
         .await?;
 
@@ -184,8 +185,7 @@ async fn proof_submission(rpc_url: Url, market_address: Address, set_verifier_ad
     let input_url = client.upload_input(&InputBuilder::new().write(&42u32)?.build_vec()?).await?;
 
     let request = ProofRequest::new(
-        0,
-        &client.caller(),
+        RequestId::new(signer.address(), 0),
         Requirements::new([0u8; 32], Predicate::prefix_match([])),
         elf_url,
         input_url,
