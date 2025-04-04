@@ -6,9 +6,6 @@ RUN apt-get -qq update && \
 
 SHELL ["/bin/bash", "-c"]
 
-#RUN curl -L https://risczero.com/install  | ENV_PATH=test bash && \ 
-#    PATH="$PATH:/root/.risc0/bin" rzup install
-
 # Github token can be provided as a secret with the name githubTokenSecret. Useful
 # for shared build environments where Github rate limiting is an issue.
 RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
@@ -19,8 +16,6 @@ RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecr
         curl -L https://risczero.com/install | bash && \
         PATH="$PATH:/root/.risc0/bin" rzup install; \
     fi
-
-# ENV RISC0_SERVER_PATH=/usr/local/cargo/bin/r0vm
 
 FROM init AS builder
 
