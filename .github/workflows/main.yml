@@ -67,9 +67,15 @@ jobs:
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
+        
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
 
       - name: install cargo risczero
-        uses: ./.github/actions/risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '2.0.0'
+          toolchain-version: '1.85.0'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -135,13 +141,16 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
 
-      - name: install cargo risczero
-        uses: ./.github/actions/risczero
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '2.0.0'
+          toolchain-version: '1.85.0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: install cargo-sort
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -201,7 +210,10 @@ jobs:
           submodules: recursive
 
       - name: install cargo risczero
-        uses: ./.github/actions/risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '2.0.0'
+          toolchain-version: '1.85.0'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -249,7 +261,10 @@ jobs:
         uses: ./.github/actions/sccache
 
       - name: install cargo risczero
-        uses: ./.github/actions/risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '2.0.0'
+          toolchain-version: '1.85.0'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -393,7 +408,10 @@ jobs:
         uses: risc0/risc0/.github/actions/cuda@release-2.0
 
       - name: install cargo risczero
-        uses: ./.github/actions/risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: '2.0.0'
+          toolchain-version: '1.85.0'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
