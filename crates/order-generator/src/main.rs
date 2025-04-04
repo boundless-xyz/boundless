@@ -21,7 +21,7 @@ use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
-    storage::{storage_provider_from_env, BuiltinStorageProvider},
+    storage::{storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider, StorageProviderConfig},
 };
 use clap::{Args, Parser};
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
@@ -51,6 +51,9 @@ struct MainArgs {
     /// Interval in seconds between requests.
     #[clap(short, long, default_value = "60")]
     interval: u64,
+    // Storage provider to use.
+    #[clap(flatten)]
+    storage_config: Option<StorageProviderConfig>,
     /// Optional number of requests to submit.
     ///
     /// If unspecified, the loop will run indefinitely.
@@ -139,7 +142,10 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let storage_provider = storage_provider_from_env().await?;
+    let storage_provider = match &args.storage_config {
+        Some(storage_config) => storage_provider_from_config(storage_config).await?,
+        None => storage_provider_from_env().await?,
+    };
 
     let boundless_client = ClientBuilder::<BuiltinStorageProvider>::new()
         .with_rpc_url(args.rpc_url.clone())
@@ -271,7 +277,10 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::contracts::{test_utils::create_test_ctx, IBoundlessMarket};
+    use boundless_market::{
+        contracts::{test_utils::create_test_ctx, IBoundlessMarket},
+        storage::StorageProviderConfig,
+    };
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use tracing_test::traced_test;
