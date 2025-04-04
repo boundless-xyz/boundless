@@ -8,5 +8,5 @@ export interface BasePipelineArgs {
   githubToken: pulumi.Output<string>;
   dockerUsername: string;
   dockerToken: pulumi.Output<string>;
-  slackAlertsTopicArn: string;
+  slackAlertsTopicArn: pulumi.Output<string>;
 }

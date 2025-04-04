@@ -99,7 +99,8 @@ const proverPipeline = new ProverPipeline("proverPipeline", {
   role: codePipelineSharedResources.role,
   githubToken,
   dockerUsername,
-  dockerToken
+  dockerToken,
+  slackAlertsTopicArn: notifications.snsTopic.arn,
 })
 
 const orderGeneratorPipeline = new OrderGeneratorPipeline("orderGeneratorPipeline", {
@@ -108,7 +109,8 @@ const orderGeneratorPipeline = new OrderGeneratorPipeline("orderGeneratorPipelin
   role: codePipelineSharedResources.role,
   githubToken,
   dockerUsername,
-  dockerToken
+  dockerToken,
+  slackAlertsTopicArn: notifications.snsTopic.arn,
 })
 
 const slasherPipeline = new SlasherPipeline("slasherPipeline", {
@@ -117,7 +119,8 @@ const slasherPipeline = new SlasherPipeline("slasherPipeline", {
   role: codePipelineSharedResources.role,
   githubToken,
   dockerUsername,
-  dockerToken
+  dockerToken,
+  slackAlertsTopicArn: notifications.snsTopic.arn,
 })
 
 export const bucketName = pulumiStateBucket.bucket.id;

@@ -180,15 +180,14 @@ export class SlasherPipeline extends pulumi.ComponentResource {
     new aws.codestarnotifications.NotificationRule(`${APP_NAME}-pipeline-notifications`, {
       name: `${APP_NAME}-pipeline-notifications`,
       eventTypeIds: [
-        "codebuild-project-build-state-failed", 
         "codepipeline-pipeline-manual-approval-succeeded",
-        "codebuild-project-build-state-succeeded"
+        "codepipeline-pipeline-action-execution-failed"
       ],
       resource: pipeline.arn,
       detailType: "FULL",
       targets: [
         {
-          address: slackAlertsTopicArn,
+          address: slackAlertsTopicArn.apply(arn => arn),
         },
       ],
     });
