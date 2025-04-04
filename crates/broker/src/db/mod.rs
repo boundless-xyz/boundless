@@ -82,6 +82,11 @@ pub trait BrokerDb {
     ) -> Result<(ProofRequest, String, B256, U256), DbError>;
     async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError>;
     async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError>;
+    async fn update_slashed_unexpired_for_pricing(
+        &self,
+        limit: u32,
+        timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
         &self,
@@ -91,7 +96,7 @@ pub trait BrokerDb {
     ) -> Result<(), DbError>;
     async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError>;
     async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError>;
-    async fn set_order_complete(&self, id: U256) -> Result<(), DbError>;
+    async fn set_order_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError>;
     async fn skip_order(&self, id: U256) -> Result<(), DbError>;
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
@@ -298,6 +303,44 @@ impl BrokerDb for SqliteDb {
         result
     }
 
+    /// Find orders that are not `Done` but have expired lockTimeout and are not expired
+    /// These have a last chance to be filled by brokers configured to do so
+    #[instrument(level = "trace", skip_all, fields(limit = %limit, timestamp = %timestamp))]
+    async fn update_slashed_unexpired_for_pricing(
+        &self,
+        limit: u32,
+        timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            r#"
+            WITH orders_to_update AS (
+                SELECT id
+                FROM orders
+                WHERE data->>'status' != $1 AND data->>'request'->>'offer'->>'lockTimeout' <= $2 AND data->>'request'->>'offer'->>'timeout' > $2
+                LIMIT $3
+            )
+            UPDATE orders
+            SET data = json_set(json_set(data, '$.status', $4), '$.updated_at', $5)
+            WHERE id IN (SELECT id FROM orders_to_update)
+            RETURNING *
+            "#,
+        )
+        .bind(OrderStatus::Done)
+        .bind(i64::try_from(timestamp).map_err(|_| DbError::BadBlockNumb(timestamp.to_string()))?)
+        .bind(i64::from(limit))
+        .bind(OrderStatus::Pricing)
+        .bind(Utc::now().timestamp())
+        .fetch_all(&self.pool)
+        .await?;
+
+        let result: Result<Vec<_>, _> = orders
+            .into_iter()
+            .map(|order| Ok((U256::from_str_radix(&order.id, 16)?, order.data)))
+            .collect();
+
+        result
+    }
+
     #[instrument(level = "trace", skip_all)]
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError> {
         let orders: Vec<DbOrder> =
@@ -415,8 +458,8 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x}")))]
-    async fn set_order_complete(&self, id: U256) -> Result<(), DbError> {
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x}"), status = %format!("{status:?}")))]
+    async fn set_order_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -427,7 +470,7 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(OrderStatus::Done)
+        .bind(status)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
         .execute(&self.pool)
@@ -1278,13 +1321,13 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn set_order_complete(pool: SqlitePool) {
+    async fn set_order_status(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
         let order = create_order();
         db.add_order(id, order.clone()).await.unwrap();
 
-        db.set_order_complete(id).await.unwrap();
+        db.set_order_status(id, OrderStatus::Done).await.unwrap();
 
         let db_order = db.get_order(id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Done);
