@@ -316,7 +316,8 @@ where
                 .build()
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading assessor image from: {image_uri}");
-            let image_data = image_uri.fetch().await.context("Failed to download sot image")?;
+            let image_data =
+                image_uri.fetch().await.context("Failed to download assessor image")?;
 
             Ok((Digest::from_bytes(image_id.0), image_data))
         }
@@ -351,7 +352,8 @@ where
                 .build()
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading aggregation-set image from: {image_uri}");
-            let image_data = image_uri.fetch().await.context("Failed to download sot image")?;
+            let image_data =
+                image_uri.fetch().await.context("Failed to download aggregation-set image")?;
 
             Ok((Digest::from_bytes(image_id.0), image_data))
         }

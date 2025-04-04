@@ -2,14 +2,17 @@ import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
 
-interface SamplePipelineArgs {
+interface ProverPipelineArgs {
   connection: aws.codestarconnections.Connection;
   artifactBucket: aws.s3.Bucket;
   role: aws.iam.Role;
+  githubToken: pulumi.Output<string>;
+  dockerUsername: string;
+  dockerToken: pulumi.Output<string>;
 }
 
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
-const APP_NAME = "sample";
+const APP_NAME = "prover";
 // The branch that we should deploy from on push.
 const BRANCH_NAME = "main";
 // The buildspec for the CodeBuild project that deploys our Pulumi stacks to the staging and prod accounts.
@@ -17,6 +20,9 @@ const BRANCH_NAME = "main";
 // that we deploy to the target account.
 const BUILD_SPEC = `
     version: 0.2
+
+    env:
+      git-credential-helper: yes
     
     phases:
       pre_build:
@@ -29,33 +35,65 @@ const BUILD_SPEC = `
           - curl -fsSL https://get.pulumi.com/ | sh
           - export PATH=$PATH:$HOME/.pulumi/bin
           - pulumi login --non-interactive "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
+          - git submodule update --init --recursive
+          - echo $DOCKER_PAT > docker_token.txt
+          - cat docker_token.txt | docker login -u $DOCKER_USERNAME --password-stdin
+          - ls -lt
       build:
         commands:
-          - ls -lt
           - cd infra/$APP_NAME
           - pulumi install
           - echo "DEPLOYING stack $STACK_NAME"
           - pulumi stack select $STACK_NAME
+          - pulumi cancel --yes
           - pulumi up --yes
     `;
 
 // A sample deployment pipeline that deploys to the staging account, then requires a manual approval before
 // deploying to prod.
-export class SamplePipeline extends pulumi.ComponentResource {
-  constructor(name: string, args: SamplePipelineArgs, opts?: pulumi.ComponentResourceOptions) {
+export class ProverPipeline extends pulumi.ComponentResource {
+  constructor(name: string, args: ProverPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
     super(`boundless:pipelines:${APP_NAME}Pipeline`, name, args, opts);
 
-    const { connection, artifactBucket, role } = args;
+    const { connection, artifactBucket, role, githubToken, dockerUsername, dockerToken } = args;
+
+    // These tokens are needed to avoid being rate limited by Github/Docker during the build process.
+    const githubTokenSecret = new aws.secretsmanager.Secret(`${APP_NAME}-ghToken`);
+    const dockerTokenSecret = new aws.secretsmanager.Secret(`${APP_NAME}-dockerToken`);
+
+    new aws.secretsmanager.SecretVersion(`${APP_NAME}-ghTokenVersion`, {
+      secretId: githubTokenSecret.id,
+      secretString: githubToken,
+    });
+    
+    new aws.secretsmanager.SecretVersion(`${APP_NAME}-dockerTokenVersion`, {
+      secretId: dockerTokenSecret.id,
+      secretString: dockerToken,
+    });
+
+    new aws.iam.RolePolicy(`${APP_NAME}-build-secrets`, {
+      role: role.id,
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
+            Resource: [githubTokenSecret.arn, dockerTokenSecret.arn],
+          },
+        ],
+      },
+    });
 
     const stagingDeployment = new aws.codebuild.Project(
       `${APP_NAME}-staging-build`,
-      this.codeBuildProjectArgs(APP_NAME, "staging", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN),
+      this.codeBuildProjectArgs(APP_NAME, "staging", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
       { dependsOn: [role] }
     );
 
     const prodDeployment = new aws.codebuild.Project(
       `${APP_NAME}-prod-build`,
-      this.codeBuildProjectArgs(APP_NAME, "prod", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN),
+      this.codeBuildProjectArgs(APP_NAME, "prod", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
       { dependsOn: [role] }
     );
 
@@ -79,6 +117,7 @@ export class SamplePipeline extends pulumi.ComponentResource {
                   ConnectionArn: connection.arn,
                   FullRepositoryId: "boundless-xyz/boundless",
                   BranchName: BRANCH_NAME,
+                  OutputArtifactFormat: "CODEBUILD_CLONE_REF"
               },
           }],
         },
@@ -147,14 +186,22 @@ export class SamplePipeline extends pulumi.ComponentResource {
     });
   }
 
-  private codeBuildProjectArgs(appName: string, stackName: string, role: aws.iam.Role, serviceAccountRoleArn: string): aws.codebuild.ProjectArgs {
+  private codeBuildProjectArgs(
+    appName: string, 
+    stackName: string, 
+    role: aws.iam.Role, 
+    serviceAccountRoleArn: string, 
+    dockerUsername: string, 
+    dockerTokenSecret: aws.secretsmanager.Secret, 
+    githubTokenSecret: aws.secretsmanager.Secret
+  ): aws.codebuild.ProjectArgs {
     return {
-      buildTimeout: 5,
+      buildTimeout: 60,
       description: `Deployment for ${APP_NAME}`,
       serviceRole: role.arn,
       environment: {
-        computeType: "BUILD_GENERAL1_SMALL",
-        image: "aws/codebuild/amazonlinux2-x86_64-standard:4.0",
+        computeType: "BUILD_GENERAL1_MEDIUM",
+        image: "aws/codebuild/standard:7.0",
         type: "LINUX_CONTAINER",
         privilegedMode: true,
         environmentVariables: [
@@ -172,6 +219,21 @@ export class SamplePipeline extends pulumi.ComponentResource {
             name: "APP_NAME",
             type: "PLAINTEXT",
             value: appName
+          },
+          { 
+            name: "GITHUB_TOKEN",
+            type: "SECRETS_MANAGER",
+            value: githubTokenSecret.name
+          },
+          { 
+            name: "DOCKER_USERNAME",
+            type: "PLAINTEXT",
+            value: dockerUsername
+          },
+          {
+            name: "DOCKER_PAT",
+            type: "SECRETS_MANAGER",
+            value: dockerTokenSecret.name
           }
         ]
       },
