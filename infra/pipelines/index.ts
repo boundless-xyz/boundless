@@ -2,6 +2,7 @@ import { PulumiStateBucket } from "./components/pulumiState";
 import { PulumiSecrets } from "./components/pulumiSecrets";
 import { SamplePipeline } from "./pipelines/sample";
 import { ProverPipeline } from "./pipelines/prover";
+import { SlasherPipeline } from "./pipelines/slasher";
 import { OrderGeneratorPipeline } from "./pipelines/order-generator";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
@@ -86,6 +87,15 @@ const proverPipeline = new ProverPipeline("proverPipeline", {
 })
 
 const orderGeneratorPipeline = new OrderGeneratorPipeline("orderGeneratorPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken
+})
+
+const slasherPipeline = new SlasherPipeline("slasherPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
