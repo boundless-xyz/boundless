@@ -123,14 +123,6 @@ export = () => {
     ],
   });
 
-  // const image = new awsx.ecr.Image(`${serviceName}-image`, {
-  //   repositoryUrl: repo.url,
-  //   context: dockerDir,
-  //   dockerfile: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
-  //   imageTag: dockerTag,
-  //   platform: 'linux/amd64',
-  // });
-
   // Security group allow outbound, deny inbound
   const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
     name: serviceName,

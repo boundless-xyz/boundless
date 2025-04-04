@@ -60,12 +60,46 @@ export = () => {
     },
   });
 
-  const image = new awsx.ecr.Image(`${serviceName}-image`, {
-    repositoryUrl: repo.url,
-    context: dockerDir,
-    dockerfile: `${dockerDir}/dockerfiles/slasher.dockerfile`,
-    imageTag: dockerTag,
-    platform: 'linux/amd64',
+  const authToken = aws.ecr.getAuthorizationTokenOutput({
+    registryId: repo.repository.registryId,
+  });
+  
+  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+  const image = new docker_build.Image(`${serviceName}-image`, {
+    tags: [dockerTagPath],
+    context: {
+      location: dockerDir,
+    },
+    platforms: ['linux/amd64'],
+    push: true,
+    dockerfile: {
+      location: `${dockerDir}/dockerfiles/slasher.dockerfile`,
+    },
+    cacheFrom: [
+      {
+        registry: {
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    cacheTo: [
+      {
+        registry: {
+          mode: docker_build.CacheMode.Max,
+          imageManifest: true,
+          ociMediaTypes: true,
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    registries: [
+      {
+        address: repo.repository.repositoryUrl,
+        password: authToken.password,
+        username: authToken.userName,
+      },
+    ],
   });
 
   // Security group allow outbound, deny inbound
@@ -124,7 +158,7 @@ export = () => {
         },
         container: {
           name: serviceName,
-          image: image.imageUri,
+          image: image.ref,
           cpu: 128,
           memory: 512,
           essential: true,
