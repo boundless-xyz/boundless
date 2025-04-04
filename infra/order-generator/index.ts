@@ -1,6 +1,7 @@
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
+import * as docker_build from '@pulumi/docker-build';
 
 const getEnvVar = (name: string) => {
   const value = process.env[name];
@@ -21,20 +22,21 @@ export = () => {
   const pinataJWT = isDev ? getEnvVar("PINATA_JWT") : config.requireSecret('PINATA_JWT');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
 
+  const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const logLevel = config.require('LOG_LEVEL');
   const dockerDir = config.require('DOCKER_DIR');
   const dockerTag = config.require('DOCKER_TAG');
   const setVerifierAddr = config.require('SET_VERIFIER_ADDR');
   const boundlessMarketAddr = config.require('BOUNDLESS_MARKET_ADDR');
   const pinataGateway = config.require('PINATA_GATEWAY_URL');
-  const orderStreamUrl = config.require('ORDER_STREAM_URL');
+  const orderStreamUrl = config.get('ORDER_STREAM_URL');
   const interval = config.require('INTERVAL');
   const lockStake = config.require('LOCK_STAKE');
   const rampUp = config.require('RAMP_UP');
   const minPricePerMCycle = config.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = config.require('MAX_PRICE_PER_MCYCLE');
   const baseStackName = config.require('BASE_STACK');
-  
+
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
@@ -70,13 +72,64 @@ export = () => {
     },
   });
 
-  const image = new awsx.ecr.Image(`${serviceName}-image`, {
-    repositoryUrl: repo.url,
-    context: dockerDir,
-    dockerfile: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
-    imageTag: dockerTag,
-    platform: 'linux/amd64',
+  const authToken = aws.ecr.getAuthorizationTokenOutput({
+    registryId: repo.repository.registryId,
   });
+
+  let buildSecrets = {};
+  if (githubTokenSecret !== undefined) {
+    buildSecrets = {
+      ...buildSecrets,
+      githubTokenSecret
+    }
+  }
+
+  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+  const image = new docker_build.Image(`${serviceName}-image`, {
+    tags: [dockerTagPath],
+    context: {
+      location: dockerDir,
+    },
+    platforms: ['linux/amd64'],
+    push: true,
+    dockerfile: {
+      location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
+    },
+    secrets: buildSecrets,
+    cacheFrom: [
+      {
+        registry: {
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    cacheTo: [
+      {
+        registry: {
+          mode: docker_build.CacheMode.Max,
+          imageManifest: true,
+          ociMediaTypes: true,
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    registries: [
+      {
+        address: repo.repository.repositoryUrl,
+        password: authToken.password,
+        username: authToken.userName,
+      },
+    ],
+  });
+
+  // const image = new awsx.ecr.Image(`${serviceName}-image`, {
+  //   repositoryUrl: repo.url,
+  //   context: dockerDir,
+  //   dockerfile: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
+  //   imageTag: dockerTag,
+  //   platform: 'linux/amd64',
+  // });
 
   // Security group allow outbound, deny inbound
   const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
@@ -116,7 +169,7 @@ export = () => {
   });
 
   const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
-  new awsx.ecs.FargateService(
+  const service = new awsx.ecs.FargateService(
     `${serviceName}-service`,
     {
       name: serviceName,
@@ -134,17 +187,17 @@ export = () => {
         },
         container: {
           name: serviceName,
-          image: image.imageUri,
+          image: image.ref,
           cpu: 128,
           memory: 512,
           essential: true,
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/boundless-order-generator --interval ${interval} --min ${minPricePerMCycle} --max ${maxPricePerMCycle} --lockin-stake ${lockStake} --ramp-up ${rampUp} --set-verifier-address ${setVerifierAddr} --boundless-market-address ${boundlessMarketAddr} --order-stream-url ${orderStreamUrl}`,
+            `/app/boundless-order-generator --interval ${interval} --min ${minPricePerMCycle} --max ${maxPricePerMCycle} --lockin-stake ${lockStake} --ramp-up ${rampUp} --set-verifier-address ${setVerifierAddr} --boundless-market-address ${boundlessMarketAddr} ${orderStreamUrl ? `--order-stream-url ${orderStreamUrl}` : ''}`,
           ],
           environment: [
             {
-              name: 'PINATA_GATEWAY_URL',
+              name: 'IPFS_GATEWAY_URL',
               value: pinataGateway,
             },
             {
@@ -182,5 +235,5 @@ export = () => {
       defaultValue: '0',
     },
     pattern: '?ERROR ?error ?Error',
-  });
+  }, { dependsOn: [service] });
 };

@@ -1,15 +1,15 @@
 config:
   aws:region: us-west-2
-  BASE_STACK: organization/bootstrap/services-dev
-  BOUNDLESS_MARKET_ADDR: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
-  DOCKER_TAG: latest
-  DOCKER_DIR: "../../"
-  INTERVAL: "300"
-  LOCK_STAKE: "0.1"
-  LOG_LEVEL: debug
-  ORDER_STREAM_URL: https://order-stream.beboundless.xyz
-  PINATA_GATEWAY_URL: https://bronze-persistent-ladybug-168.mypinata.cloud
-  RAMP_UP: "20"
-  SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
-  MIN_PRICE_PER_MCYCLE: "0.000005"
-  MAX_PRICE_PER_MCYCLE: "0.001"
+  order-generator:BASE_STACK: organization/bootstrap/services-dev
+  order-generator:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
+  order-generator:DOCKER_DIR: ../../
+  order-generator:DOCKER_TAG: latest
+  order-generator:INTERVAL: "300"
+  order-generator:LOCK_STAKE: "0.1"
+  order-generator:LOG_LEVEL: debug
+  order-generator:MAX_PRICE_PER_MCYCLE: "0.001"
+  order-generator:MIN_PRICE_PER_MCYCLE: "0.000005"
+  order-generator:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
+  order-generator:RAMP_UP: "20"
+  order-generator:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
+encryptionsalt: v1:EaoxglYnaH0=:v1:uloy/UdXMkUyOX2v:TULKrQ9SAeGqHOGKQ2SEgiw61yo9Kw==

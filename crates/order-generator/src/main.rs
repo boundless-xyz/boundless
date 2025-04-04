@@ -21,7 +21,7 @@ use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
-    storage::StorageProviderConfig,
+    storage::{storage_provider_from_env, BuiltinStorageProvider},
 };
 use clap::{Args, Parser};
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
@@ -39,9 +39,6 @@ struct MainArgs {
     /// If set, the order-generator will submit requests off-chain.
     #[clap(short, long)]
     order_stream_url: Option<Url>,
-    // Storage provider to use.
-    #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -142,13 +139,14 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let boundless_client = ClientBuilder::new()
+    let storage_provider = storage_provider_from_env().await?;
+
+    let boundless_client = ClientBuilder::<BuiltinStorageProvider>::new()
         .with_rpc_url(args.rpc_url.clone())
+        .with_storage_provider(Some(storage_provider))
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url.clone())
-        .with_storage_provider_config(args.storage_config.clone())
-        .await?
         .with_private_key(args.private_key.clone())
         .with_bidding_start_delay(args.bidding_start_delay)
         .with_balance_alerts(balance_alerts)
@@ -240,9 +238,15 @@ async fn run(args: &MainArgs) -> Result<()> {
         };
 
         if submit_offchain {
-            tracing::info!("Request 0x{request_id:x} submitted offchain");
+            tracing::info!(
+                "Request 0x{request_id:x} submitted offchain to {}",
+                args.order_stream_url.clone().unwrap()
+            );
         } else {
-            tracing::info!("Request 0x{request_id:x} submitted onchain");
+            tracing::info!(
+                "Request 0x{request_id:x} submitted onchain to {}",
+                args.boundless_market_address
+            );
         }
 
         i += 1;
