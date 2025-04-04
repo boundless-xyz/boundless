@@ -109,25 +109,29 @@ const DEVELOPERS_ITEMS = [
         link: "/developers/steel/how-it-works",
       },
       {
-        text: "Steel Commitments",
+        text: "Commitments",
         link: "/developers/steel/commitments",
       },
       {
-        text: "Steel History",
+        text: "History",
         link: "/developers/steel/history",
       },
       {
-        text: "Steel Crate Docs",
+        text: "Events",
+        link: "/developers/steel/events",
+      },
+      {
+        text: "Crate Docs",
         link: "https://risc0.github.io/risc0-ethereum/risc0_steel/",
       },
 
     ],
   },
   {
-    text: "Hybrid ZK/OP Rollups with Kailua",
+    text: "Hybrid Rollups with OP Kailua",
     items: [
       {
-        text: "Why Kailua?",
+        text: "Why OP Kailua?",
         link: "/developers/kailua/why",
       },
       {
@@ -135,7 +139,7 @@ const DEVELOPERS_ITEMS = [
         link: "/developers/kailua/quick-start",
       },
       {
-        text: "Kailua Book",
+        text: "OP Kailua Book",
         link: "https://risc0.github.io/kailua/",
       },
     ],
