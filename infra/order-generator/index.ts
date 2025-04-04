@@ -139,14 +139,14 @@ export = () => {
   });
 
   // Create an execution role that has permissions to access the necessary secrets
-  const execRole = new aws.iam.Role(`${serviceName}-exec-1`, {
+  const execRole = new aws.iam.Role(`${serviceName}-exec`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
       Service: 'ecs-tasks.amazonaws.com',
     }),
     managedPolicyArns: [aws.iam.ManagedPolicy.AmazonECSTaskExecutionRolePolicy],
   });
 
-  const execRolePolicy = new aws.iam.RolePolicy(`${serviceName}-exec-1`, {
+  const execRolePolicy = new aws.iam.RolePolicy(`${serviceName}-exec`, {
     role: execRole.id,
     policy: {
       Version: '2012-10-17',
