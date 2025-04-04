@@ -34,6 +34,8 @@ export class Notifications extends pulumi.ComponentResource {
       managedPolicyArns: [
         'arn:aws:iam::aws:policy/AmazonSNSFullAccess',
         'arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess',
+        'arn:aws:iam::aws:policy/AmazonQDeveloperAccess',
+        'arn:aws:iam::aws:policy/AIOpsOperatorAccess',
       ],
     });
 
@@ -41,20 +43,27 @@ export class Notifications extends pulumi.ComponentResource {
     this.snsTopic = new aws.sns.Topic("boundless-alerts-topic", { name: "boundless-alerts-topic" });
 
     // Create a policy that allows the service accounts to publish to the SNS topic
+    // https://repost.aws/knowledge-center/cloudwatch-cross-account-sns
     const snsTopicPolicy = this.snsTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
-      statements: [{
+      statements: [
+        ...serviceAccountIds.map(serviceAccountId => ({
           actions: [
               "SNS:Publish",
           ],
           effect: "Allow",
           principals: [{
               type: "AWS",
-              identifiers: serviceAccountIds,
+              identifiers: ["*"],
           }],
           resources: [arn],
-          sid: "Grant publish to ops account andservice accounts",
-      },
-      {
+          conditions: [{
+            test: "ArnLike",
+            variable: "aws:SourceArn",
+            values: [`arn:aws:cloudwatch:us-west-2:${serviceAccountId}:alarm:*`],
+          }],
+          sid: `Grant publish to account ${serviceAccountId}`,
+        })),
+        {
           actions: ["SNS:Publish"],
           principals: [{
               type: "Service",
@@ -62,7 +71,8 @@ export class Notifications extends pulumi.ComponentResource {
           }],
           resources: [arn],
           sid: "Grant publish to codestar for deployment notifications",
-      }],
+        },
+      ],
     }));
 
     // Attach the policy to the SNS topic

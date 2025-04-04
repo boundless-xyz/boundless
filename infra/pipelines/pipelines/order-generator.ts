@@ -183,7 +183,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
       name: `${APP_NAME}-pipeline-notifications`,
       eventTypeIds: [
         "codepipeline-pipeline-manual-approval-succeeded",
-        "codepipeline-pipeline-action-execution-failed"
+        "codepipeline-pipeline-action-execution-failed",
       ],
       resource: pipeline.arn,
       detailType: "FULL",
