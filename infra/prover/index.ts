@@ -11,7 +11,7 @@ export = () => {
 
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : `${stackName}`;
+  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : `${stackName}-`;
   const serviceName = `${prefix}bonsai-prover`;
   
   const baseStackName = config.require('BASE_STACK');
@@ -385,7 +385,7 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `${serviceName} log ERROR level`,
+    alarmDescription: `ERROR log detected for ${serviceName}`,
     actionsEnabled: true,
     alarmActions,
   });

@@ -182,7 +182,6 @@ export class ProverPipeline extends pulumi.ComponentResource {
       eventTypeIds: [
         "codepipeline-pipeline-manual-approval-succeeded",
         "codepipeline-pipeline-action-execution-failed",
-        "codepipeline-pipeline-action-execution-succeeded",
       ],
       resource: pipeline.arn,
       detailType: "FULL",
