@@ -4669,9 +4669,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f69c8785b64129589935c3b955b33e15ea426609d0f6cc00ce4234aa06133e73"
+checksum = "72138752938dca6433e7e8169aa2be89b07c5dd6e26e185ddc082dacabcef055"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -4799,9 +4799,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-ethereum-contracts"
-version = "2.0.1"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb37936cba1c031cef537d225b58b11a3f919bd95484e05d4c74174ee36c123c"
+checksum = "b8efeee8c8d3df619ae4680afdfd3dc8d269d6035a3fc12b62f180206eee1e3c"
 dependencies = [
  "alloy",
  "alloy-primitives",
