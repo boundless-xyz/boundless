@@ -13,3 +13,4 @@ config:
   slasher:LOG_LEVEL: info
   slasher:RETRIES: "5"
   slasher:SKIP_ADDRESSES: 0x52792d081461e5c874e78f90360e3320b2960cc5,0xf8087e8f3ba5fc4865eda2fcd3c05846982da136
+  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic

@@ -9,8 +9,9 @@ export = () => {
   // Read config
   const config = new pulumi.Config();
 
-  const isDev = pulumi.getStack() === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : "";
+  const stackName = pulumi.getStack();
+  const isDev = stackName === "dev";
+  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : `${stackName}`;
   const serviceName = `${prefix}bonsai-prover`;
   
   const baseStackName = config.require('BASE_STACK');
@@ -30,7 +31,8 @@ export = () => {
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const orderStreamUrl = config.require('ORDER_STREAM_URL');
   const brokerTomlPath = config.require('BROKER_TOML_PATH')
-  
+  const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+
   const ethRpcUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-brokerEthRpc`);
   const _ethRpcUrlSecretSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-brokerEthRpc`, {
     secretId: ethRpcUrlSecret.id,
@@ -361,4 +363,30 @@ export = () => {
     },
     pattern: '?"Locked order" ?"locked order" ?"Order locked"',
   }, { dependsOn: [service] });
+
+  const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
+    name: `${serviceName}-log-err`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-err`,
+          period: 60,
+          stat: 'Maximum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    treatMissingData: 'notBreaching',
+    alarmDescription: `${serviceName} log ERROR level`,
+    actionsEnabled: true,
+    alarmActions,
+  });
 };

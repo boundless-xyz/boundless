@@ -1,15 +1,9 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
+import { BasePipelineArgs } from "./base";
 
-interface OrderGeneratorPipelineArgs {
-  connection: aws.codestarconnections.Connection;
-  artifactBucket: aws.s3.Bucket;
-  role: aws.iam.Role;
-  githubToken: pulumi.Output<string>;
-  dockerUsername: string;
-  dockerToken: pulumi.Output<string>;
-}
+interface OrderGeneratorPipelineArgs extends BasePipelineArgs {}
 
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "order-generator";
@@ -55,7 +49,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
   constructor(name: string, args: OrderGeneratorPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
     super(`boundless:pipelines:${APP_NAME}Pipeline`, name, args, opts);
 
-    const { connection, artifactBucket, role, githubToken, dockerUsername, dockerToken } = args;
+    const { connection, artifactBucket, role, githubToken, dockerUsername, dockerToken, slackAlertsTopicArn } = args;
 
     // These tokens are needed to avoid being rate limited by Github/Docker during the build process.
     const githubTokenSecret = new aws.secretsmanager.Secret(`${APP_NAME}-ghToken`);
@@ -97,7 +91,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
       { dependsOn: [role] }
     );
 
-    new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
+    const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
       pipelineType: "V2",
       artifactStores: [{
         type: "S3",
@@ -183,6 +177,22 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
       ],
       name: `${APP_NAME}-pipeline`,
       roleArn: role.arn,
+    });
+
+    new aws.codestarnotifications.NotificationRule(`${APP_NAME}-pipeline-notifications`, {
+      name: `${APP_NAME}-pipeline-notifications`,
+      eventTypeIds: [
+        "codebuild-project-build-state-failed", 
+        "codepipeline-pipeline-manual-approval-succeeded",
+        "codebuild-project-build-state-succeeded"
+      ],
+      resource: pipeline.arn,
+      detailType: "FULL",
+      targets: [
+        {
+          address: slackAlertsTopicArn,
+        },
+      ],
     });
   }
 

@@ -35,6 +35,8 @@ export = () => {
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
 
+  const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+
   const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
   new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
     secretId: privateKeySecret.id,

@@ -52,7 +52,16 @@ export class Notifications extends pulumi.ComponentResource {
               identifiers: serviceAccountIds,
           }],
           resources: [arn],
-          sid: "Grant publish to service accounts",
+          sid: "Grant publish to ops account andservice accounts",
+      },
+      {
+          actions: ["SNS:Publish"],
+          principals: [{
+              type: "Service",
+              identifiers: ["codestar-notifications.amazonaws.com"],
+          }],
+          resources: [arn],
+          sid: "Grant publish to codestar for deployment notifications",
       }],
     }));
 

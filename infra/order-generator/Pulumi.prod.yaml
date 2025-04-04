@@ -20,3 +20,4 @@ config:
     secure: v1:twrk+dT5Vx8qgsN7:53h05tUm38CcNtraUTMvvmBd3GUgnoxG0y3HFYX+frD3ezl23vTQ2pIq9k161VT1bOafHpJPeP6as/ColwueOmHwR5eKRFQnbTFuDAJo5JhuFPcqRg==
   order-generator:PRIVATE_KEY:
     secure: v1:25pS7o3uXdXBhVnr:wI2TSP/t+n9h4pbUkvp2QnBv/X1mDL+bTbinU+CH2Ws02jYw6uEkyYBWv1ehIUwrjc+5U1iogYZsjvTFJGDMA4O57hST4tmRny7Dn4khH6A=
+  order-generator:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
