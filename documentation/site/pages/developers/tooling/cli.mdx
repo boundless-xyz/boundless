@@ -1,0 +1,298 @@
+# Boundless CLI
+
+`boundless-cli` is a command-line interface for interacting with the Boundless Market, specifically designed to help handle deposits, withdrawing, staking and submitting proof requests.
+
+```
+boundless-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+```
+
+### Global Options
+
+You pass these before specifying a subcommand:
+
+| Option                                  | Description                                                                               |
+|----------------------------------------|-------------------------------------------------------------------------------------------|
+| `-r, --rpc-url <RPC_URL>`              | Ethereum RPC endpoint URL. Defaults to `http://localhost:8545`.                           |
+| `--private-key <PRIVATE_KEY>`          | A private key string (hex-encoded); used to sign transactions.                            |
+| `-b, --boundless-market-address <ADDR>`| Address of the Boundless Market contract.                                                |
+| `-s, --set-verifier-address <ADDR>`    | Address of the SetVerifier contract.                                                      |
+| `--tx-timeout <SECONDS>`               | Transaction timeout in seconds. If set, the CLI will wait up to this duration for mining. |
+| `-h, --help`                            | Print help.                                                                               |
+| `-V, --version`                         | Print version.                                                                            |
+
+**Example**:
+
+```
+boundless-cli \
+  --rpc-url http://localhost:8545 \
+  --private-key 0xabcdef... \
+  --boundless-market-address 0x1234... \
+  --set-verifier-address 0x5678... \
+  deposit 1.5
+```
+
+## Subcommands
+
+Below is a command-by-command summary. Each command is run in the form:
+
+```
+boundless-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+```
+
+### 1. deposit
+
+Deposits Ether (converted to an ERC-20 balance) into the Boundless Market.
+
+**Syntax**:
+```
+deposit <amount>
+```
+Where `<amount>` is an amount of Ether to deposit, e.g. `1.5`.
+
+**Example**:
+```
+boundless-cli deposit 1
+```
+This deposits 1 ETH from your wallet into the Boundless Market contract.
+
+
+### 2. withdraw
+
+Withdraws Ether from the Boundless Market back into your externally owned account (EOA).
+
+**Syntax**:
+```
+withdraw <amount>
+```
+
+**Example**:
+```
+boundless-cli withdraw 1
+```
+This withdraws 1 ETH of your in-market balance back to your wallet.
+
+
+### 3. balance
+
+Checks the current in-market ETH balance for a given address (defaults to your address if not specified).
+
+**Syntax**:
+```
+balance [address]
+```
+
+- `[address]` (optional) — The address to check. If omitted, uses the caller’s address.
+
+**Example**:
+```
+boundless-cli balance 0xabc123...
+boundless-cli balance
+```
+
+
+### 4. deposit-stake
+
+Deposits HP (hit points) into the market as a stake. (HP is used for trust/staking in Boundless.)
+
+**Syntax**:
+```
+deposit-stake <amount>
+```
+
+**Example**:
+```
+boundless-cli deposit-stake 100
+```
+This deposits 100 HP into your staked balance.
+
+
+### 5. withdraw-stake
+
+Withdraws staked HP from the market.
+
+**Syntax**:
+```
+withdraw-stake <amount>
+```
+
+**Example**:
+```
+boundless-cli withdraw-stake 50
+```
+
+
+### 6. balance-of-stake
+
+Checks the current staked HP balance for a given address (defaults to your address if none given).
+
+**Syntax**:
+```
+balance-of-stake [address]
+```
+
+**Example**:
+```
+boundless-cli balance-of-stake 0xabc123...
+boundless-cli balance-of-stake
+```
+
+
+### 7. submit-offer
+
+Constructs and submits a proof request by reading a YAML offer definition, plus specifying guest ELF, input data, and additional requirements on the command line. This is effectively a “shortcut” for quickly submitting a structured request.
+
+**Syntax** (excerpt of key options):
+```
+submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-preflight]
+             --elf <PATH_TO_ELF>
+             --input <STRING> OR --input-file <PATH>
+             [--encode-input]
+             [--inline-input]
+             [--journal-digest <HEX> | --journal-prefix <STRING>]
+             [--callback-address <ADDRESS> --callback-gas-limit <NUM>]
+```
+
+- `yaml_offer`: path to a YAML file describing the `Offer`.
+- `id`: optional integer ID to assign to the request.
+- `--elf <PATH>`: path to the ELF guest image to run.
+- `--input <STRING>` or `--input-file <PATH>`: data to feed the guest image.
+- `--encode-input`: if used, the input is encoded with `risc0_zkvm::serde`.
+- `--inline-input`: if used, the input is pushed on-chain rather than stored off-chain.
+- `--journal-digest <HEX>`: require the guest’s journal to match this digest.
+- `--journal-prefix <STRING>`: require the guest’s journal to start with these bytes.
+- `--callback-address <ADDRESS> --callback-gas-limit <NUM>`: optional callback triggered upon proof success.
+- `--wait`: block until the proof request is fulfilled (or expires).
+- `--offchain`: submit the request offchain to an order-stream server (requires `--order-stream-url`).
+- `--no-preflight`: skip local “dry-run” execution of the guest.
+
+**Example**:
+```
+boundless-cli submit-offer offer.yaml --elf guest.wasm \
+  --input-file data.bin --journal-prefix "ABCDEF" --wait
+```
+Submits a request reading the YAML from `offer.yaml`, providing `guest.wasm` as the ELF, `data.bin` as input, and requiring the journal to start with “ABCDEF”. It waits for fulfillment.
+
+
+### 8. submit-request
+
+Submits a proof request from a single YAML file containing the entire `ProofRequest` structure. Allows offchain or onchain submission, plus optional local preflight.
+
+**Syntax**:
+```
+submit-request [OPTIONS] <YAML_REQUEST> [ID] [--wait] [--offchain] [--no-preflight]
+```
+
+- `yaml_request`: path to a YAML file describing a `ProofRequest`.
+- `id`: optional integer ID for the request (otherwise generated or from the YAML itself).
+- `--wait`: wait for fulfillment.
+- `--offchain`: submit to an order-stream server (requires `--order-stream-url`).
+- `--no-preflight`: skip local “dry-run” execution.
+
+**Example**:
+```
+boundless-cli submit-request ./request.yaml --wait
+```
+
+
+### 9. slash
+
+Slashes a prover for failing to meet obligations for a given request ID. Only the request’s buyer can slash.
+
+**Syntax**:
+```
+slash <REQUEST_ID>
+```
+**Example**:
+```
+boundless-cli slash 0x5
+```
+
+
+### 10. get-proof
+
+Retrieves the final `journal` and `seal` from on-chain storage for a given request ID (once fulfilled).
+
+**Syntax**:
+```
+get-proof <REQUEST_ID>
+```
+**Example**:
+```
+boundless-cli get-proof 0x5
+```
+
+
+### 11. verify-proof
+
+Verifies a proof for a given request ID on the local side, checking the on-chain `journal` and `seal` with the chosen image ID.
+
+**Syntax**:
+```
+verify-proof <REQUEST_ID> <IMAGE_ID>
+```
+Where `<IMAGE_ID>` is a 32-byte hex digest identifying the guest code.
+
+**Example**:
+```
+boundless-cli verify-proof 0x5 0x0002f87ec0...
+```
+
+
+### 12. status
+
+Shows the request status and whether it’s open, locked, fulfilled, or expired.
+
+**Syntax**:
+```
+status <REQUEST_ID> [expires_at]
+```
+
+- `expires_at`: optional expiration timestamp (UNIX time). If omitted, uses the request’s known end time.
+
+**Example**:
+```
+boundless-cli status 0x5
+```
+
+
+### 13. execute
+
+Locally executes (without proving) the given request’s guest code, either from a YAML file or fetching from chain/offchain. Allows checking correctness prior to submission.
+
+**Syntax**:
+```
+execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] [--request-digest <B256>]] 
+        [--order-stream-url <URL>]
+```
+
+**Examples**:
+
+- **Execute from local YAML**:
+  ```
+  boundless-cli execute --request-path ./request.yaml
+  ```
+
+- **Execute from on-chain** (specifying the request ID):
+  ```
+  boundless-cli execute --request-id 0x5 --tx-hash 0xabc...
+  ```
+
+
+### 14. fulfill
+
+Generates a valid proof locally, then publishes the fulfillment on-chain (or offchain if requested). This subcommand uses the RISC Zero default prover.
+
+**Syntax**:
+```
+fulfill --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
+        [--order-stream-url <URL>]
+```
+- `request-id`: the numeric ID of the request.
+- `request-digest`: request’s EIP712 digest (optional).
+- `tx-hash`: transaction hash (optional, to find the request).
+- `--order-stream-url`: fetch request data from an offchain server.
+
+**Example**:
+```
+boundless-cli fulfill --request-id 0x5
+```

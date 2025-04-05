@@ -1,0 +1,367 @@
+import PricingCalculator from "../../../components/pricing-calculator";
+import { StripRustCodeComments } from "../../../components/strip-rust-code-comments";
+
+# Request a Proof
+
+The interface for developers to use the Boundless core services is the Boundless Market, developers interact with it by sending a proof request.
+This can be done [programmatically](#programmatically) using the boundless-market crate or with the [Boundless CLI](#requesting-a-proof-via-the-boundless-cli).
+
+## Programmatically
+
+The recommended flow of requesting a proof is:
+
+1. [Create a boundless client.](#1-create-a-boundless-client)
+2. [Upload the program executable (ELF binary) to IPFS.](#2-upload-program-executable-to-ipfs)
+3. [Upload the input of your program to IPFS.](#3-upload-the-input-of-your-program-to-ipfs)
+4. [Execute the program to estimate the total number of cycles, and to get the journal.](#4-execute-the-program-to-estimate-cycles-and-to-get-the-journal)
+5. [Create a proving request with URLs to the executable and inputs, the journal hash, the imageID, and the offer details (such as price range and timeout length).](#5-create-a-proof-request)
+6. [Submit the request to the market.](#6-submit-a-request)
+7. [Wait for the request to be fulfilled, returning the journal and the seal.](#7-wait-for-the-request-to-be-fulfilled)
+
+The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) provides a full code example of this workflow in [`apps/src/main.rs`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/apps/src/main.rs).
+
+### 1. Create a Boundless Client
+
+To facilitate communication with the Boundless market, developers can use the `Client` struct from the [boundless-market crate](https://docs.rs/boundless-market).
+`Client` manages interaction with the proof market contract and handles the necessary authentication and transaction signing.
+
+To instantiate a boundless client, you will need a wallet with sufficient funds on Sepolia, a working Sepolia RPC provider, and the proof market and set verifier contract addresses:
+
+<StripRustCodeComments>
+```rust
+# use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+# use boundless_market::{client::ClientBuilder, storage::BuiltinStorageProvider};
+# async fn create_boundless_client(
+# rpc_url: url::Url,
+# boundless_market_address: Address,
+# set_verifier_address: Address,
+# order_stream_url: Option<url::Url>,
+# storage_provider: Option<BuiltinStorageProvider>,
+# private_key: PrivateKeySigner) -> Result<(), Box<dyn std::error::Error>> {
+let boundless_client = ClientBuilder::new()
+  .with_rpc_url(rpc_url)
+  .with_boundless_market_address(boundless_market_address)
+  .with_set_verifier_address(set_verifier_address)
+  .with_order_stream_url(order_stream_url)
+  .with_storage_provider(storage_provider)
+  .with_private_key(private_key)
+  .build()
+  .await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+For the latest deployment address, please see [Deployments](/developers/smart-contracts/deployments).
+
+> Relevant links: [Sepolia Faucet](https://www.sepoliafaucet.io), [Sepolia Public RPCs](https://chainlist.org/chain/11155111), [Boundless Deployments Reference](/developers/smart-contracts/deployments)
+
+### 2. Upload Program Executable to IPFS
+
+The ELF binary, also known as the image, of the program should be accessible to provers.
+This is done by uploading the ELF to a public HTTP server.
+The `boundless-market` provides `StorageProvider` implementations to help upload these binaries.
+Built-in providers are listed in the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html).
+
+The recommended storage provider is IPFS, specifically through [Pinata](https://pinata.cloud) (the free tier should be sufficient for most Boundless use cases).
+To use Pinata, [fetch the required JWT credential](https://docs.pinata.cloud/account-management/api-keys) and set it to the `PINATA_JWT` environment variable in the `.env` file.
+
+With the storage provider added to the `Client`, the executable can be uploaded with the `upload_image` method:
+
+<StripRustCodeComments>
+```rust
+# use boundless_market::client::ClientBuilder;
+# async fn upload_elf(ELF: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::new().build().await?;
+let image_url = boundless_client.upload_image(ELF).await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+### 3. Upload the Input of Your Program to IPFS
+
+To execute and run proving, the prover requires the inputs of the program.
+Similar to the program executable, the program inputs are uploaded to a public HTTP server, and the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html) can help with that.
+
+<StripRustCodeComments>
+```rust
+# use boundless_market::client::ClientBuilder;
+# async fn upload_elf(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::new().build().await?;
+let input_url = boundless_client.upload_input(&input_bytes).await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+Inputs can also be included directly into the request instead as in-line input.
+When submitting requests onchain, this will cost more gas if the inputs are large.
+The off-chain order-stream service also places limits on the size of in-line input.
+
+> Relevant links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [Pinata](https://pinata.cloud), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload\_image for PinataStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/struct.PinataStorageProvider.html)
+
+### 4. Execute the Program to Estimate Cycles and to Get the Journal
+
+Before sending a proof request, developers should execute the program. This achieves a few separate goals:
+
+- It estimates the number of cycles in the program, which can be used to estimate the cost of the proof request offer.
+- It makes sure that the program executes without errors, saving the developer money by not sending unprovable proof requests to the market.
+- It retrieves the journal, the public outputs of the program, which are used to check proof validity along with the imageID.
+
+To execute the program and retrieve the cycle count (in MCycles), and journal:
+
+<StripRustCodeComments>
+```rust
+# use risc0_zkvm::{default_executor, ExecutorEnv};
+# fn execute_program(input_bytes: Vec<u8>, ELF: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+let env = ExecutorEnv::builder().write_slice(&input_bytes).build()?;
+let session_info = default_executor().execute(env, ELF)?;
+let mcycles_count = session_info
+  .segments
+  .iter()
+  .map(|segment| 1 << segment.po2)
+  .sum::<u64>()
+  .div_ceil(1_000_000);
+let journal = session_info.journal;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+> Relevant links: [ExecutorEnvBuilder](https://docs.rs/risc0-zkvm/latest/risc0_zkvm/struct.ExecutorEnvBuilder.html)
+
+### 5. Create a Proof Request
+
+A proof request consists of four essential components that specify which program needs to be proven and under what conditions:
+
+<StripRustCodeComments>
+```rust showLineNumbers
+# use anyhow::Result;
+# use alloy_primitives::utils::parse_ether;
+# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
+# use risc0_zkvm::sha::{Digest, Digestible};
+# fn create_proof_request(
+# ECHO_ID: Digest,
+# image_url: url::Url,
+# input_url: url::Url,
+# mcycles_count: u64,
+# journal: Vec<u8>) -> Result<ProofRequest> {
+let request = ProofRequest::builder()
+  .with_image_url(image_url)
+  .with_input(input_url)
+  .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
+  .with_offer(
+    Offer::default()
+      // The market uses a reverse Dutch auction mechanism to match requests with provers.
+      // Each request has a price range that a prover can bid on. One way to set the price
+      // is to choose a desired (min and max) price per million cycles and multiply it
+      // by the number of cycles. Alternatively, you can use the `with_min_price` and
+      // `with_max_price` methods to set the price directly.
+      .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
+      // NOTE: If your offer is not being accepted, try increasing the max price.
+      .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
+      // The timeout is the maximum number of blocks the request can stay
+      // unfulfilled in the market before it expires. If a prover locks in
+      // the request and does not fulfill it before the timeout, the prover can be
+      // slashed.
+      .with_timeout(1000),
+  )
+  .build()?;
+# Ok(request)
+# }
+```
+</StripRustCodeComments>
+
+1. Program Image (`with_image_url`) (line #2)
+2. Program Input (`with_input`) (line #3)
+3. Requirements (`with_requirements`) (line #4)
+4. Offer (`with_offer`) (line #5)
+
+The program image and program inputs are discussed in steps 2 and 3 respectively.
+
+#### Proof Requirements
+
+The requirements ensure proof integrity and correctness by checking the [image ID](https://dev.risczero.com/terminology#image-id) (a unique identifier of each ELF binary run in the zkVM) and the hash of the journal.
+By checking both the image ID and the journal hash, we can be sure that the provers are working with the correct program and that the outputs match the expected outputs (the ones generated by the execution in step 4).
+
+#### Offer Details
+
+The offer details are specified with `.with_offer()`. This allows the requestor to set the price range per million cycles (MCycles), and long the request remains valid (known as the timeout). The price mechanism helps match the request with provers.
+
+> Relevant links: [Cycles](https://dev.risczero.com/terminology#clock-cycles), [ELF Binary](https://dev.risczero.com/terminology#elf-binary)
+
+### 6. Submit a Request
+
+Once the request is configured, it can submitted to the market:
+
+<StripRustCodeComments>
+```rust
+# use boundless_market::client::ClientBuilder;
+# use boundless_market::contracts::ProofRequest;
+# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::new().build().await?;
+let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+This will send the request onchain in a transaction.
+Using `boundless_client.submit_request_offchain`, you can send your request off-chain through the order-stream service.
+Off-chain requests will not cost any gas, but does require you to deposit funds to the market first.
+
+The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
+
+#### Submit a Request with a Generic Signer.
+The previous step assumes that the *boundless_client* has a private key signer. If you wish to use a different signer that implements the [alloy::signers::Signer](https://docs.rs/alloy/latest/alloy/signers/trait.Signer.html) trait,
+you can use the following code:
+
+<StripRustCodeComments>
+```rust
+# use alloy::signers::Signer;
+# use boundless_market::client::ClientBuilder;
+# use boundless_market::contracts::ProofRequest;
+# async fn submit_request_with_signer(request: ProofRequest, signer: impl Signer) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::new().build().await?;
+let (request_id, expires_at) = boundless_client.submit_request_with_signer(&request, &signer).await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+Similarly, using `boundless_client.submit_request_offchain_with_signer`, will send your request off-chain through the order-stream service.
+
+> Relevant links: [Signers supported by alloy](https://alloy.rs/examples/wallets/index.html)
+
+### 7. Wait for the Request to Be Fulfilled
+
+Once fulfilled, the journal and seal are returned. The journal contains the public outputs of the guest program, and the seal.
+
+<StripRustCodeComments>
+```rust
+# use std::time::Duration;
+# use boundless_market::client::ClientBuilder;
+# use boundless_market::contracts::ProofRequest;
+# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::new().build().await?;
+# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+let (_journal, seal) = boundless_client
+  .wait_for_request_fulfillment(
+    request_id,
+    Duration::from_secs(5), // check every 5 seconds
+    expires_at,
+  )
+  .await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+> Relevant links: [Seal](https://dev.risczero.com/terminology#seal), [Journal](https://dev.risczero.com/terminology#journal)
+
+## Requesting a Proof via the Boundless CLI
+
+In early testing, and when trying out new order parameters, it can be useful to submit a request via the Boundless CLI.
+
+### Installing the Boundless CLI
+
+The Boundless CLI can be installed using Cargo.
+
+You'll need to [install Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html), then you can run the following command to install the CLI.
+
+```sh [Terminal]
+cargo install --locked boundless-cli
+```
+
+### Boundless CLI
+
+The Boundless CLI builds upon the [`boundless_market`](https://docs.rs/boundless-market/latest/boundless_market) library.
+It covers multiple market interactions such as submitting proof requests, cancelling requests, executing dry runs, requesting the status of a given request, retrieving the journal and seal of a fulfilled request and verifying a proof.
+
+To submit a proof, a valid `request.yaml` is required, this config file will specify the parameters of the request:
+
+- Request ID
+  - This can be specified, or if set to 0, a random ID will be assigned.
+- Requirements:
+  - The image ID of the program being proven.
+  - The contents of the outputs of the program, the journal.
+    This is to make sure the outputs are as expected (e.g., to ensure the right input was provided, by checking an input digest committed to the journal).
+- Image URL
+  - The link to the ELF binary stored on any public HTTP server.
+    IPFS, used through a gateway, works well (Boundless will support IPFS URLs natively in the future).
+- Input:
+  - The input bytes are passed to the program for execution.
+    The input can have any encoding. The bytes will be passed to the guest without modification.
+- Offer:
+  - This includes the minimum and maximum price for the proof request, the block number to open bidding, the price ramp up period, how many blocks before the request should timeout, and the lock-in stake the prover has to escrow to submit a bid.
+
+:::note[Note]
+During this current Boundless phase, provers require HP tokens for lock-in stake. They receive 100 HP tokens, so setting 5 per lock-in stake is the recommended amount (i.e., they can fail 20 proof requests before they run out of HP.) Setting it higher may cause provers to deprioritize your proof requests. To learn more about HP tokens, please read [Hitpoint Tokens](/provers/broker#hitpoints-hp-tokens).
+:::
+
+
+Below is an example of a `request.yaml` file that can be used with the `boundless-cli submit-request` command.
+
+```yaml [request.yaml]
+# Unique ID for this request, constructed from the client address and a 32-bit index.
+# Constructed as (address(client) << 32) | index
+id: 0 # if set to 0, gets overwritten by a random id
+
+# Specifies the requirements for the delivered proof, including the program that must be run,
+# and the constraints on the journal's value, which define the statement to be proven.
+requirements:
+  imageId: "722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4"
+  predicate:
+    predicateType: PrefixMatch
+    data: "57656420"
+
+# A public URI where the program (i.e., image) can be downloaded. This URI will be accessed by
+# provers that are evaluating whether to bid on the request.
+imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy"
+
+# Input to be provided to the zkVM guest execution.
+input:
+  inputType: Inline
+  data: "00576564204a756c2020332031343a33373a31322050445420323032340a"
+
+# Offer specifying how much the client is willing to pay to have this request fulfilled
+offer:
+  minPrice: 1000000000000000 # 0.001 Sepolia ETH
+  maxPrice: 2000000000000000 # 0.002 Sepolia ETH
+  biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
+  rampUpPeriod: 100
+  timeout: 300 # 1 hour at 12s block times.
+  lockStake: 5000000000000000000 # 5 Hitpoint Tokens
+```
+
+To submit a request, export or create a `.env` file with the following environment variables:
+
+```sh [Terminal]
+export RPC_URL="https://ethereum-sepolia-rpc.publicnode.com"
+export PRIVATE_KEY="YOUR_SEPOLIA_WALLET_PRIVATE_KEY"
+export BOUNDLESS_MARKET_ADDRESS="0x69c7943DA0D7e45D44Bd0cE7a2412DCdAe423788"
+export SET_VERIFIER_ADDRESS="0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd"
+export ORDER_STREAM_URL="https://order-stream.beboundless.xyz"
+```
+
+Then run the following command:
+
+```sh [Terminal]
+RUST_LOG=info boundless-cli submit-request request.yaml
+```
+
+To wait until the submitted request has been fulfilled, the `--wait` option can be added:
+
+```sh [Terminal]
+# [!code word:--wait]
+RUST_LOG=info boundless-cli submit-request request.yaml --wait
+```
+
+And to submit the request to the off-chain order-stream service, make a deposit and then run `submit-request` with `--offchain`.
+
+```sh [Terminal]
+# [!code word:--offchain]
+RUST_LOG=info boundless-cli deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
+RUST_LOG=info boundless-cli submit-request request.yaml --wait --offchain
+```

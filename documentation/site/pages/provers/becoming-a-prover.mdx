@@ -1,0 +1,46 @@
+# Becoming a Prover
+
+## Who Should Be a Prover?
+
+:::warning[Warning]
+Participation as a prover in the market does not guarantee a reward. **Incentives for provers are not active for this phase**.
+
+Running a competitive prover requires expensive hardware and extensive expertise. We predict that multiple top-of-the-line GPUs (e.g., NVIDIA RTX 4090s) will be necessary to run a competitive prover. This level of investment and technical know-how may be out of reach for most consumer-grade setups.
+:::
+
+For more details on the hardware and technical requirements, please see the [Requirements](/provers/requirements) section.
+
+Becoming a prover is ideal for individuals or organizations with:
+
+* Expertise in running high-performance infrastructure.
+* Spare GPU capacity that can be utilized for proof generation.
+* An understanding of cryptographic protocols and decentralized systems.
+* Proving requires significant computational resources, especially for parallelized GPU proving. Provers must balance hardware investment, operational costs, and the competitive nature of auctions to succeed.
+
+## Prover Responsibilities
+
+The Boundless Market enables anyone with the right infrastructure and expertise to become a prover. Provers play a critical role in the ecosystem by evaluating proof requests, participating in auctions, and generating proofs that fulfill these requests.
+
+As a prover, your responsibilities include:
+
+* **Evaluating Proof Requests**: Assessing the feasibility and cost of fulfilling a request based on factors like program complexity, cycle count, stake requirements, and timeout length.
+* **Participating in Auctions**: Competing in reverse Dutch auctions to win proof-generating opportunities. The auction mechanism ensures that provers who bid first provide the best prices for requestors.
+* **Generating Proofs**: Using high-performance hardware (e.g., GPUs) to generate proofs efficiently and deliver them before the request timeout.
+
+These core operations are implemented in the provided [prover stack](/provers/proving-stack).
+
+## Rewards for Proving
+
+:::warning[Warning]
+Participation as a prover in the market does not guarantee a reward. **Incentives for provers are not active for this phase**.
+:::
+
+Provers are rewarded with payments from the clients for fulfilled proof requests.
+
+Orders will vary in their profitability based on the offer provided by the requestors, and bids placed by competitive provers.
+Filling orders below cost, or failing to deliver on orders the prover has bid on, can result in losses.
+
+## Getting Started as a Prover
+
+While provers can build their own infrastructure from scratch, Boundless provides a [proving stack](/provers/proving-stack) to get started.
+Please see the Boundless Prover [Quick Start](/provers/quick-start).

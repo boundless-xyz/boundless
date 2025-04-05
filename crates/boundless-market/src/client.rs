@@ -482,7 +482,7 @@ where
     /// use risc0_zkvm::ReceiptClaim;
     ///
     /// async fn fetch_set_inclusion_receipt(request_id: U256, image_id: B256) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>)> {
-    ///     let client = ClientBuilder::default().build().await?;
+    ///     let client = ClientBuilder::new().build().await?;
     ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, image_id).await?;
     ///     Ok((journal, receipt))
     /// }
