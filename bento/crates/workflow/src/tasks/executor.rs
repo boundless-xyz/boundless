@@ -26,8 +26,8 @@ use workflow_common::{
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
     },
     CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, KeccakReq, ProveReq, ResolveReq,
-    SnarkReq, UnionReq, AUX_WORK_TYPE, COPROC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
-    SNARK_WORK_TYPE,
+    SnarkReq, UnionReq, AUX_WORK_TYPE, JOIN_WORK_TYPE, KECCAK_RECEIPT_PATH, PROVE_WORK_TYPE,
+    SNARK_WORK_TYPE, UNION_WORK_TYPE,
 };
 // use tempfile::NamedTempFile;
 use tokio::task::{JoinHandle, JoinSet};
@@ -161,25 +161,28 @@ async fn process_task(
             .context("create_task failure during Union creation")?;
         }
         TaskCmd::Finalize => {
-            let keccak_count = u64::from(!tree_task.keccak_depends_on.is_empty());
-            // Optionally create the Resolve task ahead of the finalize
-            let assumption_count = i32::try_from(assumptions.len() as u64 + keccak_count)
-                .context("Invalid assumption count conversion")?;
+            // Handle union work - if we have keccak/union work, treat it specially
+            let has_union_work = !tree_task.keccak_depends_on.is_empty();
+            let keccak_count = if has_union_work { 1 } else { 0 };
+            let assumption_count = (assumptions.len() + keccak_count) as i32;
 
-            let mut prereqs = vec![tree_task.depends_on[0].to_string()];
-            let mut union_max_idx: Option<usize> = None;
+            // Create the resolve task with appropriate prereqs
+            let mut prereqs = vec![format!("{}", tree_task.depends_on[0])];
+            let mut union_max_idx = None;
 
-            if !tree_task.keccak_depends_on.is_empty() {
-                prereqs.push(format!("{}", tree_task.keccak_depends_on[0]));
+            // If we have union work, add it as a prereq and set the union_max_idx
+            if has_union_work {
+                // With union optimization, we only need the highest index of keccak work
                 union_max_idx = Some(tree_task.keccak_depends_on[0]);
+                prereqs.push(format!("{}", tree_task.keccak_depends_on[0]));
             }
 
+            let task_id = "resolve";
             let task_def = serde_json::to_value(TaskType::Resolve(ResolveReq {
                 max_idx: tree_task.depends_on[0],
                 union_max_idx,
             }))
             .context("Failed to serialize resolve req")?;
-            let task_id = "resolve";
 
             taskdb::create_task(
                 pool,
@@ -192,7 +195,7 @@ async fn process_task(
                 args.resolve_timeout * assumption_count,
             )
             .await
-            .context("create_task (resolve) failure during resolve creation")?;
+            .context("create_task (resolve) failure during finalize creation")?;
 
             let task_def = serde_json::to_value(TaskType::Finalize(FinalizeReq {
                 max_idx: tree_task.depends_on[0],
@@ -422,7 +425,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let union_stream = if std::env::var("UNION_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+        taskdb::get_stream(&agent.db_pool, &request.user_id, UNION_WORK_TYPE)
             .await
             .context("Failed to get GPU Union stream")?
             .with_context(|| format!("Customer {} missing gpu union stream", request.user_id))?
@@ -431,7 +434,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, COPROC_WORK_TYPE)
+        taskdb::get_stream(&agent.db_pool, &request.user_id, KECCAK_RECEIPT_PATH)
             .await
             .context("Failed to get GPU Coproc stream")?
             .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?

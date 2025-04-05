@@ -35,21 +35,36 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
     tracing::info!("Completed proof: {job_id} - {index}");
 
-    tracing::info!("lifting {job_id} - {index}");
-    let lift_receipt = agent
-        .prover
-        .as_ref()
-        .context("Missing prover from resolve task")?
-        .lift(&segment_receipt)
-        .with_context(|| format!("Failed to lift segment {index}"))?;
-
-    tracing::info!("lifting complete {job_id} - {index}");
-
+    // Clone necessary data for the cleanup task
+    let pool = agent.redis_pool.clone();
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
-    // Write out lifted receipt
-    let lift_asset = serialize_obj(&lift_receipt).expect("Failed to serialize the segment");
-    redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
-        .await?;
+    let ttl = agent.args.redis_ttl;
 
+    // Spawn a separate task to handle serialization and storage
+    // This allows the main function to return immediately and pick up the next GPU task
+    tokio::spawn(async move {
+        // Serialize the result (CPU-bound)
+        let receipt_asset =
+            serialize_obj(&segment_receipt).expect("Failed to serialize the segment receipt");
+
+        // Store in Redis (I/O bound)
+        let mut conn = match redis::get_connection(&pool).await {
+            Ok(conn) => conn,
+            Err(e) => {
+                tracing::error!("Failed to get Redis connection for cleanup: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) =
+            redis::set_key_with_expiry(&mut conn, &output_key, receipt_asset, Some(ttl)).await
+        {
+            tracing::error!("Failed to store receipt in Redis: {}", e);
+        }
+
+        tracing::info!("Proof result stored: {output_key}");
+    });
+
+    // Return immediately after proof is complete, allowing next GPU task to start
     Ok(())
 }
