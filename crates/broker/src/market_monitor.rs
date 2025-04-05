@@ -347,13 +347,21 @@ mod tests {
         primitives::{Address, U256},
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
+        sol_types::eip712_domain,
     };
-    use boundless_market::contracts::{
-        boundless_market::BoundlessMarketService,
-        test_utils::{deploy_boundless_market, deploy_hit_points},
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+    use boundless_market::{
+        contracts::{
+            boundless_market::BoundlessMarketService,
+            test_utils::{deploy_boundless_market, deploy_contracts, mock_singleton},
+            AssessorReceipt, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
+            Requirements,
+        },
+        input::InputBuilder,
     };
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
+    use guest_util::ECHO_ID;
+    use risc0_ethereum_contracts::set_verifier;
     use risc0_zkvm::sha::Digest;
 
     #[tokio::test]
@@ -461,20 +469,24 @@ mod tests {
         );
         provider.anvil_set_auto_mine(true).await.unwrap();
 
-        let hp_token_address = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
-        let market_address = deploy_boundless_market(
-            signer.address(),
-            provider.clone(),
-            Address::ZERO,
-            hp_token_address,
-            Digest::from(ASSESSOR_GUEST_ID),
-            format!("file://{ASSESSOR_GUEST_PATH}"),
-            Some(signer.address()),
-        )
-        .await
-        .unwrap();
+        let (_verifier_addr, set_verifier_addr, _hit_points_addr, market_address) =
+            deploy_contracts(
+                &anvil,
+                Digest::from(SET_BUILDER_ID),
+                format!("file://{SET_BUILDER_PATH}"),
+                Digest::from(ASSESSOR_GUEST_ID),
+                format!("file://{ASSESSOR_GUEST_PATH}"),
+            )
+            .await
+            .unwrap();
+
         let boundless_market = BoundlessMarketService::new(
             market_address,
+            provider.clone(),
+            provider.default_signer_address(),
+        );
+        let set_verifier = set_verifier::SetVerifierService::new(
+            set_verifier_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -493,36 +505,36 @@ mod tests {
         tokio::spawn(market_monitor.spawn());
 
         // Submit a request
-        let min_price = 1;
-        let max_price = 10;
-        let proving_request = ProofRequest {
-            id: boundless_market.request_id_from_nonce().await.unwrap(),
-            requirements: Requirements::new(
-                Digest::ZERO,
+        let proving_request = ProofRequest::new(
+            0,
+            &provider.default_signer_address(),
+            Requirements::new(
+                Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
-            imageUrl: "test".to_string(),
-            input: Input { inputType: InputType::Url, data: Default::default() },
-            offer: Offer {
-                minPrice: U256::from(min_price),
-                maxPrice: U256::from(max_price),
-                biddingStart: now_timestamp() - 5,
-                timeout: 5000,
-                lockTimeout: 1000,
+            "http://image_uri.null",
+            InputBuilder::new().build_inline().unwrap(),
+            Offer {
+                minPrice: U256::from(20000000000000u64),
+                maxPrice: U256::from(40000000000000u64),
+                biddingStart: now_timestamp(),
+                timeout: 100,
                 rampUpPeriod: 1,
                 lockStake: U256::from(0),
+                lockTimeout: 100,
             },
-        };
+        );
         boundless_market.submit_request(&proving_request, &signer).await.unwrap();
 
         // Wait for the block to be mined and the order to be detected
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
         // Ensure it was detected
-        let order = db.get_order(proving_request.id).await.unwrap();
-        assert!(order.is_some());
+        let order = db.get_order(proving_request.id).await.unwrap().expect("Order not found");
+        assert_eq!(order.status, OrderStatus::New);
 
         // lock it in and fill it without using order_picker
+        // this relies on the event detection path for setting the order to Done
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig = proving_request
             .sign_request(&signer, market_address, chain_id)
@@ -530,6 +542,38 @@ mod tests {
             .unwrap()
             .as_bytes();
         boundless_market.lock_request(&proving_request, &client_sig.into(), None).await.unwrap();
+        assert!(boundless_market.is_locked(proving_request.id).await.unwrap());
+        assert!(
+            boundless_market
+                .get_status(proving_request.id, Some(proving_request.expires_at()))
+                .await
+                .unwrap()
+                == RequestStatus::Locked
+        );
+
+        let eip712_domain = eip712_domain! {
+            name: "IBoundlessMarket",
+            version: "1",
+            chain_id: anvil.chain_id(),
+            verifying_contract: *boundless_market.instance().address(),
+        };
+        let (root, set_verifier_seal, fulfillment, assessor_seal) =
+            mock_singleton(&proving_request, eip712_domain, signer.address());
+
+        // publish the committed root
+        set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
+
+        let assessor_fill = AssessorReceipt {
+            seal: assessor_seal,
+            selectors: vec![],
+            prover: signer.address(),
+            callbacks: vec![],
+        };
+        // fulfill the request
+        boundless_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
+
+        // Wait for the block to be mined and the event to be detected
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
         // Ensure the order was set to filled in the db
         let order = db.get_order(proving_request.id).await.unwrap().unwrap();

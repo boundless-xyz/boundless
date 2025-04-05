@@ -1350,10 +1350,10 @@ mod tests {
     use crate::{
         contracts::{
             hit_points::default_allowance,
+            test_utils::mock_singleton,
             test_utils::{create_test_ctx, TestCtx},
-            AssessorCommitment, AssessorJournal, AssessorReceipt, Fulfillment, IBoundlessMarket,
-            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestStatus,
-            Requirements,
+            AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType, Offer, Predicate,
+            PredicateType, ProofRequest, RequestStatus, Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1363,20 +1363,13 @@ mod tests {
         node_bindings::Anvil,
         primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256},
         providers::Provider,
-        sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
+        sol_types::eip712_domain,
     };
     use alloy_sol_types::SolCall;
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use guest_util::ECHO_ID;
-    use risc0_aggregation::{
-        merkle_root, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
-    };
-    use risc0_ethereum_contracts::encode_seal;
-    use risc0_zkvm::{
-        sha::{Digest, Digestible},
-        FakeReceipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
-    };
+    use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
     fn ether(value: &str) -> U256 {
@@ -1415,77 +1408,6 @@ mod tests {
                 lockTimeout: 100,
             },
         )
-    }
-
-    fn to_b256(digest: Digest) -> B256 {
-        <[u8; 32]>::from(digest).into()
-    }
-
-    fn mock_singleton(
-        request: &ProofRequest,
-        eip712_domain: Eip712Domain,
-        prover: Address,
-    ) -> (B256, Bytes, Fulfillment, Bytes) {
-        let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
-        let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
-        let app_claim_digest = app_receipt_claim.digest();
-        let request_digest = request.eip712_signing_hash(&eip712_domain);
-        let assessor_root = AssessorCommitment {
-            index: U256::ZERO,
-            id: request.id,
-            requestDigest: request_digest,
-            claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
-        }
-        .eip712_hash_struct();
-        let assessor_journal =
-            AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
-        let assesor_receipt_claim =
-            ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
-        let assessor_claim_digest = assesor_receipt_claim.digest();
-
-        let set_builder_root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
-        let set_builder_journal = {
-            let mut state = GuestState::initial(SET_BUILDER_ID);
-            state.mmr.push(set_builder_root).unwrap();
-            state.mmr.finalize().unwrap();
-            state.encode()
-        };
-        let set_builder_receipt_claim =
-            ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.clone());
-
-        let set_builder_receipt = Receipt::new(
-            InnerReceipt::Fake(FakeReceipt::new(set_builder_receipt_claim)),
-            set_builder_journal,
-        );
-        let set_builder_seal = encode_seal(&set_builder_receipt).unwrap();
-
-        let verifier_parameters =
-            SetInclusionReceiptVerifierParameters { image_id: Digest::from(SET_BUILDER_ID) };
-        let set_inclusion_seal = SetInclusionReceipt::from_path_with_verifier_params(
-            ReceiptClaim::ok(ECHO_ID, MaybePruned::Pruned(app_journal.digest())),
-            vec![assessor_claim_digest],
-            verifier_parameters.digest(),
-        )
-        .abi_encode_seal()
-        .unwrap();
-
-        let fulfillment = Fulfillment {
-            id: request.id,
-            requestDigest: request_digest,
-            imageId: to_b256(Digest::from(ECHO_ID)),
-            journal: app_journal.bytes.into(),
-            seal: set_inclusion_seal.into(),
-        };
-
-        let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
-            ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
-            vec![app_claim_digest],
-            verifier_parameters.digest(),
-        )
-        .abi_encode_seal()
-        .unwrap();
-
-        (to_b256(set_builder_root), set_builder_seal.into(), fulfillment, assessor_seal.into())
     }
 
     #[test]
