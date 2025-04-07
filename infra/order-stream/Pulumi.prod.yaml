@@ -1,0 +1,15 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFbg5nvMJmPnKL+vxE26VVZAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM+7vXnl3TWSIEQyF8AgEQgDvDtCGEpdTqbsUEHrCHJY6BWlSg/v0mQiTR2SBzOoAqZ3T4CMV5r1ER6x5E0Zg3sp+q+I3sbfoEh/VFVQ==
+config:
+  aws:region: us-west-2
+  order-stream:BASE_STACK: organization/bootstrap/services-prod
+  order-stream:BOUNDLESS_ADDRESS: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
+  order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
+  order-stream:DOCKER_DIR: ../../
+  order-stream:DOCKER_TAG: latest
+  order-stream:MIN_BALANCE: "0.0010"
+  order-stream:ORDER_STREAM_PING_TIME: "100"
+  order-stream:ETH_RPC_URL:
+    secure: v1:jMxoiAdaFoB9WAJT:g1NrUTgO6qv3wZqomw4mgtuW43E3Vpu093zhFav17uyr1971GQo6Ngsy9AywFLQBSuwNEViIugZ/I5KOIJW1qgM7ieQTpkhsaeXjL4Sz9tQJ01g2bg==
+  order-stream:RDS_PASSWORD:
+    secure: v1:dJD9V4HJRNUodRNi:P3NeEgkC+taYmae8PsFSwSs+/RETOtRA/qO/ibHFizvYBw==
