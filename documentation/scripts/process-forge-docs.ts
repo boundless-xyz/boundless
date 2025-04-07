@@ -73,7 +73,7 @@ Our smart contracts are built using Solidity and are organized into several key 
   for (const file of files) {
     const originalName = path.basename(file, ".md");
     const sanitizedName = sanitizeFileName(originalName).replace(".md", "");
-    const link = `/developers/smart-contracts/${sanitizedName}`;
+    const link = `/developers/smart-contracts/reference/${sanitizedName}`;
     const entry = `- [${originalName}](${link})`;
 
     if (originalName.startsWith("interface.") || originalName.startsWith("I")) {
