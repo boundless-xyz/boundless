@@ -138,7 +138,8 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
             };
 
             if let Err(e) =
-                redis::set_key_with_expiry(&mut conn, &output_key_clone, receipt_asset, Some(ttl)).await
+                redis::set_key_with_expiry(&mut conn, &output_key_clone, receipt_asset, Some(ttl))
+                    .await
             {
                 tracing::error!("Failed to store receipt in Redis: {}", e);
             } else {
