@@ -3,7 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { getEnvVar, ChainId, getServiceName } from "../util";
+import { getEnvVar, ChainId, getServiceNameV1 } from "../util";
 
 export = () => {
   // Read config
@@ -11,7 +11,7 @@ export = () => {
 
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  const serviceName = getServiceName(stackName, "bonsai-prover", ChainId.SEPOLIA);
+  const serviceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
   
   const baseStackName = config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
@@ -51,7 +51,7 @@ export = () => {
   });
 
   const brokerS3Bucket = new aws.s3.Bucket(serviceName, {
-    bucketPrefix: `boundless-${serviceName}`,
+    bucketPrefix: serviceName,
     tags: {
       Name: serviceName,
     },

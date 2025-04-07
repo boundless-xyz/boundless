@@ -2,13 +2,13 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-import { ChainId, getServiceName, getEnvVar } from '../util';
+import { ChainId, getServiceNameV1, getEnvVar } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  const serviceName = getServiceName(stackName, "order-slasher", ChainId.SEPOLIA);
+  const serviceName = getServiceNameV1(stackName, "order-slasher", ChainId.SEPOLIA);
   
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
