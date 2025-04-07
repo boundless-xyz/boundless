@@ -2,21 +2,13 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-
-const getEnvVar = (name: string) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Environment variable ${name} is not set`);
-  }
-  return value;
-};
+import { ChainId, getServiceNameV1, getEnvVar } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : `${stackName}-`;
-  const serviceName = `${prefix}order-slasher`;
+  const serviceName = getServiceNameV1(stackName, "order-slasher", ChainId.SEPOLIA);
   
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
@@ -34,6 +26,8 @@ export = () => {
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
+
+  const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
 
   const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
   new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
@@ -140,7 +134,7 @@ export = () => {
   });
 
   const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
-  new awsx.ecs.FargateService(
+  const service = new awsx.ecs.FargateService(
     `${serviceName}-service`,
     {
       name: serviceName,
@@ -191,4 +185,44 @@ export = () => {
     },
     { dependsOn: [execRole, execRolePolicy] }
   );
+
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
+    name: `${serviceName}-log-err-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-err`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: '?ERROR ?error ?Error',
+  }, { dependsOn: [service] });
+
+  const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
+    name: `${serviceName}-log-err`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-err`,
+          period: 60,
+          stat: 'Sum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    // >=2 error periods per hour
+    evaluationPeriods: 60,
+    period: 60,
+    datapointsToAlarm: 2,
+    treatMissingData: 'notBreaching',
+    alarmDescription: 'Order generator log ERROR level',
+    actionsEnabled: true,
+    alarmActions,
+  });
 };

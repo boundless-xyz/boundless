@@ -2,21 +2,13 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-
-const getEnvVar = (name: string) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Environment variable ${name} is not set`);
-  }
-  return value;
-};
+import { ChainId, getServiceNameV1, getEnvVar } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : `${stackName}-`;
-  const serviceName = `${prefix}order-generator`;
+  const serviceName = getServiceNameV1(stackName, "order-generator", ChainId.SEPOLIA);
 
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const pinataJWT = isDev ? getEnvVar("PINATA_JWT") : config.requireSecret('PINATA_JWT');
@@ -36,7 +28,7 @@ export = () => {
   const minPricePerMCycle = config.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = config.require('MAX_PRICE_PER_MCYCLE');
   const baseStackName = config.require('BASE_STACK');
-
+  const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
@@ -228,4 +220,33 @@ export = () => {
     },
     pattern: '?ERROR ?error ?Error',
   }, { dependsOn: [service] });
+
+  const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
+    name: `${serviceName}-log-err`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-err`,
+          period: 60,
+          stat: 'Sum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    // >=2 error periods per hour
+    evaluationPeriods: 60,
+    period: 60,
+    datapointsToAlarm: 2,
+    treatMissingData: 'notBreaching',
+    alarmDescription: 'Order generator log ERROR level',
+    actionsEnabled: true,
+    alarmActions,
+  });
+  
 };
