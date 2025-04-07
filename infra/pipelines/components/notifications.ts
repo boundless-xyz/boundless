@@ -2,7 +2,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 
 export class Notifications extends pulumi.ComponentResource {
-  public snsTopic: aws.sns.Topic;
+  public slackSNSTopic: aws.sns.Topic;
 
   constructor(
     name: string,
@@ -32,7 +32,7 @@ export class Notifications extends pulumi.ComponentResource {
           ],
       },
       managedPolicyArns: [
-        'arn:aws:iam::aws:policy/AmazonSNSFullAccess',
+        'arn:aws:iam::aws:policy/AmazonSNSReadOnlyAccess',
         'arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess',
         'arn:aws:iam::aws:policy/AmazonQDeveloperAccess',
         'arn:aws:iam::aws:policy/AIOpsOperatorAccess',
@@ -40,11 +40,11 @@ export class Notifications extends pulumi.ComponentResource {
     });
 
     // Create an SNS topic for the alerts
-    this.snsTopic = new aws.sns.Topic("boundless-alerts-topic", { name: "boundless-alerts-topic" });
+    this.slackSNSTopic = new aws.sns.Topic("boundless-alerts-topic", { name: "boundless-alerts-topic" });
 
     // Create a policy that allows the service accounts to publish to the SNS topic
     // https://repost.aws/knowledge-center/cloudwatch-cross-account-sns
-    const snsTopicPolicy = this.snsTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+    const snsTopicPolicy = this.slackSNSTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
       statements: [
         ...serviceAccountIds.map(serviceAccountId => ({
           actions: [
@@ -53,7 +53,7 @@ export class Notifications extends pulumi.ComponentResource {
           effect: "Allow",
           principals: [{
               type: "AWS",
-              identifiers: ["*"],
+              identifiers: ["*"], // Restricted by the condition below.
           }],
           resources: [arn],
           conditions: [{
@@ -77,7 +77,7 @@ export class Notifications extends pulumi.ComponentResource {
 
     // Attach the policy to the SNS topic
     new aws.sns.TopicPolicy("service-accounts-publish-policy", {
-        arn: this.snsTopic.arn,
+        arn: this.slackSNSTopic.arn,
         policy: snsTopicPolicy.apply(snsTopicPolicy => snsTopicPolicy.json),
     });
 
@@ -88,7 +88,7 @@ export class Notifications extends pulumi.ComponentResource {
         iamRoleArn: chatbotRole.arn,
         slackChannelId: slackChannelId,
         slackTeamId: slackTeamId,
-        snsTopicArns: [this.snsTopic.arn],
+        snsTopicArns: [this.slackSNSTopic.arn],
         loggingLevel: "INFO",
       }));
     

@@ -100,7 +100,7 @@ const proverPipeline = new ProverPipeline("proverPipeline", {
   githubToken,
   dockerUsername,
   dockerToken,
-  slackAlertsTopicArn: notifications.snsTopic.arn,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
 })
 
 const orderGeneratorPipeline = new OrderGeneratorPipeline("orderGeneratorPipeline", {
@@ -110,7 +110,7 @@ const orderGeneratorPipeline = new OrderGeneratorPipeline("orderGeneratorPipelin
   githubToken,
   dockerUsername,
   dockerToken,
-  slackAlertsTopicArn: notifications.snsTopic.arn,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
 })
 
 const slasherPipeline = new SlasherPipeline("slasherPipeline", {
@@ -120,9 +120,9 @@ const slasherPipeline = new SlasherPipeline("slasherPipeline", {
   githubToken,
   dockerUsername,
   dockerToken,
-  slackAlertsTopicArn: notifications.snsTopic.arn,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
 })
 
 export const bucketName = pulumiStateBucket.bucket.id;
 export const kmsKeyArn = pulumiSecrets.kmsKey.arn;
-export const boundlessAlertsTopicArn = notifications.snsTopic.arn;
+export const boundlessAlertsTopicArn = notifications.slackSNSTopic.arn;
