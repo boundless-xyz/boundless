@@ -4,6 +4,13 @@
 
 use std::sync::Arc;
 
+use crate::{
+    config::ConfigLock,
+    db::DbObj,
+    provers::{ProverError, ProverObj},
+    task::{RetryRes, RetryTask, SupervisorErr},
+    Order,
+};
 use crate::{now_timestamp, provers::ProofResult};
 use alloy::{
     network::Ethereum,
@@ -20,13 +27,6 @@ use boundless_market::{
 };
 use thiserror::Error;
 use tokio::task::JoinSet;
-use crate::{
-    config::ConfigLock,
-    db::DbObj,
-    provers::{ProverError, ProverObj},
-    task::{RetryRes, RetryTask, SupervisorErr},
-    Order,
-};
 
 const MAX_PRICING_BATCH_SIZE: u32 = 10;
 
@@ -48,7 +48,6 @@ pub enum PriceOrderErr {
     #[error("Other: {0}")]
     OtherErr(#[from] anyhow::Error),
 }
-
 
 #[derive(Clone)]
 pub struct OrderPicker<P> {
