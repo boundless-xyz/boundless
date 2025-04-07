@@ -23,7 +23,7 @@ function fixInternalLinks(content: string) {
     // Sanitize it for our new structure
     const sanitizedName = fileName.replace(/\./g, "-");
 
-    return `[${linkText}](/developers/smart-contracts/${sanitizedName})`;
+    return `[${linkText}](/developers/smart-contracts/reference/${sanitizedName})`;
   });
 }
 
