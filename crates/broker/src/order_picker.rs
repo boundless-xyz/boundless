@@ -20,6 +20,15 @@ use boundless_market::{
 };
 use thiserror::Error;
 use tokio::task::JoinSet;
+use crate::{
+    config::ConfigLock,
+    db::DbObj,
+    provers::{ProverError, ProverObj},
+    task::{RetryRes, RetryTask, SupervisorErr},
+    Order,
+};
+
+const MAX_PRICING_BATCH_SIZE: u32 = 10;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -40,13 +49,6 @@ pub enum PriceOrderErr {
     OtherErr(#[from] anyhow::Error),
 }
 
-use crate::{
-    config::ConfigLock,
-    db::DbObj,
-    provers::{ProverError, ProverObj},
-    task::{RetryRes, RetryTask, SupervisorErr},
-    Order,
-};
 
 #[derive(Clone)]
 pub struct OrderPicker<P> {
@@ -570,13 +572,15 @@ enum Capacity {
 }
 
 impl Capacity {
+    /// Returns the number of orders to request from the DB to price. Capped at
+    /// [MAX_PRICING_BATCH_SIZE] to limit pricing tasks spawned.
     fn request_size(&self, pricing_tasks: usize) -> u32 {
         match self {
             Capacity::Idle(capacity) | Capacity::PartiallyLocked(capacity) => std::cmp::min(
                 capacity.saturating_sub(u32::try_from(pricing_tasks).expect("tasks u32 overflow")),
-                10,
+                MAX_PRICING_BATCH_SIZE,
             ),
-            Capacity::Unlimited => 10,
+            Capacity::Unlimited => MAX_PRICING_BATCH_SIZE,
         }
     }
     fn increment_locked_order(&mut self) {
