@@ -1,13 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import { OrderStreamInstance } from './components/order-stream';
-
-const getEnvVar = (name: string) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Environment variable ${name} is not set`);
-  }
-  return value;
-};
+import { ChainId, getEnvVar } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
@@ -35,7 +28,7 @@ export = () => {
   const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS') as pulumi.Output<string[]>;
 
   const orderStreamSepolia = new OrderStreamInstance('order-stream-sepolia', {
-    chainId: '11155111',
+    chainId: ChainId.SEPOLIA,
     ciCacheSecret,
     dockerDir,
     dockerTag,

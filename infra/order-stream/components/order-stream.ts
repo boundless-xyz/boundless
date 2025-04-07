@@ -3,6 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
+import { ChainId, getServiceNameV1 } from '../../util';
 
 const SERVICE_NAME_BASE = 'order-stream';
 
@@ -21,7 +22,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
   constructor(
     name: string,
     args: {
-      chainId: string;
+      chainId: ChainId;
       ciCacheSecret?: pulumi.Output<string>;
       dockerDir: string;
       dockerTag: string;
@@ -62,9 +63,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     } = args;
     
     const stackName = pulumi.getStack();
-    const isDev = stackName === "dev";
-    const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : `${stackName}-`;
-    const serviceName = `${prefix}${SERVICE_NAME_BASE}-${chainId}`;
+    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE, chainId);
 
     const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
       lifecyclePolicy: {
