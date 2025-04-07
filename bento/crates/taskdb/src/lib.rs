@@ -194,6 +194,19 @@ pub async fn request_work(
     }
 }
 
+pub async fn request_work_block(
+    pool: &PgPool,
+    worker_type: &str,
+) -> Result<Vec<ReadyTask>, TaskDbErr> {
+    let res = sqlx::query_as!(ReadyTaskRaw, "SELECT * FROM request_work_block($1, $2)", worker_type, 5)
+        .fetch_all(pool)
+        .await?;
+
+    Ok(res.into_iter()
+        .filter_map(|task| task.get())
+        .collect())
+}
+
 pub async fn update_task_done(
     pool: &PgPool,
     job_id: &Uuid,

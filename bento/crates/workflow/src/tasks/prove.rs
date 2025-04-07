@@ -76,6 +76,77 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         }
     });
 
-    // Return immediately after proof is complete, allowing next GPU task to start
+    // Check if there's a next segment to process (index + 1)
+    let next_index = index + 1;
+    let next_segment_key = format!("{job_prefix}:{SEGMENTS_PATH}:{next_index}");
+
+    // Try to fetch the next segment data
+    if let Ok(segment_vec) = conn.get::<_, Vec<u8>>(&next_segment_key).await {
+        let next_task_id = format!("{task_id}_next");
+        let next_output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{next_task_id}");
+
+        tracing::info!("Found next segment, processing: {job_id} - {next_index}");
+
+        // Deserialize the segment
+        let segment = match deserialize_obj(&segment_vec) {
+            Ok(seg) => seg,
+            Err(e) => {
+                tracing::error!("Failed to deserialize next segment data: {}", e);
+                return Ok(()); // Return successfully from the first segment
+            }
+        };
+
+        // Perform the proof operation for the second segment
+        let segment_receipt = match agent
+            .prover
+            .as_ref()
+            .context("Missing prover from prove task")?
+            .prove_segment(&agent.verifier_ctx, &segment)
+        {
+            Ok(receipt) => receipt,
+            Err(e) => {
+                tracing::error!("Failed to prove next segment: {}", e);
+                return Ok(()); // Return successfully from the first segment
+            }
+        };
+
+        tracing::info!("Completed proof of second segment: {job_id} - {next_index}");
+
+        // Clone necessary data for the cleanup task
+        let pool = agent.redis_pool.clone();
+        let ttl = agent.args.redis_ttl;
+        let output_key_clone = next_output_key.clone();
+
+        // Spawn a separate task to handle serialization and storage
+        tokio::spawn(async move {
+            // Serialize the result (CPU-bound)
+            let receipt_asset = match serialize_obj(&segment_receipt) {
+                Ok(asset) => asset,
+                Err(e) => {
+                    tracing::error!("Failed to serialize the segment receipt: {}", e);
+                    return;
+                }
+            };
+
+            // Store in Redis (I/O bound)
+            let mut conn = match redis::get_connection(&pool).await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    tracing::error!("Failed to get Redis connection for cleanup: {}", e);
+                    return;
+                }
+            };
+
+            if let Err(e) =
+                redis::set_key_with_expiry(&mut conn, &output_key_clone, receipt_asset, Some(ttl)).await
+            {
+                tracing::error!("Failed to store receipt in Redis: {}", e);
+            } else {
+                tracing::info!("Proof result stored: {output_key_clone}");
+            }
+        });
+    }
+
+    // Return immediately after proof(s) are complete, allowing next GPU task to start
     Ok(())
 }
