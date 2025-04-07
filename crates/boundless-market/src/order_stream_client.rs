@@ -38,15 +38,15 @@ use utoipa::ToSchema;
 use crate::contracts::{eip712_domain, ProofRequest, RequestError};
 
 /// Order stream submission API path.
-pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
+pub const ORDER_SUBMISSION_PATH: &str = "/api/v1/submit_order";
 /// Order stream order list API path.
-pub const ORDER_LIST_PATH: &str = "/api/orders";
+pub const ORDER_LIST_PATH: &str = "/api/v1/orders";
 /// Order stream nonce API path.
-pub const AUTH_GET_NONCE: &str = "/api/nonce/";
+pub const AUTH_GET_NONCE: &str = "/api/v1/nonce/";
 /// Order stream health check API path.
-pub const HEALTH_CHECK: &str = "/api/health";
+pub const HEALTH_CHECK: &str = "/api/v1/health";
 /// Order stream websocket path.
-pub const ORDER_WS_PATH: &str = "/ws/orders";
+pub const ORDER_WS_PATH: &str = "/ws/v1/orders";
 
 /// Error body for API responses
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
