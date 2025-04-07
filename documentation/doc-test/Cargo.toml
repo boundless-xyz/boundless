@@ -16,6 +16,7 @@ alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = "1.0"
 boundless-market = { workspace = true }
+risc0-steel = { git = "https://github.com/risc0/risc0-ethereum", tag = "v2.0.0", features = ["host", "unstable-history"] }
 risc0-zkvm = { workspace = true, default-features = false, features = ["std"] }
 tracing = { workspace = true }
 url = { workspace = true }

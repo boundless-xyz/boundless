@@ -49,8 +49,6 @@ const BUILD_SPEC = `
           - pulumi up --yes
     `;
 
-// A sample deployment pipeline that deploys to the staging account, then requires a manual approval before
-// deploying to prod.
 export class ProverPipeline extends pulumi.ComponentResource {
   constructor(name: string, args: ProverPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
     super(`boundless:pipelines:${APP_NAME}Pipeline`, name, args, opts);

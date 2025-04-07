@@ -1,0 +1,15 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEr0ZJEO4dhQ1TcmzPl5RdoAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMv7kVvHyDIG5k3eROAgEQgDsjYA0oc2IvwF8i9snHCzZLqIS7m5MXWhDp++g8vXjT5YgqWtPuterOHYDss1R6C3cgaVv2+ow/d63q3A==
+config:
+  slasher:ETH_RPC_URL:
+    secure: v1:92vPAHoXvEXusN0k:1iHDNvjg+G2O60ZRU7WBLuUF//k7BamDzngbk4AvLxvOGbpxRN7rhhTuVlWPcqmo43g3YrXwgLDWpRiP6DCbik2lAFCpDStNeLM6bFuPp/t6gFchDg==
+  slasher:PRIVATE_KEY:
+    secure: v1:PS8c2ejmKEwjLkJb:yi3puIt9/XPmDuTKjc4m8GyGhpehesDTrwSVdnkrVCkLFvcOq+Lt5vXICRbawHR4VjPaegvQjGJOeP67XLBWiP1rKViAEz0AJp6eOo96GwE=
+  slasher:BASE_STACK: organization/bootstrap/services-prod
+  slasher:BOUNDLESS_MARKET_ADDR: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
+  slasher:DOCKER_DIR: ../../
+  slasher:DOCKER_TAG: latest
+  slasher:INTERVAL: "60"
+  slasher:LOG_LEVEL: info
+  slasher:RETRIES: "5"
+  slasher:SKIP_ADDRESSES: 0x52792d081461e5c874e78f90360e3320b2960cc5,0xf8087e8f3ba5fc4865eda2fcd3c05846982da136
