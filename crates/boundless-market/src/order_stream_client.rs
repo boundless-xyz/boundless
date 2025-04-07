@@ -335,7 +335,8 @@ impl Client {
         };
 
         // Create the WebSocket request
-        let mut request = ws_url.into_client_request().context("failed to create request")?;
+        let mut request =
+            ws_url.clone().into_client_request().context("failed to create request")?;
         request
             .headers_mut()
             .insert("X-Auth-Data", auth_json.parse().context("failed to parse auth message")?);
@@ -349,10 +350,20 @@ impl Client {
                 } else {
                     "Empty http error body".into()
                 };
-                anyhow::bail!("Failed to connect to ws endpoint: {} {}", self.base_url, http_err);
+                anyhow::bail!(
+                    "Failed to connect to ws endpoint ({}): {} {}",
+                    ws_url,
+                    self.base_url,
+                    http_err
+                );
             }
             Err(err) => {
-                anyhow::bail!("Failed to connect to ws endpoint: {} {err:?}", self.base_url);
+                anyhow::bail!(
+                    "Failed to connect to ws endpoint ({}): {} {}",
+                    ws_url,
+                    self.base_url,
+                    err
+                );
             }
         };
         Ok(socket)
