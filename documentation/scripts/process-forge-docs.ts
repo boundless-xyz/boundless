@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const SOURCE_DIR = "site/pages/tmp";
-const TARGET_DIR = "site/pages/developers/smart-contracts";
+const TARGET_DIR = "site/pages/developers/smart-contracts/reference";
 
 function sanitizeFileName(name: string) {
   const baseName = path.basename(name, ".md");

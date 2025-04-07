@@ -78,11 +78,11 @@ const DEVELOPERS_ITEMS = [
         text: "Smart Contracts",
         items: [
           {
-            text: "Boundless Smart Contract Reference",
-            link: "/developers/smart-contracts/smart-contract-docs",
+            text: "Boundless Contracts",
+            link: "/developers/smart-contracts/reference",
           },
           {
-            text: "RISC Zero Verifier Contracts",
+            text: "Verifier Contracts",
             link: "/developers/smart-contracts/verifier-contracts",
           },
           {
