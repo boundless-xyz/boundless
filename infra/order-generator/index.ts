@@ -2,21 +2,12 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-
-const getEnvVar = (name: string) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Environment variable ${name} is not set`);
-  }
-  return value;
-};
+import { ChainId, getServiceName, getEnvVar } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
-  const stackName = pulumi.getStack();
-  const isDev = stackName === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : `${stackName}-`;
-  const serviceName = `${prefix}order-generator`;
+  const isDev = pulumi.getStack() === "dev";
+  const serviceName = getServiceName("order-generator", ChainId.SEPOLIA);
 
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const pinataJWT = isDev ? getEnvVar("PINATA_JWT") : config.requireSecret('PINATA_JWT');

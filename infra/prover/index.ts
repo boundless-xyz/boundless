@@ -3,16 +3,15 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { getEnvVar } from "./util/env";
+import { getEnvVar } from "../util";
+import { ChainId, getServiceName } from "../util";
 
 export = () => {
   // Read config
   const config = new pulumi.Config();
 
-  const stackName = pulumi.getStack();
-  const isDev = stackName === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : `${stackName}-`;
-  const serviceName = `${prefix}bonsai-prover`;
+  const isDev = pulumi.getStack() === "dev";
+  const serviceName = getServiceName("bonsai-prover", ChainId.SEPOLIA);
   
   const baseStackName = config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
