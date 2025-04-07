@@ -18,3 +18,4 @@ config:
     secure: v1:R52O8izvZ2+jGU85:MXZSycsixFnVqErtbAvq5giYtIl5z8BOVwyDPgYHXAtuWzx3vqJ0gLYtR8fDiZDdqt2zvnroPfc=
   prover:GH_TOKEN_SECRET:
     secure: v1:uKW8SunjoJPWAf4l:GS38MomZJucbvxMfnp4PqigyTT4X7W9inHFdb53FOAXzhlpwIgL5fMURRviScfJaxE2l8chc+VALgMIywDoNFsc7kEvU8G/QerwZ1SWYhlLuu4w1IRi9sgrWGDhQmz62fSMYeNuNaaZG2LdZew==
+  prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic

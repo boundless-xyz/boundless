@@ -26,6 +26,6 @@ Once the dev stack is stable, these steps create staging and prod stacks in prep
 
 Requires Ops Admin permissions. Create staging and prod stacks requires accessing the Pulumi state bucket and Pulumi KMS key for encrypting secrets.
 
-7. `pulumi login s3://boundless-pulumi-state?region=us-west-2&awssdk=v2&profile=aws-profile` 
+7. `pulumi login "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"` 
 8. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" staging`
 9. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" prod`

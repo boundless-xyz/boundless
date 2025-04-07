@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@risc0/ui": "0.0.275",
-    "lightgallery": "2.8.3",
     "markdown-link-check": "3.13.7",
     "remark": "15.0.1",
     "remark-cli": "12.0.1",
@@ -39,5 +38,5 @@
     "vite-plugin-sitemap": "0.7.1",
     "vocs": "1.0.11"
   },
-  "packageManager": "bun@1.2.6"
+  "packageManager": "bun@1.2.7"
 }

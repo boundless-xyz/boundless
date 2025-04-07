@@ -3,15 +3,15 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { getEnvVar } from "./util/env";
+import { getEnvVar, ChainId, getServiceNameV1 } from "../util";
 
 export = () => {
   // Read config
   const config = new pulumi.Config();
 
-  const isDev = pulumi.getStack() === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : "";
-  const serviceName = `${prefix}bonsai-prover`;
+  const stackName = pulumi.getStack();
+  const isDev = stackName === "dev";
+  const serviceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
   
   const baseStackName = config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
@@ -30,7 +30,8 @@ export = () => {
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const orderStreamUrl = config.require('ORDER_STREAM_URL');
   const brokerTomlPath = config.require('BROKER_TOML_PATH')
-  
+  const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+
   const ethRpcUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-brokerEthRpc`);
   const _ethRpcUrlSecretSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-brokerEthRpc`, {
     secretId: ethRpcUrlSecret.id,
@@ -50,7 +51,7 @@ export = () => {
   });
 
   const brokerS3Bucket = new aws.s3.Bucket(serviceName, {
-    bucketPrefix: `boundless-${serviceName}`,
+    bucketPrefix: serviceName,
     tags: {
       Name: serviceName,
     },
@@ -361,4 +362,30 @@ export = () => {
     },
     pattern: '?"Locked order" ?"locked order" ?"Order locked"',
   }, { dependsOn: [service] });
+
+  const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
+    name: `${serviceName}-log-err`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-err`,
+          period: 60,
+          stat: 'Maximum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    treatMissingData: 'notBreaching',
+    alarmDescription: `ERROR log detected for ${serviceName}`,
+    actionsEnabled: true,
+    alarmActions,
+  });
 };
