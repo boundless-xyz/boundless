@@ -6,8 +6,9 @@ import { ChainId, getServiceName, getEnvVar } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
-  const isDev = pulumi.getStack() === "dev";
-  const serviceName = getServiceName("order-generator", ChainId.SEPOLIA);
+  const stackName = pulumi.getStack();
+  const isDev = stackName === "dev";
+  const serviceName = getServiceName(stackName, "order-generator", ChainId.SEPOLIA);
 
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const pinataJWT = isDev ? getEnvVar("PINATA_JWT") : config.requireSecret('PINATA_JWT');

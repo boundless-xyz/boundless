@@ -1,5 +1,3 @@
-import * as pulumi from "@pulumi/pulumi";
-
 export enum ChainId {
   SEPOLIA = "11155111",
 }
@@ -12,8 +10,7 @@ export const getEnvVar = (name: string) => {
   return value;
 };
 
-export const getServiceName = (name: string, chainId: ChainId) => {
-  const stackName = pulumi.getStack();
+export const getServiceName = (stackName: string, name: string, chainId: ChainId) => {
   const isDev = stackName === "dev";
   const prefix = isDev ? `${getEnvVar("DEV_NAME")}` : `${stackName}`;
   return `${prefix}-${name}-${chainId}`;
