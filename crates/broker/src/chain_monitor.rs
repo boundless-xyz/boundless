@@ -3,14 +3,10 @@
 // All rights reserved.
 
 use alloy_chains::NamedChain;
-use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
-use tokio::sync::watch;
-use tokio::sync::Notify;
-use tokio::sync::RwLock;
+use std::{sync::Arc, time::{Duration, Instant}};
+use tokio::sync::{watch, Notify, RwLock};
 
-use alloy::providers::Provider;
+use alloy::{providers::Provider, eips::BlockNumberOrTag};
 use anyhow::{Context, Result};
 
 use crate::task::{RetryRes, RetryTask, SupervisorErr};
@@ -19,7 +15,8 @@ use crate::task::{RetryRes, RetryTask, SupervisorErr};
 pub struct ChainMonitorService<P> {
     provider: Arc<P>,
     block_number: watch::Sender<u64>,
-    block_timestamp: Arc<RwLock<Option<u64>>>,
+    block_timestamp: watch::Sender<u64>,
+    gas_price: watch::Sender<u128>,
     update_notifier: Arc<Notify>,
     next_update: Arc<RwLock<Instant>>,
 }
@@ -27,11 +24,14 @@ pub struct ChainMonitorService<P> {
 impl<P: Provider> ChainMonitorService<P> {
     pub async fn new(provider: Arc<P>) -> Result<Self> {
         let (block_number, _) = watch::channel(0);
+        let (gas_price, _) = watch::channel(0);
+        let (block_timestamp, _) = watch::channel(0);
 
         Ok(Self {
             provider,
             block_number,
-            block_timestamp: Arc::new(RwLock::new(None)),
+            block_timestamp,
+            gas_price,
             update_notifier: Arc::new(Notify::new()),
             next_update: Arc::new(RwLock::new(Instant::now())),
         })
@@ -43,8 +43,7 @@ impl<P: Provider> ChainMonitorService<P> {
             let mut rx = self.block_number.subscribe();
             self.update_notifier.notify_one();
             rx.changed().await.context("failed to query block number from chain monitor")?;
-            // Clear the block timestamp cache.
-            self.block_timestamp.write().await.take();
+
             let block_number = *rx.borrow();
             Ok(block_number)
         } else {
@@ -54,22 +53,31 @@ impl<P: Provider> ChainMonitorService<P> {
 
     /// Returns the latest block timestamp, triggering an update if enough time has passed
     pub async fn current_block_timestamp(&self) -> Result<u64> {
-        // Get the current_block_number. This may clear the timestamp cache.
-        let block_number = self.current_block_number().await?;
-        let cached_timestamp: Option<u64> = *self.block_timestamp.read().await;
-        if let Some(ts) = cached_timestamp {
-            return Ok(ts);
+        if Instant::now() > *self.next_update.read().await {
+            let mut rx = self.block_timestamp.subscribe();
+            self.update_notifier.notify_one();
+            rx.changed().await.context("failed to query block timestamp from chain monitor")?;
+
+            let block_timestamp = *rx.borrow();
+            Ok(block_timestamp)
+        } else {
+            Ok(*self.block_timestamp.borrow())
         }
-        let current_timestamp = self
-            .provider
-            .get_block_by_number(block_number.into())
-            .await
-            .with_context(|| format!("failed to get block {block_number}"))?
-            .with_context(|| format!("failed to get block {block_number}: block not found"))?
-            .header
-            .timestamp;
-        *self.block_timestamp.write().await = Some(current_timestamp);
-        Ok(current_timestamp)
+    }
+
+    /// Returns the gas price (as reported by `eth_gasPrice`) at the latest block.
+    /// This triggers an update if enough time has passed.
+    pub async fn current_gas_price(&self) -> Result<u128> {
+        if Instant::now() > *self.next_update.read().await {
+            let mut rx = self.gas_price.subscribe();
+            self.update_notifier.notify_one();
+            rx.changed().await.context("failed to query gas price from chain monitor")?;
+
+            let gas_price = *rx.borrow();
+            Ok(gas_price)
+        } else {
+            Ok(*self.gas_price.borrow())
+        }
     }
 }
 
@@ -102,13 +110,24 @@ where
                 // Needs update, lock next update value to avoid unnecessary notifications.
                 let mut next_update = self_clone.next_update.write().await;
 
-                let block_number = self_clone
-                    .provider
-                    .get_block_number()
-                    .await
-                    .context("Failed to get block number")
+                // Get the lastest block and gas price.
+                let (block_res, gas_price_res) = tokio::join!(
+                    self_clone.provider.get_block_by_number(BlockNumberOrTag::Latest),
+                    self_clone.provider.get_gas_price()
+                );
+
+                let block = block_res
+                    .context("failed to latest block")
+                    .map_err(SupervisorErr::Recover)?
+                    .context("failed to fetch latest block: no block in response")
                     .map_err(SupervisorErr::Recover)?;
-                let _ = self_clone.block_number.send_replace(block_number);
+                let _ = self_clone.block_number.send_replace(block.header.number);
+                let _ = self_clone.block_timestamp.send_replace(block.header.timestamp);
+
+                let gas_price = gas_price_res
+                    .context("failed to get gas price")
+                    .map_err(SupervisorErr::Recover)?;
+                let _ = self_clone.gas_price.send_replace(gas_price);
 
                 // Set timestamp for next update
                 *next_update = Instant::now() + chain_poll_time;
