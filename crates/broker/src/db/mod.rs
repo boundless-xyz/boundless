@@ -591,10 +591,7 @@ impl BrokerDb for SqliteDb {
                 .fetch_all(&self.pool)
                 .await?;
 
-        orders
-            .into_iter()
-            .map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data)))
-            .collect()
+        orders.into_iter().map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data))).collect()
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x}")))]
