@@ -1,40 +1,25 @@
 ---
 title: What is Boundless?
-description: Boundless is a set of Infrastructure and abstractions that provide the best place to develop your application, regardless of where you are.
+description: Boundless is a universal protocol that brings ZK to every chain.
 ---
 
-# What Is Boundless?
+## **What Is Boundless?**
 
-Boundless is the first universal ZK protocol that transforms how developers build with zero-knowledge proofs across any chain. Boundless has two core components:
+**Boundless is a universal protocol that brings ZK to every chain.**
 
-- [**Core Services**](#core-services): Best-in-class ZK infrastructure to handle proof generation, aggregation, and settlement on any chain. Boundless services take care of all the complexity, letting you focus on building.
-- [**Extensions**](#extensions): Purpose-built tools that plug ZK directly into your stack. Use familiar languages and existing code while harnessing the full power of ZK.
+Using Boundless, developers can create expressive, high-throughput applications that bypass traditional block size/gas limits.
 
-With Boundless, developers can create new applications or enhance existing ones with unlimited compute. Keep your preferred languages and tools, deploy to any chain, and scale automatically, all while Boundless handles the underlying infrastructure.
+Developers submit proof requests and provers compete to fulfill them, earning direct rewards and protocol-level incentives through proof of verifiable work.
 
-<a href="/protocol.png">
-  <img src="/protocol.png" alt="Boundless Protocol" />
-</a>
+By abstracting away the complexity of proof generation, aggregation, and on-chain settlement, Boundless allows developers to build without worrying about underlying infrastructure, while provers provide strong liveness guarantees, censorship-resistance, and continuously improve the cost curve driven by open market dynamics.
 
-## Core Services
+This architecture decouples execution from consensus and introduces a new paradigm for verifiable computing. As the number of Boundless prover nodes grows, the total capacity of the protocol increases, scaling compute across every chain.
 
-Core Services are the engine powering the most performant, reliable and cost-efficient proof delivery to your protocol on-chain. Boundless abstracts away the complexities of launching and maintaining a ZK application, providing a seamless experience while ensuring access to top-tier ZK infrastructure. These services include:
+### **Next Steps**
 
-### Proving
+Choose the path that fits what you’re building:
 
-Prove any program through a decentralized proof marketplace. Competitive proving services ensure reliable delivery, liveness, and best-in-class pricing.
-
-### Aggregation
-
-Reduce on-chain verification costs by up to 95% through proof aggregation. Multiple proofs are combined before settlement, dramatically lowering costs while maintaining security.
-
-### Settlement
-
-Developing, deploying, and maintaining market and verifier contracts across multiple chains is a heavy burden for developers. Boundless eliminates this by maintaining these contracts for you. With an ever-expanding list of supported chains, Boundless ensures your application is ready to settle proofs wherever you build.
-
-## Extensions
-
-Boundless Extensions are purpose-built tools that plug ZK capabilities directly into your existing stack. These integration tools accelerate development and expand functionality, whether you're building rollups, enhancing existing applications, or exploring new possibilities. Extensions are organized by common use cases:
-
-- [**For Rollups**](TODO): Extensions that make deploying a rollup easier within Boundless, such as a full rollup stack, integrations for existing rollup ecosystems and alt-DA support.
-- [**For EVM Developers**](TODO): Make EVM application development easier with Solidity execution in the zkVM and additional abstractions through 3rd parties.
+- Building a rollup? Get fast finality and stronger security with ZK proofs with [OP Kailua](/developers/kailua/why)
+- Building an app? Offload your execution to bypass gas limits with [Steel](/developers/steel/what-is-steel)
+- Building something custom? [Submit a request](/developers/tutorials/request) and let Boundless handle the proving.
+- Want to run a [prover node](/provers/quick-start)? Turn your hardware into income.

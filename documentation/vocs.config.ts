@@ -12,12 +12,12 @@ const DEVELOPERS_ITEMS = [
     text: "Introduction",
     items: [
       {
-        text: "Why use Boundless?",
-        link: "/developers/why",
-      },
-      {
         text: "What is Boundless?",
         link: "/developers/what",
+      },
+      {
+        text: "Why use Boundless?",
+        link: "/developers/why",
       },
       {
         text: "Proof Lifecycle",
@@ -78,11 +78,11 @@ const DEVELOPERS_ITEMS = [
         text: "Smart Contracts",
         items: [
           {
-            text: "Boundless Smart Contract Reference",
-            link: "/developers/smart-contracts/smart-contract-docs",
+            text: "Boundless Contracts",
+            link: "/developers/smart-contracts/reference",
           },
           {
-            text: "RISC Zero Verifier Contracts",
+            text: "Verifier Contracts",
             link: "/developers/smart-contracts/verifier-contracts",
           },
           {
@@ -151,12 +151,12 @@ const PROVERS_ITEMS = [
     text: "Introduction",
     items: [
       {
-        text: "Why use Boundless?",
-        link: "/provers/why",
-      },
-      {
         text: "What is Boundless?",
         link: "/provers/what",
+      },
+      {
+        text: "Why use Boundless?",
+        link: "/provers/why",
       },
       {
         text: "Proof Lifecycle",
