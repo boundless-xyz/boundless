@@ -260,7 +260,7 @@ impl DefaultProver {
         };
 
         let selector = request.requirements.selector;
-        if !self.supported_selectors.is_supported(&selector) {
+        if !self.supported_selectors.is_supported(selector) {
             bail!("Unsupported selector {}", request.requirements.selector);
         };
 

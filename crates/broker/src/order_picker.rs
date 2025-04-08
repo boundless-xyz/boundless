@@ -367,14 +367,14 @@ where
             * one_mill;
 
         tracing::info!(
-            "Order price: gas_cost: {} min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
-            format_ether(order_gas_cost),
+            "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {} gas_cost: {}",
             format_ether(U256::from(order.request.offer.minPrice)),
             format_ether(U256::from(order.request.offer.maxPrice)),
             proof_res.stats.total_cycles,
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
             order.request.offer.lockStake,
+            format_ether(order_gas_cost),
         );
 
         // Skip the order if it will never be worth it
@@ -504,9 +504,11 @@ where
 
     /// Estimate of gas for fulfilling any orders either pending lock or locked
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
-        let pending_fulfill_orders = self.db.get_orders_committed_to_fulfill_count().await?;
-        Ok((pending_fulfill_orders as u64)
-            * self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
+        let mut gas = 0;
+        for (_, order) in self.db.get_committed_orders().await? {
+            gas += self.estimate_gas_to_fulfill(&order).await?;
+        }
+        Ok(gas)
     }
 
     /// Estimate the total gas tokens reserved to lock and fulfill all pending orders
@@ -555,7 +557,7 @@ where
         };
 
         if let Some(max) = max_concurrent_locks {
-            let committed_orders_count = self.db.get_orders_committed_to_fulfill_count().await?;
+            let committed_orders_count = self.db.get_committed_orders_count().await?;
             let available_slots = max.saturating_sub(committed_orders_count);
             Ok(Some(available_slots))
         } else {
