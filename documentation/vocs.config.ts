@@ -131,8 +131,8 @@ const DEVELOPERS_ITEMS = [
     text: "Hybrid Rollups with OP Kailua",
     items: [
       {
-        text: "Why OP Kailua?",
-        link: "/developers/kailua/why",
+        text: "Introducing OP Kailua",
+        link: "/developers/kailua/how",
       },
       {
         text: "Quick Start",
