@@ -37,7 +37,7 @@ const DEVELOPERS_ITEMS = [
         link: "/developers/quick-start",
       },
       {
-        text: "Tutorials",
+        text: "Core Concepts",
         items: [
           {
             text: "Build a Program",
@@ -59,20 +59,25 @@ const DEVELOPERS_ITEMS = [
             text: "Troubleshooting",
             link: "/developers/tutorials/troubleshooting",
           },
+        ],
+      },
+      {
+        text: "Tutorials",
+        items: [
           {
-            text: "Feature: Callbacks",
+            text: "Callbacks",
             link: "/developers/tutorials/feature-callbacks",
           },
           {
-            text: "Feature: Smart Contract Requestors",
+            text: "Smart Contract Requestors",
             link: "/developers/tutorials/feature-smart-contract-requestor",
           },
           {
-            text: "Feature: Proof Types",
+            text: "Proof Types",
             link: "/developers/tutorials/feature-proof-types",
           },
           {
-            text: "Feature: Proof Composition",
+            text: "Proof Composition",
             link: "/developers/tutorials/feature-proof-composition",
           },
         ],
