@@ -304,9 +304,12 @@ bento action="up" env_file="./.env.broker" compose_flags="":
             echo "Error: Failed to clean Docker Compose services."
             exit 1
         fi
+    elif [ "{{action}}" = "logs" ]; then
+        echo "Docker logs using environment file: $ENV_FILE"
+        docker compose {{compose_flags}} --env-file "$ENV_FILE" logs -f
     else
         echo "Unknown action: {{action}}"
-        echo "Available actions: up, down, clean"
+        echo "Available actions: up, down, clean, logs"
         exit 1
     fi
 
