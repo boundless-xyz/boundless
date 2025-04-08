@@ -5,6 +5,7 @@ import { ProverPipeline } from "./pipelines/prover";
 import { SlasherPipeline } from "./pipelines/slasher";
 import { Notifications } from "./components/notifications";
 import { OrderGeneratorPipeline } from "./pipelines/order-generator";
+import { OrderStreamPipeline } from "./pipelines/order-stream";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import { 
@@ -114,6 +115,16 @@ const orderGeneratorPipeline = new OrderGeneratorPipeline("orderGeneratorPipelin
 })
 
 const slasherPipeline = new SlasherPipeline("slasherPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+})
+
+const orderStreamPipeline = new OrderStreamPipeline("orderStreamPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
