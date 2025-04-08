@@ -12,12 +12,12 @@ const DEVELOPERS_ITEMS = [
     text: "Introduction",
     items: [
       {
-        text: "Why use Boundless?",
-        link: "/developers/why",
-      },
-      {
         text: "What is Boundless?",
         link: "/developers/what",
+      },
+      {
+        text: "Why use Boundless?",
+        link: "/developers/why",
       },
       {
         text: "Proof Lifecycle",
@@ -151,12 +151,12 @@ const PROVERS_ITEMS = [
     text: "Introduction",
     items: [
       {
-        text: "Why use Boundless?",
-        link: "/provers/why",
-      },
-      {
         text: "What is Boundless?",
         link: "/provers/what",
+      },
+      {
+        text: "Why use Boundless?",
+        link: "/provers/why",
       },
       {
         text: "Proof Lifecycle",
