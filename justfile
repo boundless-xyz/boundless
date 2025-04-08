@@ -295,6 +295,16 @@ bento action="up" env_file="./.env.broker" compose_flags="":
         exit 1
     fi
 
+env NETWORK:
+	#!/usr/bin/env bash
+	FILE=".env.{{NETWORK}}"
+	if [ -f "$FILE" ]; then
+		grep -v '^#' "$FILE" | tr -d '"' | xargs -I {} echo export {}
+	else
+		echo "Error: $FILE file not found." >&2
+		exit 1
+	fi
+
 # Run the broker service with a bento cluster for proving.
 broker action="up" env_file="./.env.broker":
     just bento "{{action}}" "{{env_file}}" "--profile broker"
