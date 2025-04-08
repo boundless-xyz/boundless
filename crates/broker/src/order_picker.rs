@@ -4,11 +4,11 @@
 
 use std::sync::Arc;
 
-use crate::{now_timestamp, chain_monitor::ChainMonitorService};
+use crate::{chain_monitor::ChainMonitorService, now_timestamp};
 use alloy::{
     network::Ethereum,
     primitives::{
-        utils::{format_ether, parse_ether},
+        utils::{format_ether, format_units, parse_ether},
         Address, U256,
     },
     providers::{Provider, WalletProvider},
@@ -154,20 +154,33 @@ where
         }
 
         // Check that we have both enough staking tokens to stake, and enough gas tokens to lock and fulfil
-        let gas_price = self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
-        let order_gas_cost =
-            U256::from(gas_price) * U256::from(self.estimate_gas_to_lock(order).await? + self.estimate_gas_to_fulfill(order).await?);
+        // NOTE: We use the current gas price and a rough heuristic on gas costs. Its possible that
+        // gas prices may go up (or down) by the time its time to fulfill. This does not aim to be
+        // a tight estimate, although improving this estimate will allow for a more profit.
+        let gas_price =
+            self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
+        let order_gas = U256::from(
+            self.estimate_gas_to_lock(order).await? + self.estimate_gas_to_fulfill(order).await?,
+        );
+        let order_gas_cost = U256::from(gas_price) * order_gas;
         let available_gas = self.available_gas_balance().await?;
         let available_stake = self.available_stake_balance().await?;
+        tracing::info!(
+            "Estimated {order_gas} gas to lock and fill order {order_id:x}; {} ether @ {} gwei",
+            format_ether(order_gas_cost),
+            format_units(gas_price, "gwei").unwrap()
+        );
 
         if order_gas_cost > order.request.offer.maxPrice {
-            tracing::warn!("Estimated gas cost to lock and fill order {order_id:x} execeeds max price");
+            tracing::warn!(
+                "Estimated gas cost to lock and fill order {order_id:x} execeeds max price; max price {}", format_ether(order.request.offer.maxPrice)
+            );
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(false);
         }
 
         if order_gas_cost > available_gas {
-            tracing::warn!("Estimated there will be insufficient gas to lock and fill order {order_id:x} after locking and fulfilling pending orders");
+            tracing::warn!("Estimated there will be insufficient gas to lock and fill order {order_id:x} after locking and fulfilling pending orders; available_gas {} ether", format_ether(available_gas));
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(false);
         }
@@ -228,7 +241,9 @@ where
             parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?
         };
 
-        let exec_limit: u64 = (U256::from(order.request.offer.maxPrice).saturating_sub(order_gas_cost) / config_min_mcycle_price)
+        let exec_limit: u64 = (U256::from(order.request.offer.maxPrice)
+            .saturating_sub(order_gas_cost)
+            / config_min_mcycle_price)
             .try_into()
             .context("Failed to convert U256 exec limit to u64")?;
 
@@ -343,10 +358,12 @@ where
 
         let one_mill = U256::from(1_000_000);
 
-        let mcycle_price_min = (U256::from(order.request.offer.minPrice).saturating_sub(order_gas_cost)
+        let mcycle_price_min = (U256::from(order.request.offer.minPrice)
+            .saturating_sub(order_gas_cost)
             / U256::from(proof_res.stats.total_cycles))
             * one_mill;
-        let mcycle_price_max = (U256::from(order.request.offer.maxPrice).saturating_sub(order_gas_cost)
+        let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
+            .saturating_sub(order_gas_cost)
             / U256::from(proof_res.stats.total_cycles))
             * one_mill;
 
@@ -383,7 +400,8 @@ where
         // TODO: Clean up and do more testing on this since its just a rough shot first draft
         else {
             let target_min_price =
-                config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill + order_gas_cost;
+                config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill
+                    + order_gas_cost;
             tracing::debug!("Target price: {target_min_price}");
 
             let target_timestamp: u64 = order
@@ -458,6 +476,8 @@ where
     async fn estimate_gas_to_fulfill(&self, _order: &Order) -> Result<u64> {
         // TODO: Add gas costs for orders with Groth16 selectors.
         // TODO: Add gas costs for orders with large journals.
+        // TODO: Accept the session info as input to the estimation.
+        // TODO: Align this with the "pending" functions below. Store gas estimate on the function.
         Ok(self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
     }
 
@@ -480,7 +500,8 @@ where
 
     /// Estimate the total gas tokens reserved to lock and fulfill all pending orders
     async fn gas_balance_reserved(&self) -> Result<U256> {
-        let gas_price = self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
+        let gas_price =
+            self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
         let lock_pending_gas = self.estimate_gas_to_lock_pending().await?;
         let fulfill_pending_gas = self.estimate_gas_to_fulfill_pending().await?;
         Ok(U256::from(gas_price) * U256::from(lock_pending_gas + fulfill_pending_gas))
@@ -696,6 +717,25 @@ mod tests {
         provider: Arc<P>,
     }
 
+    /// Parameters for the generate_next_order function.
+    struct OrderParams {
+        pub order_index: u32,
+        pub min_price: U256,
+        pub max_price: U256,
+        pub lock_stake: U256,
+    }
+
+    impl Default for OrderParams {
+        fn default() -> Self {
+            Self {
+                order_index: 1,
+                min_price: parse_ether("0.02").unwrap(),
+                max_price: parse_ether("0.04").unwrap(),
+                lock_stake: U256::ZERO,
+            }
+        }
+    }
+
     impl<P> TestCtx<P>
     where
         P: Provider + WalletProvider,
@@ -704,13 +744,7 @@ mod tests {
             self.anvil.keys()[index].clone().into()
         }
 
-        async fn generate_next_order(
-            &self,
-            order_index: u32,
-            min_price: U256,
-            max_price: U256,
-            lock_stake: U256,
-        ) -> Order {
+        async fn generate_next_order(&self, params: OrderParams) -> Order {
             let image_url = self.storage_provider.upload_image(ECHO_ELF).await.unwrap();
             let image_id = Digest::from(ECHO_ID);
 
@@ -718,7 +752,7 @@ mod tests {
                 status: OrderStatus::Pricing,
                 updated_at: Utc::now(),
                 request: ProofRequest::new(
-                    RequestId::new(self.provider.default_signer_address(), order_index),
+                    RequestId::new(self.provider.default_signer_address(), params.order_index),
                     Requirements::new(
                         image_id,
                         Predicate {
@@ -729,13 +763,13 @@ mod tests {
                     image_url,
                     Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
                     Offer {
-                        minPrice: min_price,
-                        maxPrice: max_price,
+                        minPrice: params.min_price,
+                        maxPrice: params.max_price,
                         biddingStart: now_timestamp(),
                         timeout: 1200,
                         lockTimeout: 900,
                         rampUpPeriod: 1,
-                        lockStake: lock_stake,
+                        lockStake: params.lock_stake,
                     },
                 ),
                 target_timestamp: None,
@@ -823,8 +857,14 @@ mod tests {
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn());
 
-            let picker =
-                OrderPicker::new(db.clone(), config, prover, market_address, provider.clone(), chain_monitor);
+            let picker = OrderPicker::new(
+                db.clone(),
+                config,
+                prover,
+                market_address,
+                provider.clone(),
+                chain_monitor,
+            );
 
             TestCtx { anvil, picker, boundless_market, storage_provider, db, provider }
         }
@@ -839,12 +879,7 @@ mod tests {
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
-        let min_price = 200000000000u64;
-        let max_price = 400000000000u64;
-
-        let order = ctx
-            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
-            .await;
+        let order = ctx.generate_next_order(Default::default()).await;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -867,12 +902,7 @@ mod tests {
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
-        let min_price = 200000000000u64;
-        let max_price = 400000000000u64;
-
-        let mut order = ctx
-            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
-            .await;
+        let mut order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
 
         // set a bad predicate
@@ -900,12 +930,7 @@ mod tests {
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
-        let min_price = 200000000000u64;
-        let max_price = 400000000000u64;
-
-        let mut order = ctx
-            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
-            .await;
+        let mut order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
 
         // set an unsupported selector
@@ -933,12 +958,7 @@ mod tests {
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
-        let min_price = 200000000000u64;
-        let max_price = 400000000000u64;
-
-        let order = ctx
-            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
-            .await;
+        let order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
 
         let _request_id =
@@ -962,12 +982,7 @@ mod tests {
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
-        let min_price = 200000000000u64;
-        let max_price = 400000000000u64;
-
-        let order = ctx
-            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
-            .await;
+        let order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
 
         let _request_id =
@@ -1000,7 +1015,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn pending_locked_stake() {
-        let lockin_stake = U256::from(10);
+        let lock_stake = U256::from(10);
 
         let config = ConfigLock::default();
         {
@@ -1015,20 +1030,13 @@ mod tests {
             .await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
-        let order = ctx
-            .generate_next_order(
-                1,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                lockin_stake,
-            )
-            .await;
+        let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
         let order_id = order.request.id;
 
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
         ctx.picker.price_order(order_id, &order).await.unwrap();
         // order is pending lock so stake is counted
-        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lockin_stake);
+        assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lock_stake);
 
         ctx.db.set_proving_status(order_id, U256::ZERO).await.unwrap();
         // order no longer pending lock so stake no longer counted
@@ -1048,14 +1056,7 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
-        let order = ctx
-            .generate_next_order(
-                1,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::ZERO,
-            )
-            .await;
+        let order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
         assert_eq!(ctx.picker.estimate_gas_to_lock(&order).await.unwrap(), lockin_gas);
 
@@ -1078,14 +1079,7 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
-        let order = ctx
-            .generate_next_order(
-                1,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::ZERO,
-            )
-            .await;
+        let order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
         ctx.picker.price_order(order_id, &order).await.unwrap();
@@ -1093,14 +1087,8 @@ mod tests {
         assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), fulfill_gas);
 
         // add another order
-        let order = ctx
-            .generate_next_order(
-                2,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::ZERO,
-            )
-            .await;
+        let order =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
         let order_id = order.request.id;
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
         ctx.picker.price_order(order_id, &order).await.unwrap();
@@ -1124,14 +1112,7 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
-        let order = ctx
-            .generate_next_order(
-                1,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::ZERO,
-            )
-            .await;
+        let order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
         ctx.picker.price_order(order_id, &order).await.unwrap();
@@ -1169,12 +1150,7 @@ mod tests {
             .build()
             .await;
         let order = ctx
-            .generate_next_order(
-                1,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::from(100),
-            )
+            .generate_next_order(OrderParams { lock_stake: U256::from(100), ..Default::default() })
             .await;
         let orders = std::iter::repeat(order).take(2);
 
@@ -1205,21 +1181,11 @@ mod tests {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.max_journal_bytes = 1;
         }
-        let lockin_stake = U256::from(10);
+        let lock_stake = U256::from(10);
 
-        let ctx = TestCtxBuilder::default()
-            .with_config(config)
-            .with_initial_hp(lockin_stake)
-            .build()
-            .await;
-        let order = ctx
-            .generate_next_order(
-                1,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                lockin_stake,
-            )
-            .await;
+        let ctx =
+            TestCtxBuilder::default().with_config(config).with_initial_hp(lock_stake).build().await;
+        let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
 
         let order_id = order.request.id;
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
@@ -1241,12 +1207,7 @@ mod tests {
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
-        let min_price = 200000000000u64;
-        let max_price = 400000000000u64;
-
-        let mut order = ctx
-            .generate_next_order(1, U256::from(min_price), U256::from(max_price), U256::from(0))
-            .await;
+        let mut order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
 
         // Modify the order to have a longer expiration time
@@ -1281,14 +1242,7 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         // First order
-        let mut order1 = ctx
-            .generate_next_order(
-                1,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::from(0),
-            )
-            .await;
+        let mut order1 = ctx.generate_next_order(Default::default()).await;
         let order_id1 = order1.request.id;
         let current_time = now_timestamp();
         order1.request.offer.biddingStart = current_time;
@@ -1298,14 +1252,8 @@ mod tests {
         ctx.picker.price_order(order_id1, &order1).await.unwrap();
 
         // Second order will be rejected because it would finish after its deadline with first order
-        let mut order2 = ctx
-            .generate_next_order(
-                2,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::from(0),
-            )
-            .await;
+        let mut order2 =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
         let order_id2 = order2.request.id;
 
         order2.request.offer.biddingStart = current_time;
@@ -1347,33 +1295,29 @@ mod tests {
             .await;
 
         let mut orders = vec![
-            ctx.generate_next_order(
-                1,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::from(10),
-            )
+            ctx.generate_next_order(OrderParams {
+                order_index: 1,
+                lock_stake: U256::from(10),
+                ..Default::default()
+            })
             .await,
-            ctx.generate_next_order(
-                2,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::from(10),
-            )
+            ctx.generate_next_order(OrderParams {
+                order_index: 2,
+                lock_stake: U256::from(10),
+                ..Default::default()
+            })
             .await,
-            ctx.generate_next_order(
-                3,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::from(10),
-            )
+            ctx.generate_next_order(OrderParams {
+                order_index: 3,
+                lock_stake: U256::from(10),
+                ..Default::default()
+            })
             .await,
-            ctx.generate_next_order(
-                4,
-                U256::from(200000000000u64),
-                U256::from(400000000000u64),
-                U256::from(10),
-            )
+            ctx.generate_next_order(OrderParams {
+                order_index: 4,
+                lock_stake: U256::from(10),
+                ..Default::default()
+            })
             .await,
         ];
 
