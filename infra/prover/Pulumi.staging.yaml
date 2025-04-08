@@ -3,10 +3,11 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGwxtZQaXmuKc6n1f
 config:
   aws:region: us-west-2
   prover:DOCKER_DIR: "../../"
-  prover:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
+  prover:SET_VERIFIER_ADDR: 0xad2c6335191EA71Ffe2045A8d54b93A851ceca77
   prover:PROOF_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
   prover:BONSAI_API_URL: https://api.bonsai.xyz/
-  prover:ORDER_STREAM_URL: https://order-stream.beboundless.xyz/
+  prover:ORDER_STREAM_URL:
+    secure: v1:d+7rYIzz1sfhiY2Y:JZ9B+ajtwzNp9M2DM7Peyjmz4wzX0gvnRkQYpSB1Im8kVNUveU88yqhRkt9Z8AkRecAYNYq3gXpDOw3QR/9WTjtz7+iVaP4gPSHrNIcG3A/MlGxro8oxn+Vcgti2Vho=
   prover:DOCKER_TAG: latest
   prover:BROKER_TOML_PATH: broker-staging.toml
   prover:BASE_STACK: organization/bootstrap/services-staging
@@ -18,3 +19,4 @@ config:
     secure: v1:R52O8izvZ2+jGU85:MXZSycsixFnVqErtbAvq5giYtIl5z8BOVwyDPgYHXAtuWzx3vqJ0gLYtR8fDiZDdqt2zvnroPfc=
   prover:GH_TOKEN_SECRET:
     secure: v1:uKW8SunjoJPWAf4l:GS38MomZJucbvxMfnp4PqigyTT4X7W9inHFdb53FOAXzhlpwIgL5fMURRviScfJaxE2l8chc+VALgMIywDoNFsc7kEvU8G/QerwZ1SWYhlLuu4w1IRi9sgrWGDhQmz62fSMYeNuNaaZG2LdZew==
+  prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic

@@ -1,9 +1,0 @@
-config:
-  prover:DOCKER_DIR: "../../"
-  prover:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
-  prover:PROOF_MARKET_ADDR: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
-  prover:BONSAI_API_URL: https://api.bonsai.xyz/
-  prover:ORDER_STREAM_URL: https://order-stream.beboundless.xyz/
-  prover:DOCKER_TAG: latest
-  prover:BROKER_TOML_PATH: broker-dev.toml
-  prover:BASE_STACK: organization/bootstrap/services-dev

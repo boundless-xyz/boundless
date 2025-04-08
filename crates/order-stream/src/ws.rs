@@ -139,7 +139,10 @@ pub(crate) async fn websocket_handler(
             }
         };
         if balance < state.config.min_balance {
-            tracing::warn!("Insufficient stake balance for addr: {client_addr}");
+            tracing::warn!(
+                "Insufficient stake balance for addr: {client_addr}, {balance} < {}",
+                state.config.min_balance
+            );
             return Ok((
                 StatusCode::UNAUTHORIZED,
                 format!("Insufficient stake balance: {} < {}", balance, state.config.min_balance),

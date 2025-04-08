@@ -3,16 +3,21 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { getEnvVar } from "./util/env";
+import { getEnvVar, ChainId, getServiceNameV1 } from "../util";
 
 export = () => {
   // Read config
   const config = new pulumi.Config();
 
-  const isDev = pulumi.getStack() === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}-` : "";
-  const serviceName = `${prefix}bonsai-prover`;
+  const stackName = pulumi.getStack();
+  const isDev = stackName === "dev";
+  const serviceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
   
+
+  const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
+  const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
+  const orderStreamUrl = isDev ? getEnvVar("ORDER_STREAM_URL") : config.requireSecret('ORDER_STREAM_URL');
+
   const baseStackName = config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID');
@@ -22,15 +27,15 @@ export = () => {
 
   const setVerifierAddr = config.require('SET_VERIFIER_ADDR');
   const proofMarketAddr = config.require('PROOF_MARKET_ADDR');
-  const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
-  const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
+  
   const bonsaiApiUrl = config.require('BONSAI_API_URL');
   const bonsaiApiKey = isDev ? getEnvVar("BONSAI_API_KEY") : config.getSecret('BONSAI_API_KEY');
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
-  const orderStreamUrl = config.require('ORDER_STREAM_URL');
-  const brokerTomlPath = config.require('BROKER_TOML_PATH')
   
+  const brokerTomlPath = config.require('BROKER_TOML_PATH')
+  const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+
   const ethRpcUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-brokerEthRpc`);
   const _ethRpcUrlSecretSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-brokerEthRpc`, {
     secretId: ethRpcUrlSecret.id,
@@ -49,8 +54,14 @@ export = () => {
     secretString: bonsaiApiKey,
   });
 
+  const orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-brokerOrderStreamUrl`);
+  const _orderStreamUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-brokerOrderStreamUrl`, {
+    secretId: orderStreamUrlSecret.id,
+    secretString: orderStreamUrl,
+  });
+
   const brokerS3Bucket = new aws.s3.Bucket(serviceName, {
-    bucketPrefix: `boundless-${serviceName}`,
+    bucketPrefix: serviceName,
     tags: {
       Name: serviceName,
     },
@@ -65,30 +76,30 @@ export = () => {
   });
 
   // EFS
-  const fileSystem = new aws.efs.FileSystem(serviceName, {
+  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs`, {
     encrypted: true,
     tags: {
       Name: serviceName,
     },
   });
 
-  privSubNetIds.apply((subnets) =>
+  const mountTargets = privSubNetIds.apply((subnets) =>
     subnets.map((subnetId: string, index: number) => {
       return new aws.efs.MountTarget(`${serviceName}-mount-${index}`, {
         fileSystemId: fileSystem.id,
         subnetId: subnetId,
         securityGroups: [brokerSecGroup.id],
-      });
+      }, { dependsOn: [fileSystem] });
     })
   );
 
-  const taskRole = new aws.iam.Role(serviceName, {
+  const taskRole = new aws.iam.Role(`${serviceName}-task-role`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
       Service: 'ecs-tasks.amazonaws.com',
     }),
   });
 
-  const _rolePolicy = new aws.iam.RolePolicy(serviceName, {
+  const _rolePolicy = new aws.iam.RolePolicy(`${serviceName}-role-policy`, {
     role: taskRole.id,
     policy: {
       Version: '2012-10-17',
@@ -101,13 +112,13 @@ export = () => {
         {
           Effect: 'Allow',
           Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-          Resource: [privateKeySecret.arn, bonsaiSecret.arn, ethRpcUrlSecret.arn],
+          Resource: [privateKeySecret.arn, bonsaiSecret.arn, ethRpcUrlSecret.arn, orderStreamUrlSecret.arn],
         },
       ],
     },
-  });
+  }, { dependsOn: [taskRole] });
 
-  const brokerEcr = new awsx.ecr.Repository(serviceName, {
+  const brokerEcr = new awsx.ecr.Repository(`${serviceName}-ecr`, {
     lifecyclePolicy: {
       rules: [
         {
@@ -118,7 +129,6 @@ export = () => {
       ],
     },
     forceDelete: true,
-    name: serviceName,
   });
 
   const executionRole = new aws.iam.Role(`${serviceName}-ecs-execution-role`, {
@@ -127,9 +137,9 @@ export = () => {
     }),
   });
 
-  brokerEcr.repository.arn.apply(arn => {
+  pulumi.all([brokerEcr.repository.arn, executionRole.name]).apply(([ecrRepoArn, executionRoleName]) => {
     new aws.iam.RolePolicy(`${serviceName}-ecs-execution-pol`, {
-      role: executionRole.id,
+      role: executionRoleName,
       policy: {
         Version: '2012-10-17',
         Statement: [
@@ -154,11 +164,11 @@ export = () => {
           {
             Effect: 'Allow',
             Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-            Resource: [privateKeySecret.arn, bonsaiSecret.arn, ethRpcUrlSecret.arn],
+            Resource: [privateKeySecret.arn, bonsaiSecret.arn, ethRpcUrlSecret.arn, orderStreamUrlSecret.arn],
           },
         ],
       },
-    });
+    }, { dependsOn: [executionRole] });
   })
 
   const authToken = aws.ecr.getAuthorizationTokenOutput({
@@ -311,7 +321,7 @@ export = () => {
           initProcessEnabled: true,
         },
         command: [
-          `/usr/bin/aws s3 cp s3://$BUCKET/broker.toml /app/broker.toml && /app/broker --set-verifier-address ${setVerifierAddr} --boundless-market-address ${proofMarketAddr} --order-stream-url ${orderStreamUrl} --config-file /app/broker.toml --db-url sqlite:///app/data/broker.db`,
+          `/usr/bin/aws s3 cp s3://$BUCKET/broker.toml /app/broker.toml && /app/broker --set-verifier-address ${setVerifierAddr} --boundless-market-address ${proofMarketAddr} --config-file /app/broker.toml --db-url sqlite:///app/data/broker.db`,
         ],
         secrets: [
           {
@@ -325,6 +335,10 @@ export = () => {
           {
             name: 'RPC_URL',
             valueFrom: ethRpcUrlSecret.arn,
+          },
+          {
+            name: 'ORDER_STREAM_URL',
+            valueFrom: orderStreamUrlSecret.arn,
           }
         ],
         environment: [
@@ -336,7 +350,7 @@ export = () => {
         ],
       },
     },
-  });
+  }, { dependsOn: [fileSystem,mountTargets] });
 
   new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
     name: `${serviceName}-log-err-filter`,
@@ -361,4 +375,30 @@ export = () => {
     },
     pattern: '?"Locked order" ?"locked order" ?"Order locked"',
   }, { dependsOn: [service] });
+
+  const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
+    name: `${serviceName}-log-err`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-err`,
+          period: 60,
+          stat: 'Maximum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    treatMissingData: 'notBreaching',
+    alarmDescription: `ERROR log detected for ${serviceName}`,
+    actionsEnabled: true,
+    alarmActions,
+  });
 };

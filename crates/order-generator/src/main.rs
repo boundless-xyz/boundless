@@ -21,7 +21,10 @@ use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
-    storage::StorageProviderConfig,
+    storage::{
+        storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider,
+        StorageProviderConfig,
+    },
 };
 use clap::{Args, Parser};
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
@@ -37,11 +40,8 @@ struct MainArgs {
     /// Optional URL of the offchain order stream endpoint.
     ///
     /// If set, the order-generator will submit requests off-chain.
-    #[clap(short, long)]
+    #[clap(short, long, env)]
     order_stream_url: Option<Url>,
-    // Storage provider to use.
-    #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -54,6 +54,9 @@ struct MainArgs {
     /// Interval in seconds between requests.
     #[clap(short, long, default_value = "60")]
     interval: u64,
+    // Storage provider to use.
+    #[clap(flatten)]
+    storage_config: Option<StorageProviderConfig>,
     /// Optional number of requests to submit.
     ///
     /// If unspecified, the loop will run indefinitely.
@@ -77,7 +80,7 @@ struct MainArgs {
     #[clap(long, default_value = "0")]
     ramp_up: u32,
     /// Number of seconds before the request lock-in expires.
-    #[clap(long, default_value = "1200")]
+    #[clap(long, default_value = "900")]
     lock_timeout: u32,
     /// Number of seconds before the request expires.
     #[clap(long, default_value = "1800")]
@@ -142,13 +145,17 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let boundless_client = ClientBuilder::new()
+    let storage_provider = match &args.storage_config {
+        Some(storage_config) => storage_provider_from_config(storage_config).await?,
+        None => storage_provider_from_env().await?,
+    };
+
+    let boundless_client = ClientBuilder::<BuiltinStorageProvider>::new()
         .with_rpc_url(args.rpc_url.clone())
+        .with_storage_provider(Some(storage_provider))
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url.clone())
-        .with_storage_provider_config(args.storage_config.clone())
-        .await?
         .with_private_key(args.private_key.clone())
         .with_bidding_start_delay(args.bidding_start_delay)
         .with_balance_alerts(balance_alerts)
@@ -240,9 +247,15 @@ async fn run(args: &MainArgs) -> Result<()> {
         };
 
         if submit_offchain {
-            tracing::info!("Request 0x{request_id:x} submitted offchain");
+            tracing::info!(
+                "Request 0x{request_id:x} submitted offchain to {}",
+                args.order_stream_url.clone().unwrap()
+            );
         } else {
-            tracing::info!("Request 0x{request_id:x} submitted onchain");
+            tracing::info!(
+                "Request 0x{request_id:x} submitted onchain to {}",
+                args.boundless_market_address
+            );
         }
 
         i += 1;
@@ -267,7 +280,10 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::contracts::{test_utils::create_test_ctx, IBoundlessMarket};
+    use boundless_market::{
+        contracts::{test_utils::create_test_ctx, IBoundlessMarket},
+        storage::StorageProviderConfig,
+    };
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use tracing_test::traced_test;
