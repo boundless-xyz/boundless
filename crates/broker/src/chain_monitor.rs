@@ -3,10 +3,13 @@
 // All rights reserved.
 
 use alloy_chains::NamedChain;
-use std::{sync::Arc, time::{Duration, Instant}};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::{watch, Notify, RwLock};
 
-use alloy::{providers::Provider, eips::BlockNumberOrTag};
+use alloy::{eips::BlockNumberOrTag, providers::Provider};
 use anyhow::{Context, Result};
 
 use crate::task::{RetryRes, RetryTask, SupervisorErr};
