@@ -16,7 +16,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, RequestError},
-    selector::SupportedSelectors,
+    selector::{ProofType, SupportedSelectors},
 };
 use thiserror::Error;
 use tokio::task::JoinSet;
@@ -108,8 +108,7 @@ where
             }
         }
 
-        // TODO(BM-40): When accounting for gas costs of orders, a groth16 selector has much higher cost.
-        if !self.supported_selectors.is_supported(&order.request.requirements.selector) {
+        if !self.supported_selectors.is_supported(order.request.requirements.selector) {
             tracing::warn!(
                 "Removing order {order_id:x} because it has an unsupported selector requirement"
             );
@@ -473,12 +472,24 @@ where
 
     /// Estimate of gas for to fulfill a single order
     /// Currently just uses the config estimate but this may change in the future
-    async fn estimate_gas_to_fulfill(&self, _order: &Order) -> Result<u64> {
-        // TODO: Add gas costs for orders with Groth16 selectors.
+    async fn estimate_gas_to_fulfill(&self, order: &Order) -> Result<u64> {
         // TODO: Add gas costs for orders with large journals.
         // TODO: Accept the session info as input to the estimation.
         // TODO: Align this with the "pending" functions below. Store gas estimate on the function.
-        Ok(self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
+        let base =
+            self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate;
+        match self
+            .supported_selectors
+            .proof_type(order.request.requirements.selector)
+            .context("unsupported selector")?
+        {
+            ProofType::Any | ProofType::Inclusion => Ok(base),
+            ProofType::Groth16 => Ok(base + 250_000), // TODO Extract magic number
+            proof_type @ _ => {
+                tracing::warn!("Unknown proof type in gas cost estimation: {proof_type:?}");
+                Ok(base)
+            }
+        }
     }
 
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
@@ -946,6 +957,38 @@ mod tests {
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("has an unsupported selector requirement"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                min_price: parse_ether("0.0005").unwrap(),
+                max_price: parse_ether("0.0010").unwrap(),
+                ..Default::default()
+            })
+            .await;
+        let order_id = order.request.id;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain(&format!(
+            "gas cost to lock and fill order {order_id:x} execeeds max price"
+        )));
     }
 
     #[tokio::test]

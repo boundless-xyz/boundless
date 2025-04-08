@@ -7,7 +7,7 @@ use std::{future::Future, path::PathBuf};
 use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils::parse_ether, aliases::U96, utils, Address, FixedBytes, U256},
+    primitives::{aliases::U96, utils, utils::parse_ether, Address, FixedBytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
