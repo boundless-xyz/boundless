@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::now_timestamp;
+use crate::{now_timestamp, chain_monitor::ChainMonitorService};
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -54,6 +54,7 @@ pub struct OrderPicker<P> {
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
+    chain_monitor: Arc<ChainMonitorService<P>>,
     market: BoundlessMarketService<Arc<P>>,
     supported_selectors: SupportedSelectors,
     // Tracks the timestamp when the prover estimates it will complete the locked orders.
@@ -70,6 +71,7 @@ where
         prover: ProverObj,
         market_addr: Address,
         provider: Arc<P>,
+        chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
@@ -81,6 +83,7 @@ where
             config,
             prover,
             provider,
+            chain_monitor,
             market,
             supported_selectors: SupportedSelectors::default(),
             prover_available_at: Arc::new(tokio::sync::Mutex::new(now_timestamp())),
@@ -151,7 +154,7 @@ where
         }
 
         // Check that we have both enough staking tokens to stake, and enough gas tokens to lock and fulfil
-        let gas_price = self.provider.get_gas_price().await.context("Failed to get gas price")?;
+        let gas_price = self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
         let gas_to_lock_order =
             U256::from(gas_price) * U256::from(self.estimate_gas_to_lock(order).await?);
         let available_gas = self.available_gas_balance().await?;
@@ -459,8 +462,8 @@ where
     }
 
     /// Estimate the total gas tokens reserved to lock and fulfill all pending orders
-    async fn gas_reserved(&self) -> Result<U256> {
-        let gas_price = self.provider.get_gas_price().await.context("Failed to get gas price")?;
+    async fn gas_balance_reserved(&self) -> Result<U256> {
+        let gas_price = self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
         let lock_pending_gas = self.estimate_gas_to_lock_pending().await?;
         let fulfill_pending_gas = self.estimate_gas_to_fulfill_pending().await?;
         Ok(U256::from(gas_price) * U256::from(lock_pending_gas + fulfill_pending_gas))
@@ -476,15 +479,15 @@ where
             .await
             .context("Failed to get current wallet balance")?;
 
-        let gas_reserved = self.gas_reserved().await?;
+        let gas_balance_reserved = self.gas_balance_reserved().await?;
 
         tracing::debug!(
             "Available Balance = account_balance({}) - expected_future_gas({})",
             format_ether(balance),
-            format_ether(gas_reserved)
+            format_ether(gas_balance_reserved)
         );
 
-        Ok(balance - gas_reserved)
+        Ok(balance - gas_balance_reserved)
     }
 
     /// Return available stake balance.
@@ -803,7 +806,7 @@ mod tests {
             tokio::spawn(chain_monitor.spawn());
 
             let picker =
-                OrderPicker::new(db.clone(), config, prover, market_address, provider.clone());
+                OrderPicker::new(db.clone(), config, prover, market_address, provider.clone(), chain_monitor);
 
             TestCtx { anvil, picker, boundless_market, storage_provider, db, provider }
         }
@@ -1117,14 +1120,14 @@ mod tests {
 
         let gas_price = ctx.provider.get_gas_price().await.unwrap();
         assert_eq!(
-            ctx.picker.gas_reserved().await.unwrap(),
+            ctx.picker.gas_balance_reserved().await.unwrap(),
             U256::from(gas_price) * U256::from(fulfill_gas + lockin_gas)
         );
         // mark the order as locked.
         ctx.db.set_proving_status(order_id, U256::ZERO).await.unwrap();
         // only fulfillment gas now reserved
         assert_eq!(
-            ctx.picker.gas_reserved().await.unwrap(),
+            ctx.picker.gas_balance_reserved().await.unwrap(),
             U256::from(gas_price) * U256::from(fulfill_gas)
         );
     }
