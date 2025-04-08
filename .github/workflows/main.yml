@@ -275,76 +275,36 @@ jobs:
   link-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code # Added a name for clarity
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # The existing Actions cache step - we leave it for now but will ignore lychee's use of it below
-      - name: Restore lychee Actions cache # Added a name for clarity
+      - name: restore lychee cache
         id: restore-cache
         uses: actions/cache@v4
         with:
-          path: .lycheecache # Note: Lychee default cache file is usually .lychee-cache (with a dash)
+          path: .lycheecache
           key: cache-lychee-${{ github.sha }}
           restore-keys: cache-lychee-
 
-      - name: Install cargo-binstall
+      - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
-          version: '=1.10.8' # Using version from your original file
+          version: '=1.10.8'
           locked: true
 
-      - name: Install lychee # Added a name for clarity
-        # Using version from your original file
-        run: cargo binstall -y --force lychee@0.15.1
+      - run: cargo binstall -y --force lychee@0.15.1
 
-      # --- START DEBUGGING STEPS ---
-      - name: Debug - Show Checked Out Commit
-        run: |
-          echo ">>> Checking commit:"
-          git log -1 --format="Commit HASH: %H%nCommit Subject: %s"
+      - name: run lychee
+        # lychee does not respect the .gitignore natively
+        # https://github.com/lycheeverse/lychee/issues/470#issuecomment-1094690229
+        # don't run on `documentation` folder, it has it's own checker for links
+        run: git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
 
-      - name: Debug - Show Working Directory
-        run: |
-          echo ">>> Running in directory:"
-          pwd
-
-      - name: Debug - List Markdown Files Found
-        run: |
-          echo ">>> Markdown files found by git ls-files:"
-          git ls-files '*.md' ':!:documentation/*' || echo "git ls-files command failed!"
-
-      - name: Debug - Show Content of README.md
-        run: |
-          echo ">>> Attempting to show content of README.md (if it exists):"
-          if [ -f README.md ]; then
-            echo "--- README.md Content Start ---"
-            cat README.md
-            echo "--- README.md Content End ---"
-          else
-            echo "README.md not found in $(pwd)"
-            echo "Listing all files in current directory:"
-            ls -la
-          fi
-      # --- END DEBUGGING STEPS ---
-
-      - name: Run Lychee Link Checker (Debug Mode - No Internal Cache) # Modified name
-        run: |
-          echo ">>> Attempting to remove default lychee cache file (.lychee-cache)..."
-          rm -f .lychee-cache
-          echo ">>> Attempting to remove workflow cache file (.lycheecache)..."
-          rm -f .lycheecache # Remove the one specified in Actions cache path too, just in case
-          echo ">>> Running lychee WITHOUT --cache flag..."
-          # Execute the command: Find relevant markdown files and pipe to lychee without its cache flag
-          git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --max-concurrency 6 # REMOVED --cache flag
-
-      # We keep the save step, though it might not save much if lychee didn't use its internal cache
-      - name: Save lychee Actions cache # Added name for clarity
+      - name: save lychee cache
         uses: actions/cache/save@v4
-        # 'if: always()' ensures this runs even if the previous step failed
         if: always()
         with:
-          path: .lycheecache # Matches the restore path
+          path: .lycheecache
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
   format:
