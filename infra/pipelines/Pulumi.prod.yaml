@@ -1,4 +1,13 @@
 config:
   aws:region: us-west-2
+  pipelines:GITHUB_TOKEN:
+    secure: v1:Pk4oKulHKDkYy7nE:hBuZJUG5SUNEocf3fwOwIxU5u+z/GDoFrNTq3ybxRYJmB1Y8gg+He+ebuv3/y8wYPy5azJw5fPRzH8I6cQrSw0ADYsQONdasHoIcueM2/5ea0JPnWluxtssQV2aSIvlYNzsboIVHH973KOPbEQ==
+  pipelines:DOCKER_USER: risczeroautomation
+  pipelines:DOCKER_PAT:
+    secure: v1:T+xEOzjeS7sQw9Nb:dY+euWAR30sMP+DYC4V9lfM3LmSCu/yiYPANKYqgw7hkdM4izqHCvUq/s+8ABEgdSUVjRw==
+  pipelines:BOUNDLESS_ALERTS_SLACK_ID:
+    secure: v1:J2ub3a8jGaglZCGc:S/I5GH1h/1w3UsfHCjjInBOGz3nQG7/W9wYf
+  pipelines:WORKSPACE_SLACK_ID:
+    secure: v1:vV+qgJdAOlWjWopo:NnPGhM8xj5jRtaKJengh0njuWGTQfw41lmoy
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFRXbSyr6AYSMcivVuIOKM1AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM99POLOpwmSAsUSA6AgEQgDtWlwiW1A4Ljv+YiqVnhqlhSZhL08n2udrkFcXJOak8aa7RyAbspSlyMy/J6r9TffIO8mXOioXADQfokg==

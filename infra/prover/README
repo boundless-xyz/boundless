@@ -1,0 +1,20 @@
+# Development
+
+Prerequisite: onboard to the development account. See `infra/README`.
+
+1. Setup env variables
+
+```
+export BONSAI_API_KEY=""
+export PULUMI_CONFIG_PASSPHRASE=""
+export PRIVATE_KEY=""
+export ETH_RPC_URL=""
+export DEV_NAME=""
+```
+
+`PULUMI_CONFIG_PASSPHRASE` can be left blank as we do not use that feature.
+`DEV_NAME` should be your name. This is used to name resources that you create.
+
+1. pulumi login --local
+2. pulumi stack select dev
+3. pulumi up

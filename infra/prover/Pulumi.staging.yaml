@@ -1,0 +1,21 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGwxtZQaXmuKc6n1fmY5HZ8AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMaSgh27uH+NWc6zZTAgEQgDuYJdzIX0aniEtenDAzlCg46nfYlD+jVLRRzyyZZvWx0rBtMq5pl2pV8lLlq3ZG/GkWsPDNHhzak06DjQ==
+config:
+  aws:region: us-west-2
+  prover:DOCKER_DIR: "../../"
+  prover:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
+  prover:PROOF_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
+  prover:BONSAI_API_URL: https://api.bonsai.xyz/
+  prover:ORDER_STREAM_URL: https://order-stream.beboundless.xyz/
+  prover:DOCKER_TAG: latest
+  prover:BROKER_TOML_PATH: broker-staging.toml
+  prover:BASE_STACK: organization/bootstrap/services-staging
+  prover:ETH_RPC_URL:
+    secure: v1:ZGilzSIhSnEnqene:E/RXZFjEwx3dC2+c7SLHOdkts59K/GYPXcy32z9tmion2hWHCnFGoRWgjfL0Yjk8iZGi3D9CvuHb7mj/oE0I6V0cD8CQIPfSpSi1cEQn3SSJKgJiJg==
+  prover:PRIVATE_KEY:
+    secure: v1:XeT00OsvvQdg9y4K:jjqy1PfadM1Zo6XwgwI4Z0NmwDYA4akd3HvpD1BKQFt6YqB2QS8l03uccezLX3uFRy67UecCwDYVlP4bG+Np1ClK2O/Wm0h5n2En5XlaslU=
+  prover:BONSAI_API_KEY:
+    secure: v1:R52O8izvZ2+jGU85:MXZSycsixFnVqErtbAvq5giYtIl5z8BOVwyDPgYHXAtuWzx3vqJ0gLYtR8fDiZDdqt2zvnroPfc=
+  prover:GH_TOKEN_SECRET:
+    secure: v1:uKW8SunjoJPWAf4l:GS38MomZJucbvxMfnp4PqigyTT4X7W9inHFdb53FOAXzhlpwIgL5fMURRviScfJaxE2l8chc+VALgMIywDoNFsc7kEvU8G/QerwZ1SWYhlLuu4w1IRi9sgrWGDhQmz62fSMYeNuNaaZG2LdZew==
+  prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic

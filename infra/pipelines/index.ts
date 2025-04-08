@@ -1,14 +1,23 @@
 import { PulumiStateBucket } from "./components/pulumiState";
 import { PulumiSecrets } from "./components/pulumiSecrets";
 import { SamplePipeline } from "./pipelines/sample";
+import { ProverPipeline } from "./pipelines/prover";
+import { SlasherPipeline } from "./pipelines/slasher";
+import { Notifications } from "./components/notifications";
+import { OrderGeneratorPipeline } from "./pipelines/order-generator";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import { 
   BOUNDLESS_DEV_ADMIN_ROLE_ARN, 
   BOUNDLESS_OPS_ACCOUNT_ID, 
   BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, 
-  BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN 
+  BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, 
+  BOUNDLESS_STAGING_ADMIN_ROLE_ARN,
+  BOUNDLESS_PROD_ADMIN_ROLE_ARN,
+  BOUNDLESS_STAGING_ACCOUNT_ID,
+  BOUNDLESS_PROD_ACCOUNT_ID
 } from "./accountConstants";
+import * as pulumi from '@pulumi/pulumi';
 
 // Defines the S3 bucket used for storing the Pulumi state backend for staging and prod accounts.
 const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
@@ -17,6 +26,8 @@ const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
     BOUNDLESS_DEV_ADMIN_ROLE_ARN,
   ],
   readWriteStateBucketArns: [
+    BOUNDLESS_STAGING_ADMIN_ROLE_ARN,
+    BOUNDLESS_PROD_ADMIN_ROLE_ARN,
     BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
     BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
   ],
@@ -56,6 +67,25 @@ const codePipelineSharedResources = new CodePipelineSharedResources("codePipelin
   ],
 });
 
+const config = new pulumi.Config();
+const boundlessAlertsSlackId = config.requireSecret("BOUNDLESS_ALERTS_SLACK_ID");
+const workspaceSlackId = config.requireSecret("WORKSPACE_SLACK_ID");
+
+const notifications = new Notifications("notifications", {
+  serviceAccountIds: [
+    BOUNDLESS_OPS_ACCOUNT_ID,
+    BOUNDLESS_STAGING_ACCOUNT_ID,
+    BOUNDLESS_PROD_ACCOUNT_ID,
+  ],
+  slackChannelId: boundlessAlertsSlackId,
+  slackTeamId: workspaceSlackId,
+});
+
+// The Docker and GH tokens are used to avoid rate limiting issues when building in the pipelines.
+const githubToken = config.requireSecret("GITHUB_TOKEN");
+const dockerUsername = config.require("DOCKER_USER");
+const dockerToken = config.requireSecret("DOCKER_PAT");
+
 // Create the deployment pipeline for the "sample" app.
 const samplePipeline = new SamplePipeline("samplePipeline", {
   connection: githubConnection,
@@ -63,5 +93,36 @@ const samplePipeline = new SamplePipeline("samplePipeline", {
   role: codePipelineSharedResources.role,
 });
 
+const proverPipeline = new ProverPipeline("proverPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+})
+
+const orderGeneratorPipeline = new OrderGeneratorPipeline("orderGeneratorPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+})
+
+const slasherPipeline = new SlasherPipeline("slasherPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+})
+
 export const bucketName = pulumiStateBucket.bucket.id;
 export const kmsKeyArn = pulumiSecrets.kmsKey.arn;
+export const boundlessAlertsTopicArn = notifications.slackSNSTopic.arn;
