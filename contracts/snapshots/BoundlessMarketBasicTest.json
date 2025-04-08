@@ -10,6 +10,7 @@
   "depositStakeWithPermit: full (drains testProver account)": "72350",
   "fulfill: a locked request": "74214",
   "fulfill: a locked request (locked via prover signature)": "74214",
+  "fulfill: a locked request with 10kB journal": "245617",
   "fulfill: another prover fulfills without payment": "71102",
   "fulfill: fulfilled by the locked prover for payment (request already fulfilled by another prover)": "69721",
   "fulfillAndWithdraw: a locked request": "86433",

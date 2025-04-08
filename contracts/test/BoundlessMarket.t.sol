@@ -1218,6 +1218,45 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfillSameBlock(0xffffffff, LockRequestMethod.LockRequest);
     }
 
+    function testFulfillLargeJournal() external {
+        // Generate a 10kB buffer full of non-zero bytes.
+        // 10kB = 320 bytes32 values (10240/32)
+        bytes32[] memory buffer32 = new bytes32[](320);
+        for (uint256 i = 0; i < buffer32.length; i++) {
+            buffer32[i] = bytes32(uint256(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
+        }
+        bytes memory bigJournal = abi.encodePacked(buffer32);
+
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        request.requirements.predicate =
+            Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(bigJournal))});
+        bytes memory clientSignature = client.sign(request);
+
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, bigJournal, testProverAddress);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id);
+        boundlessMarket.fulfill(fill, assessorReceipt);
+        vm.snapshotGasLastCall("fulfill: a locked request with 10kB journal");
+
+        // Check that the proof was submitted
+        expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
+        expectMarketBalanceUnchanged();
+    }
+
     // While a request is locked, another prover can fulfill it but will not receive a payment.
     function testFulfillLockedRequestByOtherProverNotRequirePayment()
         public
