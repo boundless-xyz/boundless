@@ -155,16 +155,23 @@ where
 
         // Check that we have both enough staking tokens to stake, and enough gas tokens to lock and fulfil
         let gas_price = self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
-        let gas_to_lock_order =
-            U256::from(gas_price) * U256::from(self.estimate_gas_to_lock(order).await?);
+        let order_gas_cost =
+            U256::from(gas_price) * U256::from(self.estimate_gas_to_lock(order).await? + self.estimate_gas_to_fulfill(order).await?);
         let available_gas = self.available_gas_balance().await?;
         let available_stake = self.available_stake_balance().await?;
 
-        if gas_to_lock_order > available_gas {
-            tracing::warn!("Estimated there will be insufficient gas to lock this order after locking and fulfilling pending orders");
+        if order_gas_cost > order.request.offer.maxPrice {
+            tracing::warn!("Estimated gas cost to lock and fill order {order_id:x} execeeds max price");
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(false);
         }
+
+        if order_gas_cost > available_gas {
+            tracing::warn!("Estimated there will be insufficient gas to lock and fill order {order_id:x} after locking and fulfilling pending orders");
+            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            return Ok(false);
+        }
+
         if lockin_stake > available_stake {
             tracing::warn!(
                 "Insufficient available stake to lock order {order_id:x}. Requires {lockin_stake}, has {available_stake}"
@@ -221,7 +228,7 @@ where
             parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?
         };
 
-        let exec_limit: u64 = (U256::from(order.request.offer.maxPrice) / config_min_mcycle_price)
+        let exec_limit: u64 = (U256::from(order.request.offer.maxPrice).saturating_sub(order_gas_cost) / config_min_mcycle_price)
             .try_into()
             .context("Failed to convert U256 exec limit to u64")?;
 
@@ -336,15 +343,16 @@ where
 
         let one_mill = U256::from(1_000_000);
 
-        let mcycle_price_min = (U256::from(order.request.offer.minPrice)
+        let mcycle_price_min = (U256::from(order.request.offer.minPrice).saturating_sub(order_gas_cost)
             / U256::from(proof_res.stats.total_cycles))
             * one_mill;
-        let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
+        let mcycle_price_max = (U256::from(order.request.offer.maxPrice).saturating_sub(order_gas_cost)
             / U256::from(proof_res.stats.total_cycles))
             * one_mill;
 
         tracing::info!(
-            "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
+            "Order price: gas_cost: {} min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {}",
+            format_ether(order_gas_cost),
             format_ether(U256::from(order.request.offer.minPrice)),
             format_ether(U256::from(order.request.offer.maxPrice)),
             proof_res.stats.total_cycles,
@@ -375,7 +383,7 @@ where
         // TODO: Clean up and do more testing on this since its just a rough shot first draft
         else {
             let target_min_price =
-                config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill;
+                config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill + order_gas_cost;
             tracing::debug!("Target price: {target_min_price}");
 
             let target_timestamp: u64 = order
@@ -442,6 +450,12 @@ where
     /// Currently just uses the config estimate but this may change in the future
     async fn estimate_gas_to_lock(&self, _order: &Order) -> Result<u64> {
         Ok(self.config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate)
+    }
+
+    /// Estimate of gas for to fulfill a single order
+    /// Currently just uses the config estimate but this may change in the future
+    async fn estimate_gas_to_fulfill(&self, _order: &Order) -> Result<u64> {
+        Ok(self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
     }
 
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
@@ -643,6 +657,7 @@ where
     }
 }
 
+// DO NOT MERGE: Add a test that the order_gas_cost is being enforced as a min price.
 #[cfg(test)]
 mod tests {
     use super::*;
