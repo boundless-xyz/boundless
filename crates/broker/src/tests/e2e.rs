@@ -7,7 +7,7 @@ use std::{future::Future, path::PathBuf};
 use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
-    primitives::{aliases::U96, utils, Address, FixedBytes, U256},
+    primitives::{utils::parse_ether, aliases::U96, utils, Address, FixedBytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
@@ -52,8 +52,8 @@ fn generate_request(
         image_url,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         Offer {
-            minPrice: U256::from(20000000000000u64),
-            maxPrice: U256::from(40000000000000u64),
+            minPrice: parse_ether("0.02").unwrap(),
+            maxPrice: parse_ether("0.04").unwrap(),
             biddingStart: now_timestamp(),
             timeout: 600,
             lockTimeout: 600,
