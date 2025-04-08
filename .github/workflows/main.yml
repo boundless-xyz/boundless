@@ -272,7 +272,7 @@ jobs:
       - name: check broker
         run: cargo check --locked -p broker --bin broker
 
-link-check:
+  link-check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code # Added a name for clarity
