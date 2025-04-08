@@ -28,11 +28,16 @@ mod defaults {
     }
 
     pub const fn lockin_gas_estimate() -> u64 {
-        1_000_000
+        // Observed cost of a lock transaction is ~135k gas.
+        // https://sepolia.etherscan.io/tx/0xe61b5cad4a45fc0913cc966f8e3ee72027c01a949a9deca916780e1245c15964
+        200_000
     }
 
     pub const fn fulfill_gas_estimate() -> u64 {
-        300_000_000
+        // Observed cost of a basic single fulfill transaction is ~350k gas.
+        // Additional padding is used to account for journals up to 10kB in size.
+        // https://sepolia.etherscan.io/tx/0x14e54fbaf0c1eda20dd0828ddd64e255ffecee4562492f8c1253b0c3f20af764
+        750_000
     }
 
     pub const fn max_submission_attempts() -> u32 {
