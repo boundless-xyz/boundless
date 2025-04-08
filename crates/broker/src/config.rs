@@ -40,6 +40,10 @@ mod defaults {
         750_000
     }
 
+    pub const fn groth16_verify_gas_estimate() -> u64 {
+        250_000
+    }
+
     pub const fn max_submission_attempts() -> u32 {
         3
     }
@@ -91,14 +95,21 @@ pub struct MarketConf {
     pub max_file_size: usize,
     /// Max retries for fetching input / image contents from URLs
     pub max_fetch_retries: Option<u8>,
-    /// Gas Estimation
+    /// Gas estimate for lockin call.
     ///
-    /// Gas estimate for lockin call to use if it cannot be estimated using the node RPC
+    /// Used for estimating the gas costs associated with an order during pricing.
     #[serde(default = "defaults::lockin_gas_estimate")]
     pub lockin_gas_estimate: u64,
-    /// Gas estimate for fulfill call to use if it cannot be estimated using the node RPC
+    /// Gas estimate for fulfill call.
+    ///
+    /// Used for estimating the gas costs associated with an order during pricing.
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Gas estimate for proof verification using the RiscZeroGroth16Verifier.
+    ///
+    /// Used for estimating the gas costs associated with an order during pricing.
+    #[serde(default = "defaults::groth16_verify_gas_estimate")]
+    pub groth16_verify_gas_estimate: u64,
     /// Balance warning threshold (in native token)
     /// if the submitter balance drops below this the broker will issue warning logs
     pub balance_warn_threshold: Option<String>,
@@ -135,6 +146,7 @@ impl Default for MarketConf {
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
             balance_warn_threshold: None,
             balance_error_threshold: None,
             stake_balance_warn_threshold: None,

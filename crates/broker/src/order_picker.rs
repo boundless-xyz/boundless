@@ -474,18 +474,19 @@ where
     /// Currently just uses the config estimate but this may change in the future
     async fn estimate_gas_to_fulfill(&self, order: &Order) -> Result<u64> {
         // TODO: Add gas costs for orders with large journals.
-        // TODO: Accept the session info as input to the estimation.
-        // TODO: Align this with the "pending" functions below. Store gas estimate on the function.
-        let base =
-            self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate;
+        let (base, groth16) = {
+            let config = self.config.lock_all().context("Failed to read config")?;
+            (config.market.fulfill_gas_estimate, config.market.groth16_verify_gas_estimate)
+        };
+
         match self
             .supported_selectors
             .proof_type(order.request.requirements.selector)
             .context("unsupported selector")?
         {
             ProofType::Any | ProofType::Inclusion => Ok(base),
-            ProofType::Groth16 => Ok(base + 250_000), // TODO Extract magic number
-            proof_type @ _ => {
+            ProofType::Groth16 => Ok(base + groth16),
+            proof_type => {
                 tracing::warn!("Unknown proof type in gas cost estimation: {proof_type:?}");
                 Ok(base)
             }
@@ -493,6 +494,9 @@ where
     }
 
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
+    // NOTE: This could be optimized by storing the gas estimate on the DB order and using SQL to
+    // sum it. Given that the number of concurrantly pending orders should be somewhat small, this
+    // may not matter.
     async fn estimate_gas_to_lock_pending(&self) -> Result<u64> {
         let mut gas = 0;
         // NOTE: i64::max is the largest timestamp value possible in the DB.
@@ -503,6 +507,9 @@ where
     }
 
     /// Estimate of gas for fulfilling any orders either pending lock or locked
+    // NOTE: This could be optimized by storing the gas estimate on the DB order and using SQL to
+    // sum it. Given that the number of concurrantly pending orders should be somewhat small, this
+    // may not matter.
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         let mut gas = 0;
         for (_, order) in self.db.get_committed_orders().await? {
