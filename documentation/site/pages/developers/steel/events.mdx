@@ -1,0 +1,141 @@
+# Steel Events
+
+## What are events and why are they useful?
+
+[Smart Contract Events](https://docs.soliditylang.org/en/develop/contracts.html#events) in Solidity allow developers to emit logs containing indexed data, extending the EVM's logging capabilities to offchain applications. Offchain services can subscribe to and listen for these events via the RPC interface.
+
+Events are used extensively in Ethereum for two main reasons:
+
+1. They are the cheapest way to "store" data in Ethereum, which is very useful for bigger data loads.
+2. They allow for off-chain complex interactions like indexing, filtering, querying, etc.
+
+However, event data is **unusable onchain** by definition. Solidity cannot query event data internally. Currently, the workflow for smart contracts reacting to events is:
+
+- Emit an event.
+- Subscribe and listen to the event offchain.
+- Initiate an onchain transaction with relevant data in response to the emitted event.
+
+## So why use Steel Events?
+
+Allowing smart contracts to *verifiably* query event data directly onchain significantly streamlines this workflow, unlocking previously impossible trustless applications.
+
+Steel Events enables smart contracts to verify and directly use Ethereum events onchain, eliminating the need for complex event middleware. Leveraging the same [blockhash trust anchor](http://TODO) and [Steel Commitments](http://TODO) scheme, Steel Events ensures provable event data inherits Steel's robust security guarantees, unlocking powerful new use cases:
+
+- **Trustless On-Chain Reactions:** Execute complex logic based on verified aggregations or event patterns (e.g., swap volumes, user activity), without prohibitive gas costs.
+- **Secure Bridging of Off-Chain Logic:** Bring existing off-chain analytics safely on-chain, without modifying your smart contract logic or storage patterns.
+- **Cross-Contract Interaction via Events:** Enable Contract B to verifiably react to Contract A's events, even if A has no direct query API.
+
+This unlocks sophisticated, trustless interactions using Ethereum’s inexpensive event logs as secure, verifiable on-chain inputs.
+
+## How does Steel Events work?
+
+The Steel Events feature enables the developer to query events directly within their guest program. To enable the Steel Events feature, the feature flag “unstable-event” needs to be added to the `risc0-steel` dependency:
+
+```
+risc0-steel = { path = "../../crates/steel", features = ["unstable-event"] }
+```
+
+Once this feature flag is added, the guest program can specify the event to query using [alloy’s `sol!` Macro](https://alloy.rs/highlights/the-sol!-procedural-macro.html). For example, we can specify the signature for the ERC20 Transfer event:
+
+```
+sol! {
+    /// ERC-20 transfer event signature.
+    interface IERC20 {
+        event Transfer(address indexed from, address indexed to, uint256 value);
+    }
+}
+```
+
+To query all `Transfer` events in a single block for a specific token contract, we first must specify the contract address:
+
+```
+/// Address of the deployed contract to call the function on (USDT contract on Mainnet).
+const CONTRACT: Address = address!("dAC17F958D2ee523a2206206994597C13D831ec7");
+```
+
+This allows Steel in the host `preflight` call to populate the EVM environment, within the guest program, with the correct contract data. This EVM environment, in tandem with Merkle storage proofs, is used to verify all relevant data within the guest, and commit the data needed, to verify the blockhash onchain, to the journal. To read about this flow in detail, please refer to \[How Does Steel Work\](TODO).
+
+### Guest Program
+
+[Example Guest Program](https://github.com/risc0/risc0-ethereum/blob/main/examples/events/methods/guest/src/main.rs)
+
+The guest program requires the usual Steel workflow:
+
+1. Read the input from the host environment: `let input: EthEvmInput = env::read();`
+2. Convert the input into an `EvmEnv` for execution, with the correct chain configuration: `let env = input.into_env().with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);`
+3. Save the blockhash for the block where we are querying the event: `let event_block_hash = env.header().seal();`
+
+After which, we are ready to query all `Transfer` events in a single block for the specified `CONTRACT`:
+
+```
+ // Query all `Transfer` events of the USDT contract.
+    let event = Event::new::<IERC20::Transfer>(&env);
+    let logs = event.address(CONTRACT).query();
+```
+
+To grab the total USDT transferred across all the events in the pinned block, we iterate through each log, grab the `value` and `sum` them all into one uint256 type: total\_usdt
+
+```
+ // Process the events.
+ let total_usdt = logs.iter().map(|log| log.data.value).sum::<U256>();
+```
+
+And finally, we commit this sum, the \[commitment\](TODO) data, and the event block hash to the journal, ready for validation onchain:
+
+```
+// This commits the sum of all USDT transfers in the current block into the journal.
+let journal = Journal {
+commitment: env.into_commitment(),
+       blockHash: event_block_hash,
+       total_usdt,
+};
+
+env::commit_slice(&journal.abi_encode());
+```
+
+### Host Program
+
+[Example Host Program](https://github.com/risc0/risc0-ethereum/blob/main/examples/events/host/src/main.rs)
+
+The host program preflights the event query using the `Event::preflight` method. This populates the EVM environment with the relevant data ready for verification in the guest.
+
+```
+// Preflight the event query to prepare the input that is required to execute the function in the guest without RPC access.
+
+let event = Event::preflight::<IERC20::Transfer>(&mut env);
+let logs = event.address(CONTRACT).query().await?;
+log::info!(
+    "Contract {} emitted {} events with signature: {}",
+     CONTRACT,
+     logs.len(),
+     IERC20::Transfer::SIGNATURE,
+);
+
+// Construct the input from the environment.
+let evm_input = env.into_input().await?;
+
+```
+
+## Running the Events Example
+
+To get started with events, you can use the \[Steel Events example\](https://github.com/risc0/risc0-ethereum/tree/main/examples/events):
+
+```
+git clone https://github.com/risc0/risc0-ethereum.git && cd risc0-ethereum/examples/events
+```
+
+To run the example:
+
+```
+RPC_URL=https://ethereum-rpc.publicnode.com RUST_LOG=info cargo run --release
+```
+
+This should give you something like this:
+
+```
+Environment initialized with block 22144240
+Executing preflight querying event 'Transfer(address,address,uint256)'
+Contract 0xdAC17F958D2ee523a2206206994597C13D831ec7 emitted 36 events with signature: Transfer(address,address,uint256)
+Total USDT transferred in block 0x6fc043151df77c16fbed28c9332641d830c6ac494e53778fd6ad42dd38ffbb85: 126914297072
+```
+

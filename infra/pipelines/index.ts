@@ -130,7 +130,8 @@ const orderStreamPipeline = new OrderStreamPipeline("orderStreamPipeline", {
   role: codePipelineSharedResources.role,
   githubToken,
   dockerUsername,
-  dockerToken
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
 })
 
 export const bucketName = pulumiStateBucket.bucket.id;
