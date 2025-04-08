@@ -1,0 +1,88 @@
+---
+title: Proof Composition
+description: Proof composition allows you to build upon existing proofs by verifying them within new zkVM guest programs.
+---
+
+import { StripRustCodeComments } from "../../../components/strip-rust-code-comments";
+
+# Proof Composition
+
+> Prerequisite Reading: [Request a Proof](/developers/tutorials/request), [Proof Lifecycle](/developers/proof-lifecycle)
+
+## Overview
+
+Proof composition enables you to build upon existing proofs by verifying them within new zkVM guest programs. This is particularly useful when you want to prove a sequence of related statements without reproving each step.
+
+For example, let's say you have:
+1. A proof that block `n` is valid
+2. You want to prove that both blocks `n` and `n+1` are valid
+
+Instead of reproving block `n`, you can:
+1. Use the existing proof of block `n`
+2. Prove only block `n+1` under the assumption that `n` is valid
+3. Resolve this assumption by verifying the previous proof within your new proof
+
+This approach is more efficient than reproving everything from scratch.
+
+## How it Works
+
+Proof composition works by:
+
+1. Requesting a raw Groth16 proof from the Boundless Market
+2. Using this proof as input to a new zkVM guest program
+3. Verifying the proof within the guest program
+4. Building upon the verified result to prove new statements
+
+## Example: Composing Echo and Identity Proofs
+
+The [Proof Composition example](https://github.com/boundless-xyz/boundless/tree/main/examples/composition) demonstrates how to compose proofs using the Echo and Identity guest programs.
+
+First, we request a raw Groth16 proof from the Echo guest program:
+
+<StripRustCodeComments>
+```rust
+    let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
+    if groth16 {
+        requirements = requirements.with_groth16_proof();
+    }
+```
+</StripRustCodeComments>
+
+We then use this proof as input to the Identity guest program:
+
+<StripRustCodeComments>
+```rust
+// Build the IDENTITY input from the ECHO receipt
+let identity_input = (Digest::from(ECHO_ID), echo_receipt);
+let identity_guest_env =
+    Input::builder().write_frame(&postcard::to_allocvec(&identity_input)?).build_env()?;
+
+// Request a proof from the Boundless market using the IDENTITY guest
+let (identity_journal, identity_seal) =
+    boundless_proof(&boundless_client, IDENTITY_ELF, identity_guest_env, false)
+        .await
+        .context("failed to prove IDENTITY")?;
+```
+</StripRustCodeComments>
+
+Finally, we can use the composed proof to interact with a smart contract:
+
+<StripRustCodeComments>
+```rust
+// Interact with the Counter contract using the composed proof
+let counter = ICounterInstance::new(counter_address, boundless_client.provider());
+let journal_digest = B256::from_slice(identity_journal.digest().as_bytes());
+let image_id = B256::from_slice(Digest::from(IDENTITY_ID).as_bytes());
+let call_increment =
+    counter.increment(identity_seal, image_id, journal_digest).from(boundless_client.caller());
+
+// Execute the transaction
+let pending_tx = call_increment.send().await?;
+let tx_hash = pending_tx
+    .with_timeout(Some(TX_TIMEOUT))
+    .watch()
+    .await?;
+```
+</StripRustCodeComments>
+
+> Relevant links: [Proof Composition Example](https://github.com/boundless-xyz/boundless/tree/main/examples/composition)

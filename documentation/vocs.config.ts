@@ -59,6 +59,22 @@ const DEVELOPERS_ITEMS = [
             text: "Troubleshooting",
             link: "/developers/tutorials/troubleshooting",
           },
+          {
+            text: "Feature: Callbacks",
+            link: "/developers/tutorials/feature-callbacks",
+          },
+          {
+            text: "Feature: Smart Contract Requestors",
+            link: "/developers/tutorials/feature-smart-contract-requestor",
+          },
+          {
+            text: "Feature: Proof Types",
+            link: "/developers/tutorials/feature-proof-types",
+          },
+          {
+            text: "Feature: Proof Composition",
+            link: "/developers/tutorials/feature-proof-composition",
+          },
         ],
       },
       {
