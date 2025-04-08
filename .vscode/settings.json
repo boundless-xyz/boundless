@@ -21,7 +21,11 @@
     "./crates/guest/util/identity/Cargo.toml",
     "./examples/counter/Cargo.toml",
     "./examples/smart-contract-requestor/Cargo.toml",
-    "./examples/counter-with-callback/Cargo.toml",
+    "./examples/counter-with-callback/Cargo.toml"
+  ],
+  "rust-analyzer.files.exclude": [
+    "./lib/",
+    "./contracts/out/"
   ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",
@@ -33,5 +37,5 @@
   },
   "biome.rename": true,
   "biome.enabled": true,
-  "biome.lspBin": "documentation/node_modules/.bin/biome",
+  "biome.lspBin": "documentation/node_modules/.bin/biome"
 }
