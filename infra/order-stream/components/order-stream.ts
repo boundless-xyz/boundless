@@ -379,7 +379,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     const serviceLogGroup = `${serviceName}`;
 
     const albEndPoint = pulumi.interpolate`http://${loadbalancer.loadBalancer.dnsName}/`;
-    const domain = albDomain ?? albEndPoint;
+    const domain = albDomain ?? loadbalancer.loadBalancer.dnsName;
 
     const service = new awsx.ecs.FargateService(`${serviceName}-serv`, {
       name: `${serviceName}-serv`,
@@ -492,7 +492,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
   
     this.lbUrl = albEndPoint;
     this.swaggerUrl = domain.apply((domain) => {
-      return domain.includes("http") ? `${domain}swagger-ui` : `https://${domain}/swagger-ui`;
+      return albDomain ? `https://${domain}/swagger-ui` : `http://${domain}/swagger-ui`;
     });
   }
 }
