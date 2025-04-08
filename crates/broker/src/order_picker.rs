@@ -449,12 +449,15 @@ where
     /// Estimate of gas for locking a single order
     /// Currently just uses the config estimate but this may change in the future
     async fn estimate_gas_to_lock(&self, _order: &Order) -> Result<u64> {
+        // TODO: Add gas costs for orders with smart contract signatures.
         Ok(self.config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate)
     }
 
     /// Estimate of gas for to fulfill a single order
     /// Currently just uses the config estimate but this may change in the future
     async fn estimate_gas_to_fulfill(&self, _order: &Order) -> Result<u64> {
+        // TODO: Add gas costs for orders with Groth16 selectors.
+        // TODO: Add gas costs for orders with large journals.
         Ok(self.config.lock_all().context("Failed to read config")?.market.fulfill_gas_estimate)
     }
 
