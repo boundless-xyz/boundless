@@ -16,6 +16,8 @@ bonsai-sdk = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true, features = ["env", "derive"] }
 risc0-zkvm = { workspace = true }
+sample-guest-common = { workspace = true }
+sample-guest-methods = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }
