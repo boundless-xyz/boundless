@@ -29,12 +29,12 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       orderStreamPingTime: number;
       privSubNetIds: pulumi.Output<string[]>;
       pubSubNetIds: pulumi.Output<string[]>;
-      acmCertArn?: pulumi.Output<string>;
       githubTokenSecret?: pulumi.Output<string>;
       minBalance: string;
       boundlessAddress: string;
       vpcId: pulumi.Output<string>;
       rdsPassword: pulumi.Output<string>;
+      acmCertArn?: pulumi.Output<string>;
       albDomain?: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
       bypassAddrs: string;
@@ -64,6 +64,15 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     
     const stackName = pulumi.getStack();
     const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE, chainId);
+
+    // If we're in prod and have a domain, create a cert
+    let cert: aws.acm.Certificate | undefined;
+    if (stackName === 'prod' && albDomain) {
+      cert = new aws.acm.Certificate(`${serviceName}-cert`, {
+        domainName: pulumi.interpolate`${albDomain}`,
+        validationMethod: "DNS",
+      });
+    }
 
     const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
       lifecyclePolicy: {
