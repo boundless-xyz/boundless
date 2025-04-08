@@ -993,6 +993,68 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn skip_price_less_than_gas_costs_groth16() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
+        let min_price = parse_ether("0.0013").unwrap();
+        let max_price = parse_ether("0.0013").unwrap();
+
+        // Order should have high enough price with the default selector.
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+        let order_id = order.request.id;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Locking);
+        assert_eq!(db_order.target_timestamp, Some(0));
+
+        // Order does not have high enough price when groth16 is used.
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+
+        // set a Groth16 selector
+        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_0 as u32);
+        let order_id = order.request.id;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.picker.price_order(order_id, &order).await.unwrap();
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain(&format!(
+            "gas cost to lock and fill order {order_id:x} execeeds max price"
+        )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn skip_unallowed_addr() {
         let config = ConfigLock::default();
         {
