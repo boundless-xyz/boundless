@@ -13,3 +13,4 @@ config:
     secure: v1:jMxoiAdaFoB9WAJT:g1NrUTgO6qv3wZqomw4mgtuW43E3Vpu093zhFav17uyr1971GQo6Ngsy9AywFLQBSuwNEViIugZ/I5KOIJW1qgM7ieQTpkhsaeXjL4Sz9tQJ01g2bg==
   order-stream:RDS_PASSWORD:
     secure: v1:dJD9V4HJRNUodRNi:P3NeEgkC+taYmae8PsFSwSs+/RETOtRA/qO/ibHFizvYBw==
+  order-stream:ALB_DOMAIN: eth-sepolia.beboundless.xyz
