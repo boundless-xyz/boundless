@@ -218,7 +218,6 @@ export = () => {
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     // >=2 error periods per hour
     evaluationPeriods: 60,
-    period: 60,
     datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
     alarmDescription: 'Order generator log ERROR level',

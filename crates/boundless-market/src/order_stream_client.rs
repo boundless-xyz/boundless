@@ -38,15 +38,15 @@ use utoipa::ToSchema;
 use crate::contracts::{eip712_domain, ProofRequest, RequestError};
 
 /// Order stream submission API path.
-pub const ORDER_SUBMISSION_PATH: &str = "/api/submit_order";
+pub const ORDER_SUBMISSION_PATH: &str = "/api/v1/submit_order";
 /// Order stream order list API path.
-pub const ORDER_LIST_PATH: &str = "/api/orders";
+pub const ORDER_LIST_PATH: &str = "/api/v1/orders";
 /// Order stream nonce API path.
-pub const AUTH_GET_NONCE: &str = "/api/nonce/";
+pub const AUTH_GET_NONCE: &str = "/api/v1/nonce/";
 /// Order stream health check API path.
-pub const HEALTH_CHECK: &str = "/api/health";
+pub const HEALTH_CHECK: &str = "/api/v1/health";
 /// Order stream websocket path.
-pub const ORDER_WS_PATH: &str = "/ws/orders";
+pub const ORDER_WS_PATH: &str = "/ws/v1/orders";
 
 /// Error body for API responses
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -335,7 +335,8 @@ impl Client {
         };
 
         // Create the WebSocket request
-        let mut request = ws_url.into_client_request().context("failed to create request")?;
+        let mut request =
+            ws_url.clone().into_client_request().context("failed to create request")?;
         request
             .headers_mut()
             .insert("X-Auth-Data", auth_json.parse().context("failed to parse auth message")?);
@@ -349,10 +350,20 @@ impl Client {
                 } else {
                     "Empty http error body".into()
                 };
-                anyhow::bail!("Failed to connect to ws endpoint: {} {}", self.base_url, http_err);
+                anyhow::bail!(
+                    "Failed to connect to ws endpoint ({}): {} {}",
+                    ws_url,
+                    self.base_url,
+                    http_err
+                );
             }
             Err(err) => {
-                anyhow::bail!("Failed to connect to ws endpoint: {} {err:?}", self.base_url);
+                anyhow::bail!(
+                    "Failed to connect to ws endpoint ({}): {} {}",
+                    ws_url,
+                    self.base_url,
+                    err
+                );
             }
         };
         Ok(socket)

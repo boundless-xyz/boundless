@@ -13,7 +13,8 @@ export = () => {
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const pinataJWT = isDev ? getEnvVar("PINATA_JWT") : config.requireSecret('PINATA_JWT');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
-
+  const orderStreamUrl = isDev ? getEnvVar("ORDER_STREAM_URL") : config.getSecret('ORDER_STREAM_URL');
+  
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const logLevel = config.require('LOG_LEVEL');
   const dockerDir = config.require('DOCKER_DIR');
@@ -21,7 +22,7 @@ export = () => {
   const setVerifierAddr = config.require('SET_VERIFIER_ADDR');
   const boundlessMarketAddr = config.require('BOUNDLESS_MARKET_ADDR');
   const pinataGateway = config.require('PINATA_GATEWAY_URL');
-  const orderStreamUrl = config.get('ORDER_STREAM_URL');
+  
   const interval = config.require('INTERVAL');
   const lockStake = config.require('LOCK_STAKE');
   const rampUp = config.require('RAMP_UP');
@@ -49,6 +50,12 @@ export = () => {
   new aws.secretsmanager.SecretVersion(`${serviceName}-rpc-url`, {
     secretId: rpcUrlSecret.id,
     secretString: ethRpcUrl,
+  });
+
+  const orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
+  new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
+    secretId: orderStreamUrlSecret.id,
+    secretString: orderStreamUrl,
   });
 
   const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
@@ -146,7 +153,7 @@ export = () => {
         {
           Effect: 'Allow',
           Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-          Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn],
+          Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn, orderStreamUrlSecret.arn],
         },
       ],
     },
@@ -177,7 +184,7 @@ export = () => {
           essential: true,
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/boundless-order-generator --interval ${interval} --min ${minPricePerMCycle} --max ${maxPricePerMCycle} --lockin-stake ${lockStake} --ramp-up ${rampUp} --set-verifier-address ${setVerifierAddr} --boundless-market-address ${boundlessMarketAddr} ${orderStreamUrl ? `--order-stream-url ${orderStreamUrl}` : ''}`,
+            `/app/boundless-order-generator --interval ${interval} --min ${minPricePerMCycle} --max ${maxPricePerMCycle} --lockin-stake ${lockStake} --ramp-up ${rampUp} --set-verifier-address ${setVerifierAddr} --boundless-market-address ${boundlessMarketAddr}`,
           ],
           environment: [
             {
@@ -201,6 +208,10 @@ export = () => {
             {
               name: 'PINATA_JWT',
               valueFrom: pinataJwtSecret.arn,
+            },
+            {
+              name: 'ORDER_STREAM_URL',
+              valueFrom: orderStreamUrlSecret.arn,
             },
           ],
         },
@@ -241,7 +252,6 @@ export = () => {
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     // >=2 error periods per hour
     evaluationPeriods: 60,
-    period: 60,
     datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
     alarmDescription: 'Order generator log ERROR level',

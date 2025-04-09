@@ -3,8 +3,8 @@
 // All rights reserved.
 
 use anyhow::{Context, Error as AnyhowErr, Result};
-use async_trait::async_trait;
 use axum::{
+    async_trait,
     body::{to_bytes, Body},
     extract::{FromRequestParts, Host, Path, State},
     http::{request::Parts, StatusCode},
@@ -348,8 +348,7 @@ async fn receipt_upload(
     Host(hostname): Host,
 ) -> Result<Json<UploadRes>, AppError> {
     let receipt_id = Uuid::new_v4();
-
-    let new_receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}");
+    let new_receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
     if state
         .s3_client
         .object_exists(&new_receipt_key)
@@ -371,7 +370,7 @@ async fn receipt_upload_put(
     Path(receipt_id): Path<String>,
     body: Body,
 ) -> Result<(), AppError> {
-    let new_receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}");
+    let new_receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
     if state
         .s3_client
         .object_exists(&new_receipt_key)

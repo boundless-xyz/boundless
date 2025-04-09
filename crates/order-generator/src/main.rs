@@ -40,7 +40,7 @@ struct MainArgs {
     /// Optional URL of the offchain order stream endpoint.
     ///
     /// If set, the order-generator will submit requests off-chain.
-    #[clap(short, long)]
+    #[clap(short, long, env)]
     order_stream_url: Option<Url>,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
