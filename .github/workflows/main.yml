@@ -360,8 +360,8 @@ jobs:
       - uses: risc0/risc0/.github/actions/rustup@release-2.0
         with:
           # Building with docs.rs config requires the nightly toolchain.
-          toolchain: nightly-2024-09-04
-      - run: cargo +nightly-2024-09-04 doc -p boundless-market --all-features --no-deps
+          toolchain: nightly-2025-01-03
+      - run: cargo +nightly-2025-01-03 doc -p boundless-market --all-features --no-deps
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
