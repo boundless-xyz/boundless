@@ -207,7 +207,7 @@ where
         let order_gas_cost = U256::from(gas_price) * order_gas;
         let available_gas = self.available_gas_balance().await?;
         let available_stake = self.available_stake_balance().await?;
-        tracing::info!(
+        tracing::debug!(
             "Estimated {order_gas} gas to lock and fill order {order_id:x}; {} ether @ {} gwei",
             format_ether(order_gas_cost),
             format_units(gas_price, "gwei").unwrap()
@@ -360,8 +360,15 @@ where
             drop(prover_available);
             tracing::debug!("Order {order_id:x} estimated to take {proof_time_seconds}s to prove");
 
-            let res =
-                self.evaluate_order(order_id, order, &proof_res, config_min_mcycle_price).await;
+            let res = self
+                .evaluate_order(
+                    order_id,
+                    order,
+                    &proof_res,
+                    order_gas_cost,
+                    config_min_mcycle_price,
+                )
+                .await;
             if let Err(e) = res {
                 // Failed to select order, decrement the reserved capacity.
                 let mut prover_available = self.prover_available_at.lock().await;
@@ -370,7 +377,14 @@ where
             }
             res
         } else {
-            self.evaluate_order(order_id, order, &proof_res, config_min_mcycle_price).await
+            self.evaluate_order(
+                order_id,
+                order,
+                &proof_res,
+                order_gas_cost,
+                config_min_mcycle_price,
+            )
+            .await
         }
     }
 
@@ -379,6 +393,7 @@ where
         order_id: U256,
         order: &Order,
         proof_res: &ProofResult,
+        order_gas_cost: U256,
         config_min_mcycle_price: U256,
     ) -> Result<Option<OrderLockTiming>, PriceOrderErr> {
         let journal = self
@@ -457,6 +472,7 @@ where
 
         Ok(Some(OrderLockTiming { target_timestamp_secs, expiry_secs }))
     }
+
     async fn find_existing_orders(&self) -> Result<()> {
         let pricing_orders = self
             .db

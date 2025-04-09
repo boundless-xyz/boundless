@@ -132,10 +132,10 @@ mod tests {
     fn test_supported_selectors() {
         let mut supported_selectors = SupportedSelectors::new();
         let selector = FixedBytes::from(Selector::Groth16V2_0 as u32);
-        supported_selectors = supported_selectors.with_selector(selector);
-        assert!(supported_selectors.is_supported(&selector));
+        supported_selectors = supported_selectors.with_selector(selector, ProofType::Groth16);
+        assert!(supported_selectors.is_supported(selector));
         supported_selectors.remove(selector);
-        assert!(!supported_selectors.is_supported(&selector));
+        assert!(!supported_selectors.is_supported(selector));
     }
 
     #[test]
