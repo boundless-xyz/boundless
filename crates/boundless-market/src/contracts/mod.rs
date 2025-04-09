@@ -584,8 +584,8 @@ impl Predicate {
 }
 
 impl Callback {
-    /// Constant representing an empty callback (i.e. no call will be made).
-    pub const EMPTY: Self = Self { addr: Address::ZERO, gasLimit: U96::ZERO };
+    /// Constant representing a none callback (i.e. no call will be made).
+    pub const NONE: Self = Self { addr: Address::ZERO, gasLimit: U96::ZERO };
 
     /// Sets the address of the callback.
     pub fn with_addr(self, addr: impl Into<Address>) -> Self {
@@ -597,26 +597,26 @@ impl Callback {
         Self { gasLimit: U96::from(gas_limit), ..self }
     }
 
-    /// Returns true if this is an empty callback (i.e. no call will be made).
+    /// Returns true if this is a none callback (i.e. no call will be made).
     ///
-    /// NOTE: A callback is considered empty if the address is zero, regardless of the gas limit.
-    pub fn is_empty(&self) -> bool {
+    /// NOTE: A callback is considered none if the address is zero, regardless of the gas limit.
+    pub fn is_none(&self) -> bool {
         self.addr == Address::ZERO
     }
 
-    /// Convert to an option representation, mapping an empty callback to `None`.
+    /// Convert to an option representation, mapping a none callback to `None`.
     pub fn into_option(self) -> Option<Self> {
-        self.is_empty().not().then_some(self)
+        self.is_none().not().then_some(self)
     }
 
-    /// Convert to an option representation, mapping an empty callback to `None`.
+    /// Convert to an option representation, mapping a none callback to `None`.
     pub fn as_option(&self) -> Option<&Self> {
-        self.is_empty().not().then_some(self)
+        self.is_none().not().then_some(self)
     }
 
-    /// Convert from an option representation, mapping `None` to [Self::EMPTY].
+    /// Convert from an option representation, mapping `None` to [Self::NONE].
     pub fn from_option(opt: Option<Self>) -> Self {
-        opt.unwrap_or(Self::EMPTY)
+        opt.unwrap_or(Self::NONE)
     }
 }
 
