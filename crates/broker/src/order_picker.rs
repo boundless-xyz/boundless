@@ -30,7 +30,11 @@ use boundless_market::{
 use thiserror::Error;
 use tokio::task::JoinSet;
 
+/// Maximum number of orders to concurrently work on pricing. Used to limit pricing tasks spawned.
 const MAX_PRICING_BATCH_SIZE: u32 = 10;
+
+/// Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
+const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -514,8 +518,6 @@ where
         let mut estimate =
             self.config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate;
 
-        // Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
-        const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
         if order.request.is_smart_contract_signed() {
             estimate += ERC1271_MAX_GAS_FOR_CHECK;
         }
