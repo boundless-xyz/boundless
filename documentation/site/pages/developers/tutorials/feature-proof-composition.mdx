@@ -41,10 +41,16 @@ First, we request a raw Groth16 proof from the Echo guest program:
 
 <StripRustCodeComments>
 ```rust
-    let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
-    if groth16 {
-        requirements = requirements.with_groth16_proof();
-    }
+# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
+# use guest_util::{ECHO_ELF, ECHO_ID};
+# use crate::counter::{ICounter, ICounter::ICounterInstance};
+# async fn main(image_id: Digest, journal: Journal) -> Result<()> {
+let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
+if groth16 {
+    requirements = requirements.with_groth16_proof();
+}
+# Ok(())
+# }
 ```
 </StripRustCodeComments>
 
@@ -52,6 +58,28 @@ We then use this proof as input to the Identity guest program:
 
 <StripRustCodeComments>
 ```rust
+# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
+# use risc0_zkvm::sha::{Digest, Digestible};
+# use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
+# use boundless_market::storage::StorageProvider;
+# async fn boundless_proof(
+#     client: &Client<P, S>,
+#     elf: impl AsRef<[u8]>,
+#     guest_env: GuestEnv,
+#     groth16: bool,
+# ) -> Result<()> {
+#     let (journal, seal) = client.prove(elf, guest_env, groth16).await?;
+#     Ok((journal, seal))
+# }
+# async fn run<P: StorageProvider>(
+#     private_key: PrivateKeySigner,
+#     rpc_url: Url,
+#     order_stream_url: Option<Url>,
+#     storage_provider: P,
+#     boundless_market_address: Address,
+#     set_verifier_address: Address,
+#     counter_address: Address,
+# ) -> Result<()> {
 // Build the IDENTITY input from the ECHO receipt
 let identity_input = (Digest::from(ECHO_ID), echo_receipt);
 let identity_guest_env =
@@ -62,6 +90,8 @@ let (identity_journal, identity_seal) =
     boundless_proof(&boundless_client, IDENTITY_ELF, identity_guest_env, false)
         .await
         .context("failed to prove IDENTITY")?;
+# Ok(())
+# }
 ```
 </StripRustCodeComments>
 
@@ -69,6 +99,18 @@ Finally, we can use the composed proof to interact with a smart contract:
 
 <StripRustCodeComments>
 ```rust
+# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
+# use risc0_zkvm::sha::{Digest, Digestible};
+# use alloy::{
+#    network::Ethereum,
+#    primitives::{utils::parse_ether, Address, Bytes, B256},
+#    providers::Provider,
+#    signers::local::PrivateKeySigner,
+#    sol_types::SolCall,
+# };
+# use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
+# use crate::counter::{ICounter, ICounter::ICounterInstance};
+# async fn interact(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
 // Interact with the Counter contract using the composed proof
 let counter = ICounterInstance::new(counter_address, boundless_client.provider());
 let journal_digest = B256::from_slice(identity_journal.digest().as_bytes());
@@ -82,6 +124,8 @@ let tx_hash = pending_tx
     .with_timeout(Some(TX_TIMEOUT))
     .watch()
     .await?;
+# Ok(())
+# }
 ```
 </StripRustCodeComments>
 

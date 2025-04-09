@@ -45,6 +45,16 @@ When creating the proof request, the requestor specifies the callback contract a
 
 <StripRustCodeComments>
 ```rust
+# use anyhow::Result;
+# use alloy_primitives::utils::parse_ether;
+# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
+# use risc0_zkvm::sha::{Digest, Digestible};
+# fn create_proof_request(
+# ECHO_ID: Digest,
+# image_url: url::Url,
+# input_url: url::Url,
+# mcycles_count: u64,
+# journal: Vec<u8>) -> Result<ProofRequest> {
 let request = ProofRequest::builder()
     .with_image_url(image_url)
     .with_input(input_url)
@@ -63,6 +73,8 @@ let request = ProofRequest::builder()
             .with_lock_timeout(1000),
     )
     .build()?;
+# Ok(request)
+# }
 ```
 </StripRustCodeComments>
 
@@ -94,6 +106,13 @@ Once the proof is fulfilled, our example checks the counter contract and confirm
 
 <StripRustCodeComments>
 ```rust
+# use std::time::Duration;
+# use boundless_market::client::ClientBuilder;
+# use boundless_market::contracts::ProofRequest;
+# use crate::counter::{ICounter, ICounter::ICounterInstance};
+# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# let boundless_client = ClientBuilder::new().build().await?;
+# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 let (_journal, _seal) =
     client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at).await?;
 
@@ -106,6 +125,8 @@ let count = counter
     .await
     .with_context(|| format!("failed to call {}", ICounter::countCall::SIGNATURE))?
     ._0;
+# Ok(())
+# }
 ```
 </StripRustCodeComments>
 
