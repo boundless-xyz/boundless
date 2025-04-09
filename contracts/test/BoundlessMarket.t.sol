@@ -2191,6 +2191,22 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.priceRequest(request, clientSignature);
     }
 
+    function testPriceRequestSmartContractSignatureExceedsGasLimit() external {
+        SmartContractClient client = getSmartContractClient(1);
+        client.smartWallet().setGasCost(boundlessMarket.ERC1271_MAX_GAS_FOR_CHECK() + 1);
+        ProofRequest memory request = client.request(3);
+        bytes memory clientSignature = client.sign(request);
+
+        // Expect isValidSignature to be called on the smart contract wallet
+        bytes32 requestHash =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
+        vm.expectCall(
+            client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSignature)
+        );
+        vm.expectRevert(bytes("")); // revert due to out of gas results in empty error
+        boundlessMarket.priceRequest(request, clientSignature);
+    }
+
     // Test that a smart contract signature can be used to price and fulfill a request.
     // The smart contract signature must be validated when a request is priced. This
     // ensures that the smart contract signature is validated during the never locked path,
@@ -2862,6 +2878,23 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Call lockRequest with the smart contract signature
         vm.prank(testProverAddress);
         vm.expectRevert(IBoundlessMarket.InvalidSignature.selector);
+        boundlessMarket.lockRequest(request, clientSig);
+    }
+
+    function testLockRequestSmartContractSignatureExceedsGasLimit() public {
+        SmartContractClient client = getSmartContractClient(1);
+        client.smartWallet().setGasCost(boundlessMarket.ERC1271_MAX_GAS_FOR_CHECK() + 1);
+        ProofRequest memory request = client.request(1);
+        bytes memory clientSig = client.sign(request);
+
+        // Expect isValidSignature to be called on the smart contract wallet
+        bytes32 requestHash =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
+        vm.expectCall(client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSig));
+
+        // Call lockRequest with the smart contract signature
+        vm.prank(testProverAddress);
+        vm.expectRevert(bytes("")); // revert due to out of gas results in empty error
         boundlessMarket.lockRequest(request, clientSig);
     }
 
