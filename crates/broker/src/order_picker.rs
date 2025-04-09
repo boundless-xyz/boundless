@@ -528,15 +528,17 @@ where
 
         // DO NOT MERGE: Add test
         // Add gas for orders that make use of the callbacks feature.
-        estimate += u64::try_from(order
-            .request
-            .requirements
-            .callback
-            .as_option()
-            .map(|callback| callback.gasLimit)
-            .unwrap_or(U96::ZERO))?;
+        estimate += u64::try_from(
+            order
+                .request
+                .requirements
+                .callback
+                .as_option()
+                .map(|callback| callback.gasLimit)
+                .unwrap_or(U96::ZERO),
+        )?;
 
-        let app_receipt_verification_cost = match self
+        estimate += match self
             .supported_selectors
             .proof_type(order.request.requirements.selector)
             .context("unsupported selector")?
@@ -548,7 +550,6 @@ where
                 0
             }
         };
-        estimate += app_receipt_verification_cost;
 
         Ok(estimate)
     }
@@ -777,13 +778,13 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{aliases::U96, Address, Bytes, FixedBytes, B256},
+        primitives::{address, aliases::U96, Address, Bytes, FixedBytes, B256},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
         test_utils::{deploy_boundless_market, deploy_hit_points},
-        Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+        Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use chrono::Utc;
@@ -1059,7 +1060,8 @@ mod tests {
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        ctx.picker.price_order(order_id, &order).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        assert!(!locked);
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
@@ -1097,7 +1099,8 @@ mod tests {
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        ctx.picker.price_order(order_id, &order).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        assert!(locked);
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Locking);
@@ -1121,7 +1124,75 @@ mod tests {
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        ctx.picker.price_order(order_id, &order).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        assert!(!locked);
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain(&format!(
+            "gas cost to lock and fill order {order_id:x} execeeds max price"
+        )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs_callback() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
+        let min_price = parse_ether("0.0013").unwrap();
+        let max_price = parse_ether("0.0013").unwrap();
+
+        // Order should have high enough price with the default selector.
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+        let order_id = order.request.id;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        assert!(locked);
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Locking);
+        assert_eq!(db_order.target_timestamp, Some(0));
+
+        // Order does not have high enough price when groth16 is used.
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+
+        // set a Groth16 selector
+        order.request.requirements.callback = Callback {
+            addr: address!("0x00000000000000000000000000000000ca11bac2"),
+            gasLimit: U96::from(200_000),
+        };
+        let order_id = order.request.id;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        assert!(!locked);
 
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
