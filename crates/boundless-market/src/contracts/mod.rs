@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
 #[cfg(not(target_os = "zkvm"))]
 use std::str::FromStr;
+use std::{borrow::Cow, ops::Not};
 
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
@@ -588,6 +588,9 @@ impl Predicate {
 }
 
 impl Callback {
+    /// Constant representing an empty callback (i.e. no call will be made).
+    const EMPTY: Self = Self { addr: Address::ZERO, gasLimit: U96::ZERO };
+
     /// Sets the address of the callback.
     pub fn with_addr(self, addr: impl Into<Address>) -> Self {
         Self { addr: addr.into(), ..self }
@@ -596,6 +599,28 @@ impl Callback {
     /// Sets the gas limit of the callback.
     pub fn with_gas_limit(self, gas_limit: u64) -> Self {
         Self { gasLimit: U96::from(gas_limit), ..self }
+    }
+
+    /// Returns true if this is an empty callback (i.e. no call will be made).
+    ///
+    /// NOTE: A callback is considered empty if the address is zero, regardless of the gas limit.
+    pub fn is_empty(&self) -> bool {
+        self.addr == Address::ZERO
+    }
+
+    /// Convert to an option representation, mapping an empty callback to `None`.
+    pub fn into_option(self) -> Option<Self> {
+        self.is_empty().not().then_some(self)
+    }
+
+    /// Convert to an option representation, mapping an empty callback to `None`.
+    pub fn as_option(&self) -> Option<&Self> {
+        self.is_empty().not().then_some(self)
+    }
+
+    /// Convert from an option representation, mapping `None` to [Self::EMPTY].
+    pub fn from_option(opt: Option<Self>) -> Self {
+        opt.unwrap_or(Self::EMPTY)
     }
 }
 
