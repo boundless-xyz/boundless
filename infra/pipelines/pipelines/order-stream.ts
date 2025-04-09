@@ -84,8 +84,8 @@ export class OrderStreamPipeline extends pulumi.ComponentResource {
     );
 
     const prodDeployment = new aws.codebuild.Project(
-      `${APP_NAME}-prod-build`,
-      this.codeBuildProjectArgs(APP_NAME, "prod", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+      `${APP_NAME}-prod-11155111-build`,
+      this.codeBuildProjectArgs(APP_NAME, "prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
       { dependsOn: [role] }
     );
 
