@@ -1,6 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import { OrderStreamInstance } from './components/order-stream';
-import { ChainId, getEnvVar } from '../util';
+import { getEnvVar } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
@@ -9,6 +9,7 @@ export = () => {
   
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
+  const chainId = isDev ? getEnvVar("CHAIN_ID") : config.require('CHAIN_ID');
   
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const dockerDir = config.require('DOCKER_DIR');
@@ -27,8 +28,8 @@ export = () => {
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
   const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS') as pulumi.Output<string[]>;
 
-  const orderStreamSepolia = new OrderStreamInstance('order-stream-sepolia', {
-    chainId: ChainId.SEPOLIA,
+  const orderStream = new OrderStreamInstance(`order-stream`, {
+    chainId,
     ciCacheSecret,
     dockerDir,
     dockerTag,
@@ -47,7 +48,7 @@ export = () => {
   });
 
   return {
-    SEPOLIA_ORDER_STREAM_LB_URL: orderStreamSepolia.lbUrl,
-    SEPOLIA_ORDER_STREAM_SWAGGER: orderStreamSepolia.swaggerUrl,
+    ORDER_STREAM_LB_URL: orderStream.lbUrl,
+    ORDER_STREAM_SWAGGER: orderStream.swaggerUrl,
   };
 };
