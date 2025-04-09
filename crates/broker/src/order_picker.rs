@@ -510,9 +510,17 @@ where
 
     /// Estimate of gas for locking a single order
     /// Currently just uses the config estimate but this may change in the future
-    async fn estimate_gas_to_lock(&self, _order: &Order) -> Result<u64> {
-        // TODO: Add gas costs for orders with smart contract signatures.
-        Ok(self.config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate)
+    async fn estimate_gas_to_lock(&self, order: &Order) -> Result<u64> {
+        let mut estimate =
+            self.config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate;
+
+        // Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
+        const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
+        if order.request.is_smart_contract_signed() {
+            estimate += ERC1271_MAX_GAS_FOR_CHECK;
+        }
+
+        Ok(estimate)
     }
 
     /// Estimate of gas for to fulfill a single order
@@ -526,7 +534,6 @@ where
 
         let mut estimate = base;
 
-        // DO NOT MERGE: Add test
         // Add gas for orders that make use of the callbacks feature.
         estimate += u64::try_from(
             order

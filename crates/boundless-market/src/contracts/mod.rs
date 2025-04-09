@@ -437,6 +437,12 @@ impl ProofRequest {
         self.offer.biddingStart + self.offer.timeout as u64
     }
 
+    /// Return true if the request ID indicates that it is authorized by a smart contract, rather
+    /// than an EOA (i.e. an ECDSA key).
+    pub fn is_smart_contract_signed(&self) -> bool {
+        RequestId::from_lossy(self.id).smart_contract_signed
+    }
+
     /// Check that the request is valid and internally consistent.
     ///
     /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min
