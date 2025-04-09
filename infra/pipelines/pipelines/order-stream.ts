@@ -116,13 +116,21 @@ export class OrderStreamPipeline extends pulumi.ComponentResource {
         {
           name: "DeployStaging",
           actions: [
+            { name: "ApproveDeployToStaging", 
+              category: "Approval", 
+              owner: "AWS", 
+              provider: "Manual", 
+              version: "1", 
+              runOrder: 1,
+              configuration: {}
+            },
             {
               name: "DeployStaging",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 1,
+              runOrder: 2,
               configuration: {
                 ProjectName: stagingDeployment.name
               },
