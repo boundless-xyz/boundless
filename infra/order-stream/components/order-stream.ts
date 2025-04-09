@@ -55,7 +55,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     } = args;
     
     const stackName = pulumi.getStack();
-    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE, chainId);
+    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
 
     // If we're in prod and have a domain, create a cert
     let cert: aws.acm.Certificate | undefined;
@@ -87,7 +87,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     // Optionally add in the gh token secret and sccache s3 creds to the build ctx
     let buildSecrets = {};
     if (ciCacheSecret !== undefined) {
-      const cacheFileData = ciCacheSecret.apply((filePath) => fs.readFileSync(filePath, 'utf8'));
+      const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
       buildSecrets = {
         ci_cache_creds: cacheFileData,
       };
