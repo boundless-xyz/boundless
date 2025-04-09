@@ -151,7 +151,7 @@ where
 
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
-            let client_addr = order.request.client_address()?;
+            let client_addr = order.request.client_address();
             if !allow_addresses.contains(&client_addr) {
                 tracing::info!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
                 return Ok(None);
@@ -1187,11 +1187,75 @@ mod tests {
             })
             .await;
 
-        // set a Groth16 selector
+        // set a callback with a nontrivial gas consumption
         order.request.requirements.callback = Callback {
             addr: address!("0x00000000000000000000000000000000ca11bac2"),
             gasLimit: U96::from(200_000),
         };
+        let order_id = order.request.id;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        assert!(!locked);
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain(&format!(
+            "gas cost to lock and fill order {order_id:x} execeeds max price"
+        )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs_smart_contract_signature() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
+        let min_price = parse_ether("0.0013").unwrap();
+        let max_price = parse_ether("0.0013").unwrap();
+
+        // Order should have high enough price with the default selector.
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+        let order_id = order.request.id;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        assert!(locked);
+
+        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Locking);
+        assert_eq!(db_order.target_timestamp, Some(0));
+
+        // Order does not have high enough price when groth16 is used.
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+
+        order.request.id =
+            RequestId::try_from(order.request.id).unwrap().set_smart_contract_signed_flag().into();
         let order_id = order.request.id;
 
         let _request_id =

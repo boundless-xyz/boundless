@@ -418,18 +418,8 @@ impl ProofRequest {
     }
 
     /// Returns the client address from the request ID.
-    pub fn client_address(&self) -> Result<Address, RequestError> {
-        let shifted_id: U256 = self.id >> 32;
-        if self.id >> 192 != U256::ZERO {
-            return Err(RequestError::MalformedRequestId);
-        }
-        let shifted_bytes: [u8; 32] = shifted_id.to_be_bytes();
-        let addr_bytes: [u8; 20] = shifted_bytes[12..32]
-            .try_into()
-            .expect("error in converting slice of 20 bytes into array of 20 bytes");
-        let lower_160_bits = U160::from_be_bytes(addr_bytes);
-
-        Ok(Address::from(lower_160_bits))
+    pub fn client_address(&self) -> Address {
+        RequestId::from_lossy(self.id).addr
     }
 
     /// Returns the time, in seconds since the UNIX epoch, at which the request expires.
@@ -523,7 +513,7 @@ impl ProofRequest {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         let addr = sig.recover_address_from_prehash(&hash)?;
-        if addr == self.client_address()? {
+        if addr == self.client_address() {
             Ok(())
         } else {
             Err(SignatureError::FromBytes("Address mismatch").into())
