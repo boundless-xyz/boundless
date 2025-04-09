@@ -15,7 +15,7 @@ export const getEnvVar = (name: string) => {
 //       and recreated. This is because the service name is used as part of each resource name.
 //       
 //       To use a new naming scheme for new services, we should create a new "V2" function.
-export const getServiceNameV1 = (stackName: string, name: string, chainId: ChainId) => {
+export const getServiceNameV1 = (stackName: string, name: string, chainId: ChainId | string) => {
   const isDev = stackName === "dev";
   const prefix = isDev ? `${getEnvVar("DEV_NAME")}` : `${stackName}`;
   const serviceName = `${prefix}-${name}-${chainId}`;
@@ -25,4 +25,3 @@ export const getServiceNameV1 = (stackName: string, name: string, chainId: Chain
   }
   return serviceName;
 };
-

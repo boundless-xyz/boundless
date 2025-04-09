@@ -14,3 +14,4 @@ config:
   order-stream:RDS_PASSWORD:
     secure: v1:dJD9V4HJRNUodRNi:P3NeEgkC+taYmae8PsFSwSs+/RETOtRA/qO/ibHFizvYBw==
   order-stream:ALB_DOMAIN: eth-sepolia.beboundless.xyz
+  order-stream:CHAIN_ID: "11155111"
