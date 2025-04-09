@@ -16,6 +16,7 @@ use crate::{now_timestamp, provers::ProofResult};
 use alloy::{
     network::Ethereum,
     primitives::{
+        aliases::U96,
         utils::{format_ether, format_units, parse_ether},
         Address, U256,
     },
@@ -523,18 +524,33 @@ where
             (config.market.fulfill_gas_estimate, config.market.groth16_verify_gas_estimate)
         };
 
-        match self
+        let mut estimate = base;
+
+        // DO NOT MERGE: Add test
+        // Add gas for orders that make use of the callbacks feature.
+        estimate += u64::try_from(order
+            .request
+            .requirements
+            .callback
+            .as_option()
+            .map(|callback| callback.gasLimit)
+            .unwrap_or(U96::ZERO))?;
+
+        let app_receipt_verification_cost = match self
             .supported_selectors
             .proof_type(order.request.requirements.selector)
             .context("unsupported selector")?
         {
-            ProofType::Any | ProofType::Inclusion => Ok(base),
-            ProofType::Groth16 => Ok(base + groth16),
+            ProofType::Any | ProofType::Inclusion => 0,
+            ProofType::Groth16 => groth16,
             proof_type => {
                 tracing::warn!("Unknown proof type in gas cost estimation: {proof_type:?}");
-                Ok(base)
+                0
             }
-        }
+        };
+        estimate += app_receipt_verification_cost;
+
+        Ok(estimate)
     }
 
     /// Estimate of gas for locking in any pending locks and submitting any pending proofs
