@@ -585,7 +585,7 @@ impl Predicate {
 
 impl Callback {
     /// Constant representing an empty callback (i.e. no call will be made).
-    const EMPTY: Self = Self { addr: Address::ZERO, gasLimit: U96::ZERO };
+    pub const EMPTY: Self = Self { addr: Address::ZERO, gasLimit: U96::ZERO };
 
     /// Sets the address of the callback.
     pub fn with_addr(self, addr: impl Into<Address>) -> Self {
