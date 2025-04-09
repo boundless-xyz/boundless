@@ -59,7 +59,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
 
     // If we're in prod and have a domain, create a cert
     let cert: aws.acm.Certificate | undefined;
-    if (stackName === 'prod' && albDomain) {
+    if (stackName.includes('prod') && albDomain) {
       cert = new aws.acm.Certificate(`${serviceName}-cert`, {
         domainName: pulumi.interpolate`${albDomain}`,
         validationMethod: "DNS",
