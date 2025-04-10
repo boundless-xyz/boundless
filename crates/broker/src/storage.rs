@@ -108,7 +108,7 @@ impl UriHandler {
         let client = if let Some(cache_dir) = cache_dir {
             let manager = CACacheManager { path: cache_dir };
             let cache = Cache(HttpCache {
-                mode: CacheMode::Default,
+                mode: CacheMode::ForceCache,
                 manager,
                 options: HttpCacheOptions::default(),
             });

@@ -206,7 +206,7 @@ enum RequestCommands {
         callback_address: Option<Address>,
 
         /// Gas limit of the callback to use in the requirements.
-        #[clap(long, requires = "callback_addr")]
+        #[clap(long, requires = "callback_address")]
         callback_gas_limit: Option<u64>,
     },
 
@@ -363,7 +363,7 @@ struct SubmitOfferRequirements {
     #[clap(long, requires = "callback_gas_limit")]
     callback_address: Option<Address>,
     /// Gas limit of the callback to use in the requirements.
-    #[clap(long, requires = "callback_addr")]
+    #[clap(long, requires = "callback_address")]
     callback_gas_limit: Option<u64>,
     /// Request a groth16 proof (i.e., a Groth16).
     #[clap(long)]

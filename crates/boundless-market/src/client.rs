@@ -365,7 +365,7 @@ where
         if request.id == U256::ZERO {
             request.id = self.boundless_market.request_id_from_rand().await?;
         };
-        let client_address = request.client_address()?;
+        let client_address = request.client_address();
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
@@ -417,7 +417,7 @@ where
         if request.id == U256::ZERO {
             request.id = self.boundless_market.request_id_from_rand().await?;
         };
-        let client_address = request.client_address()?;
+        let client_address = request.client_address();
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
@@ -425,7 +425,7 @@ where
             request.offer.biddingStart = now_timestamp() + self.bidding_start_delay
         };
         // Ensure address' balance is sufficient to cover the request
-        let balance = self.boundless_market.balance_of(request.client_address()?).await?;
+        let balance = self.boundless_market.balance_of(client_address).await?;
         if balance < U256::from(request.offer.maxPrice) {
             return Err(ClientError::Error(anyhow!(
         "Insufficient balance to cover request: {} < {}.\nMake sure to top up your balance by depositing on the Boundless Market.",

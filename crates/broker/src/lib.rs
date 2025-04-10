@@ -141,6 +141,8 @@ enum OrderStatus {
     Pricing,
     /// Order is ready to lock at target_timestamp
     Locking,
+    /// Order has been locked in and ready to begin proving
+    Locked,
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
     /// Order is actively ready for proving
@@ -462,6 +464,7 @@ where
             prover.clone(),
             self.args.boundless_market_address,
             self.provider.clone(),
+            chain_monitor.clone(),
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_picker).await.context("Failed to start order picker")?;

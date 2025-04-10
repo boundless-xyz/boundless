@@ -22,4 +22,4 @@ config:
     secure: v1:IIsPhs8Wknx1kFA3:i+w82uAGEWTWzhgyAT0UASrDIr0A7j0/pcyDUu4Wf4kD2zXuXVQVz1F11H0oEv2zJjFj9a/q7l6p+Xl2sQatAkdVUVlOuP8XlLSJJK4JFvwLqHVdig==
   order-generator:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   order-generator:ORDER_STREAM_URL:
-    secure: v1:ZOktRLCHRsLMriSU:xelR8XuLmlCwVA1cHOwXtb8ZZCPhBh438+4LwDeHcx1kCp/mZ+9oOel02rAXfEiwJLyDWcvluw43HLwKy0q6BiLkTvYG71rAuWQi6PN4qVf2hut383th9nhKuEAYhPI=
+    secure: v1:9qBGKF+ZGT77OW/4:970p4oQaO2DHyZeTkSSnkGvvPsA55vkxR/YOumKmoqY9UqqsGR5pbTmSk26r1rQtS0f1RBtj+lq88VlQ3nroJwcp2K/th4T+Htu4CXYdOdAqWWgNJg==

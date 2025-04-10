@@ -389,7 +389,7 @@ where
         let provider = self.provider.clone();
         let db = self.db.clone();
         let chain_monitor = self.chain_monitor.clone();
-        let submitter_addr = self.submitter_addr.clone();
+        let submitter_addr = self.submitter_addr;
 
         Box::pin(async move {
             tracing::info!("Starting up market monitor");

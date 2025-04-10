@@ -28,11 +28,20 @@ mod defaults {
     }
 
     pub const fn lockin_gas_estimate() -> u64 {
-        1_000_000
+        // Observed cost of a lock transaction is ~135k gas.
+        // https://sepolia.etherscan.io/tx/0xe61b5cad4a45fc0913cc966f8e3ee72027c01a949a9deca916780e1245c15964
+        200_000
     }
 
     pub const fn fulfill_gas_estimate() -> u64 {
-        300_000_000
+        // Observed cost of a basic single fulfill transaction is ~350k gas.
+        // Additional padding is used to account for journals up to 10kB in size.
+        // https://sepolia.etherscan.io/tx/0x14e54fbaf0c1eda20dd0828ddd64e255ffecee4562492f8c1253b0c3f20af764
+        750_000
+    }
+
+    pub const fn groth16_verify_gas_estimate() -> u64 {
+        250_000
     }
 
     pub const fn max_submission_attempts() -> u32 {
@@ -88,14 +97,21 @@ pub struct MarketConf {
     pub max_file_size: usize,
     /// Max retries for fetching input / image contents from URLs
     pub max_fetch_retries: Option<u8>,
-    /// Gas Estimation
+    /// Gas estimate for lockin call.
     ///
-    /// Gas estimate for lockin call to use if it cannot be estimated using the node RPC
+    /// Used for estimating the gas costs associated with an order during pricing.
     #[serde(default = "defaults::lockin_gas_estimate")]
     pub lockin_gas_estimate: u64,
-    /// Gas estimate for fulfill call to use if it cannot be estimated using the node RPC
+    /// Gas estimate for fulfill call.
+    ///
+    /// Used for estimating the gas costs associated with an order during pricing.
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Gas estimate for proof verification using the RiscZeroGroth16Verifier.
+    ///
+    /// Used for estimating the gas costs associated with an order during pricing.
+    #[serde(default = "defaults::groth16_verify_gas_estimate")]
+    pub groth16_verify_gas_estimate: u64,
     /// Balance warning threshold (in native token)
     /// if the submitter balance drops below this the broker will issue warning logs
     pub balance_warn_threshold: Option<String>,
@@ -140,6 +156,7 @@ impl Default for MarketConf {
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
             balance_warn_threshold: None,
             balance_error_threshold: None,
             stake_balance_warn_threshold: None,
