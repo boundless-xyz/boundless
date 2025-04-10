@@ -203,7 +203,21 @@ impl Handler for HttpHandler {
     }
 }
 
-#[derive(Clone, Debug)]
+/// Handles fetching data specified by `s3://` URIs using the AWS SDK.
+///
+/// This handler authenticates using the default AWS credential chain (environment variables,
+/// `~/.aws/credentials`, `~/.aws/config`, etc.), loaded via `aws_config::from_env()`.
+///
+/// If the `AWS_ROLE_ARN` environment variable is set and non-empty, it will attempt to assume that
+/// IAM role using the initially resolved credentials before interacting with S3. This is crucial
+/// for accessing resources requiring specific permissions, such as objects encrypted with SSE-KMS
+/// where the assumed role needs `kms:Decrypt` permission granted by the key owner.
+///
+/// It enforces a maximum download size and utilizes AWS SDK's retry mechanisms, configured based
+/// on the `max_retries` parameter provided during construction.
+///
+/// **Note:** Successful initialization requires that valid AWS credentials can be resolved from
+/// the environment, otherwise `S3Handler::new` will return an [StorageErr::UnsupportedScheme].
 pub struct S3Handler {
     bucket: String,
     key: String,
