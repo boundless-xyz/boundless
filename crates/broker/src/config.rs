@@ -131,9 +131,6 @@ pub struct MarketConf {
     pub cache_dir: Option<PathBuf>,
     /// Optional S3 endpoint URL
     pub s3_endpoint_url: Option<String>,
-    /// Optional IAM role for S3 access
-    /// The argument should take the form an Amazon Resource Name (ARN)
-    pub aws_assume_role_arn: Option<String>,
 }
 
 impl Default for MarketConf {
@@ -162,7 +159,6 @@ impl Default for MarketConf {
             max_concurrent_locks: None,
             cache_dir: None,
             s3_endpoint_url: None,
-            aws_assume_role_arn: None,
         }
     }
 }

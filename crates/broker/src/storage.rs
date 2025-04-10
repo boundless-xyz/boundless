@@ -15,11 +15,14 @@ use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheO
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use std::{
+    env,
     error::Error as StdError,
     fmt::{Display, Formatter},
     path::PathBuf,
     sync::Arc,
 };
+
+const ENV_VAR_ROLE_ARN: &str = "AWS_ROLE_ARN";
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -75,17 +78,11 @@ pub(crate) async fn create_uri_handler(
             Ok(Arc::new(handler))
         }
         "s3" => {
-            let (max_size, max_retries, endpoint_url, aws_iam_role_arn) = {
+            let (max_size, max_retries, endpoint_url) = {
                 let config = &config.lock_all().expect("lock failed").market;
-                (
-                    config.max_file_size,
-                    config.max_fetch_retries,
-                    config.s3_endpoint_url.clone(),
-                    config.aws_assume_role_arn.clone(),
-                )
+                (config.max_file_size, config.max_fetch_retries, config.s3_endpoint_url.clone())
             };
-            let handler =
-                S3Handler::new(uri, max_size, max_retries, endpoint_url, aws_iam_role_arn).await?;
+            let handler = S3Handler::new(uri, max_size, max_retries, endpoint_url).await?;
 
             Ok(Arc::new(handler))
         }
@@ -218,7 +215,6 @@ impl S3Handler {
         max_size: usize,
         max_retries: Option<u8>,
         endpoint_url: Option<String>,
-        aws_iam_role_arn: Option<String>,
     ) -> Result<Self, StorageErr> {
         let retry_config = if let Some(max_retries) = max_retries {
             RetryConfig::standard().with_max_attempts(max_retries as u32 + 1)
@@ -234,9 +230,10 @@ impl S3Handler {
             return Err(StorageErr::UnsupportedScheme("s3".to_string()));
         }
 
-        if let Some(aws_iam_role_arn) = aws_iam_role_arn {
-            let role_provider = aws_config::sts::AssumeRoleProvider::builder(aws_iam_role_arn)
-                .configure(&s3_conf)
+        if let Ok(role_arn) = env::var(ENV_VAR_ROLE_ARN) {
+            // Create the AssumeRoleProvider using the base_config for its STS client needs
+            let role_provider = aws_config::sts::AssumeRoleProvider::builder(role_arn)
+                .configure(&s3_conf) // Use the base config to configure the provider
                 .build()
                 .await;
             s3_conf = s3_conf
