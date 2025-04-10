@@ -389,7 +389,7 @@ where
         let provider = self.provider.clone();
         let db = self.db.clone();
         let chain_monitor = self.chain_monitor.clone();
-        let submitter_addr = self.submitter_addr;
+        let submitter_addr = self.submitter_addr.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up market monitor");
@@ -590,7 +590,7 @@ mod tests {
             provider.clone(),
             db.clone(),
             chain_monitor.clone(),
-            provider.default_signer_address(),
+            Address::ZERO,
         );
         tokio::spawn(market_monitor.spawn());
 
@@ -648,6 +648,8 @@ mod tests {
             proving_request.id,
             signer.address()
         )));
+        let order = db.get_order(proving_request.id).await.unwrap().unwrap();
+        assert!(order.status == OrderStatus::LockedByOther);
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
