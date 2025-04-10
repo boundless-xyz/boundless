@@ -320,16 +320,29 @@ where
             .context("Failed to record Input/Image IDs to DB")?;
 
         // Create a executor limit based on the max price of the order
-        let config_min_mcycle_price = {
-            let config = self.config.lock_all().context("Failed to read config")?;
-            parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?
-        };
+        let exec_limit: u64 = if lock_expired {
+            let mcycle_price_stake_token = {
+                let config = self.config.lock_all().context("Failed to read config")?;
+                parse_ether(&config.market.mcycle_price_stake_token)
+                    .context("Failed to parse mcycle_price")?
+            };
+            // Note this does not account for gas cost unlike a normal order
+            // TODO: Update to account for gas once the stake token to gas token exchange rate is known
+            let price = order.request.offer.lockStake / U256::from(FRACTION_STAKE_REWARD);
+            (price / mcycle_price_stake_token)
+                .try_into()
+                .context("Failed to convert U256 exec limit to u64")?
+        } else {
+            let config_min_mcycle_price = {
+                let config = self.config.lock_all().context("Failed to read config")?;
+                parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?
+            };
 
-        let exec_limit: u64 = (U256::from(order.request.offer.maxPrice)
-            .saturating_sub(order_gas_cost)
-            / config_min_mcycle_price)
-            .try_into()
-            .context("Failed to convert U256 exec limit to u64")?;
+            (U256::from(order.request.offer.maxPrice).saturating_sub(order_gas_cost)
+                / config_min_mcycle_price)
+                .try_into()
+                .context("Failed to convert U256 exec limit to u64")?
+        };
 
         if exec_limit == 0 {
             tracing::info!(
@@ -1802,7 +1815,7 @@ mod tests {
     async fn price_slashed_unfulfilled_order() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.mcycle_price_stake_token = "0.0000001".into();
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
@@ -1843,7 +1856,7 @@ mod tests {
     async fn price_unprofitable_slashed_unfulfilled_order_if_configured() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.mcycle_price_stake_token = "0.0000001".into();
             config.load_write().unwrap().market.fill_slashed_orders_altruistically = true;
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
@@ -1864,7 +1877,7 @@ mod tests {
         order.request.offer.biddingStart = now_timestamp();
         order.request.offer.lockTimeout = 0;
         order.request.offer.timeout = 10000;
-        order.request.offer.lockStake = parse_ether("0").unwrap(); // no stake means no reward for filling after it is slashed
+        order.request.offer.lockStake = parse_ether("0.1").unwrap(); // no stake means no reward for filling after it is slashed
 
         let order_id = order.request.id;
         ctx.db.add_order(order_id, order.clone()).await.unwrap();
