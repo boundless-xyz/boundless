@@ -26,7 +26,6 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       boundlessAddress: string;
       vpcId: pulumi.Output<string>;
       rdsPassword: pulumi.Output<string>;
-      acmCertArn?: pulumi.Output<string>;
       albDomain?: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
       bypassAddrs: string;
@@ -43,7 +42,6 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       orderStreamPingTime, 
       privSubNetIds, 
       pubSubNetIds, 
-      acmCertArn, 
       githubTokenSecret, 
       minBalance, 
       boundlessAddress, 
@@ -139,13 +137,14 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       ],
     });
 
-
+    // If we have a cert and a domain, use it, and enable https.
+    // Otherwise we use the default lb endpoint that AWS provides that only supports http.
     let listener: awsx.types.input.lb.ListenerArgs;
-    if (acmCertArn !== undefined) {
+    if (cert && albDomain) {
       listener = {
         port: 443,
         protocol: 'HTTPS',
-        certificateArn: acmCertArn,
+        certificateArn: cert.arn.apply((arn) => arn),
       };
     } else {
       listener = {
