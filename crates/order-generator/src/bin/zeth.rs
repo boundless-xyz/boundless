@@ -79,6 +79,9 @@ struct Args {
     /// Maximum price per mcycle in ether.
     #[clap(long = "max", value_parser = parse_ether, default_value = "0.000011")]
     max_price_per_mcycle: U256,
+    /// Number of seconds before the request lock-in expires.
+    #[clap(long, default_value = "6000")]
+    lock_timeout: u32,
     /// Number of seconds, from the bidding start, before the bid expires.
     #[clap(long, default_value = "12000")]
     timeout: u32,
@@ -196,6 +199,7 @@ async fn main() -> Result<()> {
             max: args.max_price_per_mcycle,
             ramp_up: args.ramp_up,
             timeout: args.timeout,
+            lock_timeout: args.lock_timeout,
             stake: args.stake,
             offchain: args.offchain,
         };
@@ -255,6 +259,7 @@ struct RequestParams {
     max: U256,
     ramp_up: u32,
     timeout: u32,
+    lock_timeout: u32,
     stake: U256,
     offchain: bool,
 }
@@ -320,7 +325,8 @@ where
                 .with_max_price(max_price)
                 .with_ramp_up_period(params.ramp_up)
                 .with_timeout(params.timeout)
-                .with_lock_stake(params.stake),
+                .with_lock_stake(params.stake)
+                .with_lock_timeout(params.lock_timeout),
         )
         .build()?;
 

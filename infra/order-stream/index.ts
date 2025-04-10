@@ -21,7 +21,6 @@ export = () => {
   const baseStackName = config.require('BASE_STACK');
   const orderStreamPingTime = config.requireNumber('ORDER_STREAM_PING_TIME');
   const albDomain = config.getSecret('ALB_DOMAIN');
-  const acmCertArn = config.getSecret('ACM_CERT_ARN');
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -44,7 +43,6 @@ export = () => {
     rdsPassword,
     ethRpcUrl,
     albDomain,
-    acmCertArn,
   });
 
   return {
