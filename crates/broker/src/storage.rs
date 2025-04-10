@@ -428,7 +428,13 @@ mod tests {
         let url = url::Url::parse("s3://test-bucket/object").unwrap();
         // Ensure no credentials are set
         let result = temp_env::async_with_vars::<_, &str, _, _>(
-            [("AWS_ACCESS_KEY_ID", None), ("AWS_SESSION_TOKEN", None), ("AWS_PROFILE", None)],
+            [
+                ("AWS_ACCESS_KEY_ID", None),
+                ("AWS_SECRET_ACCESS_KEY", None),
+                ("AWS_REGION", None),
+                ("AWS_SESSION_TOKEN", None),
+                ("AWS_PROFILE", None),
+            ],
             S3Handler::new(url, 1024, None),
         )
         .await;
