@@ -428,7 +428,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, now_timestamp, OrderStatus};
+    use crate::{db::SqliteDb, now_timestamp};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -440,7 +440,8 @@ mod tests {
     use boundless_market::{
         contracts::{
             boundless_market::BoundlessMarketService,
-            test_utils::{deploy_boundless_market, deploy_contracts, mock_singleton},
+            hit_points::default_allowance,
+            test_utils::{create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx},
             AssessorReceipt, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
             Requirements,
         },
@@ -449,7 +450,6 @@ mod tests {
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use guest_util::ECHO_ID;
-    use risc0_ethereum_contracts::set_verifier;
     use risc0_zkvm::sha::Digest;
 
     #[tokio::test]
@@ -546,57 +546,92 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn detect_locking_and_fulfilled_events() {
+    async fn test_e2e_monitor() {
+        // Setup anvil
         let anvil = Anvil::new().spawn();
-        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .wallet(EthereumWallet::from(signer.clone()))
-                .connect(&anvil.endpoint())
-                .await
-                .unwrap(),
-        );
-        provider.anvil_set_auto_mine(true).await.unwrap();
 
-        let (_verifier_addr, set_verifier_addr, _hit_points_addr, market_address) =
-            deploy_contracts(
-                &anvil,
-                Digest::from(SET_BUILDER_ID),
-                format!("file://{SET_BUILDER_PATH}"),
-                Digest::from(ASSESSOR_GUEST_ID),
-                format!("file://{ASSESSOR_GUEST_PATH}"),
-            )
+        let ctx = create_test_ctx(
+            &anvil,
+            SET_BUILDER_ID,
+            format!("file://{SET_BUILDER_PATH}"),
+            ASSESSOR_GUEST_ID,
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
+
+        let eip712_domain = eip712_domain! {
+            name: "IBoundlessMarket",
+            version: "1",
+            chain_id: anvil.chain_id(),
+            verifying_contract: *ctx.customer_market.instance().address(),
+        };
+
+        let request = new_request(1, &ctx).await;
+        let expires_at = request.expires_at();
+
+        let request_id =
+            ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        // fetch logs to retrieve the customer signature from the event
+        let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
+
+        let (_, log) = logs.first().unwrap();
+        let tx_hash = log.transaction_hash.unwrap();
+        let tx_data = ctx
+            .customer_market
+            .instance()
+            .provider()
+            .get_transaction_by_hash(tx_hash)
             .await
+            .unwrap()
             .unwrap();
+        let inputs = tx_data.input();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
 
-        let boundless_market = BoundlessMarketService::new(
-            market_address,
-            provider.clone(),
-            provider.default_signer_address(),
-        );
-        let set_verifier = set_verifier::SetVerifierService::new(
-            set_verifier_addr,
-            provider.clone(),
-            provider.default_signer_address(),
+        let request = calldata.request;
+        let customer_sig = calldata.clientSignature;
+
+        // Deposit prover balances
+        let deposit = default_allowance();
+        ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+
+        // Lock the request
+        ctx.prover_market.lock_request(&request, &customer_sig, None).await.unwrap();
+        assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
+        assert!(
+            ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
+                == RequestStatus::Locked
         );
 
-        // spawn the chain and market monitors
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
-        let market_monitor = MarketMonitor::new(
-            0,
-            market_address,
-            provider.clone(),
-            db.clone(),
-            chain_monitor.clone(),
-            Address::ZERO,
-        );
-        tokio::spawn(market_monitor.spawn());
+        // mock the fulfillment
+        let (root, set_verifier_seal, fulfillment, assessor_seal) =
+            mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
 
-        // Submit a request
-        let proving_request = ProofRequest::new(
-            RequestId::new(provider.default_signer_address(), 0),
+        // publish the committed root
+        ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
+
+        let assessor_fill = AssessorReceipt {
+            seal: assessor_seal,
+            selectors: vec![],
+            prover: ctx.prover_signer.address(),
+            callbacks: vec![],
+        };
+        // fulfill the request
+        ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
+        assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
+
+        // retrieve journal and seal from the fulfilled request
+        let (journal, seal) =
+            ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+
+        assert_eq!(journal, fulfillment.journal);
+        assert_eq!(seal, fulfillment.seal);
+    }
+
+    async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
+        ProofRequest::new(
+            RequestId::new(ctx.customer_signer.address(), idx),
             Requirements::new(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -609,74 +644,9 @@ mod tests {
                 biddingStart: now_timestamp(),
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(0),
+                lockStake: U256::from(10),
                 lockTimeout: 100,
             },
-        );
-        boundless_market.submit_request(&proving_request, &signer).await.unwrap();
-
-        // Wait for the block to be mined and the order to be detected
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-        // Ensure it was detected
-        let order = db.get_order(proving_request.id).await.unwrap().expect("Order not found");
-        assert_eq!(order.status, OrderStatus::New);
-
-        // lock it in and fill it without using order_picker
-        // this relies on the event detection path for setting the order to Done
-        let chain_id = provider.get_chain_id().await.unwrap();
-        let client_sig = proving_request
-            .sign_request(&signer, market_address, chain_id)
-            .await
-            .unwrap()
-            .as_bytes();
-        boundless_market.lock_request(&proving_request, &client_sig.into(), None).await.unwrap();
-        assert!(boundless_market.is_locked(proving_request.id).await.unwrap());
-        assert_eq!(
-            boundless_market
-                .get_status(proving_request.id, Some(proving_request.expires_at()))
-                .await
-                .unwrap(),
-            RequestStatus::Locked
-        );
-
-        // Wait for the block to be mined and the event to be detected
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let _ = db.get_order(proving_request.id).await.unwrap().unwrap();
-        assert!(logs_contain(&format!(
-            "Detected request {:x} locked by {:x}",
-            proving_request.id,
-            signer.address()
-        )));
-        let order = db.get_order(proving_request.id).await.unwrap().unwrap();
-        assert!(order.status == OrderStatus::LockedByOther);
-
-        let eip712_domain = eip712_domain! {
-            name: "IBoundlessMarket",
-            version: "1",
-            chain_id: anvil.chain_id(),
-            verifying_contract: *boundless_market.instance().address(),
-        };
-        let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(&proving_request, eip712_domain, signer.address());
-
-        // publish the committed root
-        set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
-
-        let assessor_fill = AssessorReceipt {
-            seal: assessor_seal,
-            selectors: vec![],
-            prover: signer.address(),
-            callbacks: vec![],
-        };
-        // fulfill the request
-        boundless_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
-
-        // Wait for the block to be mined and the event to be detected
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-        // Ensure the order was set to filled in the db
-        let order = db.get_order(proving_request.id).await.unwrap().unwrap();
-        assert!(order.status == OrderStatus::Done);
+        )
     }
 }
