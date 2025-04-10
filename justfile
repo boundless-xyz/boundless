@@ -24,7 +24,6 @@ test: test-foundry test-cargo
 
 # Run Foundry tests
 test-foundry:
-    forge clean # Required by OpenZeppelin upgrades plugin
     forge test -vvv --isolate
 
 # Run all Cargo tests
@@ -32,11 +31,11 @@ test-cargo: test-cargo-root test-cargo-bento test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli -- --include-ignored
 
 # Run Cargo tests for bento
 test-cargo-bento:
-    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb --exclude order-stream
+    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -49,7 +48,8 @@ test-cargo-db:
     just test-db setup
     DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
     cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
 
 # Manage test postgres instance (setup or clean, defaults to setup)
@@ -103,10 +103,10 @@ check-format:
 check-clippy:
     RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cd examples/counter && cargo clippy --workspace --all-targets
-    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cd bento && cargo clippy --workspace --all-targets
+    cd examples/counter && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets
+    cd bento && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets
 
 # Format all code
 format:
