@@ -140,7 +140,7 @@ pub struct StorageProviderConfig {
     /// S3 region
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
     pub aws_region: Option<String>,
-    /// Use presgined URLs for S3
+    /// Use presigned URLs for S3
     #[arg(long, env, requires("s3_access_key"), default_value = "true")]
     pub s3_use_presigned: Option<bool>,
 
