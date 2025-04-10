@@ -144,7 +144,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       listener = {
         port: 443,
         protocol: 'HTTPS',
-        certificateArn: cert.arn,
+        certificateArn: cert.arn.apply((arn) => arn),
       };
     } else {
       listener = {
