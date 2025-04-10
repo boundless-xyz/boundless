@@ -75,11 +75,17 @@ pub(crate) async fn create_uri_handler(
             Ok(Arc::new(handler))
         }
         "s3" => {
-            let (max_size, max_retries, aws_iam_role_arn) = {
+            let (max_size, max_retries, endpoint_url, aws_iam_role_arn) = {
                 let config = &config.lock_all().expect("lock failed").market;
-                (config.max_file_size, config.max_fetch_retries, config.aws_iam_role_arn.clone())
+                (
+                    config.max_file_size,
+                    config.max_fetch_retries,
+                    config.s3_endpoint_url.clone(),
+                    config.aws_assume_role_arn.clone(),
+                )
             };
-            let handler = S3Handler::new(uri, max_size, max_retries, aws_iam_role_arn).await?;
+            let handler =
+                S3Handler::new(uri, max_size, max_retries, endpoint_url, aws_iam_role_arn).await?;
 
             Ok(Arc::new(handler))
         }
@@ -211,6 +217,7 @@ impl S3Handler {
         url: url::Url,
         max_size: usize,
         max_retries: Option<u8>,
+        endpoint_url: Option<String>,
         aws_iam_role_arn: Option<String>,
     ) -> Result<Self, StorageErr> {
         let retry_config = if let Some(max_retries) = max_retries {
@@ -236,6 +243,10 @@ impl S3Handler {
                 .into_builder()
                 .credentials_provider(SharedCredentialsProvider::new(role_provider))
                 .build();
+        }
+
+        if let Some(endpoint_url) = endpoint_url {
+            s3_conf = s3_conf.into_builder().endpoint_url(endpoint_url).build();
         }
 
         let bucket = url.host_str().ok_or(StorageErr::InvalidURL("missing bucket"))?;
@@ -362,7 +373,7 @@ mod tests {
     #[tokio::test]
     async fn s3_missing_config() {
         let url = url::Url::parse("s3://bucket/key").unwrap();
-        let result = S3Handler::new(url, 1, None, None).await;
+        let result = S3Handler::new(url, 1, None, None, None).await;
         assert!(matches!(result, Err(StorageErr::UnsupportedScheme(_))));
     }
 }
