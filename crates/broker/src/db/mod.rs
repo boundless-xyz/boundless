@@ -580,7 +580,7 @@ impl BrokerDb for SqliteDb {
             "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(OrderStatus::Locking)
-        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
         .bind(OrderStatus::Aggregating)

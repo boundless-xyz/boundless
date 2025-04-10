@@ -141,8 +141,6 @@ enum OrderStatus {
     Pricing,
     /// Order is ready to lock at target_timestamp
     Locking,
-    /// Order has been locked in and ready to begin proving
-    Locked,
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
     /// Order is actively ready for proving
