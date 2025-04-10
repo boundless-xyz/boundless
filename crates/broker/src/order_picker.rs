@@ -258,7 +258,7 @@ where
             format_units(gas_price, "gwei").unwrap()
         );
 
-        if order_gas_cost > order.request.offer.maxPrice && lock_expired {
+        if order_gas_cost > order.request.offer.maxPrice && !lock_expired {
             // Cannot check the gas cost for lock expired orders where the reward is a fraction of the stake
             // TODO: This can be added once we have a price feed for the stake token in gas tokens
             tracing::info!(
