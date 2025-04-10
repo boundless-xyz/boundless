@@ -8,7 +8,6 @@ export = () => {
 
   const baseConfig = new pulumi.Config("order-generator-base");
   const chainId = baseConfig.require('CHAIN_ID');
-  const privateKey = isDev ? pulumi.output(getEnvVar("PRIVATE_KEY")) : baseConfig.requireSecret('PRIVATE_KEY');
   const pinataJWT = isDev ? pulumi.output(getEnvVar("PINATA_JWT")) : baseConfig.requireSecret('PINATA_JWT');
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : baseConfig.requireSecret('ETH_RPC_URL');
   const orderStreamUrl = isDev 

@@ -7,7 +7,7 @@ config:
   order-generator-base:ETH_RPC_URL:
     secure: v1:IIsPhs8Wknx1kFA3:i+w82uAGEWTWzhgyAT0UASrDIr0A7j0/pcyDUu4Wf4kD2zXuXVQVz1F11H0oEv2zJjFj9a/q7l6p+Xl2sQatAkdVUVlOuP8XlLSJJK4JFvwLqHVdig==
   order-generator-base:ORDER_STREAM_URL:
-    secure: v1:ZOktRLCHRsLMriSU:xelR8XuLmlCwVA1cHOwXtb8ZZCPhBh438+4LwDeHcx1kCp/mZ+9oOel02rAXfEiwJLyDWcvluw43HLwKy0q6BiLkTvYG71rAuWQi6PN4qVf2hut383th9nhKuEAYhPI=
+    secure: v1:+5dxEU6iX85SMPrl:leEoJCPf57OO9LNagQuBXDEJVvLw+nTIRu5LixJ9Efhhi917Z+F9Qgz0I7ps7uGDiyobcMv2gYj56C4nYAkSMC2gsHI5cMQ5xEf58oe0dcRzYD+U
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   order-generator-base:BASE_STACK: organization/bootstrap/services-staging
   order-generator-base:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
