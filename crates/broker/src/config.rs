@@ -430,6 +430,7 @@ mod tests {
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1"
+mcycle_price_stake_token = "0.1"
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
@@ -455,6 +456,7 @@ block_deadline_buffer_secs = 120"#;
     const CONFIG_TEMPL_2: &str = r#"
 [market]
 mcycle_price = "0.1"
+mcycle_price_stake_token = "0.1"
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300
