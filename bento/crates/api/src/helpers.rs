@@ -20,7 +20,7 @@ pub async fn get_or_create_streams(
     {
         res
     } else {
-        tracing::info!("Creating a new aux stream for key: {user_id}");
+        tracing::debug!("Creating a new aux stream for key: {user_id}");
         taskdb::create_stream(pool, AUX_WORK_TYPE, 0, 1.0, user_id)
             .await
             .context("Failed to create taskdb aux stream")?
@@ -32,7 +32,7 @@ pub async fn get_or_create_streams(
     {
         res
     } else {
-        tracing::info!("Creating a new cpu stream for key: {user_id}");
+        tracing::debug!("Creating a new cpu stream for key: {user_id}");
         taskdb::create_stream(pool, EXEC_WORK_TYPE, 0, 1.0, user_id)
             .await
             .context("Failed to create taskdb exec stream")?
@@ -44,7 +44,7 @@ pub async fn get_or_create_streams(
     {
         res
     } else {
-        tracing::info!("Creating a new gpu stream for key: {user_id}");
+        tracing::debug!("Creating a new gpu stream for key: {user_id}");
         taskdb::create_stream(pool, PROVE_WORK_TYPE, 0, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu prove stream")?
@@ -56,7 +56,7 @@ pub async fn get_or_create_streams(
     {
         res
     } else {
-        tracing::info!("Creating a new gpu stream for key: {user_id}");
+        tracing::debug!("Creating a new gpu stream for key: {user_id}");
         taskdb::create_stream(pool, COPROC_WORK_TYPE, 0, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu coproc stream")?
@@ -68,7 +68,7 @@ pub async fn get_or_create_streams(
     {
         res
     } else {
-        tracing::info!("Creating a new gpu join stream for key: {user_id}");
+        tracing::debug!("Creating a new gpu join stream for key: {user_id}");
         taskdb::create_stream(pool, JOIN_WORK_TYPE, 0, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu join stream")?
@@ -80,7 +80,7 @@ pub async fn get_or_create_streams(
     {
         res
     } else {
-        tracing::info!("Creating a new snark stream for key: {user_id}");
+        tracing::debug!("Creating a new snark stream for key: {user_id}");
         taskdb::create_stream(pool, SNARK_WORK_TYPE, 0, 1.0, user_id)
             .await
             .context("Failed to create taskdb snark stream")?

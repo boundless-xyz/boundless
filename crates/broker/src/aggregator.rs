@@ -120,7 +120,7 @@ impl AggregatorService {
         // TODO: Need to set a timeout here to handle stuck or even just alert on delayed proving if
         // the proving cluster is overloaded
 
-        tracing::info!("Starting proving of set-builder");
+        tracing::debug!("Starting proving of set-builder");
         let proof_res = self
             .prover
             .prove_and_monitor_stark(
@@ -130,7 +130,7 @@ impl AggregatorService {
             )
             .await
             .context("Failed to prove set-builder")?;
-        tracing::info!(
+        tracing::debug!(
             "completed proving of set-builder cycles: {} time: {}",
             proof_res.stats.total_cycles,
             proof_res.elapsed_time
@@ -208,7 +208,7 @@ impl AggregatorService {
             .await
             .context("Failed to prove assesor stark")?;
 
-        tracing::info!(
+        tracing::debug!(
             "Assessor proof completed, count: {} cycles: {} time: {}",
             order_count,
             proof_res.stats.total_cycles,
@@ -285,7 +285,7 @@ impl AggregatorService {
         let batch_size = batch.orders.len() + pending_orders.len();
         if let Some(batch_target_size) = conf_batch_size {
             if batch_size >= batch_target_size as usize {
-                tracing::info!(
+                tracing::debug!(
                     "Finalizing batch {batch_id}: size target hit {} - {}",
                     batch_size,
                     batch_target_size
@@ -306,7 +306,7 @@ impl AggregatorService {
         let pending_journal_size = self.get_combined_journal_size(&pending_order_ids).await?;
         let journal_size = batch_journal_size + pending_journal_size;
         if journal_size >= conf_max_journal_bytes {
-            tracing::info!(
+            tracing::debug!(
                 "Finalizing batch {batch_id}: journal size target hit {} >= {}",
                 journal_size,
                 conf_max_journal_bytes
@@ -324,7 +324,7 @@ impl AggregatorService {
         if let Some(batch_time) = conf_batch_time {
             let time_delta = Utc::now() - batch.start_time;
             if time_delta.num_seconds() as u64 >= batch_time {
-                tracing::info!(
+                tracing::debug!(
                     "Finalizing batch {batch_id}: time limit hit {} - {}",
                     time_delta.num_seconds(),
                     batch.start_time
@@ -341,7 +341,7 @@ impl AggregatorService {
                 pending_orders.iter().map(|order| order.fee).fold(batch.fees, |sum, fee| sum + fee);
 
             if fees >= batch_target_fees {
-                tracing::info!("Finalizing batch {batch_id}: fee target hit");
+                tracing::debug!("Finalizing batch {batch_id}: fee target hit");
                 return Ok(true);
             } else {
                 tracing::debug!("Batch {batch_id} below fee target");
@@ -364,7 +364,7 @@ impl AggregatorService {
         if let Some(deadline) = deadline {
             let remaining_secs = deadline.saturating_sub(now);
             if remaining_secs <= conf_deadline_buf_secs {
-                tracing::info!(
+                tracing::debug!(
                     "Finalizing batch {batch_id}: getting close to deadline {remaining_secs}"
                 );
                 return Ok(true);
@@ -423,7 +423,7 @@ impl AggregatorService {
             .await
             .context("Failed to prove set builder for batch {batch_id}")?;
 
-        tracing::info!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
+        tracing::debug!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
 
         self.db
             .update_batch(
@@ -491,13 +491,13 @@ impl AggregatorService {
         };
 
         if compress {
-            tracing::info!("Starting groth16 compression proof for batch {batch_id}");
+            tracing::debug!("Starting groth16 compression proof for batch {batch_id}");
             let compress_proof_id = self
                 .prover
                 .compress(&aggregation_proof_id)
                 .await
                 .context("Failed to complete compression")?;
-            tracing::info!("Completed groth16 compression for batch {batch_id}");
+            tracing::debug!("Completed groth16 compression for batch {batch_id}");
 
             self.db
                 .complete_batch(batch_id, compress_proof_id)
@@ -514,7 +514,7 @@ impl RetryTask for AggregatorService {
         let mut self_clone = self.clone();
 
         Box::pin(async move {
-            tracing::info!("Starting Aggregator service");
+            tracing::debug!("Starting Aggregator service");
             loop {
                 let conf_poll_time_ms = {
                     let config = self_clone
