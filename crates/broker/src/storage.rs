@@ -78,11 +78,11 @@ pub(crate) async fn create_uri_handler(
             Ok(Arc::new(handler))
         }
         "s3" => {
-            let (max_size, max_retries, endpoint_url) = {
+            let (max_size, max_retries) = {
                 let config = &config.lock_all().expect("lock failed").market;
-                (config.max_file_size, config.max_fetch_retries, config.s3_endpoint_url.clone())
+                (config.max_file_size, config.max_fetch_retries)
             };
-            let handler = S3Handler::new(uri, max_size, max_retries, endpoint_url).await?;
+            let handler = S3Handler::new(uri, max_size, max_retries).await?;
 
             Ok(Arc::new(handler))
         }
@@ -214,7 +214,6 @@ impl S3Handler {
         url: url::Url,
         max_size: usize,
         max_retries: Option<u8>,
-        endpoint_url: Option<String>,
     ) -> Result<Self, StorageErr> {
         let retry_config = if let Some(max_retries) = max_retries {
             RetryConfig::standard().with_max_attempts(max_retries as u32 + 1)
@@ -240,10 +239,6 @@ impl S3Handler {
                 .into_builder()
                 .credentials_provider(SharedCredentialsProvider::new(role_provider))
                 .build();
-        }
-
-        if let Some(endpoint_url) = endpoint_url {
-            s3_conf = s3_conf.into_builder().endpoint_url(endpoint_url).build();
         }
 
         let bucket = url.host_str().ok_or(StorageErr::InvalidURL("missing bucket"))?;

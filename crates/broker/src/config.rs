@@ -129,8 +129,6 @@ pub struct MarketConf {
     /// Optional cache directory for storing downloaded images and inputs
     /// if not set, files will be re-downloaded every time
     pub cache_dir: Option<PathBuf>,
-    /// Optional S3 endpoint URL
-    pub s3_endpoint_url: Option<String>,
 }
 
 impl Default for MarketConf {
@@ -158,7 +156,6 @@ impl Default for MarketConf {
             stake_balance_error_threshold: None,
             max_concurrent_locks: None,
             cache_dir: None,
-            s3_endpoint_url: None,
         }
     }
 }
