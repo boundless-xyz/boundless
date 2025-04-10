@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use aws_config::retry::RetryConfig;
 use aws_sdk_s3::{
     config::{ProvideCredentials, SharedCredentialsProvider},
+    error::ProvideErrorMetadata,
     Client as S3Client,
 };
 use futures::StreamExt;
@@ -182,12 +183,12 @@ impl Handler for HttpHandler {
         let response = response.error_for_status().map_err(|err| StorageErr::Http(err.into()))?;
 
         // If a maximum size is set and the content_length exceeds it, return early.
-        let capacity_hint = response.content_length().unwrap_or_default() as usize;
-        if capacity_hint > self.max_size {
-            return Err(StorageErr::SizeLimitExceeded(capacity_hint));
+        let capacity = response.content_length().unwrap_or_default() as usize;
+        if capacity > self.max_size {
+            return Err(StorageErr::SizeLimitExceeded(capacity));
         }
 
-        let mut buffer = Vec::with_capacity(capacity_hint);
+        let mut buffer = Vec::with_capacity(capacity);
         let mut stream = response.bytes_stream();
 
         while let Some(chunk) = stream.next().await {
@@ -221,21 +222,25 @@ impl S3Handler {
             RetryConfig::disabled()
         };
 
-        let mut s3_conf = aws_config::from_env().retry_config(retry_config).load().await;
-        if match s3_conf.credentials_provider() {
-            None => true,
-            Some(credentials) => credentials.provide_credentials().await.is_err(),
-        } {
+        let mut config = aws_config::from_env().retry_config(retry_config).load().await;
+
+        if let Some(provider) = config.credentials_provider() {
+            if let Err(e) = provider.provide_credentials().await {
+                tracing::debug!(error=%e, "Could not load initial AWS credentials required for S3 support. S3 support disabled.");
+                return Err(StorageErr::UnsupportedScheme("s3".to_string()));
+            }
+        } else {
+            // This should not happen with aws_config::from_env()
             return Err(StorageErr::UnsupportedScheme("s3".to_string()));
         }
 
         if let Ok(role_arn) = env::var(ENV_VAR_ROLE_ARN) {
             // Create the AssumeRoleProvider using the base_config for its STS client needs
             let role_provider = aws_config::sts::AssumeRoleProvider::builder(role_arn)
-                .configure(&s3_conf) // Use the base config to configure the provider
+                .configure(&config) // Use the base config to configure the provider
                 .build()
                 .await;
-            s3_conf = s3_conf
+            config = config
                 .into_builder()
                 .credentials_provider(SharedCredentialsProvider::new(role_provider))
                 .build();
@@ -250,7 +255,7 @@ impl S3Handler {
         Ok(S3Handler {
             bucket: bucket.to_string(),
             key: key.to_string(),
-            client: S3Client::new(&s3_conf),
+            client: S3Client::new(&config),
             max_size,
         })
     }
@@ -265,21 +270,23 @@ impl Display for S3Handler {
 #[async_trait]
 impl Handler for S3Handler {
     async fn fetch(&self) -> Result<Vec<u8>, StorageErr> {
-        let resp = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(&self.key)
-            .send()
-            .await
-            .map_err(|e| StorageErr::S3(e.into()))?;
+        let resp_result = self.client.get_object().bucket(&self.bucket).key(&self.key).send().await;
+        let resp = match resp_result {
+            Ok(resp) => resp,
+            Err(sdk_err) => {
+                let code = sdk_err.code();
+                tracing::debug!(error = %sdk_err, code = ?code, "S3 GetObject failed");
+                // Return the generic S3 error, wrapping the SdkError
+                return Err(StorageErr::S3(sdk_err.into()));
+            }
+        };
 
-        let capacity_hint = resp.content_length.unwrap_or_default() as usize;
-        if capacity_hint > self.max_size {
-            return Err(StorageErr::SizeLimitExceeded(capacity_hint));
+        let capacity = resp.content_length.unwrap_or_default() as usize;
+        if capacity > self.max_size {
+            return Err(StorageErr::SizeLimitExceeded(capacity));
         }
 
-        let mut buffer = Vec::with_capacity(capacity_hint);
+        let mut buffer = Vec::with_capacity(capacity);
         let mut stream = resp.body;
 
         while let Some(chunk) = stream.next().await {
