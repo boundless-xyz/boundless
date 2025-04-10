@@ -275,7 +275,7 @@ jobs:
         run: cargo check --locked -p broker --bin broker
 
   link-check:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux, X64, prod, cpu]
     steps:
       - uses: actions/checkout@v4
 
@@ -310,7 +310,7 @@ jobs:
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
   format:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux, X64, prod, cpu]
     steps:
       - uses: actions/checkout@v4
 
@@ -326,7 +326,7 @@ jobs:
       - run: dprint check
 
   foundry:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux, X64, prod, cpu]
     steps:
       - name: checkout code
         uses: actions/checkout@v4
