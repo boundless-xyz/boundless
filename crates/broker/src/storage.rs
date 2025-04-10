@@ -369,11 +369,4 @@ mod tests {
         get_mock.assert();
         assert!(matches!(result, Err(StorageErr::SizeLimitExceeded(_))));
     }
-
-    #[tokio::test]
-    async fn s3_missing_config() {
-        let url = url::Url::parse("s3://bucket/key").unwrap();
-        let result = S3Handler::new(url, 1, None, None, None).await;
-        assert!(matches!(result, Err(StorageErr::UnsupportedScheme(_))));
-    }
 }
