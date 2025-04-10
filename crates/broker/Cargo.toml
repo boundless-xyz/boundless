@@ -16,7 +16,7 @@ alloy-chains = "=0.1.67"
 anyhow = { workspace = true }
 async-channel = "2.3"
 async-trait = { workspace = true }
-aws-config = { version = "1.0.1", features = ["behavior-version-latest"] }
+aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
