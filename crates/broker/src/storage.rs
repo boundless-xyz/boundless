@@ -337,7 +337,7 @@ mod tests {
         });
 
         let url = url::Url::parse(&server.url("/image")).unwrap();
-        let handler = HttpHandler::new(url, 1_000_000, None, None).await.unwrap();
+        let handler = HttpHandler::new(url, 1024, None, None).await.unwrap();
 
         let data = handler.fetch().await.unwrap();
         assert_eq!(data, resp_data);
@@ -367,7 +367,7 @@ mod tests {
         });
 
         let url = url::Url::parse(&server.url("/image")).unwrap();
-        let handler = HttpHandler::new(url, 1_000_000, None, Some(RETRIES)).await.unwrap();
+        let handler = HttpHandler::new(url, 1024, None, Some(RETRIES)).await.unwrap();
 
         handler.fetch().await.unwrap();
         success_mock.assert();
@@ -414,9 +414,7 @@ mod tests {
             S3Handler::new(url, 1024, None),
         )
         .await;
-        // We expect Ok because the initial credential check passes, and setting up the
-        // AssumeRoleProvider itself doesn't require calling STS immediately.
-        assert!(result.is_ok());
+
         let handler = result.unwrap();
         assert_eq!(handler.bucket, "test-bucket");
         assert_eq!(handler.key, "path/to/object");
