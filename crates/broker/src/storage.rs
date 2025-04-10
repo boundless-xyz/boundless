@@ -203,6 +203,7 @@ impl Handler for HttpHandler {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct S3Handler {
     bucket: String,
     key: String,
@@ -304,11 +305,16 @@ impl Handler for S3Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aws_sdk_s3::{config::Credentials, primitives::SdkBody};
+    use aws_smithy_http_client::test_util::capture_request;
     use httpmock::prelude::*;
+    use serial_test::serial;
     use std::sync::atomic::{AtomicU8, Ordering};
+    use tracing_test::traced_test;
 
     #[tokio::test]
-    async fn http_fetch() {
+    #[traced_test]
+    async fn http_fetch_success() {
         let server = MockServer::start();
         let resp_data = vec![0x41, 0x41, 0x41, 0x41];
         let get_mock = server.mock(|when, then| {
@@ -325,6 +331,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[traced_test]
     async fn http_fetch_retry() {
         const RETRIES: u8 = 2;
         static CALL_COUNT: AtomicU8 = AtomicU8::new(0);
@@ -353,6 +360,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[traced_test]
     async fn http_max_size() {
         let server = MockServer::start();
         let resp_data = vec![0x41, 0x41, 0x41, 0x41];
@@ -366,6 +374,93 @@ mod tests {
 
         let result = handler.fetch().await;
         get_mock.assert();
+        assert!(matches!(result, Err(StorageErr::SizeLimitExceeded(_))));
+    }
+
+    // NOTE: These are dummy values, they don't need to be real AWS keys but their presence allows
+    // the default provider chain to "succeed" initially.
+    const DUMMY_AWS_CREDENTIALS: [(&str, Option<&str>); 6] = [
+        ("AWS_ACCESS_KEY_ID", Some("TESTKEY")),
+        ("AWS_SECRET_ACCESS_KEY", Some("TESTSECRET")),
+        ("AWS_REGION", Some("us-east-1")),
+        ("AWS_ROLE_ARN", Some("arn:aws:iam::123456789012:role/TestRole")),
+        ("AWS_SESSION_TOKEN", None),
+        ("AWS_PROFILE", None),
+    ];
+
+    #[tokio::test]
+    #[traced_test]
+    #[serial] // Run serially because it modifies environment variables
+    async fn s3_new_success_with_role_arn_env() {
+        let url = url::Url::parse("s3://test-bucket/path/to/object").unwrap();
+        let result = temp_env::async_with_vars(
+            DUMMY_AWS_CREDENTIALS,
+            // NOTE: This test doesn't mock STS, so it only checks if S3Handler::new *attempts* to
+            // use the role provider without erroring out immediately.
+            S3Handler::new(url, 1024, None),
+        )
+        .await;
+        // We expect Ok because the initial credential check passes, and setting up the
+        // AssumeRoleProvider itself doesn't require calling STS immediately.
+        assert!(result.is_ok());
+        let handler = result.unwrap();
+        assert_eq!(handler.bucket, "test-bucket");
+        assert_eq!(handler.key, "path/to/object");
+        assert_eq!(handler.to_string(), "s3://test-bucket/path/to/object");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    #[serial] // Run serially because it modifies environment variables
+    async fn s3_new_fail_missing_credentials() {
+        let url = url::Url::parse("s3://test-bucket/object").unwrap();
+        // Ensure no credentials are set
+        let result = temp_env::async_with_vars::<_, &str, _, _>(
+            [("AWS_ACCESS_KEY_ID", None), ("AWS_SESSION_TOKEN", None), ("AWS_PROFILE", None)],
+            S3Handler::new(url, 1024, None),
+        )
+        .await;
+
+        // Expect the specific error due to failed credential resolution
+        assert!(matches!(result, Err(StorageErr::UnsupportedScheme(_))));
+    }
+
+    async fn mock_s3_handler(data: Vec<u8>, max_size: usize) -> S3Handler {
+        let (client, _) = capture_request(Some(
+            http::Response::builder().status(200).body(SdkBody::from(data)).unwrap(),
+        ));
+        let conf = aws_config::from_env()
+            .credentials_provider(Credentials::new("example", "example", None, None, "example"))
+            .region("us-east-1")
+            .http_client(client)
+            .load()
+            .await;
+
+        S3Handler {
+            bucket: "bucket".to_string(),
+            key: "key".to_string(),
+            client: S3Client::new(&conf),
+            max_size,
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn s3_fetch_success() {
+        let resp_data = vec![0x41, 0x41, 0x41, 0x41];
+        let handler = mock_s3_handler(resp_data.clone(), 1024).await;
+
+        let data = handler.fetch().await.unwrap();
+        assert_eq!(data, resp_data);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn s3_fetch_max_size() {
+        let resp_data = vec![0x41, 0x41, 0x41, 0x41];
+        let handler = mock_s3_handler(resp_data.clone(), 1).await;
+
+        let result = handler.fetch().await;
         assert!(matches!(result, Err(StorageErr::SizeLimitExceeded(_))));
     }
 }

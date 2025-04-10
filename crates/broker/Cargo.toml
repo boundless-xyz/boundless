@@ -52,17 +52,21 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
+aws-smithy-http-client = { version = "1.0", features = ["test-util"] }
 boundless-market = { workspace = true, features = ["test-utils"] }
 broker = { path = ".", features = ["test-utils"] }
 elsa = "1.11"
 guest-assessor = { workspace = true }
 guest-util = { workspace = true }
 hex = { workspace = true }
+http = "1.0"
 httpmock = "0.7"
 proptest = "1.4"
 proptest-derive = "0.5"
 rand = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
+serial_test = "3.2"
+temp-env = { version = "0.3", features = ["async_closure"] }
 tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }
 
