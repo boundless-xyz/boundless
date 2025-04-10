@@ -41,16 +41,16 @@ First, we request a raw Groth16 proof from the Echo guest program:
 
 <StripRustCodeComments>
 ```rust
-# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
-# use guest_util::{ECHO_ELF, ECHO_ID};
-# use crate::counter::{ICounter, ICounter::ICounterInstance};
-# async fn main(image_id: Digest, journal: Journal) -> Result<()> {
+# use boundless_market::contracts::{Predicate, Requirements};
+# use risc0_zkvm::sha::Digestible;
+# let image_id = [0u8; 32];
+# let journal = Vec::<u8>::new();
+# let groth16 = true;
 let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
 if groth16 {
     requirements = requirements.with_groth16_proof();
 }
 # Ok(())
-# }
 ```
 </StripRustCodeComments>
 
@@ -58,9 +58,8 @@ We then use this proof as input to the Identity guest program:
 
 <StripRustCodeComments>
 ```rust
-# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
+# use boundless_market::{client::Client, contracts::Input};
 # use risc0_zkvm::sha::{Digest, Digestible};
-# use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
 # use boundless_market::storage::StorageProvider;
 # async fn boundless_proof(
 #     client: &Client<P, S>,
@@ -108,8 +107,16 @@ Finally, we can use the composed proof to interact with a smart contract:
 #    signers::local::PrivateKeySigner,
 #    sol_types::SolCall,
 # };
-# use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
-# use crate::counter::{ICounter, ICounter::ICounterInstance};
+
+alloy::sol! {
+    interface ICounter {
+        event Increment(address indexed who, uint256 count);
+
+        function increment(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external;
+        function getCount(address who) external view returns (uint256);
+    }
+}
+
 # async fn interact(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
 // Interact with the Counter contract using the composed proof
 let counter = ICounterInstance::new(counter_address, boundless_client.provider());

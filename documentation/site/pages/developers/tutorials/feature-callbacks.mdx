@@ -45,6 +45,7 @@ When creating the proof request, the requestor specifies the callback contract a
 
 <StripRustCodeComments>
 ```rust
+# use alloy::primitives::{address, aliases::U96};
 # use anyhow::Result;
 # use alloy_primitives::utils::parse_ether;
 # use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
@@ -55,6 +56,7 @@ When creating the proof request, the requestor specifies the callback contract a
 # input_url: url::Url,
 # mcycles_count: u64,
 # journal: Vec<u8>) -> Result<ProofRequest> {
+# let counter_address = address!("0x000000000000000000000000000000000c0077e5");
 let request = ProofRequest::builder()
     .with_image_url(image_url)
     .with_input(input_url)
@@ -107,23 +109,35 @@ Once the proof is fulfilled, our example checks the counter contract and confirm
 <StripRustCodeComments>
 ```rust
 # use std::time::Duration;
+# use alloy::primitives::address;
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
-# use crate::counter::{ICounter, ICounter::ICounterInstance};
 # async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
 # let boundless_client = ClientBuilder::new().build().await?;
 # let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+
+alloy::sol! {
+    #![sol(rpc, all_derives)]
+    interface ICounter {
+        event Increment(address indexed who, uint256 count);
+
+        function increment(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external;
+        function getCount(address who) external view returns (uint256);
+    }
+}
+
 let (_journal, _seal) =
-    client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at).await?;
+    boundless_client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at).await?;
 
 // We interact with the Counter contract by calling the getCount function to check that the callback
 // was executed correctly.
-let counter = ICounterInstance::new(counter_address, client.provider().clone());
+let counter_address = address!("0x000000000000000000000000000000000c0077e5");
+let counter = ICounterInstance::new(counter_address, boundless_client.provider().clone());
 let count = counter
     .count()
     .call()
     .await
-    .with_context(|| format!("failed to call {}", ICounter::countCall::SIGNATURE))?
+    .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?
     ._0;
 # Ok(())
 # }
