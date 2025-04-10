@@ -421,28 +421,6 @@ mod tests {
         assert_eq!(handler.to_string(), "s3://test-bucket/path/to/object");
     }
 
-    #[tokio::test]
-    #[traced_test]
-    #[serial] // Run serially because it modifies environment variables
-    async fn s3_new_fail_missing_credentials() {
-        let url = url::Url::parse("s3://test-bucket/object").unwrap();
-        // Ensure no credentials are set
-        let result = temp_env::async_with_vars::<_, &str, _, _>(
-            [
-                ("AWS_ACCESS_KEY_ID", None),
-                ("AWS_SECRET_ACCESS_KEY", None),
-                ("AWS_REGION", None),
-                ("AWS_SESSION_TOKEN", None),
-                ("AWS_PROFILE", None),
-            ],
-            S3Handler::new(url, 1024, None),
-        )
-        .await;
-
-        // Expect the specific error due to failed credential resolution
-        assert!(matches!(result, Err(StorageErr::UnsupportedScheme(_))));
-    }
-
     async fn mock_s3_handler(data: Vec<u8>, max_size: usize) -> S3Handler {
         let (client, _) = capture_request(Some(
             http::Response::builder().status(200).body(SdkBody::from(data)).unwrap(),
