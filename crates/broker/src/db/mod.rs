@@ -96,6 +96,7 @@ pub trait BrokerDb {
     async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError>;
     async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError>;
     async fn set_order_complete(&self, id: U256) -> Result<(), DbError>;
+    async fn set_order_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError>;
     async fn skip_order(&self, id: U256) -> Result<(), DbError>;
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
@@ -439,6 +440,31 @@ impl BrokerDb for SqliteDb {
                 id = $3"#,
         )
         .bind(OrderStatus::Done)
+        .bind(Utc::now().timestamp())
+        .bind(format!("{id:x}"))
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::OrderNotFound(id));
+        }
+
+        Ok(())
+    }
+
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x} {status:?}")))]
+    async fn set_order_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError> {
+        let res = sqlx::query(
+            r#"
+            UPDATE orders
+            SET data = json_set(
+                       json_set(data,
+                       '$.status', $1),
+                       '$.updated_at', $2)
+            WHERE
+                id = $3"#,
+        )
+        .bind(status)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
         .execute(&self.pool)

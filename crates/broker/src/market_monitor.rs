@@ -24,7 +24,7 @@ use crate::{
     chain_monitor::ChainMonitorService,
     db::DbError,
     task::{RetryRes, RetryTask, SupervisorErr},
-    DbObj, Order,
+    DbObj, Order, OrderStatus,
 };
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
@@ -35,6 +35,7 @@ pub struct MarketMonitor<P> {
     provider: Arc<P>,
     db: DbObj,
     chain_monitor: Arc<ChainMonitorService<P>>,
+    submitter_addr: Address,
 }
 
 sol! {
@@ -56,8 +57,9 @@ where
         provider: Arc<P>,
         db: DbObj,
         chain_monitor: Arc<ChainMonitorService<P>>,
+        submitter_addr: Address,
     ) -> Self {
-        Self { lookback_blocks, market_addr, provider, db, chain_monitor }
+        Self { lookback_blocks, market_addr, provider, db, chain_monitor, submitter_addr }
     }
 
     /// Queries chain history to sample for the median block time
@@ -223,6 +225,49 @@ where
         anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
     }
 
+    /// Monitors the RequestLocked events and updates the database accordingly.
+    async fn monitor_order_locks(
+        market_addr: Address,
+        submitter_addr: Address,
+        provider: Arc<P>,
+        db: DbObj,
+    ) -> Result<()> {
+        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        let event = market.instance().RequestLocked_filter().watch().await?;
+        tracing::info!("Subscribed to RequestLocked event");
+
+        event
+            .into_stream()
+            .for_each(|log_res| async {
+                match log_res {
+                    Ok((event, _)) => {
+                        tracing::info!(
+                            "Detected request {:x} locked by {:x}",
+                            event.requestId,
+                            event.prover
+                        );
+                        if event.prover != submitter_addr {
+                            if let Err(e) = db
+                                .set_order_status(
+                                    U256::from(event.requestId),
+                                    OrderStatus::LockedByOther,
+                                )
+                                .await
+                            {
+                                tracing::error!("Failed to update order status to Done: {e:?}");
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                    }
+                }
+            })
+            .await;
+
+        anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
+    }
+
     /// Monitors the RequestFulfilled events and updates the database accordingly.
     async fn monitor_order_fulfillments(
         market_addr: Address,
@@ -344,6 +389,7 @@ where
         let provider = self.provider.clone();
         let db = self.db.clone();
         let chain_monitor = self.chain_monitor.clone();
+        let submitter_addr = self.submitter_addr.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up market monitor");
@@ -368,6 +414,10 @@ where
                 }
                 Err(err) = Self::monitor_order_fulfillments(market_addr, provider.clone(), db.clone()) => {
                     tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");
+                    Err(SupervisorErr::Recover(err))
+                }
+                Err(err) = Self::monitor_order_locks(market_addr, submitter_addr, provider.clone(), db.clone()) => {
+                    tracing::error!("Monitor for order locks failed, restarting: {err:?}");
                     Err(SupervisorErr::Recover(err))
                 }
             }
@@ -487,7 +537,8 @@ mod tests {
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let market_monitor = MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor);
+        let market_monitor =
+            MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor, Address::ZERO);
 
         let block_time = market_monitor.get_block_time().await.unwrap();
         assert_eq!(block_time, 2);
@@ -495,7 +546,7 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn detect_fulfilled_event() {
+    async fn detect_locking_and_fulfilled_events() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
@@ -539,6 +590,7 @@ mod tests {
             provider.clone(),
             db.clone(),
             chain_monitor.clone(),
+            provider.default_signer_address(),
         );
         tokio::spawn(market_monitor.spawn());
 
@@ -580,13 +632,22 @@ mod tests {
             .as_bytes();
         boundless_market.lock_request(&proving_request, &client_sig.into(), None).await.unwrap();
         assert!(boundless_market.is_locked(proving_request.id).await.unwrap());
-        assert!(
+        assert_eq!(
             boundless_market
                 .get_status(proving_request.id, Some(proving_request.expires_at()))
                 .await
-                .unwrap()
-                == RequestStatus::Locked
+                .unwrap(),
+            RequestStatus::Locked
         );
+
+        // Wait for the block to be mined and the event to be detected
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let _ = db.get_order(proving_request.id).await.unwrap().unwrap();
+        assert!(logs_contain(&format!(
+            "Detected request {:x} locked by {:x}",
+            proving_request.id,
+            signer.address()
+        )));
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",

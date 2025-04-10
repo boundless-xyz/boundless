@@ -393,6 +393,7 @@ where
             self.provider.clone(),
             self.db.clone(),
             chain_monitor.clone(),
+            self.args.private_key.address(),
         ));
 
         let block_times =
