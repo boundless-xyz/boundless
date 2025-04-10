@@ -99,7 +99,12 @@ pub trait BrokerDb {
         &self,
         end_timestamp: u64,
     ) -> Result<Vec<(U256, Order)>, DbError>;
-    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u32, DbError>;
+    /// Get all orders that are committed to be fulfilled, including those that have been selected
+    /// to lock or are locked and are not yet fulfilled.
+    async fn get_committed_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
+    /// Get a count of orders that are committed to be fulfilled, including those that have been
+    /// selected to lock or are locked and are not yet fulfilled.
+    async fn get_committed_orders_count(&self) -> Result<u32, DbError>;
     async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_proof_id(&self, order_id: U256, proof_id: &str) -> Result<(), DbError>;
@@ -511,16 +516,11 @@ impl BrokerDb for SqliteDb {
         .await?;
 
         // Break if any order-id's are invalid and raise
-        let orders: Result<Vec<_>, _> = orders
-            .into_iter()
-            .map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data)))
-            .collect();
-
-        orders
+        orders.into_iter().map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data))).collect()
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u32, DbError> {
+    async fn get_committed_orders_count(&self) -> Result<u32, DbError> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
         )
@@ -535,6 +535,25 @@ impl BrokerDb for SqliteDb {
         .await?;
 
         Ok(u32::try_from(count).expect("count should never be negative"))
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    async fn get_committed_orders(&self) -> Result<Vec<(U256, Order)>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(OrderStatus::Locking)
+        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::Proving)
+        .bind(OrderStatus::PendingAgg)
+        .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::PendingSubmission)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Break if any order-id's are invalid and raise
+        orders.into_iter().map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data))).collect()
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -572,12 +591,7 @@ impl BrokerDb for SqliteDb {
                 .fetch_all(&self.pool)
                 .await?;
 
-        let orders: Result<Vec<_>, _> = orders
-            .into_iter()
-            .map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data)))
-            .collect();
-
-        orders
+        orders.into_iter().map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data))).collect()
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x}")))]

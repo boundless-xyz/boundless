@@ -66,11 +66,17 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable STAKE_TOKEN_CONTRACT;
 
-    /// If no selector is specified as part of the request's requirements, the prover must provide
-    /// a proof that can be verified with at most the amount of gas specified by this constant.
-    /// This requirement exists to ensure that by default, the client can then post the given proof
-    /// in a new transaction as part of the application.
+    /// @notice Max gas allowed for verification of an application proof, when selector is default.
+    /// @dev If no selector is specified as part of the request's requirements, the prover must
+    /// provide a proof that can be verified with at most the amount of gas specified by this
+    /// constant. This requirement exists to ensure that by default, the client can then post the
+    /// given proof in a new transaction as part of the application.
     uint256 public constant DEFAULT_MAX_GAS_FOR_VERIFY = 50000;
+
+    /// @notice Max gas allowed for ERC1271 smart contract signature checks used for client auth.
+    /// @dev This constraint is applied to smart contract signatures used for authorizing proof
+    /// requests in order to make gas costs bounded.
+    uint256 public constant ERC1271_MAX_GAS_FOR_CHECK = 100000;
 
     /// @notice When a prover is slashed for failing to fulfill a request, a portion of the stake
     /// is burned, and the remaining portion is either send to the prover that ultimately fulfilled
@@ -867,7 +873,10 @@ contract BoundlessMarket is
     {
         bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
         if (request.id.isSmartContractSigned()) {
-            if (IERC1271(addr).isValidSignature(requestHash, clientSignature) != IERC1271.isValidSignature.selector) {
+            if (
+                IERC1271(addr).isValidSignature{gas: ERC1271_MAX_GAS_FOR_CHECK}(requestHash, clientSignature)
+                    != IERC1271.isValidSignature.selector
+            ) {
                 revert IBoundlessMarket.InvalidSignature();
             }
         } else {

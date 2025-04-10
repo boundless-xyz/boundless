@@ -248,7 +248,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
             msg = receiver_channel.recv() => {
                 match msg {
                     Some(msg) => {
-                        match sender_ws.send(Message::Text(msg)).await {
+                        match sender_ws.send(Message::Text(msg.into())).await {
                             Ok(_) => {
                                 // Reset the error counter on successful send
                                 errors_counter = 0;
@@ -276,7 +276,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                 }
                 // Send ping
                 let random_bytes: Vec<u8> = rand::rng().random::<[u8; 16]>().into();
-                if let Err(err) = sender_ws.send(Message::Ping(random_bytes.clone())).await {
+                if let Err(err) = sender_ws.send(Message::Ping(random_bytes.clone().into())).await {
                     tracing::warn!("Failed to send Ping to {address}: {err:?}");
                     break;
                 }

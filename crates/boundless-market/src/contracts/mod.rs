@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
 #[cfg(not(target_os = "zkvm"))]
 use std::str::FromStr;
+use std::{borrow::Cow, ops::Not};
 
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
@@ -418,23 +418,19 @@ impl ProofRequest {
     }
 
     /// Returns the client address from the request ID.
-    pub fn client_address(&self) -> Result<Address, RequestError> {
-        let shifted_id: U256 = self.id >> 32;
-        if self.id >> 192 != U256::ZERO {
-            return Err(RequestError::MalformedRequestId);
-        }
-        let shifted_bytes: [u8; 32] = shifted_id.to_be_bytes();
-        let addr_bytes: [u8; 20] = shifted_bytes[12..32]
-            .try_into()
-            .expect("error in converting slice of 20 bytes into array of 20 bytes");
-        let lower_160_bits = U160::from_be_bytes(addr_bytes);
-
-        Ok(Address::from(lower_160_bits))
+    pub fn client_address(&self) -> Address {
+        RequestId::from_lossy(self.id).addr
     }
 
     /// Returns the time, in seconds since the UNIX epoch, at which the request expires.
     pub fn expires_at(&self) -> u64 {
         self.offer.biddingStart + self.offer.timeout as u64
+    }
+
+    /// Return true if the request ID indicates that it is authorized by a smart contract, rather
+    /// than an EOA (i.e. an ECDSA key).
+    pub fn is_smart_contract_signed(&self) -> bool {
+        RequestId::from_lossy(self.id).smart_contract_signed
     }
 
     /// Check that the request is valid and internally consistent.
@@ -517,7 +513,7 @@ impl ProofRequest {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         let addr = sig.recover_address_from_prehash(&hash)?;
-        if addr == self.client_address()? {
+        if addr == self.client_address() {
             Ok(())
         } else {
             Err(SignatureError::FromBytes("Address mismatch").into())
@@ -588,6 +584,9 @@ impl Predicate {
 }
 
 impl Callback {
+    /// Constant representing a none callback (i.e. no call will be made).
+    pub const NONE: Self = Self { addr: Address::ZERO, gasLimit: U96::ZERO };
+
     /// Sets the address of the callback.
     pub fn with_addr(self, addr: impl Into<Address>) -> Self {
         Self { addr: addr.into(), ..self }
@@ -596,6 +595,28 @@ impl Callback {
     /// Sets the gas limit of the callback.
     pub fn with_gas_limit(self, gas_limit: u64) -> Self {
         Self { gasLimit: U96::from(gas_limit), ..self }
+    }
+
+    /// Returns true if this is a none callback (i.e. no call will be made).
+    ///
+    /// NOTE: A callback is considered none if the address is zero, regardless of the gas limit.
+    pub fn is_none(&self) -> bool {
+        self.addr == Address::ZERO
+    }
+
+    /// Convert to an option representation, mapping a none callback to `None`.
+    pub fn into_option(self) -> Option<Self> {
+        self.is_none().not().then_some(self)
+    }
+
+    /// Convert to an option representation, mapping a none callback to `None`.
+    pub fn as_option(&self) -> Option<&Self> {
+        self.is_none().not().then_some(self)
+    }
+
+    /// Convert from an option representation, mapping `None` to [Self::NONE].
+    pub fn from_option(opt: Option<Self>) -> Self {
+        opt.unwrap_or(Self::NONE)
     }
 }
 

@@ -266,7 +266,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
         tracing::debug!("calling submitRequest({:x?})", request);
-        let client_address = request.client_address()?;
+        let client_address = request.client_address();
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()));
         };

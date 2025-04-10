@@ -7,7 +7,7 @@ config:
   prover:PROOF_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
   prover:BONSAI_API_URL: https://api.bonsai.xyz/
   prover:ORDER_STREAM_URL:
-    secure: v1:d+7rYIzz1sfhiY2Y:JZ9B+ajtwzNp9M2DM7Peyjmz4wzX0gvnRkQYpSB1Im8kVNUveU88yqhRkt9Z8AkRecAYNYq3gXpDOw3QR/9WTjtz7+iVaP4gPSHrNIcG3A/MlGxro8oxn+Vcgti2Vho=
+    secure: v1:vFbwPj9LyBtHmeEa:QUPhb7T6oHXwEhydaXIOIw/dttiHus9nlpl2HarpY08/kPTM7APec8dnCWrSLJqmiUC/URv5swvFuoKg38nVQwNGR9N16uAHkZIODjadW1uKchEysg==
   prover:DOCKER_TAG: latest
   prover:BROKER_TOML_PATH: broker-staging.toml
   prover:BASE_STACK: organization/bootstrap/services-staging

@@ -459,6 +459,7 @@ where
             prover.clone(),
             self.args.boundless_market_address,
             self.provider.clone(),
+            chain_monitor.clone(),
         ));
         supervisor_tasks.spawn(async move {
             task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
