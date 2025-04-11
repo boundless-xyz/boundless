@@ -97,7 +97,7 @@ let input_url = boundless_client.upload_input(&input_bytes).await?;
 
 Inputs can also be included directly into the request instead as in-line input.
 When submitting requests onchain, this will cost more gas if the inputs are large.
-The off-chain order-stream service also places limits on the size of in-line input.
+The offchain order-stream service also places limits on the size of in-line input.
 
 > Relevant links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [Pinata](https://pinata.cloud), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload\_image for PinataStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/struct.PinataStorageProvider.html)
 
@@ -208,8 +208,8 @@ let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 </StripRustCodeComments>
 
 This will send the request onchain in a transaction.
-Using `boundless_client.submit_request_offchain`, you can send your request off-chain through the order-stream service.
-Off-chain requests will not cost any gas, but does require you to deposit funds to the market first.
+Using `boundless_client.submit_request_offchain`, you can send your request offchain through the order-stream service.
+Offchain requests will not cost any gas, but does require you to deposit funds to the market first.
 
 The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
 
@@ -230,7 +230,7 @@ let (request_id, expires_at) = boundless_client.submit_request_with_signer(&requ
 ```
 </StripRustCodeComments>
 
-Similarly, using `boundless_client.submit_request_offchain_with_signer`, will send your request off-chain through the order-stream service.
+Similarly, using `boundless_client.submit_request_offchain_with_signer`, will send your request offchain through the order-stream service.
 
 > Relevant links: [Signers supported by alloy](https://alloy.rs/examples/wallets/index.html)
 
@@ -358,7 +358,7 @@ To wait until the submitted request has been fulfilled, the `--wait` option can 
 RUST_LOG=info boundless-cli submit-request request.yaml --wait
 ```
 
-And to submit the request to the off-chain order-stream service, make a deposit and then run `submit-request` with `--offchain`.
+And to submit the request to the offchain order-stream service, make a deposit and then run `submit-request` with `--offchain`.
 
 ```sh [Terminal]
 # [!code word:--offchain]

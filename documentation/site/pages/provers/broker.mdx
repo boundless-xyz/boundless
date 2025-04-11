@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Broker is a service that runs within the [Bento](/provers/proving-stack#what-is-bento) proving stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments on-chain.
+The Broker is a service that runs within the [Bento](/provers/proving-stack#what-is-bento) proving stack. It is responsible for market interactions including bidding on jobs, locking them, issuing job requests to the Bento proving cluster, and submitting proof fulfillments onchain.
 
 ## Broker Configuration
 
@@ -90,16 +90,16 @@ To check Bento is running correctly, you can send a sample proof workload:
 
 ```sh [Terminal]
 # In the bento directory
-RUST_LOG=info cargo run --bin bento_cli -- -c 32
+RUST_LOG=info cargo run --bin boundless-cli -- -c 32
 ```
 
 ```txt [Terminal]
-2024-10-23T14:37:37.364844Z  INFO bento_cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: eccc8f06-488a-426c-ae3d-e5acada9ae22
-2024-10-23T14:37:37.368613Z  INFO bento_cli: STARK job_id: 0d89e2ca-a1e3-478f-b89d-8ab23b89f51e
-2024-10-23T14:37:37.369346Z  INFO bento_cli: STARK Job running....
-2024-10-23T14:37:39.371331Z  INFO bento_cli: STARK Job running....
-2024-10-23T14:37:41.373508Z  INFO bento_cli: STARK Job running....
-2024-10-23T14:37:43.375780Z  INFO bento_cli: Job done!
+2024-10-23T14:37:37.364844Z  INFO boundless-cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: eccc8f06-488a-426c-ae3d-e5acada9ae22
+2024-10-23T14:37:37.368613Z  INFO boundless-cli: STARK job_id: 0d89e2ca-a1e3-478f-b89d-8ab23b89f51e
+2024-10-23T14:37:37.369346Z  INFO boundless-cli: STARK Job running....
+2024-10-23T14:37:39.371331Z  INFO boundless-cli: STARK Job running....
+2024-10-23T14:37:41.373508Z  INFO boundless-cli: STARK Job running....
+2024-10-23T14:37:43.375780Z  INFO boundless-cli: Job done!
 ```
 
 ### Running the Broker service
@@ -134,7 +134,7 @@ Once your broker is running, there are a few methods to optimize the lock-in rat
 
 ### Tuning Service Settings
 
-The `[prover]` settings in `broker.toml` are used to configure the prover service and significantly impact the operation of the service. The most important configuration variable to monitor and iteratively tune is `txn_timeout`. This is the number of seconds to wait for a transaction to be confirmed before timing out. Therefore, if you see timeouts in your logs, `txn_timeout` can be increased to wait longer for transaction confirmations on-chain.
+The `[prover]` settings in `broker.toml` are used to configure the prover service and significantly impact the operation of the service. The most important configuration variable to monitor and iteratively tune is `txn_timeout`. This is the number of seconds to wait for a transaction to be confirmed before timing out. Therefore, if you see timeouts in your logs, `txn_timeout` can be increased to wait longer for transaction confirmations onchain.
 
 
 ## Debugging

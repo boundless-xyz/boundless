@@ -1,18 +1,21 @@
-# Quickstart
+# Quick Start
 
-Kailua enables rollup operators to add a new fault proof system to their rollup via the Optimism `DisputeGameFactory`
+:::note[Reminders]
+- **OP Kailua** enables rollup operators to add a new fault proof system to their rollup via the Optimism `DisputeGameFactory`
 contract.
-Kailua's contracts rely on RISC-Zero zkVM proofs to finalize/dismiss output proposals, and are compatible with
+ - **OP Kailua's** contracts rely on ZK proofs to finalize/dismiss output proposals, and are compatible with
 Optimism's Bedrock contracts `v1.4.0` and above.
+:::
 
+This tutorial will run you through on how to spin up a local OP Kailua devnet for development purposes.
 
-##  Prerequisites
-1. [rust](https://www.rust-lang.org/tools/install)
-2. [just](https://just.systems/man/en/)
-3. [docker](https://www.docker.com/)
-4. [svm](https://github.com/alloy-rs/svm-rs)
-5. [foundry](https://book.getfoundry.sh/getting-started/installation)
+Before you get started, you will need the following dependencies installed:
 
+- [rust](https://www.rust-lang.org/tools/install)
+- [just](https://just.systems/man/en/)
+- [docker](https://www.docker.com/)
+- [svm](https://github.com/alloy-rs/svm-rs)
+- [foundry](https://book.getfoundry.sh/getting-started/installation)
 
 ## Clone the Kailua repo
 
@@ -20,7 +23,7 @@ Optimism's Bedrock contracts `v1.4.0` and above.
 git clone https://github.com/risc0/kailua.git && cd kailua
 ```
 
-## Spin up a local devnet
+## Run the following commands to spin up a devnet
 
 You can deploy a local optimism devnet equipped with Kailua through the following commands:
 

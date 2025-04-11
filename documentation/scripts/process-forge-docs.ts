@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const SOURCE_DIR = "site/pages/tmp";
-const TARGET_DIR = "site/pages/developers/smart-contracts";
+const TARGET_DIR = "site/pages/developers/smart-contracts/reference";
 
 function sanitizeFileName(name: string) {
   const baseName = path.basename(name, ".md");
@@ -23,7 +23,7 @@ function fixInternalLinks(content: string) {
     // Sanitize it for our new structure
     const sanitizedName = fileName.replace(/\./g, "-");
 
-    return `[${linkText}](/developers/smart-contracts/${sanitizedName})`;
+    return `[${linkText}](/developers/smart-contracts/reference/${sanitizedName})`;
   });
 }
 
@@ -73,7 +73,7 @@ Our smart contracts are built using Solidity and are organized into several key 
   for (const file of files) {
     const originalName = path.basename(file, ".md");
     const sanitizedName = sanitizeFileName(originalName).replace(".md", "");
-    const link = `/developers/smart-contracts/${sanitizedName}`;
+    const link = `/developers/smart-contracts/reference/${sanitizedName}`;
     const entry = `- [${originalName}](${link})`;
 
     if (originalName.startsWith("interface.") || originalName.startsWith("I")) {

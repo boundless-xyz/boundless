@@ -1,0 +1,171 @@
+# Introducing OP Kailua: A Hybrid Architecture for OP Rollups
+
+:::warning[Caution]
+`OP Kailua` as well as `kona` are still in active development and are NOT recommended for production usage.
+The code is open source and can be found at [risc0/kailua](https://github.com/risc0/kailua).
+:::
+
+
+## Brief History
+
+In August 2023, RISC Zero released [Zeth](https://github.com/risc0/zeth), the first Type-1 zkEVM built using the RISC Zero zkVM, which allowed developers to enshrine EVM execution in ZK.
+
+In May 2024, RISC Zero upgraded [Zeth to support Optimistic rollups](https://risczero.com/blog/zeth-brings-validity-proofs-to-optimisms-op-stack) as part of the Optimism Foundation’s RFP, empowering developers to generate validity proofs that consecrate rollup derivation in zero-knowledge.
+
+In November 2024, RISC Zero announced Kailua and open sourced the code which can be found at [risc0/kailua](https://github.com/risc0/kailua).
+
+## What exactly is OP Kailua?
+
+:::note
+Not to be confused with the town in the Hawaiian district of Kona, OP Kailua is a suite of tools and contracts to migrate rollups from long interactive fault proving systems to short non-interactive ZK fault proofs generated using the RISC Zero zkVM.
+:::
+
+### TL;DR
+
+Boundless integrates OP Kailua natively. OP Kailua is a fundamentally novel approach to *Hybrid ZK for OP rollups* combining the best of optimistic rollups and ZK proofs into one efficient, secure, and lower-cost framework for dispute resolution.
+It is built and maintained by RISC Zero, the team behind Boundless.
+
+### Some more specifics
+
+Concretely, OP Kailua is a software suite for upgrading optimistic rollups to **Hybrid ZK rollups**, with its first implementation backed by Optimism’s **Kona** rollup state transition engine. OP Kailua not only transparently executes Kona unmodified in the zkVM, but introduces its own novel fault proof game that advances the current state-of-the-art in dispute resolution by reducing collateral requirements and finality delays!
+
+The main components are:
+
+1. **A set of contracts** for disputes in ZK, currently compatible only with OP Stack rollups.
+2. **A CLI tool** to automatically migrate rollups to ZK fault proofs.
+3. **A state proposer agent** that advances the rollup state under the rules of the ZK game.
+4. **A rollup validator agent** that challenges and proves any state transition faults in ZK.
+
+> **Note**: The minimum OP stack version required to use OP Kailua is V1.4 because it leverages the `DisputeGameFactory` contract instead of the deprecated `L2OutputOracle` contract.
+
+## OP Kailua Solves Core Rollup Problems
+
+OP Kailua’s dispute game combines zero-knowledge proving with the optimistic rollup paradigm in a novel hybrid system that improves security and performance while reducing operational costs and finality delays! This is summarized in the table below:
+
+|  | **Optimistic Rollups** | **ZK Rollups** | **Hybrid Rollups (OP Kailua)** |
+| --- | --- | --- | --- |
+| **Collateral for N Challenges** | N deposits | N/A | 1 deposit |
+| **Collateral for N Proposals** | N deposits | N/A | 1 deposit |
+| **Cost of proposing N blocks** | 1 transaction | 1 transaction<br/> N block proofs | 1 transaction<br/> ≤ N/K hashes* |
+| **Maximum cost of challenging an N block proposal** | D + log(N) transactions<br/> *D is max comp. depth | N/A | 3 transactions<br/> K block proofs |
+| **Minimum Finality Delay for an N block proposal** | D + log(N) timeouts<br/> *D is max comp. depth | N proof times | 1 timeout<br/> K block proof times |
+
+### It saves on proving costs
+
+Unlike ZK Rollups, OP Kailua’s hybrid paradigm permits rollups not only to operate normally without worrying about constant proving costs and times, but also to relieve their users of any added costs for proving, which add up and become non-negligible when:
+
+- Rollups which subsidize transaction fees for their users might not want the added cost.
+- Rollups which experience frequent empty blocks might find the added proving burden unsustainable.
+- Rollups with very low block times would exacerbate both of the above issues.
+- Rollups with custom precompile contracts require extra specialized engineering for accelerated proving.
+
+In OP Kailua’s novel design, the costs to resolve a dispute using ZK are fully borne by the dishonest parties, whether they are a faulty proposer or validator!
+
+### It lowers the participation requirements
+
+A rollup using OP Kailua can safely maintain its security while outsourcing any proving workloads! This is because OP Kailua validators can still issue the necessary challenge transactions **before** having computed the proofs to justify them. Consequently, instead of setting up expensive proving infrastructure, OP Kailua Hybrid Rollups can depend on decentralized proving markets (like RISC Zero’s Boundless) in times of need with **safety and liveness guarantees** for their proof requests!
+
+### It reduces existing rollup collateral costs
+
+OP Kailua also reduces the collateral costs required to run a rollup from “linear in the number of proposals/challenges” down to **constant**! Even under long finality periods, the minimum collateral required by honest parties can be reduced by orders of magnitude (e.g. from tens of thousands to hundreds in USD).
+
+## Why use OP Kailua?
+
+OP Kailua leverages the [RISC Zero zkVM](https://dev.risczero.com/api/zkvm/) to verifiably run **Optimism’s Kona**, securing rollups with cryptographic proofs that deliver quick finality and lower overhead.
+
+### Constant vs. Linear Collateral
+- *OP Kailua’s Fault Proving Game* forces both proposers and validators to maintain continuous collateral, discouraging malicious behavior.
+- *Cannon (bisection-based)* scales collateral requirements linearly with the number of disputes, which can rapidly increase costs.
+
+### Performance and Cost
+- Worst-case fault proofs can take ~100 billion cycles (~1 hour on Bonsai), costing about \$100.
+- The dishonest party bears all proof costs, incentivizing honesty.
+
+
+### Fraud/Validity Proofs
+
+OP Kailua adds a new fault-proof contract—compatible with *Bedrock (v1.4.0+)* by deploying the `DisputeGameFactory` instance, relying on ZK proofs to finalize or dismiss rollup outputs.
+
+### KailuaGame
+- Accepts outputs by default after a timeout if there’s no fraud proof.
+- If challenged, waits for a proof before deciding whether to finalize or dismiss the output.
+
+## ELI5: The OP Kailua Fault Proof Game
+
+First, let’s recap the core mechanic behind current rollup dispute games. **Truebit’s bisection game** introduced the ability to resolve disputes on the result of a long deterministic computation through repeated rounds of challenge-response interactions. This mechanism underpins **optimistic rollups**, granting a time-sensitive window for playing the game to ensure the second-layer ledger’s integrity. The time-sensitivity ensures liveness but carries a safety risk—honest players might not respond in time or might lack sufficient funds to play multiple instances of the game.
+
+### Finality Delays
+
+The rules for bisection-based dispute games involve timeouts:
+
+1. The timeout **before** an undisputed result is final and can no longer be bisected.
+2. The timeout **before** an open dispute is resolved, after which players can no longer participate.
+
+These timeouts define the “Finality Period”. In current designs, a wealthy attacker could sacrifice their own collateral to force defenders to repeatedly respond, potentially exhausting their resources. Rollups like Arbitrum are adopting new dispute protocols (like **BoLD**) that aim to set a constant upper-bound (~6.3 days) on the timeout for open disputes.
+
+:::note[Spoiler]
+OP Kailua reduces this timeout to **as little as an hour** and removes the potential for resource-exhaustion attacks!
+:::
+
+### Enter General-Purpose ZK
+
+Zero-knowledge proofs can replace the bisection game as a **non-interactive** mechanism for resolving any disputes on the rollup’s state. This **one-shot** approach greatly reduces dispute resolution time to only the proof time for a single block!
+
+### Hybrid is the best of both worlds
+
+Rather than only requiring proofs to show that a proposed state is invalid, one could also leverage ZK proofs to demonstrate **validity**—even in an optimistic setting. OP Kailua only requires challengers to signal their “intent” to dispute a proposal, preventing its finalization until either:
+
+- A fault proof is submitted (to refute the proposer), **or**
+- A validity proof is submitted (to refute the challenger).
+
+This design relieves the rollup from worrying about proof times not being as short as the bisection timeout.
+
+### Less (much less) collateral requirements
+
+OP Kailua eliminates the long finality delays of interactive challenge-response and also slashes collateral requirements. In bisection games, players must stake collateral per instance of the game because losing by timeout doesn’t necessarily mean dishonesty. In OP Kailua, if a player challenges a proposal but that proposal is later proven valid, the challenger is disqualified for proven dishonesty. Hence, a single collateral deposit can cover multiple challenges. The same reduction applies to proposers as well, **without** risking system spam by wealthy actors.
+
+### From gas to fumes
+
+Compared to optimistic rollups, OP Kailua’s hybrid design adds a **data publication** overhead. However, it’s negligible compared to the cost of **full proving** in a ZK Rollup, making overhead costs **inversely related to TPS**.
+
+In an OP Kailua rollup, where a challenge/proof covers **K** rollup blocks, the proposer must publish at most **N/K** hashes as “checkpoint data” when advancing the rollup by **N** blocks. (We say “at most” because empty blocks reduce required checkpoints.) A typical overhead for publishing 32-byte checkpoints is minimal for reasonably high TPS.
+
+
+#### Example
+With **K=1** on Optimism’s mainnet (1 blob every ~2 hrs, costing \$3 per blob), the overhead can be **\<\$0.0001 per tx**! For rollups with low block utilization, OP Kailua uses a second parameter (**E**) to limit how many empty blocks each checkpoint may span, letting **E** be far larger than **K**.
+
+## Using OP Kailua Today
+
+**OP Kailua is in active development** and is suitable only for testing environments currently. Over time, we aim to add new features, optimize costs and performance, and possibly support more rollup stacks. OP Kailua is fully open-source on [RISC Zero’s GitHub](https://github.com/risc0/kailua).
+
+### It’s easy!
+
+The OP Kailua CLI lets you:
+
+1. Deploy a local OP devnet.
+2. Upgrade it to use ZK fault proofs with just a few commands.
+3. Launch a proposer and validator agent to manage the upgraded devnet.
+
+You can interact with your local devnet as normal—or even induce faulty proposals to see the validator automatically challenge and strike them down using the RISC Zero zkVM!
+
+To get started, please follow the [quick start guide](/developers/kailua/quick-start).
+
+### It’s practical!
+
+Below is a table of **OP Mainnet benchmarks** with a few caveats:
+
+1. These differ from Zeth because the derivation/execution engine is based on **Optimism’s Kona**, which we’ll optimize further for RISC Zero.
+2. Each proof is for a **single** L2 block. Batch-proving multiple blocks can **dramatically lower** per-block proving costs.
+3. Our upcoming cryptographic accelerators will **significantly reduce** OP Kailua’s cycle costs.
+
+| **Block** | **Cycles**       | **Transactions** | **Bonsai Proving Cost** |
+| --------- | ---------------- | ---------------- | ----------------------- |
+| 126223114 | 17,121,252,466   | 108              | \$22                    |
+| 126223244 | 16,202,792,886   | 98               | \$21                    |
+| 126223597 | 15,194,355,377   | 85               | \$20                    |
+| 126229327 | 14,245,181,555   | 81               | \$19                    |
+| 126210813 | 10,663,051,955   | 43               | \$14                    |
+| 126210550 | 10,596,525,804   | 37               | \$14                    |
+
+Despite the ~4x increase in cycle counts compared to **op-zeth**, the **per-transaction** proving costs here are 2-5x better thanks to improvements in the RISC Zero prover.
+

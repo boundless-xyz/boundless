@@ -157,7 +157,7 @@ submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-preflight]
 - `--elf <PATH>`: path to the ELF guest image to run.
 - `--input <STRING>` or `--input-file <PATH>`: data to feed the guest image.
 - `--encode-input`: if used, the input is encoded with `risc0_zkvm::serde`.
-- `--inline-input`: if used, the input is pushed on-chain rather than stored off-chain.
+- `--inline-input`: if used, the input is pushed onchain rather than stored offchain.
 - `--journal-digest <HEX>`: require the guest’s journal to match this digest.
 - `--journal-prefix <STRING>`: require the guest’s journal to start with these bytes.
 - `--callback-address <ADDRESS> --callback-gas-limit <NUM>`: optional callback triggered upon proof success.
@@ -210,7 +210,7 @@ boundless-cli slash 0x5
 
 ### 10. get-proof
 
-Retrieves the final `journal` and `seal` from on-chain storage for a given request ID (once fulfilled).
+Retrieves the final `journal` and `seal` from onchain storage for a given request ID (once fulfilled).
 
 **Syntax**:
 ```
@@ -224,7 +224,7 @@ boundless-cli get-proof 0x5
 
 ### 11. verify-proof
 
-Verifies a proof for a given request ID on the local side, checking the on-chain `journal` and `seal` with the chosen image ID.
+Verifies a proof for a given request ID on the local side, checking the onchain `journal` and `seal` with the chosen image ID.
 
 **Syntax**:
 ```
@@ -272,7 +272,7 @@ execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] [--reque
   boundless-cli execute --request-path ./request.yaml
   ```
 
-- **Execute from on-chain** (specifying the request ID):
+- **Execute from onchain** (specifying the request ID):
   ```
   boundless-cli execute --request-id 0x5 --tx-hash 0xabc...
   ```
@@ -280,7 +280,7 @@ execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] [--reque
 
 ### 14. fulfill
 
-Generates a valid proof locally, then publishes the fulfillment on-chain (or offchain if requested). This subcommand uses the RISC Zero default prover.
+Generates a valid proof locally, then publishes the fulfillment onchain (or offchain if requested). This subcommand uses the RISC Zero default prover.
 
 **Syntax**:
 ```
