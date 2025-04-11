@@ -81,7 +81,11 @@ pub trait BrokerDb {
         id: U256,
     ) -> Result<(ProofRequest, String, B256, U256), DbError>;
     async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError>;
-    async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError>;
+    async fn update_orders_for_pricing(
+        &self,
+        limit: u32,
+        timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError>;
     async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
     async fn set_order_lock(
         &self,
@@ -92,6 +96,7 @@ pub trait BrokerDb {
     async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError>;
     async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError>;
     async fn set_order_complete(&self, id: U256) -> Result<(), DbError>;
+    async fn set_order_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError>;
     async fn skip_order(&self, id: U256) -> Result<(), DbError>;
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
@@ -272,23 +277,30 @@ impl BrokerDb for SqliteDb {
         }
     }
 
+    // Pick orders that are either new or have not been fulfilled but have had their lock period expire (but are not expired)
     #[instrument(level = "trace", skip_all, fields(limit = %limit))]
-    async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError> {
+    async fn update_orders_for_pricing(
+        &self,
+        limit: u32,
+        timestamp: u64,
+    ) -> Result<Vec<(U256, Order)>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             WITH orders_to_update AS (
                 SELECT id
                 FROM orders
-                WHERE data->>'status' = $1
-                LIMIT $2
+                WHERE data->>'status' = $1 OR (data->>'status' = $2 AND data->>'request'->>'offer'->>'lockTimeout' <= $3 AND data->>'request'->>'offer'->>'timeout' > $3)
+                LIMIT $4
             )
             UPDATE orders
-            SET data = json_set(json_set(data, '$.status', $3), '$.updated_at', $4)
+            SET data = json_set(json_set(data, '$.status', $5), '$.updated_at', $6)
             WHERE id IN (SELECT id FROM orders_to_update)
             RETURNING *
             "#,
         )
         .bind(OrderStatus::New)
+        .bind(OrderStatus::LockedByOther)
+        .bind(i64::try_from(timestamp).map_err(|_| DbError::BadBlockNumb(timestamp.to_string()))?)
         .bind(i64::from(limit))
         .bind(OrderStatus::Pricing)
         .bind(Utc::now().timestamp())
@@ -378,7 +390,7 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $4"#,
         )
-        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::PendingProving)
         .bind(Utc::now().timestamp())
         .bind(lock_price.to_string())
         .bind(format!("{id:x}"))
@@ -433,6 +445,31 @@ impl BrokerDb for SqliteDb {
                 id = $3"#,
         )
         .bind(OrderStatus::Done)
+        .bind(Utc::now().timestamp())
+        .bind(format!("{id:x}"))
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::OrderNotFound(id));
+        }
+
+        Ok(())
+    }
+
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id:x} {status:?}")))]
+    async fn set_order_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError> {
+        let res = sqlx::query(
+            r#"
+            UPDATE orders
+            SET data = json_set(
+                       json_set(data,
+                       '$.status', $1),
+                       '$.updated_at', $2)
+            WHERE
+                id = $3"#,
+        )
+        .bind(status)
         .bind(Utc::now().timestamp())
         .bind(format!("{id:x}"))
         .execute(&self.pool)
@@ -525,7 +562,7 @@ impl BrokerDb for SqliteDb {
             "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(OrderStatus::Locking)
-        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
         .bind(OrderStatus::Aggregating)
@@ -543,7 +580,7 @@ impl BrokerDb for SqliteDb {
             "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(OrderStatus::Locking)
-        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
         .bind(OrderStatus::Aggregating)
@@ -572,7 +609,7 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::Proving)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::PendingProving)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -1202,19 +1239,101 @@ mod tests {
         db.add_order(id + U256::from(1), order.clone()).await.unwrap();
         db.add_order(id + U256::from(2), order.clone()).await.unwrap();
 
-        let price_order = db.update_orders_for_pricing(1).await.unwrap();
+        let price_order = db.update_orders_for_pricing(1, 0).await.unwrap();
         assert_eq!(price_order.len(), 1);
         assert_eq!(price_order[0].0, id);
         assert_eq!(price_order[0].1.status, OrderStatus::Pricing);
         assert_ne!(price_order[0].1.updated_at, order.updated_at);
 
         // Request the next two orders, which should skip the first
-        let price_order = db.update_orders_for_pricing(2).await.unwrap();
+        let price_order = db.update_orders_for_pricing(2, 0).await.unwrap();
         assert_eq!(price_order.len(), 2);
         assert_eq!(price_order[0].0, id + U256::from(1));
         assert_eq!(price_order[0].1.status, OrderStatus::Pricing);
         assert_eq!(price_order[1].0, id + U256::from(2));
         assert_eq!(price_order[1].1.status, OrderStatus::Pricing);
+    }
+
+    /// Create a db with two slashed orders with different lockTimeouts and timeouts
+    async fn init_db_slashed_unexpired_tests(pool: SqlitePool) -> DbObj {
+        let db = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let mut order = create_order();
+        order.status = OrderStatus::LockedByOther;
+        order.request.offer.lockTimeout = 100;
+        order.request.offer.timeout = 200;
+        db.add_order(U256::from(1), order.clone()).await.unwrap();
+
+        let mut order = create_order();
+        order.status = OrderStatus::LockedByOther;
+        order.request.offer.lockTimeout = 150;
+        order.request.offer.timeout = 250;
+        db.add_order(U256::from(2), order.clone()).await.unwrap();
+        db
+    }
+
+    #[sqlx::test]
+    async fn update_orders_for_pricing_skips_locked(pool: SqlitePool) {
+        // // both still locked
+        let db = init_db_slashed_unexpired_tests(pool).await;
+        let result = db.update_orders_for_pricing(2, 99).await.unwrap();
+
+        assert_eq!(result.len(), 0);
+        assert_eq!(
+            db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            OrderStatus::LockedByOther
+        );
+        assert_eq!(
+            db.get_order(U256::from(2)).await.unwrap().unwrap().status,
+            OrderStatus::LockedByOther
+        );
+    }
+
+    #[sqlx::test]
+    async fn update_orders_for_pricing_handles_overlap(pool: SqlitePool) {
+        // // 1 unlocked, 2 unlocked
+        let db = init_db_slashed_unexpired_tests(pool).await;
+        let result = db.update_orders_for_pricing(2, 149).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            OrderStatus::Pricing
+        );
+        assert_eq!(
+            db.get_order(U256::from(2)).await.unwrap().unwrap().status,
+            OrderStatus::LockedByOther
+        );
+    }
+
+    #[sqlx::test]
+    async fn update_orders_for_pricing_picks_unlocked(pool: SqlitePool) {
+        // // 1 and 2 unlocked
+        let db = init_db_slashed_unexpired_tests(pool).await;
+        let result = db.update_orders_for_pricing(2, 151).await.unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            OrderStatus::Pricing
+        );
+        assert_eq!(
+            db.get_order(U256::from(2)).await.unwrap().unwrap().status,
+            OrderStatus::Pricing
+        );
+    }
+
+    #[sqlx::test]
+    async fn update_orders_for_pricing_skips_expired(pool: SqlitePool) {
+        // // both expired
+        let db = init_db_slashed_unexpired_tests(pool).await;
+        let result = db.update_orders_for_pricing(2, 251).await.unwrap();
+        assert_eq!(result.len(), 0);
+        assert_eq!(
+            db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            OrderStatus::LockedByOther
+        );
+        assert_eq!(
+            db.get_order(U256::from(2)).await.unwrap().unwrap().status,
+            OrderStatus::LockedByOther
+        );
     }
 
     #[sqlx::test]
@@ -1272,7 +1391,7 @@ mod tests {
         db.set_proving_status(id, lock_price).await.unwrap();
 
         let db_order = db.get_order(id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locked);
+        assert_eq!(db_order.status, OrderStatus::PendingProving);
         assert_eq!(db_order.lock_price, Some(lock_price));
     }
 
@@ -1364,7 +1483,7 @@ mod tests {
 
         let id = U256::ZERO;
         let mut order = create_order();
-        order.status = OrderStatus::Locked;
+        order.status = OrderStatus::PendingProving;
         db.add_order(id, order.clone()).await.unwrap();
 
         let db_order = db.get_proving_order().await.unwrap();
@@ -1413,7 +1532,7 @@ mod tests {
 
         let id = U256::ZERO;
         let mut order = create_order();
-        order.status = OrderStatus::Locked;
+        order.status = OrderStatus::PendingProving;
         db.add_order(id, order.clone()).await.unwrap();
 
         let image_id = "test_img";
