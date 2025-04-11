@@ -109,6 +109,9 @@ First we execute the guest program locally with our expected input, to generate 
 Then we create our proof request, setting a `Requirement` that the journal should match the expected journal.
 <StripRustCodeComments>
 ```rust
+# use boundless_market::contracts::ProofRequest;
+# let ECHO_ID = [0u8; 32];
+# let journal = Vec::<u8>::new();
 let requirements = Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()));
 
 // Create the request, ensuring to set the request id and requirements that we prepared above.
