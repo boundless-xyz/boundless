@@ -465,7 +465,7 @@ impl S3StorageProvider {
         let bucket = std::env::var("S3_BUCKET")?;
         let url = std::env::var("S3_URL")?;
         let region = std::env::var("AWS_REGION")?;
-        let presigned = !std::env::var_os("S3_NO_PRESIGNED").is_some();
+        let presigned = std::env::var_os("S3_NO_PRESIGNED").is_none();
 
         Self::from_parts(access_key, secret_key, bucket, url, region, presigned).await
     }
