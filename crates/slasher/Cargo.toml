@@ -28,7 +28,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 
 [dev-dependencies]
-boundless-market = { workspace = true, features = ["test-utils"] }
+boundless-market = { workspace = true }
 futures-util = { workspace = true }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }

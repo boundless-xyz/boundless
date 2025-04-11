@@ -50,12 +50,9 @@ siwe = { version = "0.6", features = ["serde"] }
 chrono = { workspace = true }
 time = "0.3"
 utoipa = { workspace = true }
-guest-assessor = { workspace = true, optional = true }
-guest-set-builder = { workspace = true, optional = true }
-guest-util = { workspace = true, optional = true }
 
 [dev-dependencies]
-boundless-market = { path = ".", features = ["test-utils"] }
+boundless-market-test-utils = { path = "./test-utils" }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
@@ -66,4 +63,4 @@ serde_json = { workspace = true }
 
 [features]
 default = []
-test-utils = ["dep:risc0-circuit-recursion", "dep:guest-assessor", "dep:guest-set-builder", "dep:guest-util"]
+test-utils = ["dep:risc0-circuit-recursion"]

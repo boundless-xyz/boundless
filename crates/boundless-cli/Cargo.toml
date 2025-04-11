@@ -40,7 +40,7 @@ name = "boundless-cli"
 name = "boundless-ffi"
 
 [dev-dependencies]
-boundless-market = { workspace = true, features = ["test-utils"] }
+boundless-market = { workspace = true }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }

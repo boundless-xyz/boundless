@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::contracts::{
-    boundless_market::BoundlessMarketService,
-    bytecode::*,
-    hit_points::{default_allowance, HitPointsService},
-    AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
-};
 use alloy::{
     network::EthereumWallet,
     node_bindings::AnvilInstance,

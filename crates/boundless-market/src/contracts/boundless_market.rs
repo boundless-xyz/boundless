@@ -1373,10 +1373,9 @@ mod tests {
     use super::decode_calldata;
     use crate::{
         contracts::{
-            hit_points::default_allowance,
-            test_utils::{create_test_ctx, mock_singleton, TestCtx},
-            AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType, Offer, Predicate,
-            PredicateType, ProofRequest, RequestId, RequestStatus, Requirements,
+            hit_points::default_allowance, AssessorReceipt, Fulfillment, IBoundlessMarket, Input,
+            InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestStatus,
+            Requirements,
         },
         input::InputBuilder,
         now_timestamp,
@@ -1389,6 +1388,7 @@ mod tests {
         sol_types::eip712_domain,
     };
     use alloy_sol_types::SolCall;
+    use boundless_market_test_utils::{create_test_ctx, mock_singleton, TestCtx};
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use guest_util::ECHO_ID;

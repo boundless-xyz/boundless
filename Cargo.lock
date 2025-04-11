@@ -2713,7 +2713,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
- "boundless-market",
+ "boundless-market-test-utils",
  "bytemuck",
  "chrono",
  "clap",
@@ -2744,6 +2744,23 @@ dependencies = [
  "tracing-test",
  "url",
  "utoipa",
+]
+
+[[package]]
+name = "boundless-market-test-utils"
+version = "0.7.0"
+dependencies = [
+ "alloy 0.12.6",
+ "alloy-primitives 0.8.25",
+ "alloy-sol-types",
+ "anyhow",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "risc0-aggregation",
+ "risc0-circuit-recursion",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
 ]
 
 [[package]]

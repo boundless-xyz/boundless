@@ -1,0 +1,22 @@
+[package]
+name = "boundless-market-test-utils"
+description = "Test utils for the Boundless market, useful in other crates as well"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+license = "Apache-2.0"
+
+[dependencies]
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+anyhow = { workspace = true }
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
+guest-util = { workspace = true }
+risc0-aggregation = { workspace = true }
+risc0-circuit-recursion = { workspace = true }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
+risc0-zkvm = { workspace = true, features = ["std"] }
