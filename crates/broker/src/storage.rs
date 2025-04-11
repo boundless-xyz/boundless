@@ -208,6 +208,10 @@ impl UriHandler {
             _ => Err(StorageErr::UnsupportedScheme(self.uri_scheme.clone())),
         }
     }
+
+    pub fn uri(&self) -> &url::Url {
+        &self.uri
+    }
 }
 
 #[derive(Default)]

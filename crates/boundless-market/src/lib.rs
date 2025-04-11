@@ -56,3 +56,10 @@ pub(crate) fn now_timestamp() -> u64 {
         .unwrap()
         .as_secs()
 }
+
+use sha2::{Digest, Sha256};
+
+/// A utility function build the benchmark directive fragment for a given secret
+pub fn benchmark_directive(secret: impl AsRef<[u8]>) -> String {
+    format!("boundless_bench:{:x}", Sha256::digest(secret))
+}
