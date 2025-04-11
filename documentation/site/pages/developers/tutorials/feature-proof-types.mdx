@@ -31,12 +31,22 @@ Boundless supports requesting a raw Groth16 proof instead of a merkle inclusion 
 
 <StripRustCodeComments>
 ```rust
+# use alloy_primitives::utils::parse_ether;
+# use boundless_market::contracts::{Offer, Predicate, ProofRequest, Requirements};
+# use risc0_zkvm::sha::{Digest, Digestible};
+# use url::Url;
+# let image_url = Url::parse("https://example.com/image").unwrap();
+# let input_url = Url::parse("https://example.com/input").unwrap();
+# let ECHO_ID = Digest::default();
+# let journal: Vec<u8> = Vec::new();
+# let mcycles_count: u64 = 1000;
+# (|| -> anyhow::Result<()> {
 let request = ProofRequest::builder()
     .with_image_url(image_url)
     .with_input(input_url)
     .with_requirements(
         Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()))
-            .with_proof_type(ProofType::Groth16),  // Request raw Groth16 proof
+            .with_groth16_proof(),  // Request raw Groth16 proof
     )
     .with_offer(
         Offer::default()
@@ -46,6 +56,8 @@ let request = ProofRequest::builder()
             .with_lock_timeout(1000),
     )
     .build()?;
+# Ok(())
+# })().unwrap();
 ```
 </StripRustCodeComments>
 
@@ -72,14 +84,24 @@ Composing a proof requires us to verify a previously generated Groth16 proof wit
 In the composition example, we first request a raw Groth16 proof from the Boundless Market using the `ECHO` guest program.
 <StripRustCodeComments>
 ```rust
+# use boundless_market::contracts::{Offer, Predicate, ProofRequest, Requirements};
+# use risc0_zkvm::sha::{Digest, Digestible};
+# use url::Url;
+# (|| -> anyhow::Result<()> {
+# let image_url = Url::parse("https://example.com/image").unwrap();
+# let input_url = Url::parse("https://example.com/input").unwrap();
+# let ECHO_ID = Digest::default();
+# let journal: Vec<u8> = Vec::new();
 let request = ProofRequest::builder()
     .with_image_url(image_url)
     .with_input(input_url)
     .with_requirements(
         Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()))
-            .with_proof_type(ProofType::Groth16),  // Request raw Groth16 proof
+            .with_groth16_proof(),  // Request raw Groth16 proof
     )
     .build()?;
+# Ok(())
+# })().unwrap();
 ```
 </StripRustCodeComments>
 
@@ -87,6 +109,8 @@ We then provide the Groth16 proof as input to the `IDENTITY` zkVM guest program,
 
 <StripRustCodeComments>
 ```rust
+# use risc0_zkvm::guest::env;
+# use risc0_zkvm::{Digest, Receipt};
 let bytes = env::read_frame();
 let (image_id, receipt): (Digest, Receipt) =
     postcard::from_bytes(&bytes).expect("failed to deserialize input");

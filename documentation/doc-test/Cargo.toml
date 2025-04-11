@@ -16,8 +16,10 @@ alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = "1.0"
 boundless-market = { workspace = true }
+postcard = { workspace = true }
 risc0-steel = { git = "https://github.com/risc0/risc0-ethereum", tag = "v2.0.2", features = ["host", "unstable-history"] }
-risc0-zkvm = { workspace = true, default-features = false, features = ["std"] }
+# DO NOT MERGE: Maybe adding unstable is not a good idea for examples.
+risc0-zkvm = { workspace = true, default-features = false, features = ["std", "unstable"] }
 tracing = { workspace = true }
 url = { workspace = true }
 

@@ -93,12 +93,12 @@ First we execute the guest program locally with our expected input, to generate 
 # use anyhow::{Result, Context};
 # use boundless_market::client::Client;
 # use risc0_zkvm::{default_executor, ExecutorEnv};
-# use boundless_market::input::Input;
+# use boundless_market::contracts::Input;
 # use std::ops::Div;
 #
 # // Function that takes the required parameters so we don't need to construct them
-# fn example(
-#     boundless_client: &Client<impl alloy::providers::Provider, impl alloy::signers::Signer>,
+# async fn example(
+#     boundless_client: &'static Client<impl alloy::providers::Provider + Clone, impl boundless_market::storage::StorageProvider>,
 #     days_since_epoch: u32,
 #     ECHO_ELF: &[u8]
 # ) -> Result<()> {
@@ -129,17 +129,20 @@ Then we create our proof request, setting a `Requirement` that the journal shoul
 ```rust
 # use boundless_market::contracts::{ProofRequest, Requirements, Predicate, Offer, RequestId};
 # use alloy::primitives::utils::parse_ether;
+# use risc0_zkvm::sha::Digestible;
+# use alloy::primitives::Address;
 #
-# fn example() -> anyhow::Result<()> {
 # let ECHO_ID = [0u8; 32];
 # let journal = Vec::<u8>::new();
-# let smart_contract_requestor_address = [0u8; 20].into();
+# let smart_contract_requestor_address: Address = [0u8; 20].into();
 # let request_id = RequestId::new([0u8; 20].into(), 0)
 #     .set_smart_contract_signed_flag();
 # use url::Url;
 # let image_url = Url::parse("https://example.com/image").unwrap();
 # let input_url = Url::parse("https://example.com/input").unwrap();
 # let mcycles_count = 1;
+# let now = 0;
+# (|| -> anyhow::Result<()> {
 let requirements = Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()));
 
 // Create the request, ensuring to set the request id and requirements that we prepared above.
@@ -158,7 +161,7 @@ let request = ProofRequest::builder()
     )
     .build()?;
 # Ok(())
-# }
+# })().unwrap();
 ```
 </StripRustCodeComments>
 
@@ -189,7 +192,7 @@ So we encode the signature that the Smart Contract Requestor requires to validat
 # use alloy::sol_types::SolValue;
 #
 # async fn submit_request(
-#     boundless_client: &Client<impl alloy::providers::Provider, impl alloy::signers::Signer>,
+#     boundless_client: &'static Client<impl alloy::providers::Provider + Clone, impl boundless_market::storage::StorageProvider>,
 #     request: ProofRequest
 # ) -> anyhow::Result<()> {
     let signature: Bytes = request.abi_encode().into();

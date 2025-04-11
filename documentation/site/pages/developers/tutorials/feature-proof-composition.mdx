@@ -50,7 +50,6 @@ let mut requirements = Requirements::new(image_id, Predicate::digest_match(journ
 if groth16 {
     requirements = requirements.with_groth16_proof();
 }
-# Ok(())
 ```
 </StripRustCodeComments>
 
@@ -59,6 +58,7 @@ We then use this proof as input to the Identity guest program:
 <StripRustCodeComments>
 ```rust
 # use alloy::{providers::Provider, network::Ethereum};
+# use anyhow::Context;
 # use boundless_market::{client::Client, contracts::Input, input::GuestEnv};
 # use risc0_zkvm::sha::{Digest, Digestible};
 # use boundless_market::storage::StorageProvider;
@@ -67,24 +67,21 @@ We then use this proof as input to the Identity guest program:
 #     elf: impl AsRef<[u8]>,
 #     guest_env: GuestEnv,
 #     groth16: bool,
-# ) -> Result<()>
+# ) -> anyhow::Result<(Vec<u8>, Vec<u8>)>
 # where
 #     P: Provider<Ethereum> + 'static + Clone,
 #     S: StorageProvider,
-# {
-#     let (journal, seal) = client.prove(elf, guest_env, groth16).await?;
-#     Ok((journal, seal))
-# }
+# { unimplemented!() }
 # async fn run<P, S>(
 #    boundless_client: Client<P, S>
 # ) -> anyhow::Result<()>
 # where
 #     P: Provider<Ethereum> + 'static + Clone,
-#     S: StorageProvider,
+#     S: StorageProvider + Clone,
 # {
 # let ECHO_ID = [0u8; 32];
-# let IDENTITY_ELF = &[];
-# let echo_receipt = &[];
+# let IDENTITY_ELF = b"";
+# let echo_receipt = b"";
 // Build the IDENTITY input from the ECHO receipt
 let identity_input = (Digest::from(ECHO_ID), echo_receipt);
 let identity_guest_env =
@@ -113,25 +110,24 @@ Finally, we can use the composed proof to interact with a smart contract:
 #    signers::local::PrivateKeySigner,
 #    sol_types::SolCall,
 # };
-# let boundless_client = ClientBuilder::new().build().await?;
-# let identity_journal = Vec::<u8>::new();
-# let identity_seal = Vec::<u8>::new();
-# let IDENTITY_ID = [0u8; 32];
-# let TX_TIMEOUT = 30;
+# use std::time::Duration;
 
 alloy::sol! {
+    #[sol(rpc)]
     interface ICounter {
-        event Increment(address indexed who, uint256 count);
-
         function increment(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external;
-        function getCount(address who) external view returns (uint256);
     }
 }
 
-# async fn interact(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# async fn interact(request: ProofRequest) -> anyhow::Result<()> {
+# let boundless_client = ClientBuilder::new().build().await?;
+# let identity_journal = Vec::<u8>::new();
+# let identity_seal = Bytes::new();
+# let IDENTITY_ID = [0u8; 32];
+# let TX_TIMEOUT = Duration::from_secs(30);
 // Interact with the Counter contract using the composed proof
 let counter_address = address!("0x000000000000000000000000000000000c0077e5");
-let counter = ICounterInstance::new(counter_address, boundless_client.provider());
+let counter = ICounter::ICounterInstance::new(counter_address, boundless_client.provider().clone());
 let journal_digest = B256::from_slice(identity_journal.digest().as_bytes());
 let image_id = B256::from_slice(Digest::from(IDENTITY_ID).as_bytes());
 let call_increment =
