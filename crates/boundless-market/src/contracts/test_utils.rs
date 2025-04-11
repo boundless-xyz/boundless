@@ -33,7 +33,8 @@ use guest_assessor::ASSESSOR_GUEST_ID;
 use guest_set_builder::SET_BUILDER_ID;
 use guest_util::ECHO_ID;
 use risc0_aggregation::{
-    merkle_root, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
+    merkle_path, merkle_root, GuestState, SetInclusionReceipt,
+    SetInclusionReceiptVerifierParameters,
 };
 use risc0_circuit_recursion::control_id::{ALLOWED_CONTROL_ROOT, BN254_IDENTITY_CONTROL_ID};
 use risc0_ethereum_contracts::{encode_seal, set_verifier::SetVerifierService};
@@ -386,7 +387,8 @@ pub fn mock_singleton(
     let set_builder_root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
     let set_builder_journal = {
         let mut state = GuestState::initial(SET_BUILDER_ID);
-        state.mmr.push(set_builder_root).unwrap();
+        state.mmr.push(app_claim_digest).unwrap();
+        state.mmr.push(assessor_claim_digest).unwrap();
         state.mmr.finalize().unwrap();
         state.encode()
     };
@@ -402,7 +404,7 @@ pub fn mock_singleton(
         SetInclusionReceiptVerifierParameters { image_id: Digest::from(SET_BUILDER_ID) };
     let set_inclusion_seal = SetInclusionReceipt::from_path_with_verifier_params(
         ReceiptClaim::ok(ECHO_ID, MaybePruned::Pruned(app_journal.digest())),
-        vec![assessor_claim_digest],
+        merkle_path(&[app_claim_digest, assessor_claim_digest], 0),
         verifier_parameters.digest(),
     )
     .abi_encode_seal()
@@ -418,7 +420,7 @@ pub fn mock_singleton(
 
     let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
         ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
-        vec![app_claim_digest],
+        merkle_path(&[app_claim_digest, assessor_claim_digest], 1),
         verifier_parameters.digest(),
     )
     .abi_encode_seal()
