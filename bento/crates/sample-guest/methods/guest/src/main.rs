@@ -51,22 +51,31 @@ pub fn main() {
         }
         IterReq::Composition(iter, image_id) => {
             // composition with single segment
-            let value = to_vec(&iter).unwrap();
+            let value = to_vec(&iter).unwrap_or_else(|e| {
+                panic!("Error serializing iter: {:?}", e);
+            });
             let input_data: &[u8] = bytemuck::cast_slice(&value);
-            env::verify(image_id, input_data).unwrap();
+            env::verify(image_id, input_data).unwrap_or_else(|e| {
+                panic!("Error verifying image_id: {:?}", e);
+            });
             env::log("");
             env::commit(&image_id);
         }
         IterReq::CompositionKeccak(val, image_id, run_keccak) => {
             // composition with single segment
-            let value = to_vec(&val).unwrap();
+            let value = to_vec(&val).unwrap_or_else(|e| {
+                panic!("Error serializing val: {:?}", e);
+            });
             let input_data: &[u8] = bytemuck::cast_slice(&value);
-            env::verify(image_id, input_data).unwrap();
+            env::verify(image_id, input_data).unwrap_or_else(|e| {
+                panic!("Error verifying image_id: {:?}", e);
+            });
             if run_keccak {
                 let mut hasher = Keccak::v256();
                 let mut output = [0u8; 32];
                 hasher.update("Test Hash input".as_bytes());
                 hasher.finalize(&mut output);
+                env::commit(&output);
             }
             env::log("");
             env::commit(&image_id);
@@ -78,6 +87,7 @@ pub fn main() {
                 panic!("{}", PANIC_STR)
             }
             let iters: u64 = iter * 1024;
+
             println!("HELLO: {}", iter);
 
             for i in 0..iters {
@@ -85,15 +95,23 @@ pub fn main() {
             }
 
             // first verify
-            let iter_value = to_vec(&iter).unwrap();
+            let iter_value = to_vec(&iter).unwrap_or_else(|e| {
+                panic!("Error serializing iter: {:?}", e);
+            });
             let input_data: &[u8] = bytemuck::cast_slice(&iter_value);
-            env::verify(first_image_id, input_data).unwrap();
+            env::verify(first_image_id, input_data).unwrap_or_else(|e| {
+                panic!("Error verifying first image_id: {:?}", e);
+            });
             env::log("");
 
             // second verify
-            let image_value = to_vec(&first_image_id).unwrap();
+            let image_value = to_vec(&first_image_id).unwrap_or_else(|e| {
+                panic!("Error serializing first_image_id: {:?}", e);
+            });
             let input_data: &[u8] = bytemuck::cast_slice(&image_value);
-            env::verify(second_image_id, input_data).unwrap();
+            env::verify(second_image_id, input_data).unwrap_or_else(|e| {
+                panic!("Error verifying second image_id: {:?}", e);
+            });
             env::log("");
             env::commit(&second_image_id);
         }
@@ -105,6 +123,7 @@ pub fn main() {
             env::commit(&output);
         }
         IterReq::KeccakUnion(data) => {
+            // Обработка Keccak с параметром data (число)
             let cycles = 1 << KECCAK_DEFAULT_PO2;
             let count = cycles / 200 * data;
             let mut state = KeccakState::default();
@@ -121,9 +140,13 @@ pub fn main() {
                 env::risc0_keccak_update(&mut state);
             }
             // composition with single segment
-            let value = to_vec(&val).unwrap();
+            let value = to_vec(&val).unwrap_or_else(|e| {
+                panic!("Error serializing val: {:?}", e);
+            });
             let input_data: &[u8] = bytemuck::cast_slice(&value);
-            env::verify(image_id, input_data).unwrap();
+            env::verify(image_id, input_data).unwrap_or_else(|e| {
+                panic!("Error verifying image_id: {:?}", e);
+            });
             env::log("");
             env::commit(&image_id);
         }
