@@ -71,22 +71,17 @@ impl ProvingService {
     }
 
     pub async fn prove_order(&self, order_id: U256, order: Order) -> Result<()> {
-        let (max_file_size, fetch_retries) = {
-            let config = self.config.lock_all().context("Failed to read config")?;
-            (config.market.max_file_size, config.market.max_fetch_retries)
-        };
-
         // If the ID's are not present then upload them now
         // Mostly hit by skipping pre-flight
         let image_id = match order.image_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::upload_image_uri(&self.prover, &order, max_file_size, fetch_retries)
+            None => crate::upload_image_uri(&self.prover, &order, &self.config)
                 .await
                 .context("Failed to upload image")?,
         };
         let input_id = match order.input_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::upload_input_uri(&self.prover, &order, max_file_size, fetch_retries)
+            None => crate::upload_input_uri(&self.prover, &order, &self.config)
                 .await
                 .context("Failed to upload input")?,
         };

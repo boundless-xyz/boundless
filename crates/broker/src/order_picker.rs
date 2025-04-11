@@ -39,19 +39,19 @@ const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum PriceOrderErr {
-    #[error("Failed to fetch / push input: {0}")]
-    FetchInputErr(anyhow::Error),
+    #[error("failed to fetch / push input")]
+    FetchInputErr(#[source] anyhow::Error),
 
-    #[error("Failed to fetch / push image: {0}")]
-    FetchImageErr(anyhow::Error),
+    #[error("failed to fetch / push image")]
+    FetchImageErr(#[source] anyhow::Error),
 
-    #[error("Guest execution faulted: {0}")]
+    #[error("guest panicked: {0}")]
     GuestPanic(String),
 
-    #[error("Request: {0}")]
+    #[error("invalid request")]
     RequestError(#[from] RequestError),
 
-    #[error("Other: {0}")]
+    #[error(transparent)]
     OtherErr(#[from] anyhow::Error),
 }
 
@@ -121,7 +121,7 @@ where
                     Ok(false)
                 }
                 Err(err) => {
-                    tracing::error!("Failed to price order {order_id:x}: {err}");
+                    tracing::error!("Failed to price order {order_id:x}: {err:?}");
                     self.db
                         .set_order_failure(order_id, err.to_string())
                         .await
@@ -135,7 +135,7 @@ where
             Ok(true) => true,
             Ok(false) => false,
             Err(err) => {
-                tracing::error!("Failed to update db for order {order_id:x}: {err}");
+                tracing::error!("Failed to update db for order {order_id:x}: {err:?}");
                 false
             }
         }
@@ -239,7 +239,7 @@ where
             return Ok(None);
         }
 
-        let (skip_preflight, max_size, peak_prove_khz, fetch_retries, max_mcycle_limit) = {
+        let (skip_preflight, peak_prove_khz, max_mcycle_limit) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             let skip_preflight =
                 if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
@@ -248,13 +248,7 @@ where
                     false
                 };
 
-            (
-                skip_preflight,
-                config.market.max_file_size,
-                config.market.peak_prove_khz,
-                config.market.max_fetch_retries,
-                config.market.max_mcycle_limit,
-            )
+            (skip_preflight, config.market.peak_prove_khz, config.market.max_mcycle_limit)
         };
 
         if skip_preflight {
@@ -263,11 +257,11 @@ where
         }
 
         // TODO: Move URI handling like this into the prover impls
-        let image_id = crate::upload_image_uri(&self.prover, order, max_size, fetch_retries)
+        let image_id = crate::upload_image_uri(&self.prover, order, &self.config)
             .await
             .map_err(PriceOrderErr::FetchImageErr)?;
 
-        let input_id = crate::upload_input_uri(&self.prover, order, max_size, fetch_retries)
+        let input_id = crate::upload_input_uri(&self.prover, order, &self.config)
             .await
             .map_err(PriceOrderErr::FetchInputErr)?;
 

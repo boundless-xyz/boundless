@@ -34,6 +34,7 @@ alloy-primitives = { version = "0.8" }
 alloy-sol-types = { version = "0.8", features = ["json"] }
 anyhow = { version = "1.0" }
 async-trait = "0.1"
+aws-config = { version = "1.6", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.34" # used for minio for max compatibility
 axum = "0.8"
 axum-extra = { version = "0.10" }
