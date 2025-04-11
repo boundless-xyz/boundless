@@ -66,6 +66,10 @@ First, we construct the Request ID. We use the index of the Request ID to repres
 
 <StripRustCodeComments>
 ```rust
+# use boundless_market::contracts::RequestId;
+# use alloy::primitives::Address;
+#
+# let smart_contract_requestor_address: Address = [0u8; 20].into();
 let now = std::time::SystemTime::now()
     .duration_since(std::time::SystemTime::UNIX_EPOCH)
     .unwrap()
@@ -86,32 +90,56 @@ In this example we expect the input of the program to be the current day since e
 First we execute the guest program locally with our expected input, to generate the expected journal.
 <StripRustCodeComments>
 ```rust
+# use anyhow::{Result, Context};
+# use boundless_market::client::Client;
+# use risc0_zkvm::{default_executor, ExecutorEnv};
+# use boundless_market::input::Input;
+# use std::ops::Div;
+#
+# // Function that takes the required parameters so we don't need to construct them
+# fn example(
+#     boundless_client: &Client<impl alloy::providers::Provider, impl alloy::signers::Signer>,
+#     days_since_epoch: u32,
+#     ECHO_ELF: &[u8]
+# ) -> Result<()> {
 // We encode the input as Big Endian, as this is how Solidity represents values. This simplifies validating
-    // the requirements of the request in the smart contract client.
-    let guest_env = Input::builder().write_slice(&days_since_epoch.to_be_bytes()).build_env()?;
-    let input_url = boundless_client
-        .upload_input(&guest_env.encode()?)
-        .await
-        .context("failed to upload input")?;
+// the requirements of the request in the smart contract client.
+let guest_env = Input::builder().write_slice(&days_since_epoch.to_be_bytes()).build_env()?;
+let input_url = boundless_client
+    .upload_input(&guest_env.encode()?)
+    .await
+    .context("failed to upload input")?;
 
-    // Execute the guest program to get the journal and session info.
-    let session_info = default_executor().execute(guest_env.try_into()?, ECHO_ELF)?;
-    let mcycles_count = session_info
-        .segments
-        .iter()
-        .map(|segment| 1 << segment.po2)
-        .sum::<u64>()
-        .div_ceil(1_000_000);
-    let journal = session_info.journal;
+// Execute the guest program to get the journal and session info.
+let session_info = default_executor().execute(guest_env.try_into()?, ECHO_ELF)?;
+let mcycles_count = session_info
+    .segments
+    .iter()
+    .map(|segment| 1 << segment.po2)
+    .sum::<u64>()
+    .div_ceil(1_000_000);
+let journal = session_info.journal;
+# Ok(())
+# }
 ```
 </StripRustCodeComments>
 
 Then we create our proof request, setting a `Requirement` that the journal should match the expected journal.
 <StripRustCodeComments>
 ```rust
-# use boundless_market::contracts::ProofRequest;
+# use boundless_market::contracts::{ProofRequest, Requirements, Predicate, Offer, RequestId};
+# use alloy::primitives::utils::parse_ether;
+#
+# fn example() -> anyhow::Result<()> {
 # let ECHO_ID = [0u8; 32];
 # let journal = Vec::<u8>::new();
+# let smart_contract_requestor_address = [0u8; 20].into();
+# let request_id = RequestId::new([0u8; 20].into(), 0)
+#     .set_smart_contract_signed_flag();
+# use url::Url;
+# let image_url = Url::parse("https://example.com/image").unwrap();
+# let input_url = Url::parse("https://example.com/input").unwrap();
+# let mcycles_count = 1;
 let requirements = Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()));
 
 // Create the request, ensuring to set the request id and requirements that we prepared above.
@@ -129,6 +157,8 @@ let request = ProofRequest::builder()
             .with_bidding_start(now),
     )
     .build()?;
+# Ok(())
+# }
 ```
 </StripRustCodeComments>
 
@@ -153,10 +183,21 @@ So we encode the signature that the Smart Contract Requestor requires to validat
 
 <StripRustCodeComments>
 ```rust
+# use boundless_market::contracts::ProofRequest;
+# use boundless_market::client::Client;
+# use alloy::primitives::Bytes;
+# use alloy::sol_types::SolValue;
+#
+# async fn submit_request(
+#     boundless_client: &Client<impl alloy::providers::Provider, impl alloy::signers::Signer>,
+#     request: ProofRequest
+# ) -> anyhow::Result<()> {
     let signature: Bytes = request.abi_encode().into();
     let (request_id, expires_at) =
         boundless_client.submit_request_with_signature_bytes(&request, &signature).await?;
     tracing::info!("Request {} submitted", request_id);
+# Ok(())
+# }
 ```
 </StripRustCodeComments>
 

@@ -175,7 +175,7 @@ When the prover fulfills their request, the requestor will (the app developer) w
 # use std::time::Duration;
 # use boundless_market::client::ClientBuilder;
 # use boundless_market::contracts::ProofRequest;
-# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# async fn submit_request(request: ProofRequest) -> anyhow::Result<()> {
 # let boundless_client = ClientBuilder::new().build().await?;
 # let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 let (_journal, seal) = boundless_client
