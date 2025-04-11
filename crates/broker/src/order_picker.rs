@@ -39,19 +39,19 @@ const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum PriceOrderErr {
-    #[error("Failed to fetch / push input: {0}")]
-    FetchInputErr(anyhow::Error),
+    #[error("failed to fetch / push input")]
+    FetchInputErr(#[source] anyhow::Error),
 
-    #[error("Failed to fetch / push image: {0}")]
-    FetchImageErr(anyhow::Error),
+    #[error("failed to fetch / push image")]
+    FetchImageErr(#[source] anyhow::Error),
 
-    #[error("Guest execution faulted: {0}")]
+    #[error("guest panicked: {0}")]
     GuestPanic(String),
 
-    #[error("Request: {0}")]
+    #[error("invalid request")]
     RequestError(#[from] RequestError),
 
-    #[error("Other: {0}")]
+    #[error(transparent)]
     OtherErr(#[from] anyhow::Error),
 }
 
@@ -121,7 +121,7 @@ where
                     Ok(false)
                 }
                 Err(err) => {
-                    tracing::error!("Failed to price order {order_id:x}: {err}");
+                    tracing::error!("Failed to price order {order_id:x}: {err:?}");
                     self.db
                         .set_order_failure(order_id, err.to_string())
                         .await
@@ -135,7 +135,7 @@ where
             Ok(true) => true,
             Ok(false) => false,
             Err(err) => {
-                tracing::error!("Failed to update db for order {order_id:x}: {err}");
+                tracing::error!("Failed to update db for order {order_id:x}: {err:?}");
                 false
             }
         }
