@@ -19,12 +19,12 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance,
-        test_utils::{create_test_ctx_with_rpc_url, TestCtx},
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+        hit_points::default_allowance, Input, InputType, Offer, Predicate, PredicateType,
+        ProofRequest, RequestId, Requirements,
     },
     input::InputBuilder,
 };
+use boundless_market_test_utils::{create_test_ctx_with_rpc_url, TestCtx};
 use broker::test_utils::BrokerBuilder;
 use clap::Parser;
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};

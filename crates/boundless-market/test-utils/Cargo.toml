@@ -13,6 +13,7 @@ alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types",
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
+boundless-market = { workspace = true, features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }

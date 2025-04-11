@@ -39,6 +39,7 @@ zeth-preflight = { git = "https://github.com/risc0/zeth", rev = "26638d3", optio
 zeth-preflight-ethereum = { git = "https://github.com/risc0/zeth", rev = "26638d3", optional = true }
 
 [dev-dependencies]
+boundless-market-test-utils = { workspace = true }
 boundless-market = { workspace = true }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }

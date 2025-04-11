@@ -439,13 +439,14 @@ mod tests {
     };
     use boundless_market::{
         contracts::{
-            boundless_market::BoundlessMarketService,
-            hit_points::default_allowance,
-            test_utils::{create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx},
+            boundless_market::BoundlessMarketService, hit_points::default_allowance,
             AssessorReceipt, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
             Requirements,
         },
         input::InputBuilder,
+    };
+    use boundless_market_test_utils::{
+        create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx,
     };
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};

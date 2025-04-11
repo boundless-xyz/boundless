@@ -900,10 +900,10 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        test_utils::{deploy_boundless_market, deploy_hit_points},
         Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
+    use boundless_market_test_utils::{deploy_boundless_market, deploy_hit_points};
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_util::{ECHO_ELF, ECHO_ID};

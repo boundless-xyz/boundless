@@ -41,6 +41,7 @@ name = "boundless-ffi"
 
 [dev-dependencies]
 boundless-market = { workspace = true }
+boundless-market-test-utils = { workspace = true }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }

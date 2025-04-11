@@ -1252,12 +1252,11 @@ mod tests {
         providers::WalletProvider,
     };
     use boundless_market::{
-        contracts::{
-            hit_points::default_allowance,
-            test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx},
-            RequestStatus,
-        },
+        contracts::{hit_points::default_allowance, RequestStatus},
         selector::is_groth16_selector,
+    };
+    use boundless_market_test_utils::{
+        create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx,
     };
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
