@@ -25,7 +25,7 @@ async function findAnchorsInFile(filePath: string): Promise<Set<string>> {
 
   // Match ATX-style headers (# Header)
   const headerRegex = /^#{1,6}\s+(.+)$/gm;
-  let match: any;
+  let match: RegExpExecArray | null;
 
   // biome-ignore lint/suspicious/noAssignInExpressions: ignore
   while ((match = headerRegex.exec(content)) !== null) {
@@ -99,7 +99,7 @@ async function checkLinks() {
 
     // Check reference-style links
     const refLinkRegex = /^\[([^\]]+)\]:\s*(\S+)/gm;
-    let match: any;
+    let match: RegExpExecArray | null;
 
     // biome-ignore lint/suspicious/noAssignInExpressions: ignore
     while ((match = refLinkRegex.exec(markdown)) !== null) {
