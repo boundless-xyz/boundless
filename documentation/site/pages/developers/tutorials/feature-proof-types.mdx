@@ -118,15 +118,14 @@ We then provide the Groth16 proof as input to the `IDENTITY` zkVM guest program,
 
 <StripRustCodeComments>
 ```rust
-# use risc0_zkvm::guest::env;
-# use risc0_zkvm::{Digest, Receipt};
-# || {
-let bytes = env::read_frame();
-let (image_id, receipt): (Digest, Receipt) =
-    postcard::from_bytes(&bytes).expect("failed to deserialize input");
+use risc0_zkvm::guest::env;
+use risc0_zkvm::{Digest, Receipt};
 
-let claim = receipt.claim().unwrap();
-receipt.verify(image_id).unwrap();
-# };
+fn main() {
+    let (image_id, receipt): (Digest, Receipt) = env::read();
+    let claim = receipt.claim().unwrap();
+    receipt.verify(image_id).unwrap();
+    ...
+}
 ```
 </StripRustCodeComments>
