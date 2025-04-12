@@ -97,10 +97,10 @@ In the composition example, we first request a raw Groth16 proof from the Boundl
 let request = ProofRequest::builder()
     .with_image_url(image_url)
     .with_input(input_url)
-    .with_requirements(
-        Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()))
-            .with_groth16_proof(),  // Request raw Groth16 proof
-    )
+    .with_requirements(                                                       // [!code focus]
+        Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())) // [!code focus]
+            .with_groth16_proof(),  // Request raw Groth16 proof                 [!code focus]
+    )                                                                         // [!code focus]
     .with_offer(
         Offer::default()
             .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
