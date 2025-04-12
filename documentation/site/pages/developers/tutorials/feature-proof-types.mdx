@@ -125,7 +125,7 @@ fn main() {
     let (image_id, receipt): (Digest, Receipt) = env::read();
     let claim = receipt.claim().unwrap();
     receipt.verify(image_id).unwrap();
-    ...
+    ....
 }
 ```
 </StripRustCodeComments>
