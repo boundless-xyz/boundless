@@ -3746,7 +3746,6 @@ dependencies = [
  "anyhow",
  "boundless-market",
  "glob",
- "postcard",
  "regex",
  "risc0-steel",
  "risc0-zkvm",
