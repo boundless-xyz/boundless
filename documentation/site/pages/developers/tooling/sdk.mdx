@@ -2,9 +2,9 @@ import { StripRustCodeComments } from "../../../components/strip-rust-code-comme
 
 # Boundless Rust SDK
 
-The Boundless Market SDK offers high-level Rust APIs for interacting with the Boundless Market smart contracts, preparing and submitting ZK proofs, and handling relevant off-chain data such as images and inputs.
+The Boundless Market SDK offers high-level Rust APIs for interacting with the Boundless Market smart contracts, preparing and submitting ZK proofs, and handling relevant offchain data such as images and inputs.
 
-[Crate Documentation](https://docs.rs/boundless-market/0.6.0/boundless_market/#boundless-market-sdk)
+[Crate Documentation](https://docs.rs/boundless-market/latest/boundless_market/#boundless-market-sdk)
 
 ## Installation
 
@@ -16,8 +16,9 @@ or add manually to your Cargo.toml:
 
 ```toml
 [dependencies]
-boundless-market = "0.6.0"
+boundless-market = "X.X.X"
 ```
+where X.X.X is the latest release specified on the [Boundless GitHub Release](https://github.com/boundless-xyz/boundless/releases) page.
 
 ## SDK Workflow Overview
 
@@ -137,11 +138,11 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 ## SDK Modules
 
 ### `client`
-- `Client`: Core struct for transactions, storage, and off-chain interaction.
+- `Client`: Core struct for transactions, storage, and offchain interaction.
 - `ClientBuilder`: Configure and build the client.
 
 ### `contracts`
-- `BoundlessMarketService`: On-chain interactions (requests, fulfillments, deposits).
+- `BoundlessMarketService`: Onchain interactions (requests, fulfillments, deposits).
 - `SetVerifierService`: Manages aggregated proof verifications.
 - Structures: `ProofRequest`, `Offer`, `Fulfillment`.
 
@@ -149,7 +150,7 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 - `InputBuilder`: Prepare inputs for RISC Zero guests.
 
 ### `order_stream_client`
-- `OrderStreamClient`: Submit/fetch orders off-chain via WebSocket.
+- `OrderStreamClient`: Submit/fetch orders offchain via WebSocket.
 
 ### `storage`
 - Providers: `S3`, `Pinata`, and `TempFile` for uploading ELF/input data.
