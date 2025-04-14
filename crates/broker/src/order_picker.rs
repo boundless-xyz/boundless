@@ -220,7 +220,9 @@ where
 
         if order_gas_cost > order.request.offer.maxPrice {
             tracing::info!(
-                "Estimated gas cost to lock and fill order {order_id:x} execeeds max price; max price {}", format_ether(order.request.offer.maxPrice)
+                "Estimated gas cost to lock and fill order {order_id:x}: {} exceeds max price; max price {}", 
+                format_ether(order_gas_cost),
+                format_ether(order.request.offer.maxPrice)
             );
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(None);
