@@ -306,6 +306,11 @@ Locally executes (without proving) the given request’s guest code, either from
 proving execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] [--request-digest <B256>]]
         [--order-stream-url <URL>]
 ```
+- `--request-path`: path to a YAML file containing the request.
+- `--request-id`: the proof request identifier.
+- `--request-digest`: request’s EIP712 digest (optional).
+- `--tx-hash`: transaction hash (optional, to find the request).
+- `--order-stream-url`: fetch request data from an offchain server.
 
 **Examples**:
 
@@ -329,9 +334,9 @@ Generates a valid proof locally, then publishes the fulfillment onchain. This su
 proving fulfill --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
         [--order-stream-url <URL>]
 ```
-- `request-id`: the numeric ID of the request.
-- `request-digest`: request’s EIP712 digest (optional).
-- `tx-hash`: transaction hash (optional, to find the request).
+- `--request-id`: the proof request identifier.
+- `--request-digest`: request’s EIP712 digest (optional).
+- `--tx-hash`: transaction hash (optional, to find the request).
 - `--order-stream-url`: fetch request data from an offchain server.
 
 **Example**:
