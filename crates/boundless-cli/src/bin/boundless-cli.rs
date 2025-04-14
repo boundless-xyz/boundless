@@ -425,6 +425,11 @@ async fn main() -> Result<()> {
     let args = match MainArgs::try_parse() {
         Ok(args) => args,
         Err(err) => {
+            if err.kind() == clap::error::ErrorKind::DisplayHelp {
+                // If it's a help request, print the help and exit successfully
+                err.print()?;
+                return Ok(());
+            }
             if err.kind() == clap::error::ErrorKind::MissingRequiredArgument {
                 eprintln!("\nThe Boundless CLI requires certain configuration values, which can be provided either:");
                 eprintln!("1. As environment variables (PRIVATE_KEY, BOUNDLESS_MARKET_ADDRESS, VERIFIER_ADDRESS, SET_VERIFIER_ADDRESS)");
@@ -1481,7 +1486,7 @@ mod tests {
 
         // Submit a request onchain
         let args = MainArgs {
-            config: config.clone(),
+            config,
             command: Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Some(StorageProviderConfig::dev_mode()),
                 yaml_request: "../../request.yaml".to_string().into(),
@@ -1511,7 +1516,7 @@ mod tests {
 
         // Submit a request offchain
         let args = MainArgs {
-            config: config.clone(),
+            config,
             command: Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Some(StorageProviderConfig::dev_mode()),
                 yaml_request: "../../request.yaml".to_string().into(),
@@ -1540,7 +1545,7 @@ mod tests {
 
         // Submit a request onchain
         let args = MainArgs {
-            config: config.clone(),
+            config,
             command: Command::Request(Box::new(RequestCommands::SubmitOffer(SubmitOfferArgs {
                 storage_config: Some(StorageProviderConfig::dev_mode()),
                 yaml_offer: "../../offer.yaml".to_string().into(),
