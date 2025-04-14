@@ -90,16 +90,16 @@ To check Bento is running correctly, you can send a sample proof workload:
 
 ```sh [Terminal]
 # In the bento directory
-RUST_LOG=info cargo run --bin boundless-cli -- -c 32
+RUST_LOG=info cargo run --bin bento_cli -- -c 32
 ```
 
 ```txt [Terminal]
-2024-10-23T14:37:37.364844Z  INFO boundless-cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: eccc8f06-488a-426c-ae3d-e5acada9ae22
-2024-10-23T14:37:37.368613Z  INFO boundless-cli: STARK job_id: 0d89e2ca-a1e3-478f-b89d-8ab23b89f51e
-2024-10-23T14:37:37.369346Z  INFO boundless-cli: STARK Job running....
-2024-10-23T14:37:39.371331Z  INFO boundless-cli: STARK Job running....
-2024-10-23T14:37:41.373508Z  INFO boundless-cli: STARK Job running....
-2024-10-23T14:37:43.375780Z  INFO boundless-cli: Job done!
+2024-10-23T14:37:37.364844Z  INFO bento_cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: eccc8f06-488a-426c-ae3d-e5acada9ae22
+2024-10-23T14:37:37.368613Z  INFO bento_cli: STARK job_id: 0d89e2ca-a1e3-478f-b89d-8ab23b89f51e
+2024-10-23T14:37:37.369346Z  INFO bento_cli: STARK Job running....
+2024-10-23T14:37:39.371331Z  INFO bento_cli: STARK Job running....
+2024-10-23T14:37:41.373508Z  INFO bento_cli: STARK Job running....
+2024-10-23T14:37:43.375780Z  INFO bento_cli: Job done!
 ```
 
 ### Running the Broker service
