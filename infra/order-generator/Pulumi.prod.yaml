@@ -26,11 +26,11 @@ config:
   order-generator-zeth:RETRIES: "2"
   order-generator-zeth:INTERVAL: "1800"
   order-generator-zeth:LOCK_STAKE: "0.1"
-  order-generator-zeth:RAMP_UP: "600"
+  order-generator-zeth:RAMP_UP: "500"
   order-generator-zeth:MIN_PRICE_PER_MCYCLE: "0.00001"
   order-generator-zeth:MAX_PRICE_PER_MCYCLE: "0.01"
-  order-generator-zeth:TIMEOUT: "1000"
   order-generator-zeth:LOCK_TIMEOUT: "500"
+  order-generator-zeth:TIMEOUT: "1000"
   order-generator-zeth:PRIVATE_KEY:
     secure: v1:X0x504eGSlReaNWU:HHKOYSpWFvByYG23SRcGA2/uvj0i5S09Jfof+tNB/S1ooLrm8vmZ+QXhS3+8loVt8dIKS3H9U4svS5CrV5FHZNQXlAa74cQ3McoDQsIIQ84=
   order-generator-zeth:BOUNDLESS_RPC_URL:
