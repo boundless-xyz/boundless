@@ -293,7 +293,7 @@ boundless-cli request verify-proof 0x5... 0x0002f87ec0...
 
 ### 3. Proving subcommands
 
-The `proving` subcommand is used to manage the proving process for proof requests on the Boundless Market. It allows you to execute guest code locally and generate proofs.
+The `proving` subcommand is used to execute guest code locally and generate proofs for specific requests.
 
 >**Note**: The proving subcommands are not equivalent to running a [bento](../../provers/quick-start.mdx) prover.
 
@@ -322,7 +322,7 @@ proving execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] 
 
 #### 2. fulfill
 
-Generates a valid proof locally, then publishes the fulfillment onchain (or offchain if requested). This subcommand uses the RISC Zero default prover.
+Generates a valid proof locally, then publishes the fulfillment onchain. This subcommand uses the RISC Zero default prover.
 
 **Syntax**:
 ```
