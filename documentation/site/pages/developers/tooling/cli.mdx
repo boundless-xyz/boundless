@@ -8,17 +8,28 @@ boundless-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 
 ### Global Options
 
-You pass these before specifying a subcommand:
+You pass these before specifying a command:
 
-| Option                                  | Description                                                                               |
+| Option                                 | Description                                                                               |
 |----------------------------------------|-------------------------------------------------------------------------------------------|
 | `-r, --rpc-url <RPC_URL>`              | Ethereum RPC endpoint URL. Defaults to `http://localhost:8545`.                           |
 | `--private-key <PRIVATE_KEY>`          | A private key string (hex-encoded); used to sign transactions.                            |
-| `-b, --boundless-market-address <ADDR>`| Address of the Boundless Market contract.                                                |
+| `-b, --boundless-market-address <ADDR>`| Address of the Boundless Market contract.                                                 |
+| `-v, --verifier-address <ADDR>`        | Address of the Verifier contract.                                                         |
 | `-s, --set-verifier-address <ADDR>`    | Address of the SetVerifier contract.                                                      |
 | `--tx-timeout <SECONDS>`               | Transaction timeout in seconds. If set, the CLI will wait up to this duration for mining. |
-| `-h, --help`                            | Print help.                                                                               |
-| `-V, --version`                         | Print version.                                                                            |
+| `-h, --help`                           | Print help.                                                                               |
+| `-V, --version`                        | Print version.                                                                            |
+
+### Commands
+
+| Command            | Description                                                   |
+|--------------------|---------------------------------------------------------------|
+| `account`          | Account management commands                                   |
+| `request`          | Proof request commands                                        |
+| `proving`          | Proof execution commands                                      |
+| `ops`              | Operations on the boundless market                            |
+| `config`           | Display configuration and environment variables               |
 
 **Example**:
 
@@ -27,9 +38,36 @@ boundless-cli \
   --rpc-url http://localhost:8545 \
   --private-key 0xabcdef... \
   --boundless-market-address 0x1234... \
-  --set-verifier-address 0x5678... \
-  deposit 1.5
+  --verifier-address 0x5678... \
+  --set-verifier-address 0x5679... \
+  account deposit 1.5
 ```
+
+Alternatively, you can set the environment variables `RPC_URL`, `PRIVATE_KEY`, `BOUNDLESS_MARKET_ADDRESS`, `VERIFIER_ADDRESS`, `SET_VERIFIER_ADDRESS` and `ORDER_STREAM_URL` to avoid passing them each time.
+The environment variables `BOUNDLESS_MARKET_ADDRESS`, `VERIFIER_ADDRESS`, `SET_VERIFIER_ADDRESS` and `ORDER_STREAM_URL` can be also set by running:
+
+```bash
+source <(just env testnet)
+```
+
+or, if running a local devnet, with
+
+```bash
+source <(just env devnet)
+```
+
+This will set the environment variables to the correct values for the testnet or devnet.
+
+### Configuration check
+
+To make sure everything is set up correctly, you can run the following command:
+
+```bash
+boundless-cli config
+```
+
+This will display the current configuration, including the RPC URL, private key, Boundless Market address, Verifier address, and SetVerifier address.
+This is useful for verifying that the CLI is correctly configured to interact with the Boundless Market and the Ethereum network.
 
 ## Subcommands
 
@@ -39,111 +77,118 @@ Below is a command-by-command summary. Each command is run in the form:
 boundless-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 ```
 
-### 1. deposit
+### 1. Account subcommands
+
+The `account` subcommand is used to manage your account on the Boundless Market. It allows you to deposit and withdraw Ether, check your balance, and manage your stake.
+
+
+#### 1. deposit
 
 Deposits Ether (converted to an ERC-20 balance) into the Boundless Market.
 
 **Syntax**:
 ```
-deposit <amount>
+account deposit <amount>
 ```
 Where `<amount>` is an amount of Ether to deposit, e.g. `1.5`.
 
 **Example**:
 ```
-boundless-cli deposit 1
+boundless-cli account deposit 1
 ```
 This deposits 1 ETH from your wallet into the Boundless Market contract.
 
 
-### 2. withdraw
+#### 2. withdraw
 
 Withdraws Ether from the Boundless Market back into your externally owned account (EOA).
 
 **Syntax**:
 ```
-withdraw <amount>
+account withdraw <amount>
 ```
 
 **Example**:
 ```
-boundless-cli withdraw 1
+boundless-cli account withdraw 1
 ```
 This withdraws 1 ETH of your in-market balance back to your wallet.
 
 
-### 3. balance
+#### 3. balance
 
 Checks the current in-market ETH balance for a given address (defaults to your address if not specified).
 
 **Syntax**:
 ```
-balance [address]
+account balance [address]
 ```
 
 - `[address]` (optional) — The address to check. If omitted, uses the caller’s address.
 
 **Example**:
 ```
-boundless-cli balance 0xabc123...
-boundless-cli balance
+boundless-cli account balance 0xabc123...
+boundless-cli account balance
 ```
 
 
-### 4. deposit-stake
+#### 4. deposit-stake
 
 Deposits HP (hit points) into the market as a stake. (HP is used for trust/staking in Boundless.)
 
 **Syntax**:
 ```
-deposit-stake <amount>
+account deposit-stake <amount>
 ```
 
 **Example**:
 ```
-boundless-cli deposit-stake 100
+boundless-cli account deposit-stake 100
 ```
 This deposits 100 HP into your staked balance.
 
 
-### 5. withdraw-stake
+#### 5. withdraw-stake
 
 Withdraws staked HP from the market.
 
 **Syntax**:
 ```
-withdraw-stake <amount>
+account withdraw-stake <amount>
 ```
 
 **Example**:
 ```
-boundless-cli withdraw-stake 50
+boundless-cli account withdraw-stake 50
 ```
 
-
-### 6. balance-of-stake
+#### 6. stake-balance
 
 Checks the current staked HP balance for a given address (defaults to your address if none given).
 
 **Syntax**:
 ```
-balance-of-stake [address]
+account stake-balance [address]
 ```
 
 **Example**:
 ```
-boundless-cli balance-of-stake 0xabc123...
-boundless-cli balance-of-stake
+boundless-cli account stake-balance 0xabc123...
+boundless-cli account stake-balance
 ```
 
+### 2. Request subcommands
 
-### 7. submit-offer
+The `request` subcommand is used to manage proof requests on the Boundless Market. It allows you to create, submit, and manage proof requests.
+
+#### 1. submit-offer
 
 Constructs and submits a proof request by reading a YAML offer definition, plus specifying guest ELF, input data, and additional requirements on the command line. This is effectively a “shortcut” for quickly submitting a structured request.
 
 **Syntax** (excerpt of key options):
 ```
-submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-preflight]
+request submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-preflight]
              --elf <PATH_TO_ELF>
              --input <STRING> OR --input-file <PATH>
              [--encode-input]
@@ -164,22 +209,26 @@ submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-preflight]
 - `--wait`: block until the proof request is fulfilled (or expires).
 - `--offchain`: submit the request offchain to an order-stream server (requires `--order-stream-url`).
 - `--no-preflight`: skip local “dry-run” execution of the guest.
+- `--proof-type <PROOF_TYPE>`: specify the proof type to request. This is a string that indicates the type of proof you want to generate for the request.
+  - `any`: Any proof type
+  - `groth16`: Groth16 proof type
+  - `inclusion`: Inclusion proof type
 
 **Example**:
 ```
-boundless-cli submit-offer offer.yaml --elf guest.wasm \
+boundless-cli request submit-offer offer.yaml --elf guest.wasm \
   --input-file data.bin --journal-prefix "ABCDEF" --wait
 ```
 Submits a request reading the YAML from `offer.yaml`, providing `guest.wasm` as the ELF, `data.bin` as input, and requiring the journal to start with “ABCDEF”. It waits for fulfillment.
 
 
-### 8. submit-request
+### 2. submit
 
 Submits a proof request from a single YAML file containing the entire `ProofRequest` structure. Allows offchain or onchain submission, plus optional local preflight.
 
 **Syntax**:
 ```
-submit-request [OPTIONS] <YAML_REQUEST> [ID] [--wait] [--offchain] [--no-preflight]
+request submit [OPTIONS] <YAML_REQUEST> [ID] [--wait] [--offchain] [--no-preflight]
 ```
 
 - `yaml_request`: path to a YAML file describing a `ProofRequest`.
@@ -187,40 +236,45 @@ submit-request [OPTIONS] <YAML_REQUEST> [ID] [--wait] [--offchain] [--no-preflig
 - `--wait`: wait for fulfillment.
 - `--offchain`: submit to an order-stream server (requires `--order-stream-url`).
 - `--no-preflight`: skip local “dry-run” execution.
+- `--callback-address <ADDRESS> --callback-gas-limit <NUM>`: optional callback triggered upon proof success.
+- `--proof-type <PROOF_TYPE>`: specify the proof type to request. This is a string that indicates the type of proof you want to generate for the request.
+  - `any`: Any proof type
+  - `groth16`: Groth16 proof type
+  - `inclusion`: Inclusion proof type
 
 **Example**:
 ```
-boundless-cli submit-request ./request.yaml --wait
+boundless-cli request submit ./request.yaml --wait
 ```
 
+#### 3. status
 
-### 9. slash
-
-Slashes a prover for failing to meet obligations for a given request ID. Only the request’s buyer can slash.
+Shows the request status and whether it’s open, locked, fulfilled, or expired.
 
 **Syntax**:
 ```
-slash <REQUEST_ID>
+request status <REQUEST_ID> [expires_at]
 ```
+
+- `expires_at`: optional expiration timestamp (UNIX time). If omitted, uses the request’s known end time.
+
 **Example**:
 ```
-boundless-cli slash 0x5
+boundless-cli request status 0x5...
 ```
 
-
-### 10. get-proof
+#### 4. get-proof
 
 Retrieves the final `journal` and `seal` from onchain storage for a given request ID (once fulfilled).
 
 **Syntax**:
 ```
-get-proof <REQUEST_ID>
+request get-proof <REQUEST_ID>
 ```
 **Example**:
 ```
-boundless-cli get-proof 0x5
+boundless-cli request get-proof 0x5...
 ```
-
 
 ### 11. verify-proof
 
@@ -228,71 +282,81 @@ Verifies a proof for a given request ID on the local side, checking the onchain 
 
 **Syntax**:
 ```
-verify-proof <REQUEST_ID> <IMAGE_ID>
+request verify-proof <REQUEST_ID> <IMAGE_ID>
 ```
 Where `<IMAGE_ID>` is a 32-byte hex digest identifying the guest code.
 
 **Example**:
 ```
-boundless-cli verify-proof 0x5 0x0002f87ec0...
+boundless-cli request verify-proof 0x5... 0x0002f87ec0...
 ```
 
+### 3. Proving subcommands
 
-### 12. status
+The `proving` subcommand is used to execute guest code locally and generate proofs for specific requests.
 
-Shows the request status and whether it’s open, locked, fulfilled, or expired.
+>**Note**: The proving subcommands are not equivalent to running a [bento](../../provers/quick-start.mdx) prover.
 
-**Syntax**:
-```
-status <REQUEST_ID> [expires_at]
-```
-
-- `expires_at`: optional expiration timestamp (UNIX time). If omitted, uses the request’s known end time.
-
-**Example**:
-```
-boundless-cli status 0x5
-```
-
-
-### 13. execute
+#### 1. execute
 
 Locally executes (without proving) the given request’s guest code, either from a YAML file or fetching from chain/offchain. Allows checking correctness prior to submission.
 
 **Syntax**:
 ```
-execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] [--request-digest <B256>]] 
+proving execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] [--request-digest <B256>]]
         [--order-stream-url <URL>]
 ```
+- `--request-path`: path to a YAML file containing the request.
+- `--request-id`: the proof request identifier.
+- `--request-digest`: request’s EIP712 digest (optional).
+- `--tx-hash`: transaction hash (optional, to find the request).
+- `--order-stream-url`: fetch request data from an offchain server.
 
 **Examples**:
 
 - **Execute from local YAML**:
   ```
-  boundless-cli execute --request-path ./request.yaml
+  boundless-cli proving execute --request-path ./request.yaml
   ```
 
 - **Execute from onchain** (specifying the request ID):
   ```
-  boundless-cli execute --request-id 0x5 --tx-hash 0xabc...
+  boundless-cli proving execute --request-id 0x5... --tx-hash 0xabc...
   ```
 
 
-### 14. fulfill
+#### 2. fulfill
 
-Generates a valid proof locally, then publishes the fulfillment onchain (or offchain if requested). This subcommand uses the RISC Zero default prover.
+Generates a valid proof locally, then publishes the fulfillment onchain. This subcommand uses the RISC Zero default prover.
 
 **Syntax**:
 ```
-fulfill --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
+proving fulfill --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
         [--order-stream-url <URL>]
 ```
-- `request-id`: the numeric ID of the request.
-- `request-digest`: request’s EIP712 digest (optional).
-- `tx-hash`: transaction hash (optional, to find the request).
+- `--request-id`: the proof request identifier.
+- `--request-digest`: request’s EIP712 digest (optional).
+- `--tx-hash`: transaction hash (optional, to find the request).
 - `--order-stream-url`: fetch request data from an offchain server.
 
 **Example**:
 ```
-boundless-cli fulfill --request-id 0x5
+boundless-cli proving fulfill --request-id 0x5...
+```
+
+### 4. Ops subcommands
+
+The `ops` subcommand is used to manage operations on the Boundless Market. Currently, it only supports slashing expired orders.
+
+#### 1. slash
+
+Slashes a prover for failing to meet obligations for a given request ID. Only the request’s buyer can slash.
+
+**Syntax**:
+```
+ops slash <REQUEST_ID>
+```
+**Example**:
+```
+boundless-cli ops slash 0x5...
 ```
