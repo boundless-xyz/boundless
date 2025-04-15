@@ -3769,6 +3769,7 @@ dependencies = [
  "anyhow",
  "boundless-market",
  "glob",
+ "postcard",
  "regex",
  "risc0-steel",
  "risc0-zkvm",
@@ -8282,8 +8283,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-steel"
-version = "2.0.0-rc.5"
-source = "git+https://github.com/risc0/risc0-ethereum?tag=v2.0.0#38591d7a1302d437b76937bd3e0432005b33f616"
+version = "2.0.0-rc.7"
+source = "git+https://github.com/risc0/risc0-ethereum?tag=v2.0.2#728ec4b0432ddb49d8416b7a3c3cfdfe052356f9"
 dependencies = [
  "alloy 0.12.6",
  "alloy-consensus 0.12.6",

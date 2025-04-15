@@ -92,9 +92,9 @@ let evm_input = env.into_input().await?;
 
 The `preflight` step calls the RPC provider for the necessary state and for the Merkle storage proofs via `eth_getProof` ([EIP-1186]). These Merkle proofs are given to the guest which verifies them to prove that the RPC data is valid, without having to run a full node and without trusting the host or RPC provider.
 
-## Verifying the proof on-chain
+## Verifying the proof onchain
 
-At this point, we have generated a proof of: a view call of state on-chain and some execution based on that view call state (e.g. checking that the balance is at least 1).
+At this point, we have generated a proof of: a view call of state onchain and some execution based on that view call state (e.g. checking that the balance is at least 1).
 
 When using Steel, the general pattern for onchain functions incorporating Steel follows this pseudo-code:
 
@@ -110,29 +110,30 @@ contract {
 }
 ```
 
-The interesting on-chain logic, _doSomethingElse()_, is only reached if the journal data, the steel commitment and the proof are all valid.
+The interesting onchain logic, _doSomethingElse()_, is only reached if the journal data, the steel commitment and the proof are all valid.
 
 Concretely, in the erc20-counter example, the counter is only updated if the caller has a balance of at least one, and this counter update is gated by Steel and the zkVM.
 
 ```solidity
 contract Counter {
 
-function increment(bytes calldata journalData, bytes calldata seal) external {
-    // Decode and validate the journal data
-    Journal memory journal = abi.decode(journalData, (Journal));
-    require(journal.tokenContract == tokenContract, "Invalid token address");
-    require(Steel.validateCommitment(journal.commitment), "Invalid commitment");
+  function increment(bytes calldata journalData, bytes calldata seal) external {
+      // Decode and validate the journal data
+      Journal memory journal = abi.decode(journalData, (Journal));
+      require(journal.tokenContract == tokenContract, "Invalid token address");
+      require(Steel.validateCommitment(journal.commitment), "Invalid commitment");
 
-    // Verify the proof
-    bytes32 journalHash = sha256(journalData);
-    verifier.verify(seal, imageID, journalHash);
+      // Verify the proof
+      bytes32 journalHash = sha256(journalData);
+      verifier.verify(seal, imageID, journalHash);
 
-    // If the balance is at least one, update the counter
-    counter += 1;
+      // If the balance is at least one, update the counter
+      counter += 1;
+  }
 }
 ```
 
-Within a single proof, we’ve seen Steel can handle view calls orders of magnitude larger than on-chain execution can handle. Specifically, one partner application has shown gas savings of 1.2 _billion_ gas for a contract call using around 400,000 SLOADs. 1.2 billion gas is around 30 _blocks_ worth of execution and this can be verified onchain in one proof, that costs under $10 to generate, and less than 300k gas to verify (see [RISC Zero’s verification contracts][verifier-contracts]).
+Within a single proof, we’ve seen Steel can handle view calls orders of magnitude larger than onchain execution can handle. Specifically, one partner application has shown gas savings of 1.2 _billion_ gas for a contract call using around 400,000 SLOADs. 1.2 billion gas is around 30 _blocks_ worth of execution and this can be verified onchain in one proof, that costs under $10 to generate, and less than 300k gas to verify (see [RISC Zero’s verification contracts][verifier-contracts]).
 
 With proof aggregation, cost savings are amortized even further, by taking multiple separate applications of RISC Zero, and wrapping them all up into a single SNARK.
 Aggregation is a key feature of [Boundless][boundless-website]

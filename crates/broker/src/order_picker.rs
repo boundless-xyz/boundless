@@ -262,7 +262,9 @@ where
             // Cannot check the gas cost for lock expired orders where the reward is a fraction of the stake
             // TODO: This can be added once we have a price feed for the stake token in gas tokens
             tracing::info!(
-                "Estimated gas cost to lock and fill order {order_id:x} execeeds max price; max price {}", format_ether(order.request.offer.maxPrice)
+                "Estimated gas cost to lock and fill order {order_id:x}: {} exceeds max price; max price {}", 
+                format_ether(order_gas_cost),
+                format_ether(order.request.offer.maxPrice)
             );
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(Skip);
@@ -1183,9 +1185,7 @@ mod tests {
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!(
-            "gas cost to lock and fill order {order_id:x} execeeds max price"
-        )));
+        assert!(logs_contain(&format!("Estimated gas cost to lock and fill order {order_id:x}:")));
     }
 
     #[tokio::test]
@@ -1247,9 +1247,7 @@ mod tests {
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!(
-            "gas cost to lock and fill order {order_id:x} execeeds max price"
-        )));
+        assert!(logs_contain(&format!("Estimated gas cost to lock and fill order {order_id:x}:")));
     }
 
     #[tokio::test]
@@ -1314,9 +1312,7 @@ mod tests {
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!(
-            "gas cost to lock and fill order {order_id:x} execeeds max price"
-        )));
+        assert!(logs_contain(&format!("Estimated gas cost to lock and fill order {order_id:x}:")));
     }
 
     #[tokio::test]
@@ -1378,9 +1374,7 @@ mod tests {
         let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!(
-            "gas cost to lock and fill order {order_id:x} execeeds max price"
-        )));
+        assert!(logs_contain(&format!("Estimated gas cost to lock and fill order {order_id:x}:")));
     }
 
     #[tokio::test]
