@@ -78,3 +78,6 @@ pub struct PreflightFiller {}
 /// A filler that can populate the [Offer][crate::contracts::Offer] on a request given the image
 /// URL, [Input][crate::contracts::Input], and [Requirements][crate::contracts::Requirements].
 pub struct OfferFiller {}
+
+/// TODO
+pub struct RequestIdFiller {}
