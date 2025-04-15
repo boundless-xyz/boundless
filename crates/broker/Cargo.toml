@@ -20,6 +20,7 @@ bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
+boundless-market-test-utils = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -48,8 +49,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 uuid = { workspace = true }
-boundless-market-test-utils = { workspace = true, optional = true }
-
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
