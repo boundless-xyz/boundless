@@ -35,7 +35,7 @@ pub struct MarketMonitor<P> {
     provider: Arc<P>,
     db: DbObj,
     chain_monitor: Arc<ChainMonitorService<P>>,
-    submitter_addr: Address,
+    prover_addr: Address,
 }
 
 sol! {
@@ -57,9 +57,9 @@ where
         provider: Arc<P>,
         db: DbObj,
         chain_monitor: Arc<ChainMonitorService<P>>,
-        submitter_addr: Address,
+        prover_addr: Address,
     ) -> Self {
-        Self { lookback_blocks, market_addr, provider, db, chain_monitor, submitter_addr }
+        Self { lookback_blocks, market_addr, provider, db, chain_monitor, prover_addr }
     }
 
     /// Queries chain history to sample for the median block time
@@ -228,7 +228,7 @@ where
     /// Monitors the RequestLocked events and updates the database accordingly.
     async fn monitor_order_locks(
         market_addr: Address,
-        submitter_addr: Address,
+        prover_addr: Address,
         provider: Arc<P>,
         db: DbObj,
     ) -> Result<()> {
@@ -246,7 +246,7 @@ where
                             event.requestId,
                             event.prover
                         );
-                        if event.prover != submitter_addr {
+                        if event.prover != prover_addr {
                             if let Err(e) = db
                                 .set_order_status(
                                     U256::from(event.requestId),
@@ -389,7 +389,7 @@ where
         let provider = self.provider.clone();
         let db = self.db.clone();
         let chain_monitor = self.chain_monitor.clone();
-        let submitter_addr = self.submitter_addr;
+        let prover_addr = self.prover_addr;
 
         Box::pin(async move {
             tracing::info!("Starting up market monitor");
@@ -416,7 +416,7 @@ where
                     tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");
                     Err(SupervisorErr::Recover(err))
                 }
-                Err(err) = Self::monitor_order_locks(market_addr, submitter_addr, provider.clone(), db.clone()) => {
+                Err(err) = Self::monitor_order_locks(market_addr, prover_addr, provider.clone(), db.clone()) => {
                     tracing::error!("Monitor for order locks failed, restarting: {err:?}");
                     Err(SupervisorErr::Recover(err))
                 }
