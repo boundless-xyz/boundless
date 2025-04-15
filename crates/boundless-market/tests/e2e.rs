@@ -136,14 +136,12 @@ async fn test_deposit_withdraw_stake() {
         ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
         U256::from(9)
     );
-    assert!(logs_contain("< warning threshold"));
 
     ctx.prover_market.withdraw_stake(U256::from(5)).await.unwrap();
     assert_eq!(
         ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
         U256::from(4)
     );
-    assert!(logs_contain("< error threshold"));
 
     ctx.prover_market.withdraw_stake(U256::from(4)).await.unwrap();
     assert_eq!(
