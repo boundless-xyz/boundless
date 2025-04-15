@@ -23,28 +23,31 @@
 #[cfg(not(target_os = "zkvm"))]
 pub use alloy;
 
-#[cfg(not(target_os = "zkvm"))]
 /// A ProviderLayer module.
 ///
 /// It can be added to an alloy Provider to log warnings and errors
 /// when the balance of a given address falls below certain thresholds.
-pub mod balance_alerts_layer;
 #[cfg(not(target_os = "zkvm"))]
+pub mod balance_alerts_layer;
 /// Client module for interacting with the Boundless Market API.
+#[cfg(not(target_os = "zkvm"))]
 pub mod client;
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
+/// Filler module for building proving requests.
 #[cfg(not(target_os = "zkvm"))]
+pub mod filler;
 /// Input module for serializing input.
+#[cfg(not(target_os = "zkvm"))]
 pub mod input;
-#[cfg(not(target_os = "zkvm"))]
 /// Order stream client module for submitting requests off-chain.
+#[cfg(not(target_os = "zkvm"))]
 pub mod order_stream_client;
-#[cfg(not(target_os = "zkvm"))]
 /// Selector module implementing utility functions for supported selectors.
-pub mod selector;
 #[cfg(not(target_os = "zkvm"))]
+pub mod selector;
 /// Storage module for interacting with the storage provider.
+#[cfg(not(target_os = "zkvm"))]
 pub mod storage;
 
 /// A very small utility function to get the current unix timestamp.
