@@ -36,6 +36,7 @@ use OrderPricingOutcome::{Lock, ProveImmediate, Skip};
 // e.g. a value of 1 means 1/4 of the original stake is given to the prover who fills the order.
 // This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
 // The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
+// TODO: Retrieve this from the contract in the future
 const FRACTION_STAKE_REWARD: u64 = 4;
 
 /// Maximum number of orders to concurrently work on pricing. Used to limit pricing tasks spawned.
