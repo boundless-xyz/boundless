@@ -72,11 +72,11 @@ For example, an offer might specify:
 | ------------------------ | ----------------------- |
 | Minimum price            | 0.001 Ether             |
 | Maximum price            | 0.002 Ether             |
-| Bidding start            | Timestamp 1000          |
-| Length of ramp-up period | 50 seconds              |
-| Lock timeout             | 100 seconds             |
-| Timeout                  | 200 seconds             |
-| Lock stake               | 2 HP                    |
+| Bidding start            | Now                     |
+| Length of ramp-up period | 300 seconds             |
+| Timeout                  | 3600 seconds            |
+| Lock Timeout             | 2700 seconds            |
+| Lock stake               | 5 HP                    |
 
 For more details, please see [Pricing a Request](/developers/tutorials/request#pricing-a-request).
 
@@ -139,7 +139,7 @@ Provers will calculate the minimum price at which they are willing to prove a re
 
 - Cycle-count of the program execution, determining the proving cost.
 - Lock-in stake required
-- Timeout length, determining how long they have to complete the proof.
+- Timeout and LockTimeout length, determining how long they have to complete the proof.
 - Input and program size, determining bandwidth costs to download the request.
 
 It is also worth noting that the prover's software will download the ELF binary, from the request's image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.

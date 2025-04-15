@@ -39,10 +39,10 @@ Please see [Installing the Boundless CLI](/developers/tutorials/request#installi
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
+source <(just env testnet)
 
-# Example: 'deposit-stake 100'
-boundless-cli deposit-stake <HP_TO_DEPOSIT>
+# Example: 'account deposit-stake 100'
+boundless-cli account deposit-stake <HP_TO_DEPOSIT>
 ```
 
 #### Check Current Stake Balance
@@ -50,12 +50,12 @@ boundless-cli deposit-stake <HP_TO_DEPOSIT>
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-export BOUNDLESS_MARKET_ADDRESS=<BOUNDLESS_MARKET_ADDR>
+source <(just env testnet)
 
-boundless-cli balance-of-stake [wallet_address]
+boundless-cli account stake-balance [wallet_address]
 ```
 
-You can omit the `PRIVATE_KEY` environment variable here and specify your `wallet_address` as a optional parameter to the `balance` command, i.e., `balance 0x000....`
+You can omit the `PRIVATE_KEY` environment variable here and specify your `wallet_address` as a optional parameter to the `balance` command, i.e., `account balance 0x000....`
 
 ### Settings in Broker.toml
 
