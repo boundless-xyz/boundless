@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::contracts::{
-    boundless_market::BoundlessMarketService,
-    bytecode::*,
-    hit_points::{default_allowance, HitPointsService},
-    AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
-};
 use alloy::{
     network::EthereumWallet,
     node_bindings::AnvilInstance,
@@ -29,6 +23,12 @@ use alloy::{
 use alloy_primitives::{B256, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use anyhow::{Context, Ok, Result};
+use boundless_market::contracts::{
+    boundless_market::BoundlessMarketService,
+    bytecode::*,
+    hit_points::{default_allowance, HitPointsService},
+    AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
+};
 use guest_assessor::ASSESSOR_GUEST_ID;
 use guest_set_builder::SET_BUILDER_ID;
 use guest_util::ECHO_ID;

@@ -1917,9 +1917,6 @@ dependencies = [
  "chrono",
  "clap",
  "futures-util",
- "guest-assessor",
- "guest-set-builder",
- "guest-util",
  "hex",
  "httpmock",
  "rand 0.9.0",
@@ -1945,6 +1942,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-market-test-utils"
+version = "0.7.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "alloy-sol-types",
+ "anyhow",
+ "boundless-market",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "risc0-aggregation",
+ "risc0-circuit-recursion",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
+]
+
+[[package]]
 name = "broker"
 version = "0.7.0"
 dependencies = [
@@ -1957,6 +1972,7 @@ dependencies = [
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
+ "boundless-market-test-utils",
  "bytemuck",
  "chrono",
  "clap",

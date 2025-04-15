@@ -48,10 +48,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 uuid = { workspace = true }
+boundless-market-test-utils = { workspace = true, optional = true }
+
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
-boundless-market = { workspace = true, features = ["test-utils"] }
+boundless-market = { workspace = true }
 broker = { path = ".", features = ["test-utils"] }
 elsa = "1.11"
 guest-assessor = { workspace = true }
@@ -66,4 +68,4 @@ tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }
 
 [features]
-test-utils = ["boundless-market/test-utils"]
+test-utils = ["dep:boundless-market-test-utils"]
