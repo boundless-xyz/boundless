@@ -10,6 +10,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @dev Simple mock implementation of an ERC-1271 compliant SCW.
 contract MockSmartContractWallet is IERC1271 {
     bytes private expectedSignature;
+    uint256 private gasCost = 0;
     address private owner;
     IBoundlessMarket public immutable market;
     bytes4 internal constant MAGICVALUE = 0x1626ba7e; // bytes4(keccak256("isValidSignature(bytes32,bytes)")
@@ -24,7 +25,23 @@ contract MockSmartContractWallet is IERC1271 {
         expectedSignature = _expectedSignature;
     }
 
+    function setGasCost(uint256 _gasCost) external {
+        gasCost = _gasCost;
+    }
+
     function isValidSignature(bytes32, bytes memory _signature) external view returns (bytes4) {
+        // Consume gas by doing SLOAD operations to random slots
+        uint256 startGas = gasleft();
+        uint256 i = 0;
+        while (startGas - gasleft() < gasCost) {
+            bytes32 slot = keccak256(abi.encode(i));
+            bytes32 x;
+            assembly {
+                x := sload(slot)
+            }
+            i++;
+        }
+
         if (keccak256(_signature) == keccak256(expectedSignature)) {
             return MAGICVALUE;
         }

@@ -173,7 +173,7 @@ impl Level {
                 if !content.is_empty() {
                     processed_lines.push(content.to_string());
                 }
-            } else if !trimmed.starts_with('#') {
+            } else if trimmed != "#" {
                 let line = line.replace("// [!code focus]", "").trim_end().to_string();
                 let line = line.replace("showLineNumbers", "").trim_end().to_string();
                 if !line.trim().is_empty() {

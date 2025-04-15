@@ -3,17 +3,9 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { ChainId, getServiceNameV1 } from '../../util';
+import { getServiceNameV1 } from '../../util';
 
 const SERVICE_NAME_BASE = 'order-stream';
-
-const getEnvVar = (name: string) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Environment variable ${name} is not set`);
-  }
-  return value;
-};
 
 export class OrderStreamInstance extends pulumi.ComponentResource {
   public lbUrl: pulumi.Output<string>;
@@ -22,7 +14,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
   constructor(
     name: string,
     args: {
-      chainId: ChainId;
+      chainId: string;
       ciCacheSecret?: pulumi.Output<string>;
       dockerDir: string;
       dockerTag: string;
@@ -34,7 +26,6 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       boundlessAddress: string;
       vpcId: pulumi.Output<string>;
       rdsPassword: pulumi.Output<string>;
-      acmCertArn?: pulumi.Output<string>;
       albDomain?: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
       bypassAddrs: string;
@@ -51,7 +42,6 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       orderStreamPingTime, 
       privSubNetIds, 
       pubSubNetIds, 
-      acmCertArn, 
       githubTokenSecret, 
       minBalance, 
       boundlessAddress, 
@@ -63,11 +53,11 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     } = args;
     
     const stackName = pulumi.getStack();
-    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE, chainId);
+    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
 
     // If we're in prod and have a domain, create a cert
     let cert: aws.acm.Certificate | undefined;
-    if (stackName === 'prod' && albDomain) {
+    if (stackName.includes('prod') && albDomain) {
       cert = new aws.acm.Certificate(`${serviceName}-cert`, {
         domainName: pulumi.interpolate`${albDomain}`,
         validationMethod: "DNS",
@@ -95,7 +85,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     // Optionally add in the gh token secret and sccache s3 creds to the build ctx
     let buildSecrets = {};
     if (ciCacheSecret !== undefined) {
-      const cacheFileData = ciCacheSecret.apply((filePath) => fs.readFileSync(filePath, 'utf8'));
+      const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
       buildSecrets = {
         ci_cache_creds: cacheFileData,
       };
@@ -147,13 +137,14 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       ],
     });
 
-
+    // If we have a cert and a domain, use it, and enable https.
+    // Otherwise we use the default lb endpoint that AWS provides that only supports http.
     let listener: awsx.types.input.lb.ListenerArgs;
-    if (acmCertArn !== undefined) {
+    if (cert && albDomain) {
       listener = {
         port: 443,
         protocol: 'HTTPS',
-        certificateArn: acmCertArn,
+        certificateArn: cert.arn.apply((arn) => arn),
       };
     } else {
       listener = {
@@ -266,7 +257,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         allow: {},
       },
       name: `${serviceName}-acl`,
-      description: 'WebACL for order stream service',
+      description: `WebACL for order stream service ${chainId}`,
       rules: [
         // IP Reputation - AWS managed
         {

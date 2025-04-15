@@ -44,13 +44,20 @@ pub struct BalanceAlertLayer {
 /// and errors, warns or trace logs accordingly
 ///
 /// # Examples
-/// ```ignore
+/// ```no_run
+/// # use alloy::primitives::{U256, utils::parse_ether};
+/// # use alloy::providers::ProviderBuilder;
+/// # use alloy::network::EthereumWallet;
+/// # use alloy::signers::local::LocalSigner;
+/// # use boundless_market::balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer};
+/// let wallet = EthereumWallet::from(LocalSigner::random());
 /// let provider = ProviderBuilder::new()
 ///     .layer(BalanceAlertLayer::new(BalanceAlertConfig {
 ///         watch_address: wallet.default_signer().address(),
-///         warn_threshold: parse_ether("0.1")?,
-///         error_threshold: parse_ether("0.1")?,
+///         warn_threshold: Some(parse_ether("0.1")?),
+///         error_threshold: Some(parse_ether("0.1")?),
 ///     }));
+/// # anyhow::Ok(())
 /// ```
 impl BalanceAlertLayer {
     /// Creates a new BalanceAlertLayer with the given configuration.

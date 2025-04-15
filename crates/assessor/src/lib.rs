@@ -75,7 +75,7 @@ impl Fulfillment {
         // the address, and using it to verify the signature instead of recovering the
         // public key. It would save ~1M cycles.
         let recovered = signature.recover_address_from_prehash(&hash)?;
-        let client_addr = self.request.client_address()?;
+        let client_addr = self.request.client_address();
         if recovered != client_addr {
             return Err(Error::SignatureVerificationError {
                 recovered_addr: recovered,
