@@ -128,13 +128,6 @@ pub struct MarketConf {
     ///
     /// Maximum number of concurrent lockin requests that can be processed at once
     pub max_concurrent_locks: Option<u32>,
-    /// Fill slashed orders altruistically
-    ///
-    /// If an order is detected to have been slashed but is still unexpired
-    /// setting this to true will have the broker attempt to fill the order regardless of profitability.
-    /// This is useful for provers who want to provide a liveness backstop for slashed orders
-    #[serde(default)]
-    pub fill_slashed_orders_altruistically: bool,
 }
 
 impl Default for MarketConf {
@@ -162,7 +155,6 @@ impl Default for MarketConf {
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
             max_concurrent_locks: None,
-            fill_slashed_orders_altruistically: false,
         }
     }
 }

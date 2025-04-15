@@ -550,20 +550,11 @@ where
         order: &Order,
         proof_res: &ProofResult,
     ) -> Result<OrderPricingOutcome, PriceOrderErr> {
-        let (config_min_mcycle_price_stake_tokens, fill_slashed_orders_altruistically) = {
+        let config_min_mcycle_price_stake_tokens = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            (
-                parse_ether(&config.market.mcycle_price_stake_token)
-                    .context("Failed to parse mcycle_price")?,
-                config.market.fill_slashed_orders_altruistically,
-            )
+            parse_ether(&config.market.mcycle_price_stake_token)
+                .context("Failed to parse mcycle_price")?
         };
-
-        // If we are altruistically filling slashed orders, we don't care about the price
-        if fill_slashed_orders_altruistically {
-            tracing::info!("Ignoring profitability check for order {order_id:x}");
-            return Ok(ProveImmediate);
-        }
 
         let total_cycles = U256::from(proof_res.stats.total_cycles);
 
@@ -1850,8 +1841,7 @@ mod tests {
     async fn price_unprofitable_slashed_unfulfilled_order_if_configured() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.mcycle_price_stake_token = "0.0000001".into();
-            config.load_write().unwrap().market.fill_slashed_orders_altruistically = true;
+            config.load_write().unwrap().market.mcycle_price_stake_token = "0".into();
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
