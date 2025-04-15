@@ -3048,6 +3048,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "boundless-market",
+ "boundless-market-test-utils",
  "broker",
  "clap",
  "dotenvy",
