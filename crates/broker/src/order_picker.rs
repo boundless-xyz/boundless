@@ -247,9 +247,15 @@ where
         // a tight estimate, although improving this estimate will allow for a more profit.
         let gas_price =
             self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
-        let order_gas = U256::from(
-            self.estimate_gas_to_lock(order).await? + self.estimate_gas_to_fulfill(order).await?,
-        );
+        let order_gas = if lock_expired {
+            // No need to include lock gas if its a lock expired order
+            U256::from(self.estimate_gas_to_fulfill(order).await?)
+        } else {
+            U256::from(
+                self.estimate_gas_to_lock(order).await?
+                    + self.estimate_gas_to_fulfill(order).await?,
+            )
+        };
         let order_gas_cost = U256::from(gas_price) * order_gas;
         let available_gas = self.available_gas_balance().await?;
         let available_stake = self.available_stake_balance().await?;
@@ -272,7 +278,7 @@ where
         }
 
         if order_gas_cost > available_gas {
-            tracing::warn!("Estimated there will be insufficient gas to lock and fill order {order_id:x} after locking and fulfilling pending orders; available_gas {} ether", format_ether(available_gas));
+            tracing::warn!("Estimated there will be insufficient gas for order {order_id:x} after locking and fulfilling pending orders; available_gas {} ether", format_ether(available_gas));
             self.db.skip_order(order_id).await.context("Failed to delete order")?;
             return Ok(Skip);
         }
@@ -304,7 +310,11 @@ where
 
         if skip_preflight {
             // If we skip preflight we lockin the order asap
-            return Ok(Lock { target_timestamp_secs: 0, expiry_secs: expiration });
+            if lock_expired {
+                return Ok(ProveImmediate);
+            } else {
+                return Ok(Lock { target_timestamp_secs: 0, expiry_secs: expiration });
+            }
         }
 
         // TODO: Move URI handling like this into the prover impls
