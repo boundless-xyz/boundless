@@ -77,7 +77,7 @@ struct MainArgs {
     /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
-    #[clap(long, default_value = "0")]
+    #[clap(long, default_value = "240")] // 240s = ~20 Sepolia blocks
     ramp_up: u32,
     /// Number of seconds before the request lock-in expires.
     #[clap(long, default_value = "900")]
@@ -105,6 +105,10 @@ struct MainArgs {
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
 }
+
+/// An estimated upper bound on the cost of locking an fulfilling a request.
+/// TODO: Make this configurable.
+const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 1_000_000;
 
 #[derive(Args, Clone, Debug)]
 #[group(required = false, multiple = false)]
@@ -206,11 +210,23 @@ async fn run(args: &MainArgs) -> Result<()> {
             .checked_mul(U256::from(cycles_count))
             .unwrap()
             .div_ceil(U256::from(1_000_000));
-        let max_price = args
+        let mcycle_max_price = args
             .max_price_per_mcycle
             .checked_mul(U256::from(cycles_count))
             .unwrap()
             .div_ceil(U256::from(1_000_000));
+
+        // Add to the max price an estimated upper bound on the gas costs.
+        // Note that the auction will allow us to pay the lowest price a prover will accept.
+        let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
+        let gas_cost_estimate = gas_price * LOCK_FULFILL_GAS_UPPER_BOUND;
+        let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
+        tracing::info!(
+            "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
+            format_units(max_price, "ether")?,
+            format_units(mcycle_max_price, "ether")?,
+            format_units(gas_cost_estimate, "ether")?,
+        );
 
         tracing::info!(
             "{} cycles count {} min_price in ether {} max_price in ether",
