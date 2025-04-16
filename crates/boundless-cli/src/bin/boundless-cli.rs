@@ -537,10 +537,10 @@ where
             Ok(())
         }
         AccountCommands::DepositStake { amount } => {
-            tracing::info!("Depositing {} HP as stake", amount);
+            tracing::info!("Depositing {} HP as stake", format_ether(*amount));
             match boundless_market.deposit_stake_with_permit(*amount, &private_key).await {
                 Ok(_) => {
-                    tracing::info!("Successfully deposited {} HP as stake", amount);
+                    tracing::info!("Successfully deposited {} HP as stake", format_ether(*amount));
                     Ok(())
                 }
                 Err(e) => {
@@ -556,16 +556,16 @@ where
             }
         }
         AccountCommands::WithdrawStake { amount } => {
-            tracing::info!("Withdrawing {} HP from stake", amount);
+            tracing::info!("Withdrawing {} HP from stake", format_ether(*amount));
             boundless_market.withdraw_stake(*amount).await?;
-            tracing::info!("Successfully withdrew {} HP from stake", amount);
+            tracing::info!("Successfully withdrew {} HP from stake", format_ether(*amount));
             Ok(())
         }
         AccountCommands::StakeBalance { address } => {
             let addr = address.unwrap_or(boundless_market.caller());
             tracing::info!("Checking stake balance for address {}", addr);
             let balance = boundless_market.balance_of_stake(addr).await?;
-            tracing::info!("Stake balance for address {}: {} HP", addr, balance);
+            tracing::info!("Stake balance for address {}: {} HP", addr, format_ether(balance));
             Ok(())
         }
     }
@@ -1254,6 +1254,7 @@ mod tests {
 
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
+        primitives::utils::format_units,
         providers::WalletProvider,
     };
     use boundless_market::{
@@ -1390,14 +1391,44 @@ mod tests {
         };
 
         run(&args).await.unwrap();
+        assert!(logs_contain(&format!(
+            "Depositing {} ETH",
+            format_units(default_allowance(), "ether").unwrap()
+        )));
+        assert!(logs_contain(&format!(
+            "Successfully deposited {} ETH",
+            format_units(default_allowance(), "ether").unwrap()
+        )));
 
         let balance = ctx.prover_market.balance_of(ctx.customer_signer.address()).await.unwrap();
         assert_eq!(balance, default_allowance());
+
+        args.command = Command::Account(Box::new(AccountCommands::Balance {
+            address: Some(ctx.customer_signer.address()),
+        }));
+        run(&args).await.unwrap();
+        assert!(logs_contain(&format!(
+            "Checking balance for address {}",
+            ctx.customer_signer.address()
+        )));
+        assert!(logs_contain(&format!(
+            "Balance for address {}: {} ETH",
+            ctx.customer_signer.address(),
+            format_units(default_allowance(), "ether").unwrap()
+        )));
 
         args.command =
             Command::Account(Box::new(AccountCommands::Withdraw { amount: default_allowance() }));
 
         run(&args).await.unwrap();
+        assert!(logs_contain(&format!(
+            "Withdrawing {} ETH",
+            format_units(default_allowance(), "ether").unwrap()
+        )));
+        assert!(logs_contain(&format!(
+            "Successfully withdrew {} ETH",
+            format_units(default_allowance(), "ether").unwrap()
+        )));
 
         let balance = ctx.prover_market.balance_of(ctx.customer_signer.address()).await.unwrap();
         assert_eq!(balance, U256::from(0));
@@ -1436,16 +1467,46 @@ mod tests {
         };
 
         run(&args).await.unwrap();
+        assert!(logs_contain(&format!(
+            "Depositing {} HP as stake",
+            format_units(default_allowance(), "ether").unwrap()
+        )));
+        assert!(logs_contain(&format!(
+            "Successfully deposited {} HP as stake",
+            format_units(default_allowance(), "ether").unwrap()
+        )));
 
         let balance =
             ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap();
         assert_eq!(balance, default_allowance());
+
+        args.command = Command::Account(Box::new(AccountCommands::StakeBalance {
+            address: Some(ctx.prover_signer.address()),
+        }));
+        run(&args).await.unwrap();
+        assert!(logs_contain(&format!(
+            "Checking stake balance for address {}",
+            ctx.prover_signer.address()
+        )));
+        assert!(logs_contain(&format!(
+            "Stake balance for address {}: {} HP",
+            ctx.prover_signer.address(),
+            format_units(default_allowance(), "ether").unwrap()
+        )));
 
         args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
             amount: default_allowance(),
         }));
 
         run(&args).await.unwrap();
+        assert!(logs_contain(&format!(
+            "Withdrawing {} HP from stake",
+            format_units(default_allowance(), "ether").unwrap()
+        )));
+        assert!(logs_contain(&format!(
+            "Successfully withdrew {} HP from stake",
+            format_units(default_allowance(), "ether").unwrap()
+        )));
 
         let balance =
             ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap();

@@ -104,11 +104,13 @@ jobs:
       - name: cargo doc
         run: cargo doc --locked
 
+        # NOTE: We set boundless-order-generator/zeth to ensure the Zeth order generator at least passes cargo clippy.
+        # This flag is not set for build or test since building Zeth is quite slow.
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
-        run: cargo clippy --locked --all-targets
+        run: cargo clippy --locked --all-targets -F boundless-order-generator/zeth
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.

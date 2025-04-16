@@ -6,7 +6,7 @@ Each request needs to specify how much the requestor is willing to pay to receiv
 Each prover on the decentralized market will decide whether that price is acceptable to them, and compete to fulfill those requests.
 
 The offer section of a request specifies the parameters of the [reverse Dutch auction](https://en.wikipedia.org/wiki/Reverse_auction#Dutch_reverse_auctions), part of the [proof lifecycle](/developers/proof-lifecycle).
-This is the mechanism by which the requestor and prover can aggree upon a price, and ensures the requestor will get the best price available from any prover on the market.
+This is the mechanism by which the requestor and prover can agree upon a price, and ensures the requestor will get the best price available from any prover on the market.
 
 ### Contents of an Offer
 
@@ -15,36 +15,37 @@ An offer contains the following:
 - Pricing parameters
 - Minimum price
 - Maximum price
-- Bidding start (defined as a block number)
-- Length of ramp-up period (measured in blocks since the start of the bid)
-- Timeout (measured in blocks since the start of the bid)
-- Lock-in stake
+- Bidding start (timestamp measured in seconds since the UNIX epoch)
+- Length of ramp-up period (measured in seconds since bidding start)
+- Lock timeout (measured in seconds since bidding start)
+- Timeout (measured in seconds since bidding start)
+- Lock stake (measured in "HP" staking tokens)
 
 For example, an offer might specify:
 
 - Pricing parameters
   - Minimum price: 0.001 Ether
   - Maximum price: 0.002 Ether
-- Bidding start: Block number 1000
-- Length of ramp-up period: 5 blocks
-- Timeout: 100 blocks
-- Lock-in stake: 2 HP
+- Bidding start: 1000 seconds since the UNIX epoch
+- Length of ramp-up period: 50 seconds
+- Lock timeout: 100 seconds
+- Timeout: 200 seconds
+- Lock stake: 2 HP
 
-The pricing parameters are used to determine the reward that gets paid-out when the request is fulfilled (ie, the proof has been verified). The reward is governed by the price function. Its inputs are:
+The pricing parameters are used to determine the reward that gets paid-out when the request is fulfilled (ie, the proof has been verified).
 
-- The offer.
-- The number of blocks that have passed since the bidding started.
+- During the discovery period (the initial phase of the auction before bidding start), the price is just the minimum Ether price.
+- During the ramp-up period (which immediately follows the discovery period), the price grows linearly up-to the maximum Ether price.
+- After the ramp-up period, the price remains at the maximum Ether price until lock timeout.
+- After the lock timeout, the price in Ether drops to zero.
+- If the request was locked, but not fulfilled, then a portion of the lock stake is slashed from the prover that locked the request and awarded to anyone that fulfills the request before timeout.
 
-The function works like so:
+Continuing with the example offer given above, the price is constant (0.001 Ether, its minimum) until bidding starts at timestamp 1000;
+at timestamp 1010 it jumps to 0.0012 Ether; on 1020 it jumps to 0.0014 Ether; on 1050 it reaches 0.002 Ether (its maximum), and remains at that value until the lock expires.
 
-- During the discovery period (the initial phase of the auction before bidding start), the price is just the minimum price.
-- During the ramp-up period (which immediately follows the discovery period), the price grows linearly up-to the maximum price.
-- After the ramp-up period, the price is just the maximum price.
+Provers can lock a request at any time before the lock timeout. When a prover locks-in a request, they are agreeing to be paid the reward offered by this function at the time of their bid. They are also agreeing to be slashed if they do not fulfill the request before the lock timeout.
 
-Continuing with the example offer given above, the price is constant (0.001 Ether, its minimum) for the first 10 blocks;
-on block 11 it jumps to 0.0012 Ether; on 12 it jumps to 0.0014 Ether; on 15 it reaches 0.002 Ether (its maximum), and remains at that value until the offer expires.
-
-When a prover locks-in a request, they are agreeing to be paid the reward offered by this function at the time of their bid.
+After the lock expires, the price in Ether drops to 0. If the request was locked but not fulfilled, the prover that locked the request is slashed of their lock stake. A portion (currently 25%) of the lock stake is used to price the request. Therefore, the price of the request is 0.5 HP until the request expires.
 
 ## 📟 Pricing Calculator
 
