@@ -28,6 +28,7 @@ use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};
 use storage::UriHandlerBuilder;
+use task::{RetryPolicy, Supervisor};
 use tokio::task::JoinSet;
 use url::Url;
 
@@ -378,7 +379,8 @@ where
 
         let cloned_chain_monitor = chain_monitor.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, cloned_chain_monitor)
+            Supervisor::new(cloned_chain_monitor)
+                .spawn()
                 .await
                 .context("Failed to start chain monitor")?;
             Ok(())
@@ -399,7 +401,10 @@ where
         tracing::debug!("Estimated block time: {block_times}");
 
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, market_monitor).await.context("Failed to start market monitor")?;
+            Supervisor::new(market_monitor)
+                .spawn()
+                .await
+                .context("Failed to start market monitor")?;
             Ok(())
         });
 
@@ -417,7 +422,8 @@ where
                     self.args.private_key.clone(),
                 ));
             supervisor_tasks.spawn(async move {
-                task::supervisor(1, offchain_market_monitor)
+                Supervisor::new(offchain_market_monitor)
+                    .spawn()
                     .await
                     .context("Failed to start offchain market monitor")?;
                 Ok(())
@@ -462,7 +468,7 @@ where
             chain_monitor.clone(),
         ));
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
+            Supervisor::new(order_picker).spawn().await.context("Failed to start order picker")?;
             Ok(())
         });
 
@@ -475,7 +481,7 @@ where
             self.args.boundless_market_address,
         )?);
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, order_monitor).await.context("Failed to start order monitor")?;
+            Supervisor::new(order_monitor).spawn().await.context("Failed to start order monitor")?;
             Ok(())
         });
 
@@ -490,7 +496,8 @@ where
         );
 
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, proving_service)
+            Supervisor::new(proving_service)
+                .spawn()
                 .await
                 .context("Failed to start proving service")?;
             Ok(())
@@ -518,7 +525,11 @@ where
         );
 
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, aggregator).await.context("Failed to start aggregator service")?;
+            Supervisor::new(aggregator)
+                .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                .spawn()
+                .await
+                .context("Failed to start aggregator service")?;
             Ok(())
         });
 
@@ -532,7 +543,11 @@ where
             set_builder_img_data.0,
         )?);
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, submitter).await.context("Failed to start submitter service")?;
+            Supervisor::new(submitter)
+                .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                .spawn()
+                .await
+                .context("Failed to start submitter service")?;
             Ok(())
         });
 
