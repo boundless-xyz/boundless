@@ -13,6 +13,7 @@ use alloy::{
         utils::{format_units, parse_ether},
         Address, U256,
     },
+    providers::Provider,
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Result};
