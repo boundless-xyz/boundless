@@ -15,7 +15,7 @@
 #![allow(missing_docs)]
 #![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
 
-use std::{borrow::Cow, fmt::Debug};
+use std::{borrow::Cow, fmt::Debug, marker::PhantomData};
 
 use url::Url;
 use risc0_zkvm::{Journal, ReceiptClaim};
@@ -113,15 +113,16 @@ pub trait RequestBuilder<Input> {
     /// Error type that may be returned by this filler.
     type Error: core::error::Error;
 
-    async fn build(&self, input: impl Into<Input>) -> Result<ProofRequest, Self::Error>;
+    async fn build(&self, input: Input) -> Result<ProofRequest, Self::Error>;
 }
 
-pub trait Layer<Input> {
+pub trait Layer {
+    type Input;
     type Output;
     /// Error type that may be returned by this filler.
     type Error;
 
-    async fn process(&self, input: impl Into<Input>) -> Result<Self::Output, Self::Error>;
+    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error>;
 }
 
 pub struct ProgramAndInput<'a, 'b> {
@@ -129,23 +130,24 @@ pub struct ProgramAndInput<'a, 'b> {
     pub input: Cow<'b, [u8]>,
 }
 
-impl<'a, 'b> From<(&'a [u8], &'b [u8])> for ProgramAndInput<'a, 'b> {
-    fn from(tuple: (&'a [u8], &'b [u8])) -> Self {
-        Self {
-            program: Cow::Borrowed(tuple.0),
-            input: Cow::Borrowed(tuple.1),
+impl<'a, 'b> Into<ProgramAndInput<'a, 'b>> for (&'a [u8], &'b [u8]) {
+    fn into(self) -> ProgramAndInput<'a, 'b> {
+        ProgramAndInput {
+            program: Cow::Borrowed(self.0),
+            input: Cow::Borrowed(self.1),
         }
     }
 }
 
 pub struct StorageLayer {}
 
-impl<'a, 'b> Layer<ProgramAndInput<'a, 'b>> for StorageLayer
+impl<'a, 'b> Layer for StorageLayer
 {
+    type Input = ProgramAndInput<'a, 'b>;
     type Error = anyhow::Error;
     type Output = (Url, Input);
 
-    async fn process(&self, _input: impl Into<ProgramAndInput<'a, 'b>>) -> anyhow::Result<Self::Output> {
+    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
@@ -158,33 +160,62 @@ pub struct PreflightInfo {
     pub receipt_claim: ReceiptClaim,
 }
 
-impl Layer<(Url, Input)> for PreflightLayer {
-    type Error = anyhow::Error;
+impl Layer for PreflightLayer {
+    type Input = (Url, Input);
     type Output = (Url, Input, PreflightInfo);
+    type Error = anyhow::Error;
 
-    async fn process(&self, _input: impl Into<(Url, Input)>) -> anyhow::Result<Self::Output> {
+    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
 
 pub struct RequestIdLayer {}
 
-impl Layer<(Url, Input, PreflightInfo)> for RequestIdLayer {
-    type Error = anyhow::Error;
+impl Layer for RequestIdLayer {
+    type Input = ();
     type Output = (Url, Input, PreflightInfo, RequestId);
+    type Error = anyhow::Error;
 
-    async fn process(&self, _input: impl Into<(Url, Input, PreflightInfo)>) -> anyhow::Result<Self::Output> {
+    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
 
 pub struct OfferLayer {}
 
-impl Layer<(Url, Input, PreflightInfo, RequestId)> for OfferLayer {
-    type Error = anyhow::Error;
+impl Layer for OfferLayer {
+    type Input = (Url, Input, PreflightInfo, RequestId);
     type Output = (Url, Input, PreflightInfo, Offer, RequestId);
+    type Error = anyhow::Error;
 
-    async fn process(&self, _input: impl Into<(Url, Input, PreflightInfo, RequestId)>) -> anyhow::Result<Self::Output> {
+    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
+        todo!()
+    }
+}
+
+pub trait Merge<T> {
+    type Output;
+
+    fn merge(self, data: T) -> Self::Output;
+}
+
+pub struct Pipe<Input, A, B> {
+    pub a: A,
+    pub b: B,
+    phantom_input: PhantomData<Input>,
+}
+
+impl<A, B> Layer for Pipe<Input, A, B>
+where A: Layer,
+      B: Layer,
+      Input: Clone,
+      <Input as Merge<A::Output>>: Into<B::Input>,
+{
+    type Input = Input;
+    type Output = <<Input as Merge<A::Output>> as Merge<B::Output>>::Output;
+
+    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
