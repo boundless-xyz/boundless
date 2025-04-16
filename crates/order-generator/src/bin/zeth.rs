@@ -34,6 +34,10 @@ use zeth_preflight_ethereum::RethBlockBuilder;
 
 const RETRY_DELAY_SECS: u64 = 5;
 
+/// An estimated upper bound on the cost of locking an fulfilling a request.
+/// TODO: Make this configurable.
+const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 1_000_000;
+
 /// Arguments of order-generator-zeth CLI.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
