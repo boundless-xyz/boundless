@@ -2,6 +2,8 @@ import * as pulumi from '@pulumi/pulumi';
 import { OrderStreamInstance } from './components/order-stream';
 import { getEnvVar } from '../util';
 
+require('dotenv').config();
+
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
