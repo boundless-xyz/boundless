@@ -357,7 +357,7 @@ where
     tracing::info!(
         "Submitted request for block {} {} with id {}",
         build_args.block_number,
-        params.offchain.then(|| "offchain").unwrap_or("onchain"),
+        if params.offchain { "offchain" } else { "onchain" },
         request_id
     );
 
