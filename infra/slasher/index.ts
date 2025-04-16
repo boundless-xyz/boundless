@@ -20,7 +20,7 @@ export = () => {
   
   const interval = config.require('INTERVAL');
   const retries = config.require('RETRIES');
-  const skipAddresses = config.require('SKIP_ADDRESSES');
+  const skipAddresses = config.get('SKIP_ADDRESSES');
 
   const baseStackName = config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
@@ -158,7 +158,7 @@ export = () => {
           essential: true,
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/boundless-slasher --interval ${interval} --retries ${retries} --skip-addresses ${skipAddresses}`,
+            `/app/boundless-slasher --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
           ],
           environment: [
             {
