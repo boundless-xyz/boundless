@@ -88,7 +88,7 @@ struct Args {
     /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
-    #[clap(long, default_value = "0")]
+    #[clap(long, default_value = "240")] // 240s = ~20 Sepolia blocks
     ramp_up: u32,
     /// Amount of stake tokens required, in HP.
     #[clap(long, value_parser = parse_ether, default_value = "5")]
@@ -300,16 +300,29 @@ where
     let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
     let min_price =
         params.min.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
-    let max_price =
+    let mcycle_max_price =
         params.max.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
 
     tracing::info!(
-        "{} cycles count {} mcycles count {} min_price in ether {} max_price in ether",
+        "{} cycles count {} mcycles count {} min_price in ether {} mcycle_max_price in ether",
         cycles_count,
         cycles_count / 1_000_000,
         format_units(min_price, "ether")?,
-        format_units(max_price, "ether")?
+        format_units(mcycle_max_price, "ether")?
     );
+
+    // Add to the max price an estimated upper bound on the gas costs.
+    // Add a 10% buffer to the gas costs to account for flucuations after submission.
+    let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
+    let gas_cost_estimate = gas_price + (gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
+    let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
+    tracing::info!(
+        "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
+        format_units(max_price, "ether")?,
+        format_units(mcycle_max_price, "ether")?,
+        format_units(gas_cost_estimate, "ether")?,
+    );
+
     let journal = session_info.journal;
 
     let request = ProofRequest::builder()
