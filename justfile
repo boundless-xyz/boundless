@@ -216,16 +216,6 @@ localnet action="up": check-deps
         exit 1
     fi
 
-env NETWORK:
-	#!/usr/bin/env bash
-	FILE=".env.{{NETWORK}}"
-	if [ -f "$FILE" ]; then
-		grep -v '^#' "$FILE" | tr -d '"' | xargs -I {} echo export {}
-	else
-		echo "Error: $FILE file not found." >&2
-		exit 1
-	fi
-
 # Update cargo dependencies
 cargo-update:
     cargo update
