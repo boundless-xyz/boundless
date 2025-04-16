@@ -12,12 +12,12 @@ const DEVELOPERS_ITEMS = [
     text: "Introduction",
     items: [
       {
-        text: "Why use Boundless?",
-        link: "/developers/why",
-      },
-      {
         text: "What is Boundless?",
         link: "/developers/what",
+      },
+      {
+        text: "Why use Boundless?",
+        link: "/developers/why",
       },
       {
         text: "Proof Lifecycle",
@@ -37,7 +37,7 @@ const DEVELOPERS_ITEMS = [
         link: "/developers/quick-start",
       },
       {
-        text: "Tutorials",
+        text: "Core Concepts",
         items: [
           {
             text: "Build a Program",
@@ -62,6 +62,27 @@ const DEVELOPERS_ITEMS = [
         ],
       },
       {
+        text: "Tutorials",
+        items: [
+          {
+            text: "Callbacks",
+            link: "/developers/tutorials/feature-callbacks",
+          },
+          {
+            text: "Smart Contract Requestors",
+            link: "/developers/tutorials/feature-smart-contract-requestor",
+          },
+          {
+            text: "Proof Types",
+            link: "/developers/tutorials/feature-proof-types",
+          },
+          {
+            text: "Proof Composition",
+            link: "/developers/tutorials/feature-proof-composition",
+          },
+        ],
+      },
+      {
         text: "Dev Tooling",
         items: [
           {
@@ -78,11 +99,11 @@ const DEVELOPERS_ITEMS = [
         text: "Smart Contracts",
         items: [
           {
-            text: "Boundless Smart Contract Reference",
-            link: "/developers/smart-contracts/smart-contract-docs",
+            text: "Boundless Contracts",
+            link: "/developers/smart-contracts/reference",
           },
           {
-            text: "RISC Zero Verifier Contracts",
+            text: "Verifier Contracts",
             link: "/developers/smart-contracts/verifier-contracts",
           },
           {
@@ -131,8 +152,8 @@ const DEVELOPERS_ITEMS = [
     text: "Hybrid Rollups with OP Kailua",
     items: [
       {
-        text: "Why OP Kailua?",
-        link: "/developers/kailua/why",
+        text: "Introducing OP Kailua",
+        link: "/developers/kailua/how",
       },
       {
         text: "Quick Start",
@@ -151,12 +172,12 @@ const PROVERS_ITEMS = [
     text: "Introduction",
     items: [
       {
-        text: "Why use Boundless?",
-        link: "/provers/why",
-      },
-      {
         text: "What is Boundless?",
         link: "/provers/what",
+      },
+      {
+        text: "Why use Boundless?",
+        link: "/provers/why",
       },
       {
         text: "Proof Lifecycle",

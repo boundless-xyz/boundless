@@ -97,7 +97,7 @@ let input_url = boundless_client.upload_input(&input_bytes).await?;
 
 Inputs can also be included directly into the request instead as in-line input.
 When submitting requests onchain, this will cost more gas if the inputs are large.
-The off-chain order-stream service also places limits on the size of in-line input.
+The offchain order-stream service also places limits on the size of in-line input.
 
 > Relevant links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [Pinata](https://pinata.cloud), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload\_image for PinataStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/struct.PinataStorageProvider.html)
 
@@ -208,8 +208,8 @@ let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 </StripRustCodeComments>
 
 This will send the request onchain in a transaction.
-Using `boundless_client.submit_request_offchain`, you can send your request off-chain through the order-stream service.
-Off-chain requests will not cost any gas, but does require you to deposit funds to the market first.
+Using `boundless_client.submit_request_offchain`, you can send your request offchain through the order-stream service.
+Offchain requests will not cost any gas, but does require you to deposit funds to the market first.
 
 The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
 
@@ -230,7 +230,7 @@ let (request_id, expires_at) = boundless_client.submit_request_with_signer(&requ
 ```
 </StripRustCodeComments>
 
-Similarly, using `boundless_client.submit_request_offchain_with_signer`, will send your request off-chain through the order-stream service.
+Similarly, using `boundless_client.submit_request_offchain_with_signer`, will send your request offchain through the order-stream service.
 
 > Relevant links: [Signers supported by alloy](https://alloy.rs/examples/wallets/index.html)
 
@@ -301,7 +301,7 @@ During this current Boundless phase, provers require HP tokens for lock-in stake
 :::
 
 
-Below is an example of a `request.yaml` file that can be used with the `boundless-cli submit-request` command.
+Below is an example of a `request.yaml` file that can be used with the `boundless-cli submit request` command.
 
 ```yaml [request.yaml]
 # Unique ID for this request, constructed from the client address and a 32-bit index.
@@ -311,28 +311,35 @@ id: 0 # if set to 0, gets overwritten by a random id
 # Specifies the requirements for the delivered proof, including the program that must be run,
 # and the constraints on the journal's value, which define the statement to be proven.
 requirements:
-  imageId: "722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4"
-  predicate:
-    predicateType: PrefixMatch
-    data: "57656420"
+    imageId: "53cb4210cf2f5bf059e3a4f7bcbb8e21ddc5c11a690fd79e87947f9fec5522a3"
+    predicate:
+        predicateType: PrefixMatch
+        data: "53797374"
+    callback:
+        addr: "0x0000000000000000000000000000000000000000"
+        gasLimit: 0
+    selector: "00000000"
 
-# A public URI where the program (i.e., image) can be downloaded. This URI will be accessed by
+# A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.
-imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy"
+imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu"
 
 # Input to be provided to the zkVM guest execution.
+# The input data is a encoded guest environment.
+# See crates/boundless-market/src/input.rs for additional details.
 input:
-  inputType: Inline
-  data: "00576564204a756c2020332031343a33373a31322050445420323032340a"
+    inputType: Inline
+    data: "0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"
 
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 offer:
-  minPrice: 1000000000000000 # 0.001 Sepolia ETH
-  maxPrice: 2000000000000000 # 0.002 Sepolia ETH
-  biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
-  rampUpPeriod: 100
-  timeout: 300 # 1 hour at 12s block times.
-  lockStake: 5000000000000000000 # 5 Hitpoint Tokens
+    minPrice: 100000000000000
+    maxPrice: 2000000000000000
+    biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
+    rampUpPeriod: 300
+    timeout: 3600 # 1 hor
+    lockTimeout: 2700 # 45 minutes
+    lockStake: 5000000000000000000 # 5 HP tokens (set between 1 and 100)
 ```
 
 To submit a request, export or create a `.env` file with the following environment variables:
@@ -340,28 +347,29 @@ To submit a request, export or create a `.env` file with the following environme
 ```sh [Terminal]
 export RPC_URL="https://ethereum-sepolia-rpc.publicnode.com"
 export PRIVATE_KEY="YOUR_SEPOLIA_WALLET_PRIVATE_KEY"
-export BOUNDLESS_MARKET_ADDRESS="0x69c7943DA0D7e45D44Bd0cE7a2412DCdAe423788"
-export SET_VERIFIER_ADDRESS="0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd"
-export ORDER_STREAM_URL="https://order-stream.beboundless.xyz"
+export BOUNDLESS_MARKET_ADDRESS="0x006b92674E2A8d397884e293969f8eCD9f615f4C"
+export VERIFIER_ADDRESS="0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+export SET_VERIFIER_ADDRESS="0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"
+export ORDER_STREAM_URL="https://eth-sepolia.beboundless.xyz/"
 ```
 
 Then run the following command:
 
 ```sh [Terminal]
-RUST_LOG=info boundless-cli submit-request request.yaml
+RUST_LOG=info boundless-cli request submit request.yaml
 ```
 
 To wait until the submitted request has been fulfilled, the `--wait` option can be added:
 
 ```sh [Terminal]
 # [!code word:--wait]
-RUST_LOG=info boundless-cli submit-request request.yaml --wait
+RUST_LOG=info boundless-cli request submit request.yaml --wait
 ```
 
-And to submit the request to the off-chain order-stream service, make a deposit and then run `submit-request` with `--offchain`.
+And to submit the request to the offchain order-stream service, make a deposit and then run `request submit` with `--offchain`.
 
 ```sh [Terminal]
 # [!code word:--offchain]
-RUST_LOG=info boundless-cli deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
-RUST_LOG=info boundless-cli submit-request request.yaml --wait --offchain
+RUST_LOG=info boundless-cli account deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
+RUST_LOG=info boundless-cli request submit request.yaml --wait --offchain
 ```
