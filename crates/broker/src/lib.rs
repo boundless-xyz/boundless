@@ -485,7 +485,10 @@ where
             self.args.boundless_market_address,
         )?);
         supervisor_tasks.spawn(async move {
-            Supervisor::new(order_monitor).spawn().await.context("Failed to start order monitor")?;
+            Supervisor::new(order_monitor)
+                .spawn()
+                .await
+                .context("Failed to start order monitor")?;
             Ok(())
         });
 

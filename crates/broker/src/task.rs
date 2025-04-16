@@ -299,7 +299,6 @@ mod tests {
         task.tx(2).await.unwrap();
         task.close();
 
-
         let res = supervisor_task.await;
         assert!(res.unwrap_err().to_string().contains("Exceeded maximum retries for task"));
     }
