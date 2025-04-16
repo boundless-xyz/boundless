@@ -111,22 +111,22 @@ where
         tasks.spawn(self.task.spawn());
 
         while let Some(res) = tasks.join_next().await {
+            // Check if we should reset the retry counter based on how long the task ran
+            if let Some(reset_duration) = self.retry_policy.reset_after {
+                let task_duration = last_spawn_time.elapsed();
+                if task_duration >= reset_duration && retry_count > 0 {
+                    tracing::info!(
+                        "Task ran successfully for {:?}, resetting retry counter from {}",
+                        task_duration,
+                        retry_count
+                    );
+                    retry_count = 0;
+                }
+            }
             match res {
                 Ok(task_res) => match task_res {
-                    Ok(_) => {
+                    Ok(()) => {
                         tracing::debug!("Task exited cleanly");
-                        // Check if we should reset the retry counter based on how long the task ran
-                        if let Some(reset_duration) = self.retry_policy.reset_after {
-                            let task_duration = last_spawn_time.elapsed();
-                            if task_duration >= reset_duration && retry_count > 0 {
-                                tracing::info!(
-                                    "Task ran successfully for {:?}, resetting retry counter from {}",
-                                    task_duration,
-                                    retry_count
-                                );
-                                retry_count = 0;
-                            }
-                        }
                     }
                     Err(err) => match err {
                         SupervisorErr::Recover(err) => {
