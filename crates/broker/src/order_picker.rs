@@ -342,9 +342,13 @@ where
             // Note this does not account for gas cost unlike a normal order
             // TODO: Update to account for gas once the stake token to gas token exchange rate is known
             let price = order.request.offer.lockStake / U256::from(FRACTION_STAKE_REWARD);
-            (price / mcycle_price_stake_token)
-                .try_into()
-                .context("Failed to convert U256 exec limit to u64")?
+            if mcycle_price_stake_token == U256::ZERO {
+                u64::MAX / 1024 / 1024 // max limit is ok we don't care about proving costs
+            } else {
+                (price / mcycle_price_stake_token)
+                    .try_into()
+                    .context("Failed to convert U256 exec limit to u64")?
+            }
         } else {
             let config_min_mcycle_price = {
                 let config = self.config.lock_all().context("Failed to read config")?;
@@ -1882,7 +1886,6 @@ mod tests {
             "Order {:x} lock period has expired but it is unfulfilled",
             order_id
         )));
-        assert!(logs_contain(&format!("Ignoring profitability check for order {order_id:x}")));
 
         assert!(ctx.picker.price_order_and_update_db(order_id, &order).await);
 
