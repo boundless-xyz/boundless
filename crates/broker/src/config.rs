@@ -85,6 +85,13 @@ pub struct MarketConf {
     ///
     /// If enabled, all proof orders not in the allow list are skipped
     pub allow_client_addresses: Option<Vec<Address>>,
+    /// Optional allow list for submitter addresses which this broker will allow to benchmark their proving capacity
+    ///
+    /// Benchmarker orders skip preflight, pricing and will never be batched.
+    /// They also have a different strategy for building inputs to ensure they can only be processed by the intended prover
+    /// The broker will attempt to process orders originating from these addresses as quickly as possible.
+    #[serde(default)]
+    pub benchmarker_client_addresses: Vec<Address>,
     /// lockinRequest priority gas
     ///
     /// Optional additional gas to add to the transaction for lockinRequest, good
@@ -141,6 +148,7 @@ impl Default for MarketConf {
             max_stake: "0.1".to_string(),
             skip_preflight_ids: None,
             allow_client_addresses: None,
+            benchmarker_client_addresses: vec![],
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
             max_fetch_retries: Some(2),
@@ -188,6 +196,12 @@ pub struct ProverConf {
     pub set_builder_guest_path: Option<PathBuf>,
     /// Assessor ELF path
     pub assessor_set_guest_path: Option<PathBuf>,
+    /// Benchmarking prover secret
+    ///
+    /// A secret value to be prepended to the input data for benchmarking orders to prevent other provers from filling the order
+    /// This value should be obtained from the benchmarking authority (probably Boundless team) and kept secret
+    #[serde(default, with = "hex_opt_vec")]
+    pub benchmarking_prover_secret: Option<Vec<u8>>,
 }
 
 impl Default for ProverConf {
@@ -202,6 +216,7 @@ impl Default for ProverConf {
             proof_retry_sleep_ms: 1000,
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
+            benchmarking_prover_secret: None,
         }
     }
 }
@@ -402,6 +417,36 @@ impl ConfigWatcher {
         tracing::debug!("Successful startup");
 
         Ok(Self { config: ConfigLock::new(config), _monitor: monitor })
+    }
+}
+
+// Helper module so we can do #[serde(with = "hex_opt_vec")] for optional hex encoded Vec<u8>
+mod hex_opt_vec {
+    use super::*;
+    use hex::serde as hex_serde;
+
+    pub fn serialize<S>(value: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct Helper<'a>(#[serde(with = "hex_serde")] &'a Vec<u8>);
+
+        match value {
+            Some(v) => Helper(v).serialize(serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper(#[serde(with = "hex_serde")] Vec<u8>);
+
+        let helper = Option::deserialize(deserializer)?;
+        Ok(helper.map(|Helper(v)| v))
     }
 }
 

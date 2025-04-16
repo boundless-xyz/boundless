@@ -24,6 +24,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{
+    benchmark_directive,
     contracts::{boundless_market::BoundlessMarketService, RequestError},
     selector::{ProofType, SupportedSelectors},
 };
@@ -141,6 +142,43 @@ where
         }
     }
 
+    fn is_benchmark_order(&self, order_id: U256, order: &Order) -> Result<bool, PriceOrderErr> {
+        let (benchmarker_client_addresses, benchmark_directive) = {
+            let config = self.config.lock_all().context("Failed to read config").unwrap();
+            (
+                config.market.benchmarker_client_addresses.clone(),
+                benchmark_directive(
+                    config.prover.benchmarking_prover_secret.clone().unwrap_or_default(),
+                ),
+            )
+        };
+
+        // If its a benchmark order then skip the rest of the picking logic and lock it in right away
+        // TODO: Once supported also skip the locking stage for these orders
+        let client_addr = order.request.client_address();
+        if benchmarker_client_addresses.contains(&client_addr) {
+            tracing::debug!(
+                "Order {order_id:x} is detected as a benchmark order from {client_addr}"
+            );
+
+            let input_uri_str =
+                std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
+            if input_uri_str.contains(&benchmark_directive) {
+                tracing::info!(
+                    "Selecting benchmark Order {order_id:x}. It is a request for this prover."
+                );
+                Ok(true)
+            } else {
+                tracing::info!(
+                    "Skipping benchmark Order {order_id:x}. It is intended for another prover."
+                );
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
     async fn price_order(
         &self,
         order_id: U256,
@@ -154,8 +192,9 @@ where
         };
 
         // Initial sanity checks:
+        let client_addr = order.request.client_address();
+
         if let Some(allow_addresses) = allowed_addresses_opt {
-            let client_addr = order.request.client_address();
             if !allow_addresses.contains(&client_addr) {
                 tracing::info!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
                 return Ok(None);
@@ -186,6 +225,11 @@ where
         if seconds_left <= min_deadline {
             tracing::info!("Removing order {order_id:x} because it expires within the deadline left: {seconds_left} deadline: {min_deadline}");
             return Ok(None);
+        }
+
+        if self.is_benchmark_order(order_id, order)? {
+            // If its a benchmark order then skip the rest of the picking logic and lock it in right away
+            return Ok(Some(OrderLockTiming { target_timestamp_secs: 0, expiry_secs: expiration }));
         }
 
         // Check if the stake is sane and if we can afford it
@@ -269,7 +313,7 @@ where
             .await
             .map_err(PriceOrderErr::FetchImageErr)?;
 
-        let input_id = crate::upload_input_uri(&self.prover, order, max_size, fetch_retries)
+        let input_id = crate::upload_input_uri(&self.prover, order, max_size, fetch_retries, None)
             .await
             .map_err(PriceOrderErr::FetchInputErr)?;
 
@@ -1694,5 +1738,63 @@ mod tests {
 
         let order = ctx.db.get_order(orders[3].request.id).await.unwrap().unwrap();
         assert!(order.status == OrderStatus::New);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn picks_benchmark_order() {
+        let benchmarker_address = Address::ZERO;
+        let prover_secret = vec![1, 2, 3];
+
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.benchmarker_client_addresses =
+                vec![benchmarker_address];
+            config.load_write().unwrap().prover.benchmarking_prover_secret =
+                Some(prover_secret.clone());
+        }
+
+        let lock_stake = U256::from(0);
+
+        let ctx =
+            TestCtxBuilder::default().with_config(config).with_initial_hp(lock_stake).build().await;
+        let mut order =
+            ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
+
+        let mut request = ProofRequest::builder()
+            .with_image_url("http://get/image/")
+            .with_input(Input::url(format!(
+                "http://get/input/#{}",
+                benchmark_directive(&prover_secret)
+            )))
+            .with_requirements(
+                Requirements::new(ECHO_ID, Predicate::prefix_match(vec![1, 2, 3]))
+                    .with_selector(FixedBytes::from(Selector::Groth16V2_0 as u32)),
+            )
+            .with_offer(
+                Offer::default()
+                    .with_min_price(U256::from(1))
+                    .with_max_price(U256::from(1))
+                    .with_bidding_start(now_timestamp())
+                    .with_timeout(1000)
+                    .with_lock_timeout(1000),
+            )
+            .build()
+            .unwrap();
+        request.id = RequestId::new(benchmarker_address, 1).into();
+        order.request = request;
+
+        let order_id = order.request.id;
+        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        assert!(locked);
+
+        assert_eq!(ctx.db.get_order(order_id).await.unwrap().unwrap().status, OrderStatus::Locking);
+        assert!(logs_contain(&format!(
+            "Order 1 is detected as a benchmark order from {}",
+            benchmarker_address
+        )));
+        assert!(logs_contain("Selecting benchmark Order 1. It is a request for this prover"));
     }
 }

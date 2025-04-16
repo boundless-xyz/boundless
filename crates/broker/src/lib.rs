@@ -12,6 +12,7 @@ use alloy::{
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
+    benchmark_directive,
     contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
     input::GuestEnv,
     order_stream_client::Client as OrderStreamClient,
@@ -615,6 +616,7 @@ async fn upload_input_uri(
     order: &Order,
     max_size: usize,
     retries: Option<u8>,
+    secret: Option<Vec<u8>>,
 ) -> Result<String> {
     Ok(match order.request.input.inputType {
         InputType::Inline => prover
@@ -638,7 +640,7 @@ async fn upload_input_uri(
             let input_uri = input_uri.build().context("Failed to parse input uri")?;
 
             if !input_uri.exists() {
-                let input_data = GuestEnv::decode(
+                let mut input_data = GuestEnv::decode(
                     &input_uri
                         .fetch()
                         .await
@@ -646,6 +648,15 @@ async fn upload_input_uri(
                 )
                 .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
                 .stdin;
+
+                // prepend this provers secret to the input if the input uri has the directive
+                if let Some(secret) = secret {
+                    if input_uri.uri().fragment().is_some_and(|f| f == benchmark_directive(&secret))
+                    {
+                        input_data = [secret, input_data].concat();
+                        tracing::debug!("Benchmark detected. Prover secret added to input data");
+                    }
+                }
 
                 prover.upload_input(input_data).await.context("Failed to upload input")?
             } else {
