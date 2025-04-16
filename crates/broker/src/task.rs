@@ -58,7 +58,7 @@ impl RetryPolicy {
         delay: std::time::Duration::from_millis(100),
         backoff_multiplier: 1.5,
         max_delay: std::time::Duration::from_secs(2),
-        max_retries: None,
+        max_retries: Some(10),
         reset_after: Some(std::time::Duration::from_secs(60)),
     };
 }
