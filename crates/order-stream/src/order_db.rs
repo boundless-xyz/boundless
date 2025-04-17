@@ -223,7 +223,7 @@ impl OrderDb {
 
     /// List orders with pagination
     ///
-    /// Lists all orders the the database with a size bound and start id. The index_id will be
+    /// Lists all orders the database with a size bound and start id. The index_id will be
     /// equal to the DB ID since they are sequential for listing all new orders after a specific ID
     pub async fn list_orders(&self, index_id: i64, size: i64) -> Result<Vec<DbOrder>, OrderDbErr> {
         let rows: Vec<DbOrder> = sqlx::query_as("SELECT * FROM orders WHERE id >= $1 LIMIT $2")
