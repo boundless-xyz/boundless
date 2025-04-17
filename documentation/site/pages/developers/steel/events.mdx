@@ -7,7 +7,7 @@
 Events are used extensively in Ethereum for two main reasons:
 
 1. They are the cheapest way to "store" data in Ethereum, which is very useful for bigger data loads.
-2. They allow for off-chain complex interactions like indexing, filtering, querying, etc.
+2. They allow for offchain complex interactions like indexing, filtering, querying, etc.
 
 However, event data is **unusable onchain** by definition. Solidity cannot query event data internally. Currently, the workflow for smart contracts reacting to events is:
 
@@ -22,10 +22,10 @@ Allowing smart contracts to *verifiably* query event data directly onchain signi
 Steel Events enables smart contracts to verify and directly use Ethereum events onchain, eliminating the need for complex event middleware. Leveraging the same [blockhash trust anchor](http://TODO) and [Steel Commitments](http://TODO) scheme, Steel Events ensures provable event data inherits Steel's robust security guarantees, unlocking powerful new use cases:
 
 - **Trustless On-Chain Reactions:** Execute complex logic based on verified aggregations or event patterns (e.g., swap volumes, user activity), without prohibitive gas costs.
-- **Secure Bridging of Off-Chain Logic:** Bring existing off-chain analytics safely on-chain, without modifying your smart contract logic or storage patterns.
+- **Secure Bridging of Off-Chain Logic:** Bring existing offchain analytics safely onchain, without modifying your smart contract logic or storage patterns.
 - **Cross-Contract Interaction via Events:** Enable Contract B to verifiably react to Contract A's events, even if A has no direct query API.
 
-This unlocks sophisticated, trustless interactions using Ethereum’s inexpensive event logs as secure, verifiable on-chain inputs.
+This unlocks sophisticated, trustless interactions using Ethereum’s inexpensive event logs as secure, verifiable onchain inputs.
 
 ## How does Steel Events work?
 

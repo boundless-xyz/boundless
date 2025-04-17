@@ -13,3 +13,5 @@ config:
     secure: v1:D0LPseptkWMnYnOv:wW8eWtEA5HHwiJ7xc4RJIHWHCpEmcSAq8OHMeMk0HSYnZpLQXMuax6MqgFQBIzlNWkJKTCTaBw98Oj6TfUvnA8hC0Ub9NJejUHnJdzgKrEL3tscP7g==
   order-stream:RDS_PASSWORD:
     secure: v1:Q8vUXQ59MCkcmyw8:C8BUe4hjIDn+biTuqdDYoluH+rM6eRMO0LKjjmpN9EpQ7A==
+  order-stream:CHAIN_ID: "11155111"
+  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic

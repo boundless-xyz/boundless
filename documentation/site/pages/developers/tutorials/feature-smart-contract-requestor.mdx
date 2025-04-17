@@ -1,0 +1,262 @@
+---
+title: Smart Contract Requestors
+description: Smart Contract Requestors enable permissionless proof request submission by 3rd parties that are authorized for payment by a smart contract.
+---
+
+import { StripRustCodeComments } from "../../../components/strip-rust-code-comments";
+
+# Smart Contract Requestors
+
+## Overview
+
+This feature enables proof requests to be submitted permissionlessly by 3rd parties, that are authorized for payment by a smart contract. This is particularly useful for:
+
+1. DAO-like entities that need to request proofs to drive protocol operations
+2. Service agreements where contracts authorize funding for proofs that meet specific criteria
+
+## How it Works
+
+### Entities
+
+- **Request Builder**
+  - Builds and submits proof requests to the market
+  - Fully permissionless role
+  - Incentivized outside of the Boundless protocol
+
+- **Smart Contract Requestor**
+  - ERC-1271 contract that authorizes proof requests
+  - Contains logic for validating requests
+  - Deposits funds to Boundless Market for fulfilling requests
+
+- **Provers**
+  - Regular market provers who fulfill requests by the deadline
+
+### Flow
+
+Smart Contract Requestors use ERC-1271 signatures to authorize proof requests.
+
+1. Request Builder constructs a request meeting the Smart Contract Requestor's criteria
+2. Request Builder submits the request with:
+   - Smart Contract Requestor's address as the client
+   - Signature encoding the data that the smart contract requestor needs to validate the request
+3. Boundless Market requests authorization of the request by calling `isValidSignature` on the Smart Contract Requestor
+4. Smart Contract Requestor receives a hash of the submitted request, and the data provided by the Request Builder
+5. Smart Contract Requestor validates the request and returns the ERC-1271 magic value if it authorizes the request
+6. Boundless Market takes payment from the smart contract requestor, and provers fulfill the request
+
+## Considerations
+
+### Request ID
+
+In Boundless, Request IDs are specified by the Request Builder. The Boundless Market contract ensures that only one payment will ever be issued for each request id.
+
+For Smart Contract Requestors, the Request ID is especially important as it acts as a nonce, ensuring the requestor does not pay twice for the same batch of work. It is important to design a nonce structure that maps each batch of work to a particular nonce value, and for the Smart Contract Requestor to validate that the work specified by the Request ID matches the work specified in the proof request.
+
+### Signature Encoding
+
+The signature encoding is used to encode the data that the smart contract requestor needs to validate the request. Boundless guarantees that it will call `isValidSignature` with a hash of the request that was submitted, so typically you would want to encode enough information to recreate the request hash and validate that it matches the hash provided by Boundless.
+
+# Example: Daily Echo Proof
+
+The [Smart Contract Requestor example](https://github.com/boundless-xyz/boundless/tree/main/examples/smart-contract-requestor) demonstrates a contract that authorizes payment for one proof of the "Echo" guest program per day. It shows a simple example of how to design a Request ID nonce scheme, as well as how to encode the request data in the signature for the Smart Contract Requestor to validate.
+
+In this example, we use the Request ID to represent "days since epoch". Our zkVM guest program outputs the input that it was called with, so we use this property to ensure that the program was run with the correct input for the day.
+
+First, we construct the Request ID. We use the index of the Request ID to represent each day since the unix epoch, ensuring that we will only ever pay for one request per day. Note we also set a flag to indicate that this request's signature should be validated using ERC-1271's `isValidSignature` function, and not a regular ECDSA recovery:
+
+<StripRustCodeComments>
+```rust
+# use boundless_market::contracts::RequestId;
+# use alloy::primitives::Address;
+#
+# let smart_contract_requestor_address: Address = [0u8; 20].into();
+let now = std::time::SystemTime::now()
+    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+let days_since_epoch = (now / (24 * 60 * 60)) as u32;
+
+let request_id = RequestId::new(smart_contract_requestor_address, days_since_epoch)
+    .set_smart_contract_signed_flag();
+```
+</StripRustCodeComments>
+
+Next, we want to ensure that for the specific day that the request is submitted, the proof was generated using the correct input. In our case, we want the input to be the current day since epoch, ensuring that that day's work was paid for.
+
+Here we make use of a powerful pattern, where we have ensured that our guest program outputs its input as part of it's journal. When constructing our Proof Request, we then set a `Requirement`, with the predicate type `DigestMatch`, to ensure that the journal of the guest program matches the value we expect.
+
+In this example we expect the input of the program to be the current day since epoch, so we validate that by creating a digest match predicate with days_since_epoch as the expected journal.
+
+First we execute the guest program locally with our expected input, to generate the expected journal.
+<StripRustCodeComments>
+```rust
+# use anyhow::{Result, Context};
+# use boundless_market::client::Client;
+# use risc0_zkvm::{default_executor, ExecutorEnv};
+# use boundless_market::contracts::Input;
+# use std::ops::Div;
+# // Function that takes the required parameters so we don't need to construct them
+# async fn example(
+#     boundless_client: &'static Client<impl alloy::providers::Provider + Clone, impl boundless_market::storage::StorageProvider>,
+#     days_since_epoch: u32,
+#     ECHO_ELF: &[u8]
+# ) -> Result<()> {
+// We encode the input as Big Endian, as this is how Solidity represents values. This simplifies validating
+// the requirements of the request in the smart contract client.
+let guest_env = Input::builder().write_slice(&days_since_epoch.to_be_bytes()).build_env()?;
+let input_url = boundless_client
+    .upload_input(&guest_env.encode()?)
+    .await
+    .context("failed to upload input")?;
+
+// Execute the guest program to get the journal and session info.
+let session_info = default_executor().execute(guest_env.try_into()?, ECHO_ELF)?;
+let mcycles_count = session_info
+    .segments
+    .iter()
+    .map(|segment| 1 << segment.po2)
+    .sum::<u64>()
+    .div_ceil(1_000_000);
+let journal = session_info.journal;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+Then we create our proof request, setting a `Requirement` that the journal should match the expected journal.
+<StripRustCodeComments>
+```rust
+# use boundless_market::contracts::{ProofRequest, Requirements, Predicate, Offer, RequestId};
+# use alloy::primitives::utils::parse_ether;
+# use risc0_zkvm::sha::Digestible;
+# use alloy::primitives::Address;
+# let ECHO_ID = [0u8; 32];
+# let journal = Vec::<u8>::new();
+# let smart_contract_requestor_address: Address = [0u8; 20].into();
+# let request_id = RequestId::new([0u8; 20].into(), 0)
+#     .set_smart_contract_signed_flag();
+# use url::Url;
+# let image_url = Url::parse("https://example.com/image").unwrap();
+# let input_url = Url::parse("https://example.com/input").unwrap();
+# let mcycles_count = 1;
+# let now = 0;
+# (|| -> anyhow::Result<()> {
+let requirements = Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()));
+
+// Create the request, ensuring to set the request id and requirements that we prepared above.
+let request = ProofRequest::builder()
+    .with_request_id(request_id)
+    .with_image_url(image_url)
+    .with_input(input_url)
+    .with_requirements(requirements)
+    .with_offer(
+        Offer::default()
+            .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
+            .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
+            .with_lock_timeout(1000)
+            .with_timeout(2000)
+            .with_bidding_start(now),
+    )
+    .build()?;
+# Ok(())
+# })().unwrap();
+```
+</StripRustCodeComments>
+
+When combined with the nonce structure of the request id, this ensures that for each daily batch of work, the correct input was used.
+
+Here we are using the echo guest, which simply echoes the input back. Since for each day we want the input to the guest to be "days since epoch", and since the program just echoes the input back, we can guarantee the correct input was used by checking that the output matches "days since epoch".
+
+In this example we expect the input of the program to be the current day since epoch, so we validate that by creating a digest match predicate with days_since_epoch as the expected journal.
+
+
+Our Smart Contract Requestor expects the full abi encoded ProofRequest to be provided as the signature.
+
+```solidity [SmartContractRequestor.sol]
+function isValidSignature(bytes32 requestHash, bytes memory signature) external view returns (bytes4) {
+    // This smart contract client expects the full abi encoded ProofRequest to be provided as the signature.
+    ProofRequest memory request = abi.decode(signature, (ProofRequest));
+
+    // ...
+}
+```
+So we encode the signature that the Smart Contract Requestor requires to validate the request is constructed correctly. Now we submit the request to the market, and wait for it to be fulfilled.
+
+<StripRustCodeComments>
+```rust
+# use boundless_market::contracts::ProofRequest;
+# use boundless_market::client::Client;
+# use alloy::primitives::Bytes;
+# use alloy::sol_types::SolValue;
+# async fn submit_request(
+#     boundless_client: &'static Client<impl alloy::providers::Provider + Clone, impl boundless_market::storage::StorageProvider>,
+#     request: ProofRequest
+# ) -> anyhow::Result<()> {
+let signature: Bytes = request.abi_encode().into();
+let (request_id, expires_at) =
+    boundless_client.submit_request_with_signature_bytes(&request, &signature).await?;
+tracing::info!("Request {} submitted", request_id);
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+When the request is locked or fulfilled, Boundless Market will call `isValidSignature` on the Smart Contract Requestor with the request hash and the signature. Here we walk through the logic of our example contract:
+
+First, we decode the request from the signature.
+
+```solidity [SmartContractRequestor.sol]
+ProofRequest memory request = abi.decode(signature, (ProofRequest));
+```
+
+Recall that the Request ID represents the day of work being processed, so first we check that the request id is within the expected range for days that we are willing to pay for.
+
+```solidity [SmartContractRequestor.sol]
+(, uint32 daysSinceEpoch) = request.id.clientAndIndex();
+if (daysSinceEpoch < START_DAY_SINCE_EPOCH || daysSinceEpoch > END_DAY_SINCE_EPOCH) {
+    return 0xffffffff;
+}
+```
+
+Next we check that the image id is as expected, ensuring that the request specifies the correct guest program.
+
+```solidity [SmartContractRequestor.sol]
+// Validate that the request provided is as expected.
+// For this example, we check the image id is as expected, and that the predicate restricts
+// the output to match the day specified in the id.
+if (request.requirements.imageId != ECHO_ID) {
+    return 0xffffffff;
+}
+```
+
+Next, we validate the predicate type and data are correct, ensuring that the request was executed with the correct input and resulted in the correct output.
+
+```solidity [SmartContractRequestor.sol]
+// Validate the predicate type and data are correct. This ensures that the request was executed with
+// the correct input and resulted in the correct output. In this case it ensures that the input
+// to the request was the correct day since epoch that corresponds to the request id.
+if (request.requirements.predicate.predicateType != PredicateType.DigestMatch) {
+    return 0xffffffff;
+}
+bytes32 expectedPredicate = sha256(abi.encodePacked(daysSinceEpoch));
+if (bytes32(request.requirements.predicate.data) != expectedPredicate) {
+    return 0xffffffff;
+}
+```
+
+Finally, we validate that the EIP-712 hash of the request provided in the signature matches the hash that was provided by BoundlessMarket. This ensures that Boundless is processing the same request that we have validated.
+
+```solidity [SmartContractRequestor.sol]
+// Validate that the EIP-712 hash of the request provided in the signature matches the hash that was
+// provided by BoundlessMarket. This ensures that Boundless is processing the same request that we have
+// validated.
+if (_hashTypedData(request.eip712Digest()) == requestHash) {
+    return MAGICVALUE;
+}
+
+return 0xffffffff;
+```
+
+If all of these checks pass, the request is valid and the smart contract requestor will pay for the request.
+
+> Relevant links: [Smart Contract Requestor Example](https://github.com/boundless-xyz/boundless/tree/main/examples/smart-contract-requestor), [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271)

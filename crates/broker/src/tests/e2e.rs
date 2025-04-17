@@ -7,19 +7,19 @@ use std::{future::Future, path::PathBuf};
 use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
-    primitives::{aliases::U96, utils, Address, FixedBytes, U256},
+    primitives::{aliases::U96, utils, utils::parse_ether, Address, FixedBytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance,
-        test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count},
-        Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+        hit_points::default_allowance, Callback, Input, Offer, Predicate, PredicateType,
+        ProofRequest, RequestId, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
 };
+use boundless_market_test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count};
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use guest_util::{ECHO_ELF, ECHO_ID};
@@ -52,8 +52,8 @@ fn generate_request(
         image_url,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         Offer {
-            minPrice: U256::from(20000000000000u64),
-            maxPrice: U256::from(40000000000000u64),
+            minPrice: parse_ether("0.02").unwrap(),
+            maxPrice: parse_ether("0.04").unwrap(),
             biddingStart: now_timestamp(),
             timeout: 600,
             lockTimeout: 600,

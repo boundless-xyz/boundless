@@ -34,6 +34,10 @@ use zeth_preflight_ethereum::RethBlockBuilder;
 
 const RETRY_DELAY_SECS: u64 = 5;
 
+/// An estimated upper bound on the cost of locking an fulfilling a request.
+/// TODO: Make this configurable.
+const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 1_000_000;
+
 /// Arguments of order-generator-zeth CLI.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -79,13 +83,16 @@ struct Args {
     /// Maximum price per mcycle in ether.
     #[clap(long = "max", value_parser = parse_ether, default_value = "0.000011")]
     max_price_per_mcycle: U256,
+    /// Number of seconds before the request lock-in expires.
+    #[clap(long, default_value = "6000")]
+    lock_timeout: u32,
     /// Number of seconds, from the bidding start, before the bid expires.
     #[clap(long, default_value = "12000")]
     timeout: u32,
     /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
-    #[clap(long, default_value = "0")]
+    #[clap(long, default_value = "240")] // 240s = ~20 Sepolia blocks
     ramp_up: u32,
     /// Amount of stake tokens required, in HP.
     #[clap(long, value_parser = parse_ether, default_value = "5")]
@@ -196,6 +203,7 @@ async fn main() -> Result<()> {
             max: args.max_price_per_mcycle,
             ramp_up: args.ramp_up,
             timeout: args.timeout,
+            lock_timeout: args.lock_timeout,
             stake: args.stake,
             offchain: args.offchain,
         };
@@ -255,6 +263,7 @@ struct RequestParams {
     max: U256,
     ramp_up: u32,
     timeout: u32,
+    lock_timeout: u32,
     stake: U256,
     offchain: bool,
 }
@@ -295,16 +304,29 @@ where
     let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
     let min_price =
         params.min.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
-    let max_price =
+    let mcycle_max_price =
         params.max.checked_mul(U256::from(cycles_count)).unwrap().div_ceil(U256::from(1_000_000));
 
     tracing::info!(
-        "{} cycles count {} mcycles count {} min_price in ether {} max_price in ether",
+        "{} cycles count {} mcycles count {} min_price in ether {} mcycle_max_price in ether",
         cycles_count,
         cycles_count / 1_000_000,
         format_units(min_price, "ether")?,
-        format_units(max_price, "ether")?
+        format_units(mcycle_max_price, "ether")?
     );
+
+    // Add to the max price an estimated upper bound on the gas costs.
+    // Add a 10% buffer to the gas costs to account for flucuations after submission.
+    let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
+    let gas_cost_estimate = gas_price + (gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
+    let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
+    tracing::info!(
+        "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
+        format_units(max_price, "ether")?,
+        format_units(mcycle_max_price, "ether")?,
+        format_units(gas_cost_estimate, "ether")?,
+    );
+
     let journal = session_info.journal;
 
     let request = ProofRequest::builder()
@@ -320,7 +342,8 @@ where
                 .with_max_price(max_price)
                 .with_ramp_up_period(params.ramp_up)
                 .with_timeout(params.timeout)
-                .with_lock_stake(params.stake),
+                .with_lock_stake(params.stake)
+                .with_lock_timeout(params.lock_timeout),
         )
         .build()?;
 
@@ -334,7 +357,7 @@ where
     tracing::info!(
         "Submitted request for block {} {} with id {}",
         build_args.block_number,
-        params.offchain.then(|| "offchain").unwrap_or("onchain"),
+        if params.offchain { "offchain" } else { "onchain" },
         request_id
     );
 

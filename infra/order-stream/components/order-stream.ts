@@ -3,17 +3,10 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { ChainId, getServiceNameV1 } from '../../util';
+import { getServiceNameV1 } from '../../util';
 
 const SERVICE_NAME_BASE = 'order-stream';
-
-const getEnvVar = (name: string) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Environment variable ${name} is not set`);
-  }
-  return value;
-};
+const HEALTH_CHECK_PATH = '/api/v1/health';
 
 export class OrderStreamInstance extends pulumi.ComponentResource {
   public lbUrl: pulumi.Output<string>;
@@ -22,7 +15,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
   constructor(
     name: string,
     args: {
-      chainId: ChainId;
+      chainId: string;
       ciCacheSecret?: pulumi.Output<string>;
       dockerDir: string;
       dockerTag: string;
@@ -34,10 +27,10 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       boundlessAddress: string;
       vpcId: pulumi.Output<string>;
       rdsPassword: pulumi.Output<string>;
-      acmCertArn?: pulumi.Output<string>;
       albDomain?: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
       bypassAddrs: string;
+      boundlessAlertsTopicArn?: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -51,7 +44,6 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       orderStreamPingTime, 
       privSubNetIds, 
       pubSubNetIds, 
-      acmCertArn, 
       githubTokenSecret, 
       minBalance, 
       boundlessAddress, 
@@ -63,15 +55,15 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     } = args;
     
     const stackName = pulumi.getStack();
-    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE, chainId);
+    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
 
     // If we're in prod and have a domain, create a cert
     let cert: aws.acm.Certificate | undefined;
-    if (stackName === 'prod' && albDomain) {
+    if (stackName.includes('prod') && albDomain) {
       cert = new aws.acm.Certificate(`${serviceName}-cert`, {
         domainName: pulumi.interpolate`${albDomain}`,
         validationMethod: "DNS",
-      });
+      }, { protect: true });
     }
 
     const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
@@ -95,7 +87,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     // Optionally add in the gh token secret and sccache s3 creds to the build ctx
     let buildSecrets = {};
     if (ciCacheSecret !== undefined) {
-      const cacheFileData = ciCacheSecret.apply((filePath) => fs.readFileSync(filePath, 'utf8'));
+      const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
       buildSecrets = {
         ci_cache_creds: cacheFileData,
       };
@@ -147,13 +139,14 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       ],
     });
 
-
+    // If we have a cert and a domain, use it, and enable https.
+    // Otherwise we use the default lb endpoint that AWS provides that only supports http.
     let listener: awsx.types.input.lb.ListenerArgs;
-    if (acmCertArn !== undefined) {
+    if (cert && albDomain) {
       listener = {
         port: 443,
         protocol: 'HTTPS',
-        certificateArn: acmCertArn,
+        certificateArn: cert.arn.apply((arn) => arn),
       };
     } else {
       listener = {
@@ -162,6 +155,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       };
     }
   
+    // Protect the load balancer so it doesn't get deleted if the stack is accidently modified/deleted
+    // Important as the A record of this resource is tied to DNS.
     const loadbalancer = new awsx.lb.ApplicationLoadBalancer(`${serviceName}-lb`, {
       name: `${serviceName}-lb`,
       subnetIds: pubSubNetIds,
@@ -177,12 +172,12 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
           healthyThreshold: 2,
           port: '8585',
           protocol: 'HTTP',
-          path: '/api/health',
+          path: HEALTH_CHECK_PATH,
         },
       },
       // This should be slightly greater than the order-steam configured ping/pong time
       idleTimeout: orderStreamPingTime + orderStreamPingTime * 0.2,
-    });
+    }, { protect: true });
   
     const orderStreamSecGroup = new aws.ec2.SecurityGroup(`${serviceName}-sg`, {
       name: `${serviceName}-sg`,
@@ -259,14 +254,14 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       dbSubnetGroupName: dbSubnets.name,
       vpcSecurityGroupIds: [rdsSecurityGroup.id],
       storageType: 'gp3',
-    });
+    }, { protect: true });
   
     const webAcl = new aws.wafv2.WebAcl(`${serviceName}-acl`, {
       defaultAction: {
         allow: {},
       },
       name: `${serviceName}-acl`,
-      description: 'WebACL for order stream service',
+      description: `WebACL for order stream service ${chainId}`,
       rules: [
         // IP Reputation - AWS managed
         {
@@ -470,7 +465,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
             },
           ],
           healthCheck: {
-            command: ['CMD-SHELL', 'curl -f http://localhost:8585/api/health || exit 1'],
+            command: ['CMD-SHELL', `curl -f http://localhost:8585${HEALTH_CHECK_PATH} || exit 1`],
             interval: 60,
             timeout: 5,
             retries: 1,
@@ -485,7 +480,9 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         },
       },
     });
-  
+
+    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-log-err-filter`, {
       name: `${serviceName}-log-err-filter`,
       logGroupName: serviceLogGroup,
@@ -498,6 +495,58 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       // Whitespace prevents us from alerting on SQL injection probes.
       pattern: `"ERROR "`,
     }, { dependsOn: [service] });
+
+    // Two errors within an hour triggers alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
+      name: `${serviceName}-log-err`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-err`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      // Two errors within an hour triggers alarm.
+      evaluationPeriods: 60,
+      datapointsToAlarm: 2,
+      treatMissingData: 'notBreaching',
+      alarmDescription: 'Order stream log ERROR level',
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    // Convert the arns to the format expected by the Cloudwatch metric alarm.
+    // The format is of form: 
+    //  app/order-stream-11155111-lb/a1fb2124f59f54fb
+    // and 
+    //  targetgroup/order-stream-11155111-tg/6f6f9bce2553bf09
+    const loadBalancerId = pulumi.interpolate`${loadbalancer.loadBalancer.arn.apply((arn) => arn.split('/').pop())}`;
+    const targetGroupId = pulumi.interpolate`targetgroup/${loadbalancer.defaultTargetGroup.arn.apply((arn) => arn.split('/').pop())}`;
+    
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-health-check-alarm`, {
+      name: `${serviceName}-health-check-alarm`,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      metricName: `UnHealthyHostCount`,
+      dimensions: {
+        TargetGroup: targetGroupId,
+        LoadBalancer: loadBalancerId,
+      },
+      namespace: 'AWS/ApplicationELB',
+      period: 60,
+      statistic: 'Sum',
+      threshold: 1,
+      alarmDescription: 'Order stream health check alarm',
+      actionsEnabled: true,
+      alarmActions,
+    });
   
     this.lbUrl = albEndPoint;
     this.swaggerUrl = domain.apply((domain) => {

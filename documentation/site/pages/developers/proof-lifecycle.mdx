@@ -48,7 +48,7 @@ With a zkVM program ready, the app developer will require some way to carry out 
 
 The app developer will start the proving process by requesting a proof from the Boundless Market.
 
-Requests can be sent on-chain, in a transaction to the market contract, or off-chain through the order-stream server depending on the user's censorship-resistance requirements. When submitting a request off-chain, they should first deposit funds to the market to cover the maximum price in their offer.
+Requests can be sent onchain, in a transaction to the market contract, or offchain through the order-stream server depending on the user's censorship-resistance requirements. When submitting a request offchain, they should first deposit funds to the market to cover the maximum price in their offer.
 
 The bid matching mechanism used by the market is a [reverse Dutch auction](https://en.wikipedia.org/wiki/Reverse_auction#Dutch_reverse_auctions). An application submits a proof request that contains parameters specifying the program to be proven, the input, and an offer.
 
@@ -60,10 +60,11 @@ An offer contains the following:
 | ---------------------------- | ---------------------------------------------------------- |
 | **Minimum price**            | The lowest price the requestor is willing to pay.          |
 | **Maximum price**            | The highest price the requestor is willing to pay.         |
-| **Bidding start**            | Defined as a block number.                                 |
-| **Length of ramp-up period** | Measured in blocks since the start of the bid.             |
-| **Timeout**                  | Measured in blocks since the start of the bid.             |
-| **Lock-in stake**            | The slashable amount if a prover fails to deliver a proof. |
+| **Bidding start**            | Defined as a timestamp.                                    |
+| **Length of ramp-up period** | Measured in seconds since the start of the bid.            |
+| **Lock timeout**             | Measured in seconds since the start of the bid.            |
+| **Timeout**                  | Measured in seconds since the start of the bid.            |
+| **Lock stake**               | The slashable amount if a prover fails to deliver a proof. |
 
 For example, an offer might specify:
 
@@ -71,10 +72,11 @@ For example, an offer might specify:
 | ------------------------ | ----------------------- |
 | Minimum price            | 0.001 Ether             |
 | Maximum price            | 0.002 Ether             |
-| Bidding start            | Latest block number + 3 |
-| Length of ramp-up period | 10 blocks               |
-| Timeout                  | 100 blocks              |
-| Lock-in stake            | 5 HP                    |
+| Bidding start            | Now                     |
+| Length of ramp-up period | 300 seconds             |
+| Timeout                  | 3600 seconds            |
+| Lock Timeout             | 2700 seconds            |
+| Lock stake               | 5 HP                    |
 
 For more details, please see [Pricing a Request](/developers/tutorials/request#pricing-a-request).
 
@@ -127,17 +129,17 @@ After a proof request is broadcast, a reverse Dutch auction runs according to th
 
 From the moment the request is broadcast to the start of bidding, the auction price is the minimum specified in the offer. During the ramp-up period, the price is increased linearly up to the maximum price. After the ramp-up period the price stays at the max price until the request expires. At any time, a prover can submit a bid, accepting the current price and winning the auction. Because the price only increases, the first bid is the best price for the requestor.
 
-When the prover submits their bid, the auction ends and they "lock-in" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
+When the prover submits their bid, the auction ends and they "lock" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
 
-However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g., higher than the total supply of the staking token).
+However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Slashed stake is used to incentivize other provers to fulfill the request in the case where the locker fails to deliver the proof. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, however there would be less incentive for another prover to fulfill the request in the case where the locker fails to deliver the proof. A higher stake value may decrease the chance an unreliable prover will lock the request.
 
-An unlocked request can be directly fulfilled, without first being locked. When this happens, the prover will be paid according to the auction price at that moment.
+An unlocked request can be directly fulfilled, without first being locked. When this happens, the prover will be paid according to the auction price at that moment. Applications may disable locking entirely by setting the stake amount impossibly high (e.g., higher than the total supply of the staking token), ensuring that no prover can lock the request and disincentivizing others from proving.
 
 Provers will calculate the minimum price at which they are willing to prove a request based on a number of factors. These can include:
 
 - Cycle-count of the program execution, determining the proving cost.
 - Lock-in stake required
-- Timeout length, determining how long they have to complete the proof.
+- Timeout and LockTimeout length, determining how long they have to complete the proof.
 - Input and program size, determining bandwidth costs to download the request.
 
 It is also worth noting that the prover's software will download the ELF binary, from the request's image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.
@@ -150,15 +152,15 @@ To be paid the request reward, and for their lock-in stake to be returned, the p
 
 #### Provers Batch Proof Requests
 
-The proof submitted by the prover is an aggregated proof, which proves a batch of program executions. Why is Boundless designed like this? The direct goal of aggregation is to amortize the cost of expensive proof verification on-chain, both for the requestor and the prover.
+The proof submitted by the prover is an aggregated proof, which proves a batch of program executions. Why is Boundless designed like this? The direct goal of aggregation is to amortize the cost of expensive proof verification onchain, both for the requestor and the prover.
 
-Let's start with an assumption: the prover has locked themselves into a number of individual proof requests. A naive implementation would be to have the prover generate a proof for each proof request, send each proof on-chain and pay gas for each verification. This would work, but it would cause a lot of needless expense; the prover has to send each individual proof on-chain to the market contract. This will rack up expensive gas costs, affecting the efficiency of the market.
+Let's start with an assumption: the prover has locked themselves into a number of individual proof requests. A naive implementation would be to have the prover generate a proof for each proof request, send each proof onchain and pay gas for each verification. This would work, but it would cause a lot of needless expense; the prover has to send each individual proof onchain to the market contract. This will rack up expensive gas costs, affecting the efficiency of the market.
 
-Starting with the provers, a clear solution is to batch the proof requests together. Instead of proving one request, sending that proof on-chain, and moving onto the next request, the prover can work on multiple proof requests and prove each one without interruption, submitting one aggregated proof for the whole batch.
+Starting with the provers, a clear solution is to batch the proof requests together. Instead of proving one request, sending that proof onchain, and moving onto the next request, the prover can work on multiple proof requests and prove each one without interruption, submitting one aggregated proof for the whole batch.
 
 #### Prover Submits the Requested Proof On-Chain
 
-In order to fulfill a batch of requests, and receive payment, the prover provides an aggregated proof. This aggregated proof is constructed as a Merkle tree, where the leaves are the proofs for the individual requests in the batch. At the root is a single Groth16 proof that attests to the validity of all proofs in the batch. Each individual request has a Merkle inclusion proof linking it to the root. Once the root is verified, the result is cached and the Merkle inclusion proofs are cheap to verify on-chain.
+In order to fulfill a batch of requests, and receive payment, the prover provides an aggregated proof. This aggregated proof is constructed as a Merkle tree, where the leaves are the proofs for the individual requests in the batch. At the root is a single Groth16 proof that attests to the validity of all proofs in the batch. Each individual request has a Merkle inclusion proof linking it to the root. Once the root is verified, the result is cached and the Merkle inclusion proofs are cheap to verify onchain.
 
 When the prover submits the aggregated proof, the Market contract verifies it and pays the prover if all conditions are met. At the same time, the contract emits an event that signals to the requestor that their request is fulfilled, and provides the Merkle inclusion proof.
 

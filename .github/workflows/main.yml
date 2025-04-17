@@ -104,11 +104,13 @@ jobs:
       - name: cargo doc
         run: cargo doc --locked
 
+        # NOTE: We set boundless-order-generator/zeth to ensure the Zeth order generator at least passes cargo clippy.
+        # This flag is not set for build or test since building Zeth is quite slow.
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
-        run: cargo clippy --locked --all-targets
+        run: cargo clippy --locked --all-targets -F boundless-order-generator/zeth
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
@@ -347,7 +349,8 @@ jobs:
   # Run as a separate job because we need to install a different set of tools.
   # In particular, it uses nightly Rust and _does not_ install Forge or cargo risczero.
   docs-rs:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+  # TODO: Revert this change when CC on self-hosted runners in fixed.
+    runs-on: ubuntu-latest
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
       - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
@@ -360,8 +363,8 @@ jobs:
       - uses: risc0/risc0/.github/actions/rustup@release-2.0
         with:
           # Building with docs.rs config requires the nightly toolchain.
-          toolchain: nightly-2024-09-04
-      - run: cargo +nightly-2024-09-04 doc -p boundless-market --all-features --no-deps
+          toolchain: nightly-2025-01-03
+      - run: cargo +nightly-2025-01-03 doc -p boundless-market --all-features --no-deps
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 

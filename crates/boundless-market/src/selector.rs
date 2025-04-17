@@ -38,23 +38,23 @@ pub enum ProofType {
     /// Groth16 proof type.
     Groth16,
     /// Inclusion proof type.
-    InclusionProof,
+    Inclusion,
 }
 
 /// A struct to hold the supported selectors.
 #[derive(Clone, Debug)]
 pub struct SupportedSelectors {
-    selectors: HashMap<FixedBytes<4>, bool>,
+    selectors: HashMap<FixedBytes<4>, ProofType>,
 }
 
 impl Default for SupportedSelectors {
     fn default() -> Self {
         let mut supported_selectors = Self::new()
-            .with_selector(UNSPECIFIED_SELECTOR)
-            .with_selector(FixedBytes::from(Selector::Groth16V2_0 as u32));
+            .with_selector(UNSPECIFIED_SELECTOR, ProofType::Any)
+            .with_selector(FixedBytes::from(Selector::Groth16V2_0 as u32), ProofType::Groth16);
         if is_dev_mode() {
-            supported_selectors =
-                supported_selectors.with_selector(FixedBytes::from(Selector::FakeReceipt as u32));
+            supported_selectors = supported_selectors
+                .with_selector(FixedBytes::from(Selector::FakeReceipt as u32), ProofType::Any);
         }
         supported_selectors
     }
@@ -66,11 +66,16 @@ impl SupportedSelectors {
         Self { selectors: HashMap::new() }
     }
 
+    /// Add a selector to the supported selectors, taking ownership.
+    pub fn with_selector(mut self, selector: FixedBytes<4>, proof_type: ProofType) -> Self {
+        self.add_selector(selector, proof_type);
+        self
+    }
+
     /// Add a selector to the supported selectors.
-    pub fn with_selector(&self, selector: FixedBytes<4>) -> Self {
-        let mut selectors = self.selectors.clone();
-        selectors.insert(selector, true);
-        Self { selectors }
+    pub fn add_selector(&mut self, selector: FixedBytes<4>, proof_type: ProofType) -> &mut Self {
+        self.selectors.insert(selector, proof_type);
+        self
     }
 
     /// Remove a selector from the supported selectors.
@@ -79,12 +84,21 @@ impl SupportedSelectors {
             self.selectors.remove(&selector);
         }
     }
+
     /// Check if a selector is supported.
-    pub fn is_supported(&self, selector: &FixedBytes<4>) -> bool {
-        self.selectors.contains_key(selector)
+    pub fn is_supported(&self, selector: FixedBytes<4>) -> bool {
+        self.selectors.contains_key(&selector)
     }
 
-    /// Set the set builder image ID.
+    /// Check the proof type, returning `None` if unsupported.
+    pub fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
+        self.selectors.get(&selector).cloned()
+    }
+
+    /// Add a selector calculated from the given set builder image ID.
+    ///
+    /// The selector is calculated by constructing the [SetInclusionReceiptVerifierParameters]
+    /// using the given image ID. The resulting selector has [ProofType::Inclusion].
     pub fn with_set_builder_image_id(&self, set_builder_image_id: impl Into<Digest>) -> Self {
         let verifier_params =
             SetInclusionReceiptVerifierParameters { image_id: set_builder_image_id.into() }
@@ -92,7 +106,7 @@ impl SupportedSelectors {
         let set_builder_selector: FixedBytes<4> =
             verifier_params.as_bytes()[0..4].try_into().unwrap();
         let mut selectors = self.selectors.clone();
-        selectors.insert(set_builder_selector, true);
+        selectors.insert(set_builder_selector, ProofType::Inclusion);
 
         Self { selectors }
     }
@@ -118,10 +132,10 @@ mod tests {
     fn test_supported_selectors() {
         let mut supported_selectors = SupportedSelectors::new();
         let selector = FixedBytes::from(Selector::Groth16V2_0 as u32);
-        supported_selectors = supported_selectors.with_selector(selector);
-        assert!(supported_selectors.is_supported(&selector));
+        supported_selectors = supported_selectors.with_selector(selector, ProofType::Groth16);
+        assert!(supported_selectors.is_supported(selector));
         supported_selectors.remove(selector);
-        assert!(!supported_selectors.is_supported(&selector));
+        assert!(!supported_selectors.is_supported(selector));
     }
 
     #[test]

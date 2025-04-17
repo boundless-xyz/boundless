@@ -1,262 +1,108 @@
-import * as aws from '@pulumi/aws';
-import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
-import * as docker_build from '@pulumi/docker-build';
-import { ChainId, getServiceNameV1, getEnvVar } from '../util';
+import { ChainId, getEnvVar } from '../util';
+import { SimpleGenerator } from './components/simple-generator';
+import { ZethGenerator } from './components/zeth-generator';
+
+require('dotenv').config();
 
 export = () => {
-  const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  const serviceName = getServiceNameV1(stackName, "order-generator", ChainId.SEPOLIA);
 
-  const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
-  const pinataJWT = isDev ? getEnvVar("PINATA_JWT") : config.requireSecret('PINATA_JWT');
-  const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
-  const orderStreamUrl = isDev ? getEnvVar("ORDER_STREAM_URL") : config.getSecret('ORDER_STREAM_URL');
-  
-  const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
-  const logLevel = config.require('LOG_LEVEL');
-  const dockerDir = config.require('DOCKER_DIR');
-  const dockerTag = config.require('DOCKER_TAG');
-  const setVerifierAddr = config.require('SET_VERIFIER_ADDR');
-  const boundlessMarketAddr = config.require('BOUNDLESS_MARKET_ADDR');
-  const pinataGateway = config.require('PINATA_GATEWAY_URL');
-  
-  const interval = config.require('INTERVAL');
-  const lockStake = config.require('LOCK_STAKE');
-  const rampUp = config.require('RAMP_UP');
-  const minPricePerMCycle = config.require('MIN_PRICE_PER_MCYCLE');
-  const maxPricePerMCycle = config.require('MAX_PRICE_PER_MCYCLE');
-  const baseStackName = config.require('BASE_STACK');
-  const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+  const baseConfig = new pulumi.Config("order-generator-base");
+  const chainId = baseConfig.require('CHAIN_ID');
+  const pinataJWT = isDev ? pulumi.output(getEnvVar("PINATA_JWT")) : baseConfig.requireSecret('PINATA_JWT');
+  const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : baseConfig.requireSecret('ETH_RPC_URL');
+  const orderStreamUrl = isDev 
+    ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) 
+    : (baseConfig.getSecret('ORDER_STREAM_URL') || pulumi.output(""));
+  const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
+  const logLevel = baseConfig.require('LOG_LEVEL');
+  const dockerDir = baseConfig.require('DOCKER_DIR');
+  const dockerTag = baseConfig.require('DOCKER_TAG');
+  const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
+  const setVerifierAddr = baseConfig.require('SET_VERIFIER_ADDR');
+  const boundlessMarketAddr = baseConfig.require('BOUNDLESS_MARKET_ADDR');
+  const pinataGateway = baseConfig.require('PINATA_GATEWAY_URL');
+  const baseStackName = baseConfig.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
-  const vpcId = baseStack.getOutput('VPC_ID');
-  const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
-
-  const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
-  new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
-    secretId: privateKeySecret.id,
-    secretString: privateKey,
-  });
-
-  const pinataJwtSecret = new aws.secretsmanager.Secret(`${serviceName}-pinata-jwt`);
-  new aws.secretsmanager.SecretVersion(`${serviceName}-pinata-jwt-v1`, {
-    secretId: pinataJwtSecret.id,
-    secretString: pinataJWT,
-  });
-
-  const rpcUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-rpc-url`);
-  new aws.secretsmanager.SecretVersion(`${serviceName}-rpc-url`, {
-    secretId: rpcUrlSecret.id,
-    secretString: ethRpcUrl,
-  });
-
-  const orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
-  new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
-    secretId: orderStreamUrlSecret.id,
-    secretString: orderStreamUrl,
-  });
-
-  const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
-    forceDelete: true,
-    lifecyclePolicy: {
-      rules: [
-        {
-          description: 'Delete untagged images after N days',
-          tagStatus: 'untagged',
-          maximumAgeLimit: 7,
-        },
-      ],
-    },
-  });
-
-  const authToken = aws.ecr.getAuthorizationTokenOutput({
-    registryId: repo.repository.registryId,
-  });
-
-  let buildSecrets = {};
-  if (githubTokenSecret !== undefined) {
-    buildSecrets = {
-      ...buildSecrets,
-      githubTokenSecret
-    }
-  }
-
-  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
-
-  const image = new docker_build.Image(`${serviceName}-image`, {
-    tags: [dockerTagPath],
-    context: {
-      location: dockerDir,
-    },
-    platforms: ['linux/amd64'],
-    push: true,
-    dockerfile: {
-      location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
-    },
-    secrets: buildSecrets,
-    cacheFrom: [
-      {
-        registry: {
-          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-        },
-      },
-    ],
-    cacheTo: [
-      {
-        registry: {
-          mode: docker_build.CacheMode.Max,
-          imageManifest: true,
-          ociMediaTypes: true,
-          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-        },
-      },
-    ],
-    registries: [
-      {
-        address: repo.repository.repositoryUrl,
-        password: authToken.password,
-        username: authToken.userName,
-      },
-    ],
-  });
-
-  // Security group allow outbound, deny inbound
-  const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
-    name: serviceName,
-    vpcId,
-    egress: [
-      {
-        fromPort: 0,
-        toPort: 0,
-        protocol: '-1',
-        cidrBlocks: ['0.0.0.0/0'],
-        ipv6CidrBlocks: ['::/0'],
-      },
-    ],
-  });
-
-  // Create an execution role that has permissions to access the necessary secrets
-  const execRole = new aws.iam.Role(`${serviceName}-exec`, {
-    assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
-      Service: 'ecs-tasks.amazonaws.com',
-    }),
-    managedPolicyArns: [aws.iam.ManagedPolicy.AmazonECSTaskExecutionRolePolicy],
-  });
-
-  const execRolePolicy = new aws.iam.RolePolicy(`${serviceName}-exec`, {
-    role: execRole.id,
-    policy: {
-      Version: '2012-10-17',
-      Statement: [
-        {
-          Effect: 'Allow',
-          Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-          Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn, orderStreamUrlSecret.arn],
-        },
-      ],
-    },
-  });
-
-  const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
-  const service = new awsx.ecs.FargateService(
-    `${serviceName}-service`,
-    {
-      name: serviceName,
-      cluster: cluster.arn,
-      networkConfiguration: {
-        securityGroups: [securityGroup.id],
-        subnets: privateSubnetIds,
-      },
-      taskDefinitionArgs: {
-        logGroup: {
-          args: { name: serviceName, retentionInDays: 0 },
-        },
-        executionRole: {
-          roleArn: execRole.arn,
-        },
-        container: {
-          name: serviceName,
-          image: image.ref,
-          cpu: 128,
-          memory: 512,
-          essential: true,
-          entryPoint: ['/bin/sh', '-c'],
-          command: [
-            `/app/boundless-order-generator --interval ${interval} --min ${minPricePerMCycle} --max ${maxPricePerMCycle} --lockin-stake ${lockStake} --ramp-up ${rampUp} --set-verifier-address ${setVerifierAddr} --boundless-market-address ${boundlessMarketAddr}`,
-          ],
-          environment: [
-            {
-              name: 'IPFS_GATEWAY_URL',
-              value: pinataGateway,
-            },
-            {
-              name: 'RUST_LOG',
-              value: logLevel,
-            },
-          ],
-          secrets: [
-            {
-              name: 'RPC_URL',
-              valueFrom: rpcUrlSecret.arn,
-            },
-            {
-              name: 'PRIVATE_KEY',
-              valueFrom: privateKeySecret.arn,
-            },
-            {
-              name: 'PINATA_JWT',
-              valueFrom: pinataJwtSecret.arn,
-            },
-            {
-              name: 'ORDER_STREAM_URL',
-              valueFrom: orderStreamUrlSecret.arn,
-            },
-          ],
-        },
-      },
-    },
-    { dependsOn: [execRole, execRolePolicy] }
-  );
-
-  new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
-    name: `${serviceName}-log-err-filter`,
-    logGroupName: serviceName,
-    metricTransformation: {
-      namespace: `Boundless/Services/${serviceName}`,
-      name: `${serviceName}-log-err`,
-      value: '1',
-      defaultValue: '0',
-    },
-    pattern: '?ERROR ?error ?Error',
-  }, { dependsOn: [service] });
-
-  const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
-
-  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
-    name: `${serviceName}-log-err`,
-    metricQueries: [
-      {
-        id: 'm1',
-        metric: {
-          namespace: `Boundless/Services/${serviceName}`,
-          metricName: `${serviceName}-log-err`,
-          period: 60,
-          stat: 'Sum',
-        },
-        returnData: true,
-      },
-    ],
-    threshold: 1,
-    comparisonOperator: 'GreaterThanOrEqualToThreshold',
-    // >=2 error periods per hour
-    evaluationPeriods: 60,
-    datapointsToAlarm: 2,
-    treatMissingData: 'notBreaching',
-    alarmDescription: 'Order generator log ERROR level',
-    actionsEnabled: true,
-    alarmActions,
-  });
+  const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
+  const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
+  const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
   
+  const simpleConfig = new pulumi.Config("order-generator-simple");
+  const simplePrivateKey = isDev ? pulumi.output(getEnvVar("SIMPLE_PRIVATE_KEY")) : simpleConfig.requireSecret('PRIVATE_KEY');
+  const simpleInterval = simpleConfig.require('INTERVAL');
+  const simpleLockStake = simpleConfig.require('LOCK_STAKE');
+  const simpleRampUp = simpleConfig.require('RAMP_UP');
+  const simpleMinPricePerMCycle = simpleConfig.require('MIN_PRICE_PER_MCYCLE');
+  const simpleMaxPricePerMCycle = simpleConfig.require('MAX_PRICE_PER_MCYCLE');
+  
+  new SimpleGenerator('order-generator', {
+    chainId,
+    stackName,
+    privateKey: simplePrivateKey,
+    pinataJWT,
+    ethRpcUrl,
+    orderStreamUrl,
+    githubTokenSecret,
+    logLevel,
+    dockerDir,
+    dockerTag,
+    dockerRemoteBuilder,
+    setVerifierAddr,
+    boundlessMarketAddr,
+    pinataGateway,
+    interval: simpleInterval,
+    lockStake: simpleLockStake,
+    rampUp: simpleRampUp,
+    minPricePerMCycle: simpleMinPricePerMCycle,
+    maxPricePerMCycle: simpleMaxPricePerMCycle,
+    vpcId,
+    privateSubnetIds,
+    boundlessAlertsTopicArn,
+  });
+
+  const zethConfig = new pulumi.Config("order-generator-zeth");
+  const zethPrivateKey = isDev ? pulumi.output(getEnvVar("ZETH_PRIVATE_KEY")) : zethConfig.requireSecret('PRIVATE_KEY');
+  const zethRpcUrl = isDev ? pulumi.output(getEnvVar("ZETH_RPC_URL")) : zethConfig.requireSecret('ZETH_RPC_URL');
+  const zethBoundlessRpcUrl = isDev ? pulumi.output(getEnvVar("BOUNDLESS_RPC_URL")) : zethConfig.requireSecret('BOUNDLESS_RPC_URL');
+  const zethScheduleMinutes = zethConfig.require('SCHEDULE_MINUTES');
+  const zethRetries = zethConfig.require('RETRIES');
+  const zethInterval = zethConfig.require('INTERVAL');
+  const zethLockStake = zethConfig.require('LOCK_STAKE');
+  const zethRampUp = zethConfig.require('RAMP_UP');
+  const zethMinPricePerMCycle = zethConfig.require('MIN_PRICE_PER_MCYCLE');
+  const zethMaxPricePerMCycle = zethConfig.require('MAX_PRICE_PER_MCYCLE');
+  const zethTimeout = zethConfig.require('TIMEOUT');
+  const zethLockTimeout = zethConfig.require('LOCK_TIMEOUT');
+  new ZethGenerator('order-generator-zeth', {
+    chainId,
+    stackName,
+    privateKey: zethPrivateKey,
+    pinataJWT,
+    zethRpcUrl,
+    boundlessRpcUrl: zethBoundlessRpcUrl,
+    orderStreamUrl,
+    githubTokenSecret,
+    logLevel,
+    dockerDir,
+    dockerTag,
+    dockerRemoteBuilder,
+    setVerifierAddr,
+    boundlessMarketAddr,
+    pinataGateway,
+    interval: zethInterval,
+    lockStake: zethLockStake,
+    rampUp: zethRampUp,
+    minPricePerMCycle: zethMinPricePerMCycle,
+    maxPricePerMCycle: zethMaxPricePerMCycle,
+    vpcId,
+    privateSubnetIds,
+    boundlessAlertsTopicArn,
+    retries: zethRetries,
+    scheduleMinutes: zethScheduleMinutes,
+    timeout: zethTimeout,
+    lockTimeout: zethLockTimeout,
+  });
 };

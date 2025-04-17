@@ -109,7 +109,7 @@ Then, in the instructions below, pass the `--fireblocks` (`-f`) flag to the `man
 > Your Fireblocks API user will need to have "Editor" permissions (i.e., ability to propose transactions for signing, but not necessarily the ability to sign transactions). You will also need a Transaction Authorization Policy (TAP) that specifies who the signers are for transactions initiated by your API user, and this policy will need to permit contract creation as well as contract calls.
 
 > [!NOTE]
-> Before you approve any contract-call transactions, be sure you understand what the call does! When in doubt, use [Etherscan](https://etherscan.io/) to lookup the function selector, together with a [calldata decoder](https://openchain.xyz/tools/abi) ([alternative](https://calldata.swiss-knife.xyz/decoder)) to decode the call's arguments.
+> Before you approve any contract-call transactions, be sure you understand what the call does! When in doubt, use [Etherscan](https://etherscan.io/) to lookup the function selector, together with a [calldata decoder](https://calldata.swiss-knife.xyz/decoder) to decode the call's arguments.
 
 > [!TIP]
 > Foundry and the Fireblocks JSON RPC shim don't quite get along.
@@ -122,6 +122,9 @@ Then, in the instructions below, pass the `--fireblocks` (`-f`) flag to the `man
 The Boundless market is deployed and upgraded using the **UUPS (Universal Upgradeable Proxy Standard)** proxy pattern.
 
 ### Deploy the HitPoints contract
+
+> [!NOTE]
+> This contract should only be deployed if necessary as, on most cases, should be reused.
 
 1. Dry run deployment of the HitPoints contract:
 
@@ -139,6 +142,9 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
 ### Deploy the market contract
 
+> [!NOTE]
+> Only deploy a new market contract when there are breaking changes, otherwise an upgrade should be preferable.
+
 1. Make available for download the `assessor` elf and set its image ID and url in the `deployment.toml` file.
 
    To generate a deterministic image ID run (from the repo root folder):
@@ -155,6 +161,8 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    <br/>
 
    > [!TIP]
+   > Make sure to install `cargo risczero` with the `experimental` feature.
+   >
    > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
    > You can combine this with curl to check the image ID of an ELF hosted at a URL.
    >
@@ -191,15 +199,18 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
 ### Upgrade the market contract
 
-1. Git clone and forge build the last deployment, then copy the `contracts/out/build-info` folder into `contracts/reference-contract/build-info-reference`
+1. Git clone and `forge clean` and `forge build` the last deployment, then copy the `contracts/out/build-info` folder into `contracts/reference-contract/build-info-reference`. This step is required to check the upgradability of the current code with respect to the previously deployed one.
 
-2. If changed, upload the new `assessor` elf and update its image ID and url in the `deployment.toml` file (optional)
+   > [!TIP]
+   > You can find the commit of the last deployment in the `deployment.toml` file.
+
+2. If changed, upload the new `assessor` elf and update its image ID and url in the `deployment.toml` file as explained in step 1 of [Deploy the market contract](#Deploy-the-market-contract) (optional).
 
 3. Dry run the upgrade of the market implementation and proxy:
 
    ```zsh
    BOUNDLESS_MARKET_OWNER=${ADMIN_ADDRESS:?} \
-   bash contracts/scripts/manage UpgradeBoundlessMarket
+   FOUNDRY_OUT=contracts/out bash contracts/scripts/manage UpgradeBoundlessMarket
    ```
 
    > [!IMPORTANT]
@@ -221,7 +232,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    ```
 
    > [!IMPORTANT]
-   > Make sure the Assessor info to make sure they match what you expect.
+   > Make sure the Assessor info match what you expect.
 
 [yq-install]: https://github.com/mikefarah/yq?tab=readme-ov-file#install
 [alloy-chains]: https://github.com/alloy-rs/chains/blob/main/src/named.rs

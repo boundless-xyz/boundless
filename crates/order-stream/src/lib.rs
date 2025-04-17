@@ -440,8 +440,8 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route(ORDER_SUBMISSION_PATH, post(submit_order).layer(body_size_limit))
         .route(ORDER_LIST_PATH, get(list_orders))
-        .route(&format!("{ORDER_LIST_PATH}/:request_id"), get(find_orders_by_request_id))
-        .route(&format!("{AUTH_GET_NONCE}:addr"), get(get_nonce))
+        .route(&format!("{ORDER_LIST_PATH}/{{request_id}}"), get(find_orders_by_request_id))
+        .route(&format!("{AUTH_GET_NONCE}{{addr}}"), get(get_nonce))
         .route(ORDER_WS_PATH, get(websocket_handler))
         .route(HEALTH_CHECK, get(health))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -527,13 +527,13 @@ mod tests {
     };
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance,
-            test_utils::{create_test_ctx, TestCtx},
-            Offer, Predicate, ProofRequest, RequestId, Requirements,
+            hit_points::default_allowance, Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
         input::InputBuilder,
         order_stream_client::{order_stream, Client},
     };
+    use boundless_market_test_utils::{create_test_ctx, TestCtx};
+
     use futures_util::StreamExt;
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};

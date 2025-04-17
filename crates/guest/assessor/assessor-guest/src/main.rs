@@ -49,12 +49,15 @@ fn main() {
     // - record the selector if it is present
     // We additionally collect the request and claim digests.
     for (index, fill) in input.fills.iter().enumerate() {
+        // Attempt to decode the request ID. If this fails, there may be flags that are not handled
+        // by this guest. This check is not strictly needed, but reduces the chance of accidentally
+        // failing to enforce a constraint.
+        RequestId::try_from(fill.request.id).unwrap();
+
         // ECDSA signatures are always checked here.
         // Smart contract signatures (via EIP-1271) are checked on-chain either when a request is locked,
-        // or when an unlocked request is priced and fulfilled.
-        let smart_contract_signed =
-            RequestId::try_from(fill.request.id).unwrap().smart_contract_signed;
-        let request_digest: [u8; 32] = if smart_contract_signed {
+        // or when an unlocked request is priced and fulfilled
+        let request_digest: [u8; 32] = if fill.request.is_smart_contract_signed() {
             fill.request.eip712_signing_hash(&eip_domain_separator).into()
         } else {
             fill.verify_signature(&eip_domain_separator).expect("signature does not verify")
