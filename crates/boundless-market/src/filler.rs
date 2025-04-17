@@ -17,10 +17,10 @@
 
 use std::{borrow::Cow, fmt::Debug, marker::PhantomData};
 
-use url::Url;
 use risc0_zkvm::{Journal, ReceiptClaim};
+use url::Url;
 
-use crate::contracts::{ProofRequestBuilder, ProofRequest, Input, Offer, RequestId};
+use crate::contracts::{Input, Offer, ProofRequest, ProofRequestBuilder, RequestId};
 
 /// When building a [ProofRequest], a filler provides values for unpopulated fields.
 ///
@@ -125,25 +125,25 @@ pub trait Layer {
     async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error>;
 }
 
-pub struct ProgramAndInput<'a, 'b> {
-    pub program: Cow<'a, [u8]>,
-    pub input: Cow<'b, [u8]>,
+pub struct ProgramAndInput {
+    pub program: Cow<'static, [u8]>,
+    pub input: Cow<'static, [u8]>,
 }
 
-impl<'a, 'b> Into<ProgramAndInput<'a, 'b>> for (&'a [u8], &'b [u8]) {
-    fn into(self) -> ProgramAndInput<'a, 'b> {
-        ProgramAndInput {
-            program: Cow::Borrowed(self.0),
-            input: Cow::Borrowed(self.1),
-        }
+impl<Program, Input> Into<ProgramAndInput> for (Program, Input)
+where
+    Program: Into<Cow<'static, [u8]>>,
+    Input: Into<Cow<'static, [u8]>>,
+{
+    fn into(self) -> ProgramAndInput {
+        ProgramAndInput { program: self.0.into(), input: self.1.into() }
     }
 }
 
 pub struct StorageLayer {}
 
-impl<'a, 'b> Layer for StorageLayer
-{
-    type Input = ProgramAndInput<'a, 'b>;
+impl Layer for StorageLayer {
+    type Input = ProgramAndInput;
     type Error = anyhow::Error;
     type Output = (Url, Input);
 
@@ -194,28 +194,47 @@ impl Layer for OfferLayer {
     }
 }
 
+pub struct Pipe<A, B>(A, B);
+
+impl<A, B> Layer for Pipe<A, B>
+where
+    A: Layer,
+    B: Layer<Input = A::Output>,
+    A::Error: Into<B::Error>,
+{
+    type Input = A::Input;
+    type Output = B::Output;
+    type Error = B::Error;
+
+    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
+        let ouput = self.0.process(input).await.map_err(|e| e.into())?;
+        self.1.process(ouput).await
+    }
+}
+
 pub trait Merge<T> {
     type Output;
 
     fn merge(self, data: T) -> Self::Output;
 }
 
-pub struct Pipe<Input, A, B> {
-    pub a: A,
-    pub b: B,
-    phantom_input: PhantomData<Input>,
+pub struct Eddy<Input, L>{
+    pub layer: L,
+    _phantom_input: PhantomData<Input>,
 }
 
-impl<A, B> Layer for Pipe<Input, A, B>
-where A: Layer,
-      B: Layer,
-      Input: Clone,
-      <Input as Merge<A::Output>>: Into<B::Input>,
+impl<Input, L> Layer for Eddy<Input, L> 
+where
+    L: Layer,
+    Input: Clone + Into<L::Input>  + Merge<L::Output>,
 {
     type Input = Input;
-    type Output = <<Input as Merge<A::Output>> as Merge<B::Output>>::Output;
+    type Output = <Input as Merge<L::Output>>::Output;
+    type Error = L::Error;
 
-    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
-        todo!()
+    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
+        let cloned = input.clone();
+        let output = self.layer.process(input.into()).await?;
+        Ok(cloned.merge(output))
     }
 }
