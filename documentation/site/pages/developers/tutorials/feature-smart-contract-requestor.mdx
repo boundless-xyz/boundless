@@ -95,7 +95,6 @@ First we execute the guest program locally with our expected input, to generate 
 # use risc0_zkvm::{default_executor, ExecutorEnv};
 # use boundless_market::contracts::Input;
 # use std::ops::Div;
-#
 # // Function that takes the required parameters so we don't need to construct them
 # async fn example(
 #     boundless_client: &'static Client<impl alloy::providers::Provider + Clone, impl boundless_market::storage::StorageProvider>,
@@ -131,7 +130,6 @@ Then we create our proof request, setting a `Requirement` that the journal shoul
 # use alloy::primitives::utils::parse_ether;
 # use risc0_zkvm::sha::Digestible;
 # use alloy::primitives::Address;
-#
 # let ECHO_ID = [0u8; 32];
 # let journal = Vec::<u8>::new();
 # let smart_contract_requestor_address: Address = [0u8; 20].into();
@@ -176,11 +174,11 @@ Our Smart Contract Requestor expects the full abi encoded ProofRequest to be pro
 
 ```solidity [SmartContractRequestor.sol]
 function isValidSignature(bytes32 requestHash, bytes memory signature) external view returns (bytes4) {
-        // This smart contract client expects the full abi encoded ProofRequest to be provided as the signature.
-        ProofRequest memory request = abi.decode(signature, (ProofRequest));
+    // This smart contract client expects the full abi encoded ProofRequest to be provided as the signature.
+    ProofRequest memory request = abi.decode(signature, (ProofRequest));
 
-        // ...
-    }
+    // ...
+}
 ```
 So we encode the signature that the Smart Contract Requestor requires to validate the request is constructed correctly. Now we submit the request to the market, and wait for it to be fulfilled.
 
@@ -190,15 +188,14 @@ So we encode the signature that the Smart Contract Requestor requires to validat
 # use boundless_market::client::Client;
 # use alloy::primitives::Bytes;
 # use alloy::sol_types::SolValue;
-#
 # async fn submit_request(
 #     boundless_client: &'static Client<impl alloy::providers::Provider + Clone, impl boundless_market::storage::StorageProvider>,
 #     request: ProofRequest
 # ) -> anyhow::Result<()> {
-    let signature: Bytes = request.abi_encode().into();
-    let (request_id, expires_at) =
-        boundless_client.submit_request_with_signature_bytes(&request, &signature).await?;
-    tracing::info!("Request {} submitted", request_id);
+let signature: Bytes = request.abi_encode().into();
+let (request_id, expires_at) =
+    boundless_client.submit_request_with_signature_bytes(&request, &signature).await?;
+tracing::info!("Request {} submitted", request_id);
 # Ok(())
 # }
 ```
@@ -209,55 +206,55 @@ When the request is locked or fulfilled, Boundless Market will call `isValidSign
 First, we decode the request from the signature.
 
 ```solidity [SmartContractRequestor.sol]
-    ProofRequest memory request = abi.decode(signature, (ProofRequest));
+ProofRequest memory request = abi.decode(signature, (ProofRequest));
 ```
 
 Recall that the Request ID represents the day of work being processed, so first we check that the request id is within the expected range for days that we are willing to pay for.
 
 ```solidity [SmartContractRequestor.sol]
-    (, uint32 daysSinceEpoch) = request.id.clientAndIndex();
-    if (daysSinceEpoch < START_DAY_SINCE_EPOCH || daysSinceEpoch > END_DAY_SINCE_EPOCH) {
-        return 0xffffffff;
-    }
+(, uint32 daysSinceEpoch) = request.id.clientAndIndex();
+if (daysSinceEpoch < START_DAY_SINCE_EPOCH || daysSinceEpoch > END_DAY_SINCE_EPOCH) {
+    return 0xffffffff;
+}
 ```
 
 Next we check that the image id is as expected, ensuring that the request specifies the correct guest program.
 
 ```solidity [SmartContractRequestor.sol]
-    // Validate that the request provided is as expected.
-    // For this example, we check the image id is as expected, and that the predicate restricts
-    // the output to match the day specified in the id.
-    if (request.requirements.imageId != ECHO_ID) {
-        return 0xffffffff;
-    }
+// Validate that the request provided is as expected.
+// For this example, we check the image id is as expected, and that the predicate restricts
+// the output to match the day specified in the id.
+if (request.requirements.imageId != ECHO_ID) {
+    return 0xffffffff;
+}
 ```
 
 Next, we validate the predicate type and data are correct, ensuring that the request was executed with the correct input and resulted in the correct output.
 
 ```solidity [SmartContractRequestor.sol]
-    // Validate the predicate type and data are correct. This ensures that the request was executed with
-    // the correct input and resulted in the correct output. In this case it ensures that the input
-    // to the request was the correct day since epoch that corresponds to the request id.
-    if (request.requirements.predicate.predicateType != PredicateType.DigestMatch) {
-        return 0xffffffff;
-    }
-    bytes32 expectedPredicate = sha256(abi.encodePacked(daysSinceEpoch));
-    if (bytes32(request.requirements.predicate.data) != expectedPredicate) {
-        return 0xffffffff;
-    }
+// Validate the predicate type and data are correct. This ensures that the request was executed with
+// the correct input and resulted in the correct output. In this case it ensures that the input
+// to the request was the correct day since epoch that corresponds to the request id.
+if (request.requirements.predicate.predicateType != PredicateType.DigestMatch) {
+    return 0xffffffff;
+}
+bytes32 expectedPredicate = sha256(abi.encodePacked(daysSinceEpoch));
+if (bytes32(request.requirements.predicate.data) != expectedPredicate) {
+    return 0xffffffff;
+}
 ```
 
 Finally, we validate that the EIP-712 hash of the request provided in the signature matches the hash that was provided by BoundlessMarket. This ensures that Boundless is processing the same request that we have validated.
 
 ```solidity [SmartContractRequestor.sol]
-    // Validate that the EIP-712 hash of the request provided in the signature matches the hash that was
-    // provided by BoundlessMarket. This ensures that Boundless is processing the same request that we have
-    // validated.
-    if (_hashTypedData(request.eip712Digest()) == requestHash) {
-        return MAGICVALUE;
-    }
+// Validate that the EIP-712 hash of the request provided in the signature matches the hash that was
+// provided by BoundlessMarket. This ensures that Boundless is processing the same request that we have
+// validated.
+if (_hashTypedData(request.eip712Digest()) == requestHash) {
+    return MAGICVALUE;
+}
 
-    return 0xffffffff;
+return 0xffffffff;
 ```
 
 If all of these checks pass, the request is valid and the smart contract requestor will pay for the request.

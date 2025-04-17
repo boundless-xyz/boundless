@@ -117,18 +117,19 @@ Concretely, in the erc20-counter example, the counter is only updated if the cal
 ```solidity
 contract Counter {
 
-function increment(bytes calldata journalData, bytes calldata seal) external {
-    // Decode and validate the journal data
-    Journal memory journal = abi.decode(journalData, (Journal));
-    require(journal.tokenContract == tokenContract, "Invalid token address");
-    require(Steel.validateCommitment(journal.commitment), "Invalid commitment");
+  function increment(bytes calldata journalData, bytes calldata seal) external {
+      // Decode and validate the journal data
+      Journal memory journal = abi.decode(journalData, (Journal));
+      require(journal.tokenContract == tokenContract, "Invalid token address");
+      require(Steel.validateCommitment(journal.commitment), "Invalid commitment");
 
-    // Verify the proof
-    bytes32 journalHash = sha256(journalData);
-    verifier.verify(seal, imageID, journalHash);
+      // Verify the proof
+      bytes32 journalHash = sha256(journalData);
+      verifier.verify(seal, imageID, journalHash);
 
-    // If the balance is at least one, update the counter
-    counter += 1;
+      // If the balance is at least one, update the counter
+      counter += 1;
+  }
 }
 ```
 

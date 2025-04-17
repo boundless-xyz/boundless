@@ -60,10 +60,11 @@ An offer contains the following:
 | ---------------------------- | ---------------------------------------------------------- |
 | **Minimum price**            | The lowest price the requestor is willing to pay.          |
 | **Maximum price**            | The highest price the requestor is willing to pay.         |
-| **Bidding start**            | Defined as a block number.                                 |
-| **Length of ramp-up period** | Measured in blocks since the start of the bid.             |
-| **Timeout**                  | Measured in blocks since the start of the bid.             |
-| **Lock-in stake**            | The slashable amount if a prover fails to deliver a proof. |
+| **Bidding start**            | Defined as a timestamp.                                    |
+| **Length of ramp-up period** | Measured in seconds since the start of the bid.            |
+| **Lock timeout**             | Measured in seconds since the start of the bid.            |
+| **Timeout**                  | Measured in seconds since the start of the bid.            |
+| **Lock stake**               | The slashable amount if a prover fails to deliver a proof. |
 
 For example, an offer might specify:
 
@@ -71,10 +72,11 @@ For example, an offer might specify:
 | ------------------------ | ----------------------- |
 | Minimum price            | 0.001 Ether             |
 | Maximum price            | 0.002 Ether             |
-| Bidding start            | Latest block number + 3 |
-| Length of ramp-up period | 10 blocks               |
-| Timeout                  | 100 blocks              |
-| Lock-in stake            | 5 HP                    |
+| Bidding start            | Now                     |
+| Length of ramp-up period | 300 seconds             |
+| Timeout                  | 3600 seconds            |
+| Lock Timeout             | 2700 seconds            |
+| Lock stake               | 5 HP                    |
 
 For more details, please see [Pricing a Request](/developers/tutorials/request#pricing-a-request).
 
@@ -127,17 +129,17 @@ After a proof request is broadcast, a reverse Dutch auction runs according to th
 
 From the moment the request is broadcast to the start of bidding, the auction price is the minimum specified in the offer. During the ramp-up period, the price is increased linearly up to the maximum price. After the ramp-up period the price stays at the max price until the request expires. At any time, a prover can submit a bid, accepting the current price and winning the auction. Because the price only increases, the first bid is the best price for the requestor.
 
-When the prover submits their bid, the auction ends and they "lock-in" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
+When the prover submits their bid, the auction ends and they "lock" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
 
-However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, while a higher stake value decreases the chance an unreliable prover will lock the request. Applications such as fraud proofs may disable lock-in entirely by setting the stake amount impossibly high (e.g., higher than the total supply of the staking token).
+However, locking a request requires the prover to put up stake, which will be slashed if they fail to deliver a proof before the request timeout. Slashed stake is used to incentivize other provers to fulfill the request in the case where the locker fails to deliver the proof. Requestors choose the stake value according to their application's requirements. A low stake value may result in a better price, however there would be less incentive for another prover to fulfill the request in the case where the locker fails to deliver the proof. A higher stake value may decrease the chance an unreliable prover will lock the request.
 
-An unlocked request can be directly fulfilled, without first being locked. When this happens, the prover will be paid according to the auction price at that moment.
+An unlocked request can be directly fulfilled, without first being locked. When this happens, the prover will be paid according to the auction price at that moment. Applications may disable locking entirely by setting the stake amount impossibly high (e.g., higher than the total supply of the staking token), ensuring that no prover can lock the request and disincentivizing others from proving.
 
 Provers will calculate the minimum price at which they are willing to prove a request based on a number of factors. These can include:
 
 - Cycle-count of the program execution, determining the proving cost.
 - Lock-in stake required
-- Timeout length, determining how long they have to complete the proof.
+- Timeout and LockTimeout length, determining how long they have to complete the proof.
 - Input and program size, determining bandwidth costs to download the request.
 
 It is also worth noting that the prover's software will download the ELF binary, from the request's image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.
