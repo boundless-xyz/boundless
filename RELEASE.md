@@ -45,6 +45,10 @@ When publishing a new release, you can use the following process.
 
 5. Run the [release workflow][release-workflow] manually against this branch using `ethereum-sepolia-staging` as `chain_key` to confirm the deployment is working correctly.
 
+   If the workflow fails, make sure that the [Deployment.t.sol](./contracts/deployment-test/Deploymnet.t.sol) file is up-to-date with:
+   - The content of the request (e.g., image ID, imageUrl, input, requirements)
+   - The selector used matches with the zkvm version (i.e., search for "selector for ZKVM_V"); if not, update its value as listed in [selector.rs](./lib/risc0-ethereum/contracts/src/selector.rs).
+
 ## Update prod
 
 > [!NOTE]
