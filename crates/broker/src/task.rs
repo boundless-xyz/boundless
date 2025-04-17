@@ -2,11 +2,13 @@
 //
 // All rights reserved.
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
-use anyhow::{Error as AnyhowErr, Result as AnyhowRes};
+use anyhow::{Context, Error as AnyhowErr, Result as AnyhowRes};
 use thiserror::Error;
 use tokio::task::JoinSet;
+
+use crate::config::ConfigLock;
 
 #[derive(Error, Debug)]
 pub enum SupervisorErr {
@@ -29,15 +31,14 @@ pub trait RetryTask {
 #[derive(Debug, Clone)]
 pub(crate) struct RetryPolicy {
     /// Initial delay between retry attempts
-    pub delay: std::time::Duration,
+    pub delay: Duration,
     /// Multiplier applied to the delay after each retry
     pub backoff_multiplier: f64,
     /// Maximum delay between retries, regardless of backoff
-    pub max_delay: std::time::Duration,
-    /// Maximum number of consecutive retries before giving up (None for unlimited)
-    pub max_retries: Option<usize>,
+    pub max_delay: Duration,
     /// Duration after which to reset the retry counter if a task runs successfully
-    pub reset_after: Option<std::time::Duration>,
+    pub reset_after: Option<Duration>,
+    pub(crate) critical: bool,
 }
 
 impl Default for RetryPolicy {
@@ -46,9 +47,9 @@ impl Default for RetryPolicy {
             delay: std::time::Duration::from_millis(500),
             backoff_multiplier: 1.5,
             max_delay: std::time::Duration::from_secs(60),
-            max_retries: None,
             // Reset the backoff after 5 minutes of running without a failure.
             reset_after: Some(std::time::Duration::from_secs(60 * 5)),
+            critical: false,
         }
     }
 }
@@ -58,8 +59,8 @@ impl RetryPolicy {
         delay: std::time::Duration::from_millis(100),
         backoff_multiplier: 1.5,
         max_delay: std::time::Duration::from_secs(2),
-        max_retries: Some(10),
         reset_after: Some(std::time::Duration::from_secs(60)),
+        critical: true,
     };
 }
 
@@ -69,6 +70,7 @@ pub(crate) struct Supervisor<T: RetryTask> {
     task: Arc<T>,
     /// Configuration for retry behavior
     retry_policy: RetryPolicy,
+    config: ConfigLock,
 }
 
 impl<T> Supervisor<T>
@@ -76,8 +78,8 @@ where
     T: RetryTask + Send,
 {
     /// Create a new supervisor with a single task
-    pub fn new(task: Arc<T>) -> Self {
-        Self { task, retry_policy: RetryPolicy::default() }
+    pub fn new(task: Arc<T>, config: ConfigLock) -> Self {
+        Self { task, retry_policy: RetryPolicy::default(), config }
     }
 
     /// Configure the retry policy
@@ -87,7 +89,7 @@ where
     }
 
     /// Calculate the delay for a specific retry attempt
-    fn calculate_retry_delay(&self, retry_count: usize) -> std::time::Duration {
+    fn calculate_retry_delay(&self, retry_count: u32) -> Duration {
         if retry_count == 0 {
             return self.retry_policy.delay;
         }
@@ -97,7 +99,7 @@ where
 
         let backoff_ms = backoff.min(self.retry_policy.max_delay.as_millis() as f64) as u64;
 
-        std::time::Duration::from_millis(backoff_ms)
+        Duration::from_millis(backoff_ms)
     }
 
     /// Run the supervisor, monitoring tasks and handling retries
@@ -130,20 +132,29 @@ where
                     }
                     Err(err) => match err {
                         SupervisorErr::Recover(err) => {
-                            // Check if we've exceeded max retries
-                            if let Some(max) = self.retry_policy.max_retries {
-                                if retry_count >= max {
-                                    tracing::error!("Exceeded maximum retries ({max}) for task");
-                                    anyhow::bail!("Exceeded maximum retries for task");
+                            if self.retry_policy.critical {
+                                let max_retries = {
+                                    let config =
+                                        self.config.lock_all().context("Failed to read config")?;
+                                    config.prover.max_critical_task_retries
+                                };
+
+                                // Check if we've exceeded max retries
+                                if let Some(max) = max_retries {
+                                    if retry_count >= max {
+                                        tracing::error!(
+                                            "Exceeded maximum retries ({max}) for task"
+                                        );
+                                        anyhow::bail!("Exceeded maximum retries for task");
+                                    }
                                 }
                             }
 
                             let delay = self.calculate_retry_delay(retry_count);
 
                             tracing::warn!(
-                                "Recoverable failure detected: {err:?}, spawning replacement (retry {}/{})",
+                                "Recoverable failure detected: {err:?}, spawning replacement (retry {})",
                                 retry_count + 1,
-                                self.retry_policy.max_retries.map_or("∞".to_string(), |m| m.to_string())
                             );
                             tracing::debug!("Waiting {:?} before retry", delay);
 
@@ -248,7 +259,7 @@ mod tests {
         let task = Arc::new(TestTask::new());
         task.tx(0).await.unwrap();
 
-        let supervisor_task = Supervisor::new(task.clone()).spawn();
+        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default()).spawn();
 
         task.tx(0).await.unwrap();
         task.tx(0).await.unwrap();
@@ -266,7 +277,7 @@ mod tests {
         let task = Arc::new(TestTask::new());
         task.tx(0).await.unwrap();
 
-        let supervisor_task = Supervisor::new(task.clone()).spawn();
+        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default()).spawn();
 
         task.tx(3).await.unwrap();
         task.close();
@@ -279,13 +290,13 @@ mod tests {
     async fn supervisor_with_retry_policy() {
         let task = Arc::new(TestTask::new());
 
-        let supervisor_task = Supervisor::new(task.clone())
+        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default())
             .with_retry_policy(RetryPolicy {
                 delay: std::time::Duration::from_millis(10),
                 backoff_multiplier: 2.0,
                 max_delay: std::time::Duration::from_millis(500),
-                max_retries: Some(3),
                 reset_after: None,
+                critical: false,
             })
             .spawn();
 

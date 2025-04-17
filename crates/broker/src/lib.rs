@@ -365,8 +365,10 @@ where
     pub async fn start_service(&self) -> Result<()> {
         let mut supervisor_tasks: JoinSet<Result<()>> = JoinSet::new();
 
+        let config = self.config_watcher.config.clone();
+
         let loopback_blocks = {
-            let config = match self.config_watcher.config.lock_all() {
+            let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
             };
@@ -380,8 +382,9 @@ where
         );
 
         let cloned_chain_monitor = chain_monitor.clone();
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(cloned_chain_monitor)
+            Supervisor::new(cloned_chain_monitor, cloned_config)
                 .spawn()
                 .await
                 .context("Failed to start chain monitor")?;
@@ -403,8 +406,9 @@ where
 
         tracing::debug!("Estimated block time: {block_times}");
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(market_monitor)
+            Supervisor::new(market_monitor, cloned_config)
                 .spawn()
                 .await
                 .context("Failed to start market monitor")?;
@@ -424,8 +428,9 @@ where
                     client.clone(),
                     self.args.private_key.clone(),
                 ));
+            let cloned_config = config.clone();
             supervisor_tasks.spawn(async move {
-                Supervisor::new(offchain_market_monitor)
+                Supervisor::new(offchain_market_monitor, cloned_config)
                     .spawn()
                     .await
                     .context("Failed to start offchain market monitor")?;
@@ -443,23 +448,15 @@ where
         {
             tracing::info!("Configured to run with Bonsai backend");
             Arc::new(
-                provers::Bonsai::new(
-                    self.config_watcher.config.clone(),
-                    bonsai_api_url.as_ref(),
-                    bonsai_api_key,
-                )
-                .context("Failed to construct Bonsai client")?,
+                provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
+                    .context("Failed to construct Bonsai client")?,
             )
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
 
             Arc::new(
-                provers::Bonsai::new(
-                    self.config_watcher.config.clone(),
-                    bento_api_url.as_ref(),
-                    "",
-                )
-                .context("Failed to initialize Bento client")?,
+                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "")
+                    .context("Failed to initialize Bento client")?,
             )
         } else {
             Arc::new(provers::DefaultProver::new())
@@ -468,14 +465,18 @@ where
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             prover.clone(),
             self.args.boundless_market_address,
             self.provider.clone(),
             chain_monitor.clone(),
         ));
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(order_picker).spawn().await.context("Failed to start order picker")?;
+            Supervisor::new(order_picker, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start order picker")?;
             Ok(())
         });
 
@@ -483,12 +484,13 @@ where
             self.db.clone(),
             self.provider.clone(),
             chain_monitor.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             block_times,
             self.args.boundless_market_address,
         )?);
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(order_monitor)
+            Supervisor::new(order_monitor, cloned_config)
                 .spawn()
                 .await
                 .context("Failed to start order monitor")?;
@@ -496,17 +498,14 @@ where
         });
 
         let proving_service = Arc::new(
-            proving::ProvingService::new(
-                self.db.clone(),
-                prover.clone(),
-                self.config_watcher.config.clone(),
-            )
-            .await
-            .context("Failed to initialize proving service")?,
+            proving::ProvingService::new(self.db.clone(), prover.clone(), config.clone())
+                .await
+                .context("Failed to initialize proving service")?,
         );
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(proving_service)
+            Supervisor::new(proving_service, cloned_config)
                 .spawn()
                 .await
                 .context("Failed to start proving service")?;
@@ -527,15 +526,16 @@ where
                 assessor_img_data.1,
                 self.args.boundless_market_address,
                 prover_addr,
-                self.config_watcher.config.clone(),
+                config.clone(),
                 prover.clone(),
             )
             .await
             .context("Failed to initialize aggregator service")?,
         );
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(aggregator)
+            Supervisor::new(aggregator, cloned_config)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
                 .spawn()
                 .await
@@ -545,15 +545,16 @@ where
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             prover.clone(),
             self.provider.clone(),
             self.args.set_verifier_address,
             self.args.boundless_market_address,
             set_builder_img_data.0,
         )?);
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(submitter)
+            Supervisor::new(submitter, cloned_config)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
                 .spawn()
                 .await
