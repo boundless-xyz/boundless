@@ -54,6 +54,8 @@ mod defaults {
 pub struct MarketConf {
     /// Mega Cycle price (in native token)
     pub mcycle_price: String,
+    /// Mega Cycle price (in staking token)
+    pub mcycle_price_stake_token: String,
     /// Assumption price (in native token)
     ///
     /// UNUSED CURRENTLY
@@ -132,6 +134,7 @@ impl Default for MarketConf {
     fn default() -> Self {
         Self {
             mcycle_price: "0.1".to_string(),
+            mcycle_price_stake_token: "0.1".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
@@ -419,6 +422,7 @@ mod tests {
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1"
+mcycle_price_stake_token = "0.1"
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
@@ -444,6 +448,7 @@ block_deadline_buffer_secs = 120"#;
     const CONFIG_TEMPL_2: &str = r#"
 [market]
 mcycle_price = "0.1"
+mcycle_price_stake_token = "0.1"
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300

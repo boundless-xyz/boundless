@@ -142,8 +142,8 @@ enum OrderStatus {
     Pricing,
     /// Order is ready to lock at target_timestamp
     Locking,
-    /// Order has been locked in and ready to begin proving
-    Locked,
+    /// Order is ready to commence proving (either locked or filling without locking)
+    PendingProving,
     /// Order is actively ready for proving
     Proving,
     /// Order is ready for aggregation
@@ -160,6 +160,8 @@ enum OrderStatus {
     Failed,
     /// Order was analyzed and marked as skipable
     Skipped,
+    /// Order was observed to be locked by another prover
+    LockedByOther,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -393,6 +395,7 @@ where
             self.provider.clone(),
             self.db.clone(),
             chain_monitor.clone(),
+            self.args.private_key.address(),
         ));
 
         let block_times =
@@ -690,7 +693,7 @@ pub mod test_utils {
     use alloy::network::Ethereum;
     use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
-    use boundless_market::contracts::test_utils::TestCtx;
+    use boundless_market_test_utils::TestCtx;
     use guest_assessor::ASSESSOR_GUEST_PATH;
     use guest_set_builder::SET_BUILDER_PATH;
     use tempfile::NamedTempFile;
