@@ -168,7 +168,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
           healthyThreshold: 2,
           port: '8585',
           protocol: 'HTTP',
-          path: '/api/health',
+          path: '/api/v1/health',
         },
       },
       // This should be slightly greater than the order-steam configured ping/pong time
