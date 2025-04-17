@@ -5,7 +5,7 @@
 When a new version of `risc0-ethereum` gets released, run the following steps:
 
 1. Under the folder ./lib/risc0-ethereum run:
-   
+
    ```bash
    git fetch
    git checkout vX.Y.Z
