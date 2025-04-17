@@ -931,7 +931,10 @@ where
         let journal = session_info.journal.bytes;
         ensure!(
             request.requirements.predicate.eval(&journal),
-            "Preflight failed: Predicate evaluation failed; journal does not match requirements"
+            "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
+            hex::encode(&journal),
+            request.requirements.predicate.predicateType,
+            hex::encode(&request.requirements.predicate.data)
         );
         tracing::info!("Preflight check passed");
     } else {
@@ -1051,7 +1054,10 @@ where
         // Verify predicate
         ensure!(
             request.requirements.predicate.eval(&journal),
-            "Preflight failed: Predicate evaluation failed; journal does not match requirements"
+            "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
+            hex::encode(&journal),
+            request.requirements.predicate.predicateType,
+            hex::encode(&request.requirements.predicate.data)
         );
 
         tracing::info!("Preflight check passed");
