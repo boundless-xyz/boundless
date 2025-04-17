@@ -290,6 +290,27 @@ enum ProvingCommands {
         #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["tx_hash"])]
         order_stream_url: Option<Url>,
     },
+
+    /// Lock a request in the market
+    Lock {
+        /// The proof request identifier
+        #[arg(long)]
+        request_id: U256,
+
+        /// The request digest
+        #[arg(long)]
+        request_digest: Option<B256>,
+
+        /// The tx hash of the request submission
+        #[arg(long)]
+        tx_hash: Option<B256>,
+
+        /// The order stream service URL.
+        ///
+        /// If provided, the request will be fetched offchain via the provided order stream service URL.
+        #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["tx_hash"])]
+        order_stream_url: Option<Url>,
+    },
 }
 
 #[derive(Args, Clone, Debug)]
@@ -823,6 +844,32 @@ where
                     bail!("Failed to fulfill request: {}", e)
                 }
             }
+        }
+        ProvingCommands::Lock { request_id, request_digest, tx_hash, order_stream_url } => {
+            tracing::info!("Locking proof request 0x{:x}", request_id);
+            let client = ClientBuilder::new()
+                .with_private_key(args.config.private_key.clone())
+                .with_rpc_url(args.config.rpc_url.clone())
+                .with_boundless_market_address(args.config.boundless_market_address)
+                .with_set_verifier_address(args.config.set_verifier_address)
+                .with_order_stream_url(order_stream_url.clone())
+                .with_timeout(args.config.tx_timeout)
+                .build()
+                .await?;
+
+            let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
+            tracing::debug!("Fetched order details: {:?}", order.request);
+
+            let sig: Bytes = order.signature.as_bytes().into();
+            order.request.verify_signature(
+                &sig,
+                args.config.boundless_market_address,
+                boundless_market.get_chain_id().await?,
+            )?;
+
+            boundless_market.lock_request(&order.request, &sig, None).await?;
+            tracing::info!("Successfully locked request 0x{:x}", request_id);
+            Ok(())
         }
     }
 }
@@ -1790,16 +1837,29 @@ mod tests {
 
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
-        let client_sig = request
-            .sign_request(&ctx.customer_signer, ctx.boundless_market_address, anvil.chain_id())
-            .await
-            .unwrap();
+        let prover_config = GlobalConfig {
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.prover_signer.clone(),
+            boundless_market_address: ctx.boundless_market_address,
+            verifier_address: ctx.verifier_address,
+            set_verifier_address: ctx.set_verifier_address,
+            tx_timeout: None,
+            log_level: LevelFilter::INFO,
+        };
 
-        // Lock the request
-        ctx.prover_market
-            .lock_request(&request, &Bytes::copy_from_slice(&client_sig.as_bytes()), None)
-            .await
-            .unwrap();
+        // test the Lock command
+        run(&MainArgs {
+            config: prover_config,
+            command: Command::Proving(Box::new(ProvingCommands::Lock {
+                request_id,
+                request_digest: None,
+                tx_hash: None,
+                order_stream_url: None,
+            })),
+        })
+        .await
+        .unwrap();
+        assert!(logs_contain(&format!("Successfully locked request 0x{:x}", request.id)));
 
         // test the Status command
         run(&MainArgs {
@@ -1992,7 +2052,7 @@ mod tests {
     #[traced_test]
     #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_proving_offchain(pool: PgPool) {
-        let (ctx, _anvil, config, order_stream_url, order_stream_handle) =
+        let (ctx, anvil, config, order_stream_url, order_stream_handle) =
             setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
 
         // Deposit funds into the market
@@ -2044,6 +2104,30 @@ mod tests {
         .unwrap();
 
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
+
+        let prover_config = GlobalConfig {
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.prover_signer.clone(),
+            boundless_market_address: ctx.boundless_market_address,
+            verifier_address: ctx.verifier_address,
+            set_verifier_address: ctx.set_verifier_address,
+            tx_timeout: None,
+            log_level: LevelFilter::INFO,
+        };
+
+        // test the Lock command
+        run(&MainArgs {
+            config: prover_config,
+            command: Command::Proving(Box::new(ProvingCommands::Lock {
+                request_id,
+                request_digest: None,
+                tx_hash: None,
+                order_stream_url: Some(order_stream_url.clone()),
+            })),
+        })
+        .await
+        .unwrap();
+        assert!(logs_contain(&format!("Successfully locked request 0x{:x}", request.id)));
 
         // test the Fulfill command
         run(&MainArgs {

@@ -307,7 +307,7 @@ boundless-cli request verify-proof 0x5... 0x0002f87ec0...
 
 ### 3. Proving subcommands
 
-The `proving` subcommand is used to execute guest code locally and generate proofs for specific requests.
+The `proving` subcommand is used to execute guest code locally, lock and generate proofs for specific requests.
 
 >**Note**: The proving subcommands are not equivalent to running a [bento](../../provers/quick-start.mdx) prover.
 
@@ -357,6 +357,25 @@ proving fulfill --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
 ```
 boundless-cli proving fulfill --request-id 0x5...
 ```
+
+#### 3. lock
+Locks the request on the market, preventing other provers to acquire the exclusive right to get paid for its fulfillment, as long as the request gets fulfilled before the lock timeout.
+
+**Syntax**:
+```
+proving lock --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
+        [--order-stream-url <URL>]
+```
+- `--request-id`: the proof request identifier.
+- `--request-digest`: request’s EIP712 digest (optional).
+- `--tx-hash`: transaction hash (optional, to find the request).
+- `--order-stream-url`: fetch request data from an offchain server.
+
+**Example**:
+```
+boundless-cli proving lock --request-id 0x5...
+```
+
 
 ### 4. Ops subcommands
 
