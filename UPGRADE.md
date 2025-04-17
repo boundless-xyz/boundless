@@ -19,7 +19,7 @@ When a new version of `risc0-ethereum` gets released, run the following steps:
    - `risc0-ethereum-contracts`
    - `guest-set-builder`
 
-3. Make sure that all `alloy` related crates match with the version used in `risc-ethereum`.
+3. Make sure that all `alloy` related crates match with the version used in `risc0-ethereum`.
 
 ## Upgrade zkVM version
 
