@@ -18,6 +18,8 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  RISC0_TOOLCHAIN_VERSION: 1.85.0
+  RISC0_CRATE_VERSION: "2.0.0"
 
 jobs:
   # see: https://github.com/orgs/community/discussions/26822
@@ -74,8 +76,8 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '2.0.0'
-          toolchain-version: '1.85.0'
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -104,11 +106,13 @@ jobs:
       - name: cargo doc
         run: cargo doc --locked
 
+        # NOTE: We set boundless-order-generator/zeth to ensure the Zeth order generator at least passes cargo clippy.
+        # This flag is not set for build or test since building Zeth is quite slow.
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
-        run: cargo clippy --locked --all-targets
+        run: cargo clippy --locked --all-targets -F boundless-order-generator/zeth
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
@@ -275,7 +279,7 @@ jobs:
         run: cargo check --locked -p broker --bin broker
 
   link-check:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux, X64, prod, cpu]
     steps:
       - uses: actions/checkout@v4
 
@@ -286,6 +290,11 @@ jobs:
           path: .lycheecache
           key: cache-lychee-${{ github.sha }}
           restore-keys: cache-lychee-
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-2.0
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -310,9 +319,14 @@ jobs:
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
   format:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux, X64, prod, cpu]
     steps:
       - uses: actions/checkout@v4
+
+      - name: install rust
+        uses: risc0/risc0/.github/actions/rustup@release-2.0
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -326,7 +340,7 @@ jobs:
       - run: dprint check
 
   foundry:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, Linux, X64, prod, cpu]
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -347,7 +361,7 @@ jobs:
   # Run as a separate job because we need to install a different set of tools.
   # In particular, it uses nightly Rust and _does not_ install Forge or cargo risczero.
   docs-rs:
-  # TODO: Revert this change when CC on self-hosted runners in fixed.
+    # TODO: Revert this change when CC on self-hosted runners in fixed.
     runs-on: ubuntu-latest
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
@@ -357,7 +371,7 @@ jobs:
           submodules: recursive
       - uses: risc0/risc0/.github/actions/rustup@release-2.0
         with:
-          toolchain: '1.85'
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
       - uses: risc0/risc0/.github/actions/rustup@release-2.0
         with:
           # Building with docs.rs config requires the nightly toolchain.
@@ -377,7 +391,7 @@ jobs:
           submodules: recursive
       - uses: risc0/risc0/.github/actions/rustup@release-2.0
         with:
-          toolchain: '1.85'
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
       - run: cargo publish -p boundless-market --dry-run

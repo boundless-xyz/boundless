@@ -12,28 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::contracts::{
-    boundless_market::BoundlessMarketService,
-    bytecode::*,
-    hit_points::{default_allowance, HitPointsService},
-};
 use alloy::{
     network::EthereumWallet,
     node_bindings::AnvilInstance,
-    primitives::{Address, FixedBytes},
+    primitives::{Address, Bytes, FixedBytes},
     providers::{ext::AnvilApi, Provider, ProviderBuilder, WalletProvider},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
 use alloy_primitives::{B256, U256};
+use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use anyhow::{Context, Ok, Result};
-use risc0_aggregation::SetInclusionReceiptVerifierParameters;
+use boundless_market::contracts::{
+    boundless_market::BoundlessMarketService,
+    bytecode::*,
+    hit_points::{default_allowance, HitPointsService},
+    AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
+};
+use guest_assessor::ASSESSOR_GUEST_ID;
+use guest_set_builder::SET_BUILDER_ID;
+use guest_util::ECHO_ID;
+use risc0_aggregation::{
+    merkle_path, merkle_root, GuestState, SetInclusionReceipt,
+    SetInclusionReceiptVerifierParameters,
+};
 use risc0_circuit_recursion::control_id::{ALLOWED_CONTROL_ROOT, BN254_IDENTITY_CONTROL_ID};
-use risc0_ethereum_contracts::set_verifier::SetVerifierService;
+use risc0_ethereum_contracts::{encode_seal, set_verifier::SetVerifierService};
 use risc0_zkvm::{
     is_dev_mode,
     sha::{Digest, Digestible},
-    Groth16ReceiptVerifierParameters,
+    FakeReceipt, Groth16ReceiptVerifierParameters, InnerReceipt, Journal, MaybePruned, Receipt,
+    ReceiptClaim,
 };
 
 pub struct TestCtx<P> {
@@ -178,7 +187,7 @@ pub async fn get_mock_callback_count(provider: &impl Provider, address: Address)
     Ok(count._0)
 }
 
-async fn deploy_contracts(
+pub async fn deploy_contracts(
     anvil: &AnvilInstance,
     set_builder_id: Digest,
     set_builder_url: String,
@@ -213,8 +222,7 @@ async fn deploy_contracts(
         }
     };
     let set_verifier =
-        deploy_set_verifier(&deployer_provider, verifier_router, set_builder_id, set_builder_url)
-            .await?;
+        deploy_set_verifier(&deployer_provider, verifier, set_builder_id, set_builder_url).await?;
 
     let router_instance = RiscZeroVerifierRouter::RiscZeroVerifierRouterInstance::new(
         verifier_router,
@@ -349,4 +357,74 @@ pub async fn create_test_ctx_with_rpc_url(
         set_verifier,
         hit_points_service,
     })
+}
+
+fn to_b256(digest: Digest) -> B256 {
+    <[u8; 32]>::from(digest).into()
+}
+
+pub fn mock_singleton(
+    request: &ProofRequest,
+    eip712_domain: Eip712Domain,
+    prover: Address,
+) -> (B256, Bytes, Fulfillment, Bytes) {
+    let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
+    let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
+    let app_claim_digest = app_receipt_claim.digest();
+    let request_digest = request.eip712_signing_hash(&eip712_domain);
+    let assessor_root = AssessorCommitment {
+        index: U256::ZERO,
+        id: request.id,
+        requestDigest: request_digest,
+        claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
+    }
+    .eip712_hash_struct();
+    let assessor_journal =
+        AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
+    let assesor_receipt_claim = ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
+    let assessor_claim_digest = assesor_receipt_claim.digest();
+
+    let set_builder_root = merkle_root(&[app_claim_digest, assessor_claim_digest]);
+    let set_builder_journal = {
+        let mut state = GuestState::initial(SET_BUILDER_ID);
+        state.mmr.push(app_claim_digest).unwrap();
+        state.mmr.push(assessor_claim_digest).unwrap();
+        state.mmr.finalize().unwrap();
+        state.encode()
+    };
+    let set_builder_receipt_claim = ReceiptClaim::ok(SET_BUILDER_ID, set_builder_journal.clone());
+
+    let set_builder_receipt = Receipt::new(
+        InnerReceipt::Fake(FakeReceipt::new(set_builder_receipt_claim)),
+        set_builder_journal,
+    );
+    let set_builder_seal = encode_seal(&set_builder_receipt).unwrap();
+
+    let verifier_parameters =
+        SetInclusionReceiptVerifierParameters { image_id: Digest::from(SET_BUILDER_ID) };
+    let set_inclusion_seal = SetInclusionReceipt::from_path_with_verifier_params(
+        ReceiptClaim::ok(ECHO_ID, MaybePruned::Pruned(app_journal.digest())),
+        merkle_path(&[app_claim_digest, assessor_claim_digest], 0),
+        verifier_parameters.digest(),
+    )
+    .abi_encode_seal()
+    .unwrap();
+
+    let fulfillment = Fulfillment {
+        id: request.id,
+        requestDigest: request_digest,
+        imageId: to_b256(Digest::from(ECHO_ID)),
+        journal: app_journal.bytes.into(),
+        seal: set_inclusion_seal.into(),
+    };
+
+    let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
+        ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
+        merkle_path(&[app_claim_digest, assessor_claim_digest], 1),
+        verifier_parameters.digest(),
+    )
+    .abi_encode_seal()
+    .unwrap();
+
+    (to_b256(set_builder_root), set_builder_seal.into(), fulfillment, assessor_seal.into())
 }

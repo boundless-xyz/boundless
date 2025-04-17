@@ -12,6 +12,7 @@ edition = "2021"
 guest-assessor = { path = "../../crates/guest/assessor" }
 guest-util = { path = "../../crates/guest/util" }
 boundless-market = { path = "../../crates/boundless-market" }
+boundless-market-test-utils = { path = "../../crates/boundless-market/test-utils" }
 broker = { path = "../../crates/broker" }
 
 # risc0 monorepo dependencies.

@@ -4,6 +4,7 @@ members = [
     "crates/assessor",
     "crates/boundless-cli",
     "crates/boundless-market",
+    "crates/boundless-market/test-utils",
     "crates/broker",
     "crates/broker-stress",
     "crates/guest/assessor",
@@ -25,6 +26,8 @@ async-stream = "0.3"
 boundless-assessor = { version = "0.7.0", path = "crates/assessor" }
 boundless-cli = { version = "0.7.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.7.0", path = "crates/boundless-market" }
+boundless-market-test-utils = { path = "crates/boundless-market/test-utils" }
+
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }

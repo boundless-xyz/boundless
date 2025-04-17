@@ -873,12 +873,7 @@ pub const UNSPECIFIED_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0; 4]);
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
-pub(crate) mod bytecode;
-
-#[cfg(feature = "test-utils")]
-#[allow(missing_docs)]
-/// Module for testing utilities.
-pub mod test_utils;
+pub mod bytecode;
 
 #[cfg(test)]
 mod tests {

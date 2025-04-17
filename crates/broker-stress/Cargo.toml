@@ -12,6 +12,7 @@ alloy = { workspace = true, features = ["node-bindings"] }
 anyhow = { workspace = true }
 axum = { workspace = true }
 boundless-market = { workspace = true }
+boundless-market-test-utils = { workspace = true }
 broker = { path = "../broker", features = ["test-utils"] }
 clap = { workspace = true, features = ["derive"] }
 guest-assessor = { workspace = true }
