@@ -73,6 +73,7 @@ const boundlessAlertsSlackId = config.requireSecret("BOUNDLESS_ALERTS_SLACK_ID")
 const workspaceSlackId = config.requireSecret("WORKSPACE_SLACK_ID");
 
 const notifications = new Notifications("notifications", {
+  opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
   serviceAccountIds: [
     BOUNDLESS_OPS_ACCOUNT_ID,
     BOUNDLESS_STAGING_ACCOUNT_ID,
