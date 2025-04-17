@@ -46,5 +46,5 @@ When a new version of `risc0` gets released, run the following steps:
 6. Update all the `Cargo.lock` files by running:
 
    ```bash
-   cargo check --workspace --all-features
+   cargo check --workspace -F zeth
    ```
