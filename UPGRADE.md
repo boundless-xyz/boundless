@@ -40,3 +40,11 @@ When a new version of `risc0` gets released, run the following steps:
 
 4. If the new `zkVM` version also required a new `RiscZeroGroth16Verifier` contract deployment, make sure to update all the references of `Groth16Vx_y`:
    - search for all the occurrences of `Groth16Vx_y` and update accordingly to the latest version used in the [selector.rs](./lib/risc0-ethereum/contracts/src/selector.rs) file.
+
+5. Make sure to update the revision of `zeth` in the [Cargo.toml](./crates/order-generator/Cargo.toml) of the `order-generator` to match with the most recent commit compatible with the `zkVM` version that is being updated. 
+
+6. Update all the `Cargo.lock` files by running:
+
+   ```bash
+   cargo check --workspace --all-features
+   ```
