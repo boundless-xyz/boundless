@@ -52,22 +52,24 @@ When a new version of `risc0` gets released, run the following steps:
    > grep -rl '^version = "' --include=Cargo.toml --exclude-dir='./lib' --exclude-dir='./target' .
    > ```
 
-2. Update, if changed, the `channel` of the [rust-toolchain.toml](./rust-toolchain.toml) file to match with the latest supported risc0-toolchain version.
+2. Update, if changed, the `channel` of the [rust-toolchain.toml](./rust-toolchain.toml) file to match with the latest supported risc0-toolchain version as well as in all the dockerfiles.
 
 3. Update the CI workflows to use the latest version of:
    - `risczero-version`
    - `toolchain-version`
 
-4. If the new `zkVM` version also required a new `RiscZeroGroth16Verifier` contract deployment, make sure to update all the references of `Groth16Vx_y`:
+4. Update all the broker configuration files that use `bonsai_r0_zkvm_ver` with the latest `zkVM` version.
+
+5. If the new `zkVM` version also required a new `RiscZeroGroth16Verifier` contract deployment, make sure to update all the references of `Groth16Vx_y`:
    - search for all the occurrences of `Groth16Vx_y` and update accordingly to the latest version used in the [selector.rs](./lib/risc0-ethereum/contracts/src/selector.rs) file.
 
-5. Make sure to update the revision of `zeth` in the [Cargo.toml](./crates/order-generator/Cargo.toml) of the `order-generator` to match with the most recent commit compatible with the `zkVM` version that is being updated. Also update its `Cargo.lock` with:
+6. Make sure to update the revision of `zeth` in the [Cargo.toml](./crates/order-generator/Cargo.toml) of the `order-generator` to match with the most recent commit compatible with the `zkVM` version that is being updated. Also update its `Cargo.lock` with:
 
    ```bash
    cargo check --workspace -F zeth
    ```
 
-6. Update all the `Cargo.lock` files by running:
+7. Update all the `Cargo.lock` files by running:
 
    ```bash
    grep -rl --include="Cargo.toml" '\[workspace\]' --exclude-dir=./lib | sort -u | xargs -n1 cargo check --manifest-path

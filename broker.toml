@@ -14,7 +14,7 @@ max_concurrent_locks = 2
 # lockin_priority_gas = 100
 
 [prover]
-bonsai_r0_zkvm_ver = "1.2.1"
+bonsai_r0_zkvm_ver = "2.0.0"
 status_poll_retry_count = 3
 status_poll_ms = 1000
 req_retry_count = 3
