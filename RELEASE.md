@@ -98,6 +98,8 @@ When publishing a new release, you can use the following process.
 
 6. Open a PR to bump the development version on `main` to `v0.x+1.0`.
 
-[release-workflow]: https://github.com/boundless-xyz/boundless/actions/workflows/release.yml
-
 7. Inform all the stakeholders through the relevant channels
+
+8. Update the [boundless-foundry-template](https://github.com/boundless-xyz/boundless-foundry-template) with the new released version.
+
+[release-workflow]: https://github.com/boundless-xyz/boundless/actions/workflows/release.yml
