@@ -10,6 +10,7 @@ ARG S3_CACHE_PREFIX
 
 
 WORKDIR /src/
+RUN git clone https://github.com/risc0/risc0.git && cd risc0
 COPY bento/ ./bento/
 COPY rust-toolchain.toml .
 

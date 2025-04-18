@@ -27,15 +27,11 @@ test-foundry:
     forge test -vvv --isolate
 
 # Run all Cargo tests
-test-cargo: test-cargo-root test-cargo-bento test-cargo-example test-cargo-db
+test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
     RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli -- --include-ignored
-
-# Run Cargo tests for bento
-test-cargo-bento:
-    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -46,8 +42,8 @@ test-cargo-example:
 # Run database tests
 test-cargo-db: 
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
-    cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
+    git clone https://github.com/risc0/risc0.git && cd risc0/bento
+    DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./crates/taskdb/migrations/
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
@@ -93,8 +89,6 @@ check-format:
     cd examples/counter && cargo fmt --all --check
     cd examples/smart-contract-requestor && cargo sort --workspace --check
     cd examples/smart-contract-requestor && cargo fmt --all --check
-    cd bento && cargo sort --workspace --check
-    cd bento && cargo fmt --all --check
     cd documentation && bun run check
     dprint check
     forge fmt --check
@@ -105,8 +99,6 @@ check-clippy:
     cargo clippy --workspace --all-targets -F boundless-order-generator/zeth
     cd examples/counter && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd bento && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cargo clippy --workspace --all-targets
 
 # Format all code
 format:
@@ -116,8 +108,6 @@ format:
     cd examples/counter && cargo fmt --all
     cd examples/smart-contract-requestor && cargo sort --workspace
     cd examples/smart-contract-requestor && cargo fmt --all
-    cd bento && cargo sort --workspace
-    cd bento && cargo fmt --all
     cd documentation && bun run format-markdown
     dprint fmt
     forge fmt
