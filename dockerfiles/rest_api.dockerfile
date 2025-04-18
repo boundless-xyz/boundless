@@ -27,7 +27,7 @@ RUN \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_api_sccache \
     source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p api --bin rest_api && \
-    cp /src/bento/target/release/rest_api /src/rest_api && \
+    cp /src/risc0/bento/target/release/rest_api /src/rest_api && \
     sccache --show-stats
 
 FROM rust:1.85.0-bookworm AS runtime
