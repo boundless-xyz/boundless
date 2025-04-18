@@ -13,7 +13,7 @@ use workflow_common::{UnionReq, KECCAK_RECEIPT_PATH};
 
 /// Run the union operation
 pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<()> {
-    tracing::info!("Starting union for job_id: {job_id}");
+    tracing::debug!("Starting union for job_id: {job_id}");
     let mut conn = redis::get_connection(&agent.redis_pool).await?;
 
     // setup redis keys
@@ -35,7 +35,7 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
         deserialize_obj(&right_receipt_bytes).context("Failed to deserialize right receipt")?;
 
     // run union
-    tracing::info!("Union {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
+    tracing::debug!("Union {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 
     let unioned = agent
         .prover
@@ -52,7 +52,7 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
         .await
         .context("Failed to set redis key for union receipt")?;
 
-    tracing::info!("Union complete {job_id} - {}", request.left);
+    tracing::debug!("Union complete {job_id} - {}", request.left);
 
     Ok(())
 }

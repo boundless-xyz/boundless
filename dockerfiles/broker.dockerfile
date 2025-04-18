@@ -1,5 +1,3 @@
-ARG S3_CACHE_PREFIX="shared/boundless/rust-cache-docker-Linux-X64/sccache"
-
 FROM rust:1.85.0-bookworm AS init
 
 RUN apt-get -qq update && \
@@ -22,11 +20,32 @@ RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecr
         PATH="$PATH:/root/.risc0/bin" rzup install rust 1.85.0; \
     fi
 
-FROM init AS builder
+RUN cargo install cargo-chef
 
-ARG S3_CACHE_PREFIX
+FROM init AS planner
 
 WORKDIR /src/
+
+COPY Cargo.toml .
+COPY Cargo.lock .
+COPY crates/ ./crates/
+COPY rust-toolchain.toml .
+COPY contracts/ ./contracts/
+COPY documentation/ ./documentation/
+COPY lib/ ./lib/
+COPY remappings.txt .
+COPY foundry.toml .
+
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM init AS builder
+
+WORKDIR /src/
+
+COPY --from=planner /src/recipe.json /src/recipe.json
+
+RUN cargo chef cook --release --recipe-path recipe.json
+
 COPY Cargo.toml .
 COPY Cargo.lock .
 COPY crates/ ./crates/
@@ -40,21 +59,10 @@ COPY foundry.toml .
 ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
 
-COPY ./dockerfiles/sccache-setup.sh .
-RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
-COPY ./dockerfiles/sccache-config.sh .
 SHELL ["/bin/bash", "-c"]
 
-# Prevent sccache collision in compose-builds
-ENV SCCACHE_SERVER_PORT=4228
-
-RUN \
-    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
-    --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_broker_sc \
-    source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
-    cargo build --release --bin broker && \
-    cp /src/target/release/broker /src/broker && \
-    sccache --show-stats
+RUN cargo build --release --bin broker && \
+    cp /src/target/release/broker /src/broker
 
 FROM rust:1.85.0-bookworm AS runtime
 

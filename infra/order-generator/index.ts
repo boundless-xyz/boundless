@@ -2,6 +2,9 @@ import * as pulumi from '@pulumi/pulumi';
 import { ChainId, getEnvVar } from '../util';
 import { SimpleGenerator } from './components/simple-generator';
 import { ZethGenerator } from './components/zeth-generator';
+
+require('dotenv').config();
+
 export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
@@ -17,6 +20,7 @@ export = () => {
   const logLevel = baseConfig.require('LOG_LEVEL');
   const dockerDir = baseConfig.require('DOCKER_DIR');
   const dockerTag = baseConfig.require('DOCKER_TAG');
+  const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const setVerifierAddr = baseConfig.require('SET_VERIFIER_ADDR');
   const boundlessMarketAddr = baseConfig.require('BOUNDLESS_MARKET_ADDR');
   const pinataGateway = baseConfig.require('PINATA_GATEWAY_URL');
@@ -45,6 +49,7 @@ export = () => {
     logLevel,
     dockerDir,
     dockerTag,
+    dockerRemoteBuilder,
     setVerifierAddr,
     boundlessMarketAddr,
     pinataGateway,
@@ -83,6 +88,7 @@ export = () => {
     logLevel,
     dockerDir,
     dockerTag,
+    dockerRemoteBuilder,
     setVerifierAddr,
     boundlessMarketAddr,
     pinataGateway,

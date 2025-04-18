@@ -848,7 +848,7 @@ where
                     // All orders complete and no pricing tasks in flight, set the
                     // prover available estimate to current time to ensure that the
                     // broker does not wait idle.
-                    tracing::debug!(
+                    tracing::trace!(
                         "No in progress orders, setting prover available to current time"
                     );
                     *picker_copy.prover_available_at.lock().await = now_timestamp();
