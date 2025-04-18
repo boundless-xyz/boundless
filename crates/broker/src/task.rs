@@ -280,14 +280,16 @@ mod tests {
     #[traced_test]
     async fn supervisor_with_retry_policy() {
         let task = Arc::new(TestTask::new());
+        let config = ConfigLock::default();
+        config.load_write().unwrap().prover.max_critical_task_retries = Some(3);
 
-        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default())
+        let supervisor_task = Supervisor::new(task.clone(), config)
             .with_retry_policy(RetryPolicy {
                 delay: std::time::Duration::from_millis(10),
                 backoff_multiplier: 2.0,
                 max_delay: std::time::Duration::from_millis(500),
                 reset_after: None,
-                critical: false,
+                critical: true,
             })
             .spawn();
 
