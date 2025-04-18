@@ -1,0 +1,20 @@
+# Development
+
+Prerequisite: onboard to the development account. See `infra/README`.
+
+1. Create a `.env` file in this directory.
+
+```
+PRIVATE_KEY=""
+ETH_RPC_URL=""
+DEV_NAME=""
+DOCKER_REMOTE_BUILDER=""
+```
+
+`PULUMI_CONFIG_PASSPHRASE` can be left blank as we do not use that feature.
+`DEV_NAME` should be your name. This is used to name resources that you create.
+`DOCKER_REMOTE_BUILDER` is optional, see `infra/builder`
+
+1. pulumi login --local
+2. pulumi stack select dev
+3. pulumi up

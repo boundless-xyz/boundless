@@ -19,7 +19,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # Install rust and a target rust version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 RUN chmod -R a+w $RUSTUP_HOME $CARGO_HOME
-RUN rustup install 1.81
+RUN rustup install 1.85
 
 FROM rust-builder AS builder
 

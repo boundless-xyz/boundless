@@ -453,15 +453,13 @@ mod tests {
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance,
-            test_utils::{
-                deploy_boundless_market, deploy_hit_points, deploy_mock_verifier,
-                deploy_set_verifier,
-            },
-            Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId,
-            Requirements,
+            hit_points::default_allowance, Input, InputType, Offer, Predicate, PredicateType,
+            ProofRequest, RequestId, Requirements,
         },
         input::InputBuilder,
+    };
+    use boundless_market_test_utils::{
+        deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
     };
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};

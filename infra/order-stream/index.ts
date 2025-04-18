@@ -2,6 +2,8 @@ import * as pulumi from '@pulumi/pulumi';
 import { OrderStreamInstance } from './components/order-stream';
 import { getEnvVar } from '../util';
 
+require('dotenv').config();
+
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
@@ -21,6 +23,7 @@ export = () => {
   const baseStackName = config.require('BASE_STACK');
   const orderStreamPingTime = config.requireNumber('ORDER_STREAM_PING_TIME');
   const albDomain = config.getSecret('ALB_DOMAIN');
+  const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -43,6 +46,7 @@ export = () => {
     rdsPassword,
     ethRpcUrl,
     albDomain,
+    boundlessAlertsTopicArn,
   });
 
   return {

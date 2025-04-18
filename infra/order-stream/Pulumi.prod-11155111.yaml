@@ -15,3 +15,4 @@ config:
     secure: v1:6OldikDHGPtFsshU:3tg0ETBuoOsjoCnrxja5zQnWyaGOSvtIsNEIjH2uu7tvuA==
   order-stream:ALB_DOMAIN: eth-sepolia.beboundless.xyz
   order-stream:CHAIN_ID: "11155111"
+  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
