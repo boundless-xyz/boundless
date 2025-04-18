@@ -88,24 +88,11 @@ where
         self
     }
 
-    /// Calculate the delay for a specific retry attempt
-    fn calculate_retry_delay(&self, retry_count: u32) -> Duration {
-        if retry_count == 0 {
-            return self.retry_policy.delay;
-        }
-
-        let backoff = self.retry_policy.delay.as_millis() as f64
-            * self.retry_policy.backoff_multiplier.powi(retry_count as i32);
-
-        let backoff_ms = backoff.min(self.retry_policy.max_delay.as_millis() as f64) as u64;
-
-        Duration::from_millis(backoff_ms)
-    }
-
     /// Run the supervisor, monitoring tasks and handling retries
     pub async fn spawn(self) -> AnyhowRes<()> {
         let mut tasks = JoinSet::new();
         let mut retry_count = 0;
+        let mut current_delay = self.retry_policy.delay;
         let mut last_spawn_time = std::time::Instant::now();
 
         // Spawn initial task
@@ -123,6 +110,7 @@ where
                         retry_count
                     );
                     retry_count = 0;
+                    current_delay = self.retry_policy.delay; // Reset delay to initial value
                 }
             }
             match res {
@@ -150,25 +138,28 @@ where
                                 }
                             }
 
-                            let delay = self.calculate_retry_delay(retry_count);
-
                             tracing::warn!(
                                 "Recoverable failure detected: {err:?}, spawning replacement (retry {})",
                                 retry_count + 1,
                             );
-                            tracing::debug!("Waiting {:?} before retry", delay);
+                            tracing::debug!("Waiting {:?} before retry", current_delay);
 
                             // Instead of sleeping here, wrap the task spawn with a delay
                             let task_clone = self.task.clone();
                             let t = task_clone.spawn();
                             tasks.spawn(async move {
                                 // Apply calculated retry delay before spawning the task
-                                tokio::time::sleep(delay).await;
+                                tokio::time::sleep(current_delay).await;
                                 t.await
                             });
 
                             retry_count += 1;
-                            last_spawn_time = std::time::Instant::now() + delay;
+                            last_spawn_time = std::time::Instant::now() + current_delay;
+
+                            // Update the delay for next retry, ensuring it doesn't exceed max_delay
+                            current_delay = current_delay
+                                .mul_f64(self.retry_policy.backoff_multiplier)
+                                .min(self.retry_policy.max_delay);
                         }
                         SupervisorErr::Fault(err) => {
                             tracing::error!("FAULT: Hard failure detected: {err:?}");
