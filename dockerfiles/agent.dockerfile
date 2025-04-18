@@ -29,10 +29,9 @@ ARG S3_CACHE_PREFIX
 
 WORKDIR /src/
 RUN git clone https://github.com/risc0/risc0.git
-COPY ./risc0/bento/ ./bento/
 COPY rust-toolchain.toml .
 
-WORKDIR /src/bento/
+WORKDIR /src/risc0/bento/
 
 ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}

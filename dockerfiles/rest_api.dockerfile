@@ -8,13 +8,11 @@ FROM builder AS rust-builder
 
 ARG S3_CACHE_PREFIX
 
-
 WORKDIR /src/
 RUN git clone https://github.com/risc0/risc0.git
-COPY ./risc0/bento/ ./bento/
 COPY rust-toolchain.toml .
 
-WORKDIR /src/bento/
+WORKDIR /src/risc0/bento/
 
 COPY ./dockerfiles/sccache-setup.sh .
 RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
