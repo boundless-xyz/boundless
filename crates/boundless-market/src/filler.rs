@@ -15,79 +15,12 @@
 #![allow(missing_docs)]
 #![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
 
-use std::{borrow::Cow, fmt::Debug, marker::PhantomData};
+use std::borrow::Cow;
 
 use risc0_zkvm::{Journal, ReceiptClaim};
 use url::Url;
 
-use crate::contracts::{Input, Offer, ProofRequest, ProofRequestBuilder, RequestId};
-
-/// When building a [ProofRequest], a filler provides values for unpopulated fields.
-///
-/// TODO: Link to examples.
-pub trait ProofRequestFiller {
-    /// Error type that may be returned by this filler.
-    type Error: core::error::Error;
-
-    /// Accept a partially filled [ProofRequest] as a [ProofRequestBuilder] and populate the fields
-    /// supported by this filler.
-    async fn fill(&self, req: ProofRequestBuilder) -> Result<ProofRequestBuilder, Self::Error>;
-
-    /// Creating a joined filler that will first fill the fields using `self`, then pipe the result
-    /// to the next filler.
-    fn join_with<F>(self, other: F) -> Join<Self, F>
-    where
-        F: ProofRequestFiller,
-        Self: Sized,
-        F::Error: Into<Self::Error>,
-    {
-        Join::new(self, other)
-    }
-}
-
-/// A joined filler that sequentially combines a left and a right filler.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Join<L, R> {
-    left: L,
-    right: R,
-}
-
-impl<L, R> Join<L, R>
-where
-    L: ProofRequestFiller,
-    R: ProofRequestFiller,
-    R::Error: Into<L::Error>,
-{
-    /// Create a joined filler that sequentially combines a left and a right filler.
-    pub const fn new(left: L, right: R) -> Self {
-        Self { left, right }
-    }
-}
-
-impl<L, R> ProofRequestFiller for Join<L, R>
-where
-    L: ProofRequestFiller,
-    R: ProofRequestFiller,
-    L::Error: Into<R::Error>,
-{
-    type Error = R::Error;
-
-    async fn fill(&self, req: ProofRequestBuilder) -> Result<ProofRequestBuilder, Self::Error> {
-        let req = self.left.fill(req).await.map_err(|e| e.into())?;
-        self.right.fill(req).await
-    }
-}
-
-/// A filler that can populate the [Requirements][crate::contracts::Requirements] of a request
-/// given then image URL and [Input][crate::contracts::Input].
-pub struct PreflightFiller {}
-
-/// A filler that can populate the [Offer][crate::contracts::Offer] on a request given the image
-/// URL, [Input][crate::contracts::Input], and [Requirements][crate::contracts::Requirements].
-pub struct OfferFiller {}
-
-/// TODO
-pub struct RequestIdFiller {}
+use crate::contracts::{Input, Offer, ProofRequest, RequestId};
 
 // Idea: A pipeline like construction where each output must be (convertable to) the input to the
 // next stage.
@@ -123,6 +56,43 @@ pub trait Layer {
     type Error;
 
     async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error>;
+
+    async fn process_adapted<T>(&self, input: T) -> Result<T::Output, Self::Error>
+    where
+        T: Adapt<Self>,
+    {
+        let (buck, preprocessed_input) = input.preprocess();
+        let output = self.process(preprocessed_input).await?;
+        Ok(T::postprocess(buck, output))
+    }
+}
+
+pub trait Adapt<L: Layer + ?Sized> {
+    type Output;
+
+    /// DO NOT MERGE: Intentionally bad name.
+    type Buck;
+
+    fn preprocess(self) -> (Self::Buck, L::Input);
+
+    fn postprocess(buck: Self::Buck, data: L::Output) -> Self::Output;
+}
+
+
+impl<L> Adapt<L> for L::Input
+where
+    L: Layer + ?Sized,
+{
+    type Buck = ();
+    type Output = L::Output;
+
+    fn preprocess(self) -> (Self::Buck, <L as Layer>::Input) {
+        ((), self) 
+    }
+
+    fn postprocess((): Self::Buck, data: <L as Layer>::Output) -> Self::Output {
+        data
+    }
 }
 
 pub struct ProgramAndInput {
@@ -174,7 +144,7 @@ pub struct RequestIdLayer {}
 
 impl Layer for RequestIdLayer {
     type Input = ();
-    type Output = (Url, Input, PreflightInfo, RequestId);
+    type Output = RequestId;
     type Error = anyhow::Error;
 
     async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
@@ -194,47 +164,53 @@ impl Layer for OfferLayer {
     }
 }
 
-pub struct Pipe<A, B>(A, B);
+pub struct Finalizer {}
 
-impl<A, B> Layer for Pipe<A, B>
+impl Layer for Finalizer {
+    type Input = (Url, Input, PreflightInfo, Offer, RequestId);
+    type Output = ProofRequest;
+    type Error = anyhow::Error;
+
+    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
+        todo!()
+    }
+}
+
+impl<A, B> Layer for (A, B)
 where
     A: Layer,
-    B: Layer<Input = A::Output>,
+    B: Layer,
+    A::Output: Adapt<B>,
     A::Error: Into<B::Error>,
 {
     type Input = A::Input;
-    type Output = B::Output;
+    type Output = <A::Output as Adapt<B>>::Output;
     type Error = B::Error;
 
     async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
         let ouput = self.0.process(input).await.map_err(|e| e.into())?;
-        self.1.process(ouput).await
+        self.1.process_adapted(ouput).await
     }
 }
 
-pub trait Merge<T> {
-    type Output;
+impl Adapt<RequestIdLayer> for <PreflightLayer as Layer>::Output {
+    type Output = <OfferLayer as Layer>::Input;
+    type Buck = Self;
 
-    fn merge(self, data: T) -> Self::Output;
-}
+    fn preprocess(self) -> (Self::Buck, <RequestIdLayer as Layer>::Input) {
+        (self, ())
+    }
 
-pub struct Eddy<Input, L>{
-    pub layer: L,
-    _phantom_input: PhantomData<Input>,
-}
-
-impl<Input, L> Layer for Eddy<Input, L> 
-where
-    L: Layer,
-    Input: Clone + Into<L::Input>  + Merge<L::Output>,
-{
-    type Input = Input;
-    type Output = <Input as Merge<L::Output>>::Output;
-    type Error = L::Error;
-
-    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
-        let cloned = input.clone();
-        let output = self.layer.process(input.into()).await?;
-        Ok(cloned.merge(output))
+    fn postprocess(buck: Self::Buck, id: RequestId) -> Self::Output {
+        let (url, input, preflight_info) = buck;
+        (url, input, preflight_info, id)
     }
 }
+
+#[allow(unused)]
+type Example = ((((StorageLayer, PreflightLayer), RequestIdLayer), OfferLayer), Finalizer);
+
+#[allow(dead_code)]
+trait AssertLayer<Input, Output>: Layer<Input = Input, Output = Output> {}
+
+impl AssertLayer<ProgramAndInput, ProofRequest> for Example {}
