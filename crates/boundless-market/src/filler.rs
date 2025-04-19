@@ -58,29 +58,29 @@ pub trait Layer {
     async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error>;
 }
 
-pub trait Adapt<L: Layer + ?Sized> {
-    type Output;
+pub trait Adapt<Input>: Layer {
+    type Postprocessed;
     type Passthrough;
 
-    fn preprocess(self) -> (Self::Passthrough, L::Input);
+    fn preprocess(&self, input: Input) -> (Self::Passthrough, Self::Input);
 
-    fn postprocess(buck: Self::Passthrough, data: L::Output) -> Self::Output;
+    fn postprocess(&self, pass: Self::Passthrough, out: Self::Output) -> Self::Postprocessed;
 }
 
 
-impl<L> Adapt<L> for L::Input
+impl<L> Adapt<L::Input> for L
 where
     L: Layer + ?Sized,
 {
     type Passthrough = ();
-    type Output = L::Output;
+    type Postprocessed = L::Output;
 
-    fn preprocess(self) -> (Self::Passthrough, <L as Layer>::Input) {
-        ((), self) 
+    fn preprocess(&self, input: Self::Input) -> (Self::Passthrough, Self::Input) {
+        ((), input) 
     }
 
-    fn postprocess((): Self::Passthrough, data: <L as Layer>::Output) -> Self::Output {
-        data
+    fn postprocess(&self, (): Self::Passthrough, out: Self::Output) -> Self::Postprocessed {
+        out
     }
 }
 
@@ -88,18 +88,18 @@ impl<A, B> Layer for (A, B)
 where
     A: Layer,
     B: Layer,
-    A::Output: Adapt<B>,
+    B: Adapt<A::Output>,
     A::Error: Into<B::Error>,
 {
     type Input = A::Input;
-    type Output = <A::Output as Adapt<B>>::Output;
+    type Output = <B as Adapt<A::Output>>::Postprocessed;
     type Error = B::Error;
 
     async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
         let output_a = self.0.process(input).await.map_err(|e| e.into())?;
-        let (passthrough, input_b) = output_a.preprocess();
+        let (passthrough, input_b) = self.1.preprocess(output_a);
         let output_b = self.1.process(input_b).await?;
-        Ok(A::Output::postprocess(passthrough, output_b))
+        Ok(self.1.postprocess(passthrough, output_b))
     }
 }
 
@@ -184,16 +184,16 @@ impl Layer for Finalizer {
     }
 }
 
-impl Adapt<RequestIdLayer> for <PreflightLayer as Layer>::Output {
-    type Output = <OfferLayer as Layer>::Input;
-    type Passthrough = Self;
+impl Adapt<<PreflightLayer as Layer>::Output> for RequestIdLayer {
+    type Postprocessed = <OfferLayer as Layer>::Input;
+    type Passthrough = <PreflightLayer as Layer>::Output;
 
-    fn preprocess(self) -> (Self::Passthrough, <RequestIdLayer as Layer>::Input) {
-        (self, ())
+    fn preprocess(&self, input: <PreflightLayer as Layer>::Output) -> (Self::Passthrough, ()) {
+        (input, ())
     }
 
-    fn postprocess(buck: Self::Passthrough, id: RequestId) -> Self::Output {
-        let (url, input, preflight_info) = buck;
+    fn postprocess(&self, pass: Self::Passthrough, id: RequestId) -> Self::Postprocessed {
+        let (url, input, preflight_info) = pass;
         (url, input, preflight_info, id)
     }
 }
