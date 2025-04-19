@@ -84,6 +84,25 @@ where
     }
 }
 
+impl<A, B> Layer for (A, B)
+where
+    A: Layer,
+    B: Layer,
+    A::Output: Adapt<B>,
+    A::Error: Into<B::Error>,
+{
+    type Input = A::Input;
+    type Output = <A::Output as Adapt<B>>::Output;
+    type Error = B::Error;
+
+    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
+        let output_a = self.0.process(input).await.map_err(|e| e.into())?;
+        let (passthrough, input_b) = output_a.preprocess();
+        let output_b = self.1.process(input_b).await?;
+        Ok(A::Output::postprocess(passthrough, output_b))
+    }
+}
+
 pub struct ProgramAndInput {
     pub program: Cow<'static, [u8]>,
     pub input: Cow<'static, [u8]>,
@@ -162,25 +181,6 @@ impl Layer for Finalizer {
 
     async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
         todo!()
-    }
-}
-
-impl<A, B> Layer for (A, B)
-where
-    A: Layer,
-    B: Layer,
-    A::Output: Adapt<B>,
-    A::Error: Into<B::Error>,
-{
-    type Input = A::Input;
-    type Output = <A::Output as Adapt<B>>::Output;
-    type Error = B::Error;
-
-    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
-        let output_a = self.0.process(input).await.map_err(|e| e.into())?;
-        let (passthrough, input_b) = output_a.preprocess();
-        let output_b = self.1.process(input_b).await?;
-        Ok(A::Output::postprocess(passthrough, output_b))
     }
 }
 
