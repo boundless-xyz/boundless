@@ -44,9 +44,20 @@ use crate::contracts::{Input, Offer, ProofRequest, RequestId};
 
 pub trait RequestBuilder<Input> {
     /// Error type that may be returned by this filler.
-    type Error: core::error::Error;
+    type Error;
 
     async fn build(&self, input: Input) -> Result<ProofRequest, Self::Error>;
+}
+
+impl<I, L> RequestBuilder<I> for L
+where L: Layer<Output = ProofRequest>,
+      I: Into<L::Input>
+{
+    type Error = L::Error;
+
+    async fn build(&self, input: I) -> Result<ProofRequest, Self::Error> {
+        self.process(input.into()).await
+    }
 }
 
 pub trait Layer {
@@ -203,5 +214,9 @@ type Example = ((((StorageLayer, PreflightLayer), RequestIdLayer), OfferLayer), 
 
 #[allow(dead_code)]
 trait AssertLayer<Input, Output>: Layer<Input = Input, Output = Output> {}
+#[allow(dead_code)]
+trait AssertRequestBuilder<Input>: RequestBuilder<Input> {}
 
 impl AssertLayer<ProgramAndInput, ProofRequest> for Example {}
+impl AssertRequestBuilder<ProgramAndInput> for Example {}
+impl AssertRequestBuilder<(&'static [u8], Vec<u8>)> for Example {}
