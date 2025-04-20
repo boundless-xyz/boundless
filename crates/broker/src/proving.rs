@@ -240,7 +240,7 @@ mod tests {
         db::SqliteDb,
         now_timestamp,
         provers::{encode_input, DefaultProver},
-        OrderStatus,
+        FulfillmentType, OrderStatus,
     };
     use alloy::primitives::{Bytes, U256};
     use boundless_market::contracts::{
@@ -305,6 +305,7 @@ mod tests {
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
         };
 
@@ -373,6 +374,7 @@ mod tests {
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
         };
         let order_id = U256::from(order_id);

@@ -138,10 +138,16 @@ pub struct Args {
 enum OrderStatus {
     /// New order found on chain, waiting pricing analysis
     New,
+    /// Order was observed to be locked by another prover, waiting pricing analysis
+    LockedByOther,
     /// Order is in the process of being priced
     Pricing,
+    /// Order was locked by other, and is in the process of being priced
+    PricingLockedByOther,
     /// Order is ready to lock at target_timestamp
     Locking,
+    /// Order should commence proving when its lock expires at target_timestamp
+    FulfillAfterLockExpire,
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
     /// Order is actively ready for proving
@@ -160,8 +166,14 @@ enum OrderStatus {
     Failed,
     /// Order was analyzed and marked as skipable
     Skipped,
-    /// Order was observed to be locked by another prover
-    LockedByOther,
+}
+
+#[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
+enum FulfillmentType {
+    LockAndFulfill,
+    FulfillAfterLockExpire,
+    // Currently unsupported
+    FulfillWithoutLocking,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -199,6 +211,8 @@ struct Order {
     client_sig: Bytes,
     /// Price the lockin was set at
     lock_price: Option<U256>,
+    // Populated during order picking
+    fulfillment_type: Option<FulfillmentType>,
     /// Failure message
     error_msg: Option<String>,
 }
@@ -217,6 +231,7 @@ impl Order {
             expire_timestamp: None,
             client_sig,
             lock_price: None,
+            fulfillment_type: None,
             error_msg: None,
         }
     }

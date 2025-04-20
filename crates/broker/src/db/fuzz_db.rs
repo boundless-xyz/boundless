@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::runtime::Builder;
 
+use crate::FulfillmentType;
 use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
 
 use super::{BrokerDb, SqliteDb};
@@ -111,6 +112,7 @@ fn generate_test_order(id: u32) -> Order {
         expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
+        fulfillment_type: Some(FulfillmentType::LockAndFulfill),
         error_msg: None,
     }
 }
@@ -193,7 +195,7 @@ proptest! {
                                         db.set_order_lock(U256::from(id), lock_timestamp as u64, expire_timestamp as u64).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetProvingStatus { lock_price } => {
-                                        db.set_proving_status(U256::from(id), U256::from(lock_price)).await.unwrap();
+                                        db.set_proving_status_lock_and_fulfill_orders(U256::from(id), U256::from(lock_price)).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderComplete => {
                                         db.set_order_complete(U256::from(id)).await.unwrap();
@@ -292,7 +294,7 @@ proptest! {
                                 }
                             },
                             DbOperation::GetOrderForPricing => {
-                                db.update_orders_for_pricing(1, 0).await.unwrap();
+                                db.update_orders_for_pricing(1).await.unwrap();
                             },
                             DbOperation::GetActivePricingOrders => {
                                 db.get_active_pricing_orders().await.unwrap();

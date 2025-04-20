@@ -137,11 +137,14 @@ where
             .price_at(lock_timestamp)
             .context("Failed to calculate lock price")?;
 
-        self.db.set_proving_status(order_id, lock_price).await.with_context(|| {
-            format!(
+        self.db
+            .set_proving_status_lock_and_fulfill_orders(order_id, lock_price)
+            .await
+            .with_context(|| {
+                format!(
                 "FATAL STAKE AT RISK: {order_id:x} failed to move from locking -> proving status"
             )
-        })?;
+            })?;
 
         Ok(())
     }
@@ -211,8 +214,6 @@ where
         Ok(order_count)
     }
 
-    // TODO:
-    // need to call set_failed() correctly whenever a order triggers a hard failure
     pub async fn start_monitor(&self, block_limit: Option<u64>) -> Result<()> {
         self.back_scan_locks().await?;
 
@@ -227,6 +228,20 @@ where
                 last_block = current_block;
                 if first_block == 0 {
                     first_block = current_block;
+                }
+                tracing::debug!("Order monitor processing block {current_block} at timestamp {current_block_timestamp}");
+
+                // Find orders that we intended to prove after their lock expires.
+                // If they were not fulfilled, set their status to pending proving.
+                // Note, if they were fulfilled, market monitor would have set their status to done.
+                let orders_unlocked = self
+                    .db
+                    .set_proving_status_fulfill_after_lock_expire_orders(current_block_timestamp)
+                    .await
+                    .context("Failed to find pending prove after lock expire orders")?;
+
+                for (order_id, _) in orders_unlocked {
+                    tracing::info!("Order {order_id:x} was locked by another prover but expired unfulfilled, setting status to pending proving");
                 }
 
                 let orders = self
@@ -362,6 +377,7 @@ mod tests {
             expire_timestamp: None,
             client_sig: client_sig.into(),
             lock_price: None,
+            fulfillment_type: None,
             error_msg: None,
         };
         let request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
@@ -474,6 +490,7 @@ mod tests {
             expire_timestamp: None,
             client_sig,
             lock_price: None,
+            fulfillment_type: None,
             error_msg: None,
         };
 

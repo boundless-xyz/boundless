@@ -6,15 +6,15 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{utils::format_ether, Address, B256, U256},
+    primitives::{utils::format_ether, Address, Bytes, B256, U256},
     providers::{Provider, WalletProvider},
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, encode_seal, AssessorJournal, AssessorReceipt,
-        Fulfillment,
+        boundless_market::{BoundlessMarketService, MarketError},
+        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment, ProofRequest,
     },
     selector::is_groth16_selector,
 };
@@ -31,7 +31,7 @@ use crate::{
     db::DbObj,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
-    Batch,
+    Batch, FulfillmentType,
 };
 
 #[derive(Clone)]
@@ -165,18 +165,39 @@ where
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
 
         let mut fulfillments = vec![];
-        let mut order_prices = HashMap::new();
+        let mut requests_to_price: Vec<(ProofRequest, Bytes)> = vec![];
+
+        struct OrderPrice {
+            price: U256,
+            stake_reward: U256,
+        }
+        let mut order_prices: HashMap<U256, OrderPrice> = HashMap::new();
 
         for order_id in batch.orders.iter() {
             tracing::info!("Submitting order {order_id:x}");
 
             let res = async {
-                let (order_request, order_proof_id, order_img_id, lock_price) =
+                let (
+                    order_request,
+                    client_sig,
+                    order_proof_id,
+                    order_img_id,
+                    lock_price,
+                    fulfillment_type,
+                ) =
                     self.db.get_submission_order(*order_id).await.context(
                         "Failed to get order from DB for submission, order NOT finalized",
                     )?;
 
-                order_prices.insert(order_id, lock_price);
+                let mut stake_reward = U256::ZERO;
+                if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
+                    requests_to_price.push((order_request.clone(), client_sig.clone()));
+                    stake_reward = order_request.offer.stake_reward_if_unfulfilled();
+                } else if fulfillment_type == FulfillmentType::FulfillWithoutLocking {
+                    requests_to_price.push((order_request.clone(), client_sig.clone()));
+                }
+
+                order_prices.insert(*order_id, OrderPrice { price: lock_price, stake_reward });
 
                 let order_journal = self
                     .prover
@@ -268,10 +289,16 @@ where
         let assessor_seal =
             assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
 
-        let single_txn_fulfill = {
+        let mut single_txn_fulfill = {
             let config = self.config.lock_all().context("Failed to read config")?;
             config.batcher.single_txn_fulfill
         };
+
+        if !requests_to_price.is_empty() && single_txn_fulfill {
+            tracing::warn!("Single txn fulfill is enabled but we are fulfilling requests that were not locked. Overriding single txn fulfill to false.");
+            single_txn_fulfill = false;
+        }
+
         let assessor_receipt = AssessorReceipt {
             seal: assessor_seal.into(),
             selectors: assessor_journal.selectors,
@@ -290,21 +317,7 @@ where
                 )
                 .await
             {
-                tracing::error!("Failed to submit proofs for batch {batch_id}: {err:?}");
-
-                for fulfillment in fulfillments.iter() {
-                    if let Err(db_err) = self
-                        .db
-                        .set_order_failure(U256::from(fulfillment.id), format!("{err:?}"))
-                        .await
-                    {
-                        tracing::error!(
-                            "Failed to set order failure during proof submission: {:x} {db_err:?}",
-                            fulfillment.id
-                        );
-                    }
-                }
-                bail!("transaction to fulfill batch failed");
+                self.handle_fulfillment_error(err, batch_id, &fulfillments).await?;
             }
         } else {
             let contains_root = match self.set_verifier.contains_root(root).await {
@@ -324,23 +337,35 @@ where
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
 
-            if let Err(err) =
-                self.market.fulfill_batch(fulfillments.clone(), assessor_receipt).await
-            {
-                tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
-                for fulfillment in fulfillments.iter() {
-                    if let Err(db_err) = self
-                        .db
-                        .set_order_failure(U256::from(fulfillment.id), format!("{err:?}"))
-                        .await
-                    {
-                        tracing::error!(
-                            "Failed to set order failure during proof submission: {:x} {db_err:?}",
-                            fulfillment.id
-                        );
-                    }
+            if !requests_to_price.is_empty() {
+                // split the tuple into two vectors
+                let (requests, client_sigs): (Vec<ProofRequest>, Vec<Bytes>) =
+                    requests_to_price.into_iter().unzip();
+                tracing::info!(
+                    "Fulfilling {} requests, and pricing {} requests using priceAndFulfillBatch",
+                    fulfillments.len(),
+                    requests.len()
+                );
+                if let Err(err) = self
+                    .market
+                    .price_and_fulfill_batch(
+                        requests,
+                        client_sigs,
+                        fulfillments.clone(),
+                        assessor_receipt,
+                        None,
+                    )
+                    .await
+                {
+                    self.handle_fulfillment_error(err, batch_id, &fulfillments).await?;
                 }
-                bail!("transaction to fulfill batch failed");
+            } else {
+                tracing::info!("Fulfilling {} requests using fulfillBatch", fulfillments.len());
+                if let Err(err) =
+                    self.market.fulfill_batch(fulfillments.clone(), assessor_receipt).await
+                {
+                    self.handle_fulfillment_error(err, batch_id, &fulfillments).await?;
+                }
             }
         }
 
@@ -352,15 +377,38 @@ where
                 );
                 continue;
             }
-            let lock_price = order_prices.get(&fulfillment.id).unwrap_or(&U256::ZERO);
+            let order_price = order_prices
+                .get(&fulfillment.id)
+                .unwrap_or(&OrderPrice { price: U256::ZERO, stake_reward: U256::ZERO });
             tracing::info!(
-                "✨ Completed order: {:x} fee: {} ✨",
+                "✨ Completed order: {:x} fee: {} stake_reward: {} ✨",
                 fulfillment.id,
-                format_ether(*lock_price)
+                format_ether(order_price.price),
+                format_ether(order_price.stake_reward)
             );
         }
 
         Ok(())
+    }
+
+    async fn handle_fulfillment_error(
+        &self,
+        err: MarketError,
+        batch_id: usize,
+        fulfillments: &[Fulfillment],
+    ) -> Result<()> {
+        tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
+        for fulfillment in fulfillments.iter() {
+            if let Err(db_err) =
+                self.db.set_order_failure(U256::from(fulfillment.id), format!("{err:?}")).await
+            {
+                tracing::error!(
+                    "Failed to set order failure during proof submission: {:x} {db_err:?}",
+                    fulfillment.id
+                );
+            }
+        }
+        bail!("transaction to fulfill batch failed");
     }
 
     pub async fn process_next_batch(&self) -> Result<bool, SupervisorErr> {
@@ -645,6 +693,7 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
         };
         let order_id = U256::from(order.request.id);

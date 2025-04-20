@@ -254,7 +254,14 @@ where
                                 )
                                 .await
                             {
-                                tracing::error!("Failed to update order status to Done: {e:?}");
+                                tracing::error!(
+                                    "Failed to update order status to LockedByOther: {e:?}"
+                                );
+                            } else {
+                                tracing::info!(
+                                    "Set order {:x} status to LockedByOther",
+                                    event.requestId
+                                );
                             }
                         }
                     }

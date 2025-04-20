@@ -542,7 +542,7 @@ mod tests {
         db::SqliteDb,
         now_timestamp,
         provers::{encode_input, DefaultProver, Prover},
-        BatchStatus, Order, OrderStatus,
+        BatchStatus, FulfillmentType, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
@@ -653,6 +653,7 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
         };
         let order_id = U256::from(order.request.id);
@@ -696,6 +697,7 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
         };
         let order_id = U256::from(order.request.id);
@@ -804,6 +806,7 @@ mod tests {
             expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
             request: order_request,
         };
@@ -862,6 +865,7 @@ mod tests {
             expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
             request: order_request,
         };
@@ -968,6 +972,7 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
         };
         let order_id = U256::from(order.request.id);
@@ -1076,6 +1081,7 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
         };
         let order_id = U256::from(order.request.id);
@@ -1192,6 +1198,7 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
             error_msg: None,
         };
 

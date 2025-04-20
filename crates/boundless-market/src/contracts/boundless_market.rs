@@ -40,6 +40,13 @@ use super::{
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
+// fraction the stake the protocol gives to the prover who fills an order that was locked by another prover but expired
+// e.g. a value of 1 means 1/4 of the original stake is given to the prover who fills the order.
+// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
+// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
+// TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
+const FRACTION_STAKE_REWARD: u64 = 4;
+
 /// Boundless market errors.
 #[derive(Error, Debug)]
 pub enum MarketError {
@@ -389,7 +396,11 @@ impl<P: Provider> BoundlessMarketService<P> {
             return Err(MarketError::LockRevert(receipt.transaction_hash));
         }
 
-        tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
+        tracing::info!(
+            "Locked request {:x}, transaction hash: {}",
+            request.id,
+            receipt.transaction_hash
+        );
 
         self.check_stake_balance().await?;
 
@@ -448,7 +459,11 @@ impl<P: Provider> BoundlessMarketService<P> {
             )));
         }
 
-        tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
+        tracing::info!(
+            "Locked request {:x}, transaction hash: {}",
+            request.id,
+            receipt.transaction_hash
+        );
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -671,18 +686,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         assessor_fill: AssessorReceipt,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
-        for request in requests.iter() {
-            tracing::debug!("Calling requestIsLocked({:x})", request.id);
-            let is_locked_in: bool =
-                self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
-            if is_locked_in {
-                return Err(MarketError::Error(anyhow!(
-                    "request {:x} is already locked-in",
-                    request.id
-                )));
-            }
-        }
-
         tracing::debug!("Calling priceAndFulfillBatch({fulfillments:?}, {assessor_fill:?})");
 
         let mut call = self
@@ -729,18 +732,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         assessor_fill: AssessorReceipt,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
-        for request in requests.iter() {
-            tracing::debug!("Calling requestIsLocked({:x})", request.id);
-            let is_locked_in: bool =
-                self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
-            if is_locked_in {
-                return Err(MarketError::Error(anyhow!(
-                    "request {:x} is already locked-in",
-                    request.id
-                )));
-            }
-        }
-
         tracing::debug!(
             "Calling priceAndFulfillBatchAndWithdraw({fulfillments:?}, {assessor_fill:?})"
         );
@@ -1324,6 +1315,12 @@ impl Offer {
     /// request.
     pub fn lock_deadline(&self) -> u64 {
         self.biddingStart + (self.lockTimeout as u64)
+    }
+
+    /// Returns the amount of stake that the protocol gives to the prover who fills an order that
+    /// was locked by another prover but that prover did not fulfill the order.
+    pub fn stake_reward_if_unfulfilled(&self) -> U256 {
+        self.lockStake / U256::from(FRACTION_STAKE_REWARD)
     }
 }
 
