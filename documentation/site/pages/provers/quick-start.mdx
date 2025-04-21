@@ -84,16 +84,6 @@ Examples:
 
 The `compose.yml` file defines all services within Bento. The Boundless repo includes a starter `compose.yml` which you can see [here](https://github.com/boundless-xyz/boundless/blob/main/compose.yml). For Broker configuration options, please see [Broker.toml](/provers/broker#settings-in-brokertoml).
 
-### CUDA Compute Capability Detection
-
-When working with NVIDIA GPUs, it's crucial to compile CUDA code with the correct compute capability to ensure optimal performance. The compute capability (e.g., `sm_86` for Ampere architecture) defines the features and instructions supported by the GPU.
-
-To automatically detect and set the correct NVCC flags for your system, please run:
-
-```sh [Terminal]
-source ./scripts/set_nvcc_flags.sh
-```
-
 ### Multi GPU
 
 In `compose.yml`, you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
