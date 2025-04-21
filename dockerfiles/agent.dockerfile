@@ -23,8 +23,6 @@ RUN rustup install 1.85
 
 FROM rust-builder AS builder
 
-ENV SCCACHE_RECACHE=1
-
 ARG NVCC_APPEND_FLAGS=""
 ARG CUDA_OPT_LEVEL=1
 ARG S3_CACHE_PREFIX
@@ -49,10 +47,11 @@ SHELL ["/bin/bash", "-c"]
 
 # Consider using if building and running on the same CPU
 # ENV RUSTFLAGS="-C target-cpu=native"
+ENV SCCACHE_RECACHE=1
 
 RUN \
     --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
-    --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc \
+    --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc2 \
     source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p workflow -F cuda --bin agent && \
     cp /src/bento/target/release/agent /src/agent && \

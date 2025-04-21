@@ -87,6 +87,8 @@ services:
       args:
         NVCC_APPEND_FLAGS: ${NVCC_APPEND_FLAGS:-"--gpu-architecture=compute_70 --gpu-code=compute_70,sm_70 --generate-code arch=compute_70,code=sm_70"}
         CUDA_OPT_LEVEL: 1
+      env:
+        SCCACHE_RECACHE: 1
 
     mem_limit: 4G
     cpus: 4
