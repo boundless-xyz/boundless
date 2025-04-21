@@ -9,6 +9,7 @@ export CARGO_PROFILE_DEV_DEBUG=0
 export CMAKE_C_COMPILER_LAUNCHER=sccache
 export CMAKE_CXX_COMPILER_LAUNCHER=sccache
 export RUSTC_WRAPPER=sccache
+export SCCACHE_RECACHE=1
 S3_CACHE_PREFIX=$1
 
 if [ -f /root/.aws/credentials ]; then
