@@ -7,6 +7,9 @@ if ! command -v nvcc &> /dev/null; then
     exit 1
 fi
 
+# Instead of compiling just for one detected arch, support a range of common targets
+ALL_ARCHS=("70" "75" "80" "86" "89")
+
 # Create a temporary CUDA file
 cat << 'EOF' > /tmp/detect_cuda.cu
 #include <cuda_runtime.h>
@@ -14,19 +17,25 @@ cat << 'EOF' > /tmp/detect_cuda.cu
 int main() {
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, 0);
-    printf("%d.%d", prop.major, prop.minor);
+    printf("%d%d", prop.major, prop.minor);
     return 0;
 }
 EOF
 
-# Compile and run the detection program
 nvcc /tmp/detect_cuda.cu -o /tmp/detect_cuda
-COMPUTE_CAP=$(/tmp/detect_cuda)
-
-# Clean up temporary files
+DETECTED_ARCH=$(/tmp/detect_cuda)
 rm /tmp/detect_cuda.cu /tmp/detect_cuda
 
-# Set the NVCC flags based on detected compute capability
-export NVCC_APPEND_FLAGS="--gpu-architecture=compute_${COMPUTE_CAP} --gpu-code=compute_${COMPUTE_CAP},sm_${COMPUTE_CAP} --generate-code arch=compute_${COMPUTE_CAP},code=sm_${COMPUTE_CAP}"
+# Only include architectures >= detected one
+FLAGS=""
+for arch in "${ALL_ARCHS[@]}"; do
+  if (( arch >= DETECTED_ARCH )); then
+    FLAGS+=" --generate-code=arch=compute_${arch},code=sm_${arch}"
+  fi
+done
 
-echo $NVCC_APPEND_FLAGS
+# Use the *lowest* arch as --gpu-architecture baseline (required by NVCC)
+LOWEST_ARCH=$(echo "${ALL_ARCHS[@]}" | tr ' ' '\n' | sort -n | head -n 1)
+export NVCC_APPEND_FLAGS="--gpu-architecture=compute_${LOWEST_ARCH}${FLAGS}"
+
+echo "$NVCC_APPEND_FLAGS"
