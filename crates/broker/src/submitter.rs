@@ -171,10 +171,11 @@ where
             price: U256,
             stake_reward: U256,
         }
-        let mut order_prices: HashMap<U256, OrderPrice> = HashMap::new();
+        let mut order_prices: HashMap<&str, OrderPrice> = HashMap::new();
+        let mut fulfillment_to_order_id: HashMap<U256, &str> = HashMap::new();
 
         for order_id in batch.orders.iter() {
-            tracing::info!("Submitting order {order_id:x}");
+            tracing::info!("Submitting order {order_id}");
 
             let res = async {
                 let (
@@ -185,7 +186,7 @@ where
                     lock_price,
                     fulfillment_type,
                 ) =
-                    self.db.get_submission_order(*order_id).await.context(
+                    self.db.get_submission_order(order_id).await.context(
                         "Failed to get order from DB for submission, order NOT finalized",
                     )?;
 
@@ -193,11 +194,9 @@ where
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price.push((order_request.clone(), client_sig.clone()));
                     stake_reward = order_request.offer.stake_reward_if_unfulfilled();
-                } else if fulfillment_type == FulfillmentType::FulfillWithoutLocking {
-                    requests_to_price.push((order_request.clone(), client_sig.clone()));
                 }
 
-                order_prices.insert(*order_id, OrderPrice { price: lock_price, stake_reward });
+                order_prices.insert(order_id, OrderPrice { price: lock_price, stake_reward });
 
                 let order_journal = self
                     .prover
@@ -208,7 +207,7 @@ where
 
                 let seal = if is_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
-                        self.db.get_order_compressed_proof_id(*order_id).await.context(
+                        self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
                         )?;
                     self.fetch_encode_g16(&compressed_proof_id)
@@ -232,7 +231,7 @@ where
                         order_claim_index,
                     );
                     tracing::debug!(
-                        "Merkle path for order {order_id:x} : {:x?} : {order_path:x?}",
+                        "Merkle path for order {order_id} : {:x?} : {order_path:x?}",
                         order_claim.digest()
                     );
                     let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
@@ -243,12 +242,14 @@ where
                     set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?
                 };
 
-                tracing::debug!("Seal for order {order_id:x} : {}", hex::encode(seal.clone()));
+                tracing::debug!("Seal for order {order_id} : {}", hex::encode(seal.clone()));
 
                 let request_digest = order_request
                     .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
+                let request_id = order_request.id.clone();
+                fulfillment_to_order_id.insert(request_id, order_id);
                 fulfillments.push(Fulfillment {
-                    id: *order_id,
+                    id: request_id,
                     requestDigest: request_digest,
                     imageId: order_img_id,
                     journal: order_journal.into(),
@@ -258,9 +259,9 @@ where
             };
 
             if let Err(err) = res.await {
-                tracing::error!("Failed to submit {order_id:x}: {err}");
-                if let Err(db_err) = self.db.set_order_failure(*order_id, err.to_string()).await {
-                    tracing::error!("Failed to set order failure during proof submission: {order_id:x} {db_err:?}");
+                tracing::error!("Failed to submit {order_id}: {err}");
+                if let Err(db_err) = self.db.set_order_failure(order_id, err.to_string()).await {
+                    tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
                 }
             }
         }
@@ -317,7 +318,11 @@ where
                 )
                 .await
             {
-                self.handle_fulfillment_error(err, batch_id, &fulfillments).await?;
+                let order_ids: Vec<&str> = fulfillments
+                    .iter()
+                    .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
+                    .collect();
+                self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
             }
         } else {
             let contains_root = match self.set_verifier.contains_root(root).await {
@@ -357,20 +362,29 @@ where
                     )
                     .await
                 {
-                    self.handle_fulfillment_error(err, batch_id, &fulfillments).await?;
+                    let order_ids: Vec<&str> = fulfillments
+                        .iter()
+                        .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
+                        .collect();
+                    self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
                 }
             } else {
                 tracing::info!("Fulfilling {} requests using fulfillBatch", fulfillments.len());
                 if let Err(err) =
                     self.market.fulfill_batch(fulfillments.clone(), assessor_receipt).await
                 {
-                    self.handle_fulfillment_error(err, batch_id, &fulfillments).await?;
+                    let order_ids: Vec<&str> = fulfillments
+                        .iter()
+                        .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
+                        .collect();
+                    self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
                 }
             }
         }
 
         for fulfillment in fulfillments.iter() {
-            if let Err(db_err) = self.db.set_order_complete(U256::from(fulfillment.id)).await {
+            let order_id = fulfillment_to_order_id.get(&fulfillment.id).unwrap();
+            if let Err(db_err) = self.db.set_order_complete(order_id).await {
                 tracing::error!(
                     "Failed to set order complete during proof submission: {:x} {db_err:?}",
                     fulfillment.id
@@ -378,7 +392,7 @@ where
                 continue;
             }
             let order_price = order_prices
-                .get(&fulfillment.id)
+                .get(order_id)
                 .unwrap_or(&OrderPrice { price: U256::ZERO, stake_reward: U256::ZERO });
             tracing::info!(
                 "✨ Completed order: {:x} fee: {} stake_reward: {} ✨",
@@ -396,12 +410,11 @@ where
         err: MarketError,
         batch_id: usize,
         fulfillments: &[Fulfillment],
+        order_ids: &[&str],
     ) -> Result<()> {
         tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
-        for fulfillment in fulfillments.iter() {
-            if let Err(db_err) =
-                self.db.set_order_failure(U256::from(fulfillment.id), format!("{err:?}")).await
-            {
+        for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
+            if let Err(db_err) = self.db.set_order_failure(order_id, format!("{err:?}")).await {
                 tracing::error!(
                     "Failed to set order failure during proof submission: {:x} {db_err:?}",
                     fulfillment.id
@@ -693,11 +706,11 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),
-            fulfillment_type: Some(FulfillmentType::LockAndFulfill),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        let order_id = order.id();
+        db.add_order(order.clone()).await.unwrap();
 
         let batch_id = 0;
         let batch = Batch {

@@ -10,7 +10,7 @@ use crate::{
     db::DbObj,
     provers::{ProverError, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    Order, OrderStatus,
+    FulfillmentType, Order, OrderStatus,
 };
 use crate::{now_timestamp, provers::ProofResult};
 use alloy::{
@@ -117,22 +117,23 @@ where
         }
     }
 
-    async fn price_order_and_update_db(&self, order_id: U256, order: &Order) -> bool {
+    async fn price_order_and_update_db(&self, order: &Order) -> bool {
         let f = || async {
-            match self.price_order(order_id, order).await {
+            let request_id = order.request.id;
+            match self.price_order(order).await {
                 Ok(Lock { target_timestamp_secs, expiry_secs }) => {
-                    tracing::debug!("Locking order {order_id:x}");
+                    tracing::debug!("Locking order with request id {request_id:x}");
                     self.db
-                        .set_order_lock(order_id, target_timestamp_secs, expiry_secs)
+                        .set_order_lock(&order.id(), target_timestamp_secs, expiry_secs)
                         .await
                         .context("Failed to set_order_lock")?;
                     Ok::<_, PriceOrderErr>(true)
                 }
                 Ok(ProveAfterLockExpire { lock_expire_timestamp_secs, expiry_secs }) => {
-                    tracing::debug!("Setting order {order_id:x} to prove after lock expiry at {lock_expire_timestamp_secs}");
+                    tracing::debug!("Setting order {request_id:x} to prove after lock expiry at {lock_expire_timestamp_secs}");
                     self.db
                         .set_order_fulfill_after_lock_expire(
-                            order_id,
+                            &order.id(),
                             lock_expire_timestamp_secs,
                             expiry_secs,
                         )
@@ -141,14 +142,14 @@ where
                     Ok(true)
                 }
                 Ok(Skip) => {
-                    tracing::debug!("Skipping order {order_id:x}");
-                    self.db.skip_order(order_id).await.context("Failed to delete order")?;
+                    tracing::debug!("Skipping order with request id {request_id:x}");
+                    self.db.skip_order(&order.id()).await.context("Failed to delete order")?;
                     Ok(false)
                 }
                 Err(err) => {
-                    tracing::error!("Failed to price order {order_id:x}: {err}");
+                    tracing::error!("Failed to price order with request id {request_id:x}: {err}");
                     self.db
-                        .set_order_failure(order_id, err.to_string())
+                        .set_order_failure(&order.id(), err.to_string())
                         .await
                         .context("Failed to set_order_failure")?;
                     Ok(false)
@@ -160,18 +161,16 @@ where
             Ok(true) => true,
             Ok(false) => false,
             Err(err) => {
-                tracing::error!("Failed to update db for order {order_id:x}: {err}");
+                tracing::error!("Failed to update db for order {}: {err}", order.id());
                 false
             }
         }
     }
 
-    async fn price_order(
-        &self,
-        order_id: U256,
-        order: &Order,
-    ) -> Result<OrderPricingOutcome, PriceOrderErr> {
-        tracing::debug!("Processing order {order_id:x}: {order:?}");
+    async fn price_order(&self, order: &Order) -> Result<OrderPricingOutcome, PriceOrderErr> {
+        let order_id = order.id();
+        let request_id = order.request.id;
+        tracing::debug!("Processing order {order_id} with request id {request_id:x}: {order:?}");
 
         let (min_deadline, allowed_addresses_opt) = {
             let config = self.config.lock_all().context("Failed to read config")?;
@@ -182,14 +181,14 @@ where
         if let Some(allow_addresses) = allowed_addresses_opt {
             let client_addr = order.request.client_address();
             if !allow_addresses.contains(&client_addr) {
-                tracing::info!("Removing order {order_id:x} from {client_addr} because it is not in allowed addrs");
+                tracing::info!("Removing order {order_id} from {client_addr} because it is not in allowed addrs");
                 return Ok(Skip);
             }
         }
 
         if !self.supported_selectors.is_supported(order.request.requirements.selector) {
             tracing::info!(
-                "Removing order {order_id:x} because it has an unsupported selector requirement"
+                "Removing order {order_id} because it has an unsupported selector requirement"
             );
 
             return Ok(Skip);
@@ -206,10 +205,10 @@ where
 
         // If order_expiration > lock_expiration the period in-between is when order can be filled
         // by anyone without staking to partially claim the slashed stake
-        let lock_expired = order.status == OrderStatus::PricingLockedByOther;
+        let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
 
         if lock_expired {
-            tracing::info!("Order {order_id:x} was locked by another prover. Pricing to fulfill after the lock expires if that prover doesn't fulfill.");
+            tracing::info!("Order {request_id:x} was locked by another prover. Pricing to fulfill after the lock expires if that prover doesn't fulfill.");
         }
 
         let (expiration, lockin_stake) = if lock_expired {
@@ -219,14 +218,14 @@ where
         };
 
         if expiration <= now {
-            tracing::info!("Removing order {order_id:x} because it has expired");
+            tracing::info!("Removing order {request_id:x} because it has expired");
             return Ok(Skip);
         };
 
         // Does the order expire within the min deadline
         let seconds_left = expiration - now;
         if seconds_left <= min_deadline {
-            tracing::info!("Removing order {order_id:x} because it expires within min_deadline: {seconds_left}, min_deadline: {min_deadline}");
+            tracing::info!("Removing order {request_id:x} because it expires within min_deadline: {seconds_left}, min_deadline: {min_deadline}");
             return Ok(Skip);
         }
 
@@ -238,7 +237,7 @@ where
         };
 
         if !lock_expired && lockin_stake > max_stake {
-            tracing::info!("Removing high stake order {order_id:x}, lock stake: {lockin_stake}, max stake: {max_stake}");
+            tracing::info!("Removing high stake order {request_id:x}, lock stake: {lockin_stake}, max stake: {max_stake}");
             return Ok(Skip);
         }
 
@@ -261,7 +260,7 @@ where
         let available_gas = self.available_gas_balance().await?;
         let available_stake = self.available_stake_balance().await?;
         tracing::debug!(
-            "Estimated {order_gas} gas to {} order {order_id:x}; {} ether @ {} gwei",
+            "Estimated {order_gas} gas to {} order {request_id:x}; {} ether @ {} gwei",
             if lock_expired { "fulfill" } else { "lock and fulfill" },
             format_ether(order_gas_cost),
             format_units(gas_price, "gwei").unwrap()
@@ -271,23 +270,23 @@ where
             // Cannot check the gas cost for lock expired orders where the reward is a fraction of the stake
             // TODO: This can be added once we have a price feed for the stake token in gas tokens
             tracing::info!(
-                "Estimated gas cost to lock and fulfill order {order_id:x}: {} exceeds max price; max price {}",
+                "Estimated gas cost to lock and fulfill order {request_id:x}: {} exceeds max price; max price {}",
                 format_ether(order_gas_cost),
                 format_ether(order.request.offer.maxPrice)
             );
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            self.db.skip_order(&order.id()).await.context("Failed to delete order")?;
             return Ok(Skip);
         }
 
         if order_gas_cost > available_gas {
-            tracing::warn!("Estimated there will be insufficient gas for order {order_id:x} after locking and fulfilling pending orders; available_gas {} ether", format_ether(available_gas));
-            self.db.skip_order(order_id).await.context("Failed to delete order")?;
+            tracing::warn!("Estimated there will be insufficient gas for order {request_id:x} after locking and fulfilling pending orders; available_gas {} ether", format_ether(available_gas));
+            self.db.skip_order(&order.id()).await.context("Failed to delete order")?;
             return Ok(Skip);
         }
 
         if !lock_expired && lockin_stake > available_stake {
             tracing::warn!(
-                "Insufficient available stake to lock order {order_id:x}. Requires {lockin_stake}, has {available_stake}"
+                "Insufficient available stake to lock order {request_id:x}. Requires {lockin_stake}, has {available_stake}"
             );
             return Ok(Skip);
         }
@@ -333,7 +332,7 @@ where
 
         // Record the image/input IDs for proving stage
         self.db
-            .set_image_input_ids(order_id, &image_id, &input_id)
+            .set_image_input_ids(&order.id(), &image_id, &input_id)
             .await
             .context("Failed to record Input/Image IDs to DB")?;
 
@@ -371,7 +370,9 @@ where
         };
 
         if exec_limit_cycles == 0 {
-            tracing::info!("Removing order {order_id:x} because it's exec limit is below 0 cycles");
+            tracing::info!(
+                "Removing order {request_id:x} because it's exec limit is below 0 cycles"
+            );
 
             return Ok(Skip);
         }
@@ -380,13 +381,13 @@ where
         if let Some(config_mcycle_limit) = max_mcycle_limit {
             let config_cycle_limit = config_mcycle_limit * 1_000_000;
             if exec_limit_cycles >= config_cycle_limit {
-                tracing::info!("Order {order_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit");
+                tracing::info!("Order {request_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit");
                 exec_limit_cycles = config_cycle_limit;
             }
         }
 
         tracing::debug!(
-            "Starting preflight execution of {order_id:x} exec limit {} cycles (~{} mcycles)",
+            "Starting preflight execution of {request_id:x} exec limit {} cycles (~{} mcycles)",
             exec_limit_cycles,
             exec_limit_cycles / 1_000_000
         );
@@ -407,7 +408,7 @@ where
                     if err_msg.contains("Session limit exceeded") =>
                 {
                     tracing::info!(
-                        "Skipping order {order_id:x} due to session limit exceeded: {}",
+                        "Skipping order {request_id:x} due to session limit exceeded: {}",
                         err_msg
                     );
                     return Ok(Skip);
@@ -423,7 +424,7 @@ where
         if let Some(mcycle_limit) = max_mcycle_limit {
             let mcycles = proof_res.stats.total_cycles / 1_000_000;
             if mcycles >= mcycle_limit {
-                tracing::info!("Order {order_id:x} max_mcycle_limit check failed req: {mcycle_limit} | config: {mcycles}");
+                tracing::info!("Order {request_id:x} max_mcycle_limit check failed req: {mcycle_limit} | config: {mcycles}");
                 return Ok(Skip);
             }
         }
@@ -440,7 +441,7 @@ where
             self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
         if journal.len() > max_journal_bytes {
             tracing::info!(
-                "Order {order_id:x} journal larger than set limit ({} > {}), skipping",
+                "Order {request_id:x} journal larger than set limit ({} > {}), skipping",
                 journal.len(),
                 max_journal_bytes
             );
@@ -449,7 +450,7 @@ where
 
         // Validate the predicates:
         if !order.request.requirements.predicate.eval(journal.clone()) {
-            tracing::info!("Order {order_id:x} predicate check failed, skipping");
+            tracing::info!("Order {request_id:x} predicate check failed, skipping");
             return Ok(Skip);
         }
 
@@ -476,7 +477,7 @@ where
                 drop(prover_available);
                 // Proof estimated that it cannot complete before the expiration
                 tracing::info!(
-                    "Order {order_id:x} cannot be completed in time. Proof estimated to take {proof_time_seconds}s to complete, would be {}s past deadline",
+                    "Order {request_id:x} cannot be completed in time. Proof estimated to take {proof_time_seconds}s to complete, would be {}s past deadline",
                     completion_time.saturating_sub(expiration)
                 );
                 return Ok(Skip);
@@ -484,11 +485,11 @@ where
 
             *prover_available = completion_time;
             drop(prover_available);
-            tracing::debug!("Order {order_id:x} estimated to take {proof_time_seconds}s to prove");
+            tracing::debug!(
+                "Order {request_id:x} estimated to take {proof_time_seconds}s to prove"
+            );
 
-            let res = self
-                .evaluate_order(order_id, order, &proof_res, order_gas_cost, lock_expired)
-                .await;
+            let res = self.evaluate_order(order, &proof_res, order_gas_cost, lock_expired).await;
             if let Err(e) = res {
                 // Failed to select order, decrement the reserved capacity.
                 let mut prover_available = self.prover_available_at.lock().await;
@@ -497,29 +498,27 @@ where
             }
             res
         } else {
-            self.evaluate_order(order_id, order, &proof_res, order_gas_cost, lock_expired).await
+            self.evaluate_order(order, &proof_res, order_gas_cost, lock_expired).await
         }
     }
 
     async fn evaluate_order(
         &self,
-        order_id: U256,
         order: &Order,
         proof_res: &ProofResult,
         order_gas_cost: U256,
         lock_expired: bool,
     ) -> Result<OrderPricingOutcome, PriceOrderErr> {
         if lock_expired {
-            return self.evaluate_lock_expired_order(order_id, order, proof_res).await;
+            return self.evaluate_lock_expired_order(order, proof_res).await;
         } else {
-            self.evaluate_lockable_order(order_id, order, proof_res, order_gas_cost).await
+            self.evaluate_lockable_order(order, proof_res, order_gas_cost).await
         }
     }
 
     /// Evaluate if a regular lockable order is worth picking based on the price and the configured min mcycle price
     async fn evaluate_lockable_order(
         &self,
-        order_id: U256,
         order: &Order,
         proof_res: &ProofResult,
         order_gas_cost: U256,
@@ -553,13 +552,14 @@ where
 
         // Skip the order if it will never be worth it
         if mcycle_price_max < config_min_mcycle_price {
-            tracing::info!("Removing under priced order {order_id:x}");
+            tracing::info!("Removing under priced order {}", order.id());
             return Ok(Skip);
         }
 
         let target_timestamp_secs = if mcycle_price_min >= config_min_mcycle_price {
             tracing::info!(
-                "Selecting order {order_id:x} at price {} - ASAP",
+                "Selecting order {} at price {} - ASAP",
+                order.id(),
                 format_ether(U256::from(order.request.offer.minPrice))
             );
             0 // Schedule the lock ASAP
@@ -585,7 +585,6 @@ where
     /// and the configured min mcycle price in stake tokens
     async fn evaluate_lock_expired_order(
         &self,
-        order_id: U256,
         order: &Order,
         proof_res: &ProofResult,
     ) -> Result<OrderPricingOutcome, PriceOrderErr> {
@@ -613,7 +612,8 @@ where
         // Skip the order if it will never be worth it
         if mcycle_price_in_stake_tokens < config_min_mcycle_price_stake_tokens {
             tracing::info!(
-                "Removing under priced order (slashed stake reward too low) {order_id:x}"
+                "Removing under priced order (slashed stake reward too low) {}",
+                order.id()
             );
             return Ok(Skip);
         }
@@ -637,11 +637,9 @@ where
         // TODO: This just restarts the process of preflight which is slightly wasteful
         // we should probably save off the preflight session ID into the DB and resume monitoring
         // like how we do in the prover.
-        for (order_id, order) in pricing_orders {
+        for order in pricing_orders {
             let self_copy = self.clone();
-            tokio::spawn(
-                async move { self_copy.price_order_and_update_db(order_id, &order).await },
-            );
+            tokio::spawn(async move { self_copy.price_order_and_update_db(&order).await });
         }
 
         Ok(())
@@ -654,7 +652,7 @@ where
         let pending_locks = self.db.get_pending_lock_orders(i64::MAX as u64).await?;
         let stake = pending_locks
             .iter()
-            .map(|(_, order)| order.request.offer.lockStake)
+            .map(|order| order.request.offer.lockStake)
             .fold(U256::ZERO, |acc, x| acc + x);
         Ok(stake)
     }
@@ -717,7 +715,7 @@ where
     async fn estimate_gas_to_lock_pending(&self) -> Result<u64> {
         let mut gas = 0;
         // NOTE: i64::max is the largest timestamp value possible in the DB.
-        for (_, order) in self.db.get_pending_lock_orders(i64::MAX as u64).await?.iter() {
+        for order in self.db.get_pending_lock_orders(i64::MAX as u64).await?.iter() {
             gas += self.estimate_gas_to_lock(order).await?;
         }
         Ok(gas)
@@ -729,7 +727,7 @@ where
     // may not matter.
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         let mut gas = 0;
-        for (_, order) in self.db.get_committed_orders().await? {
+        for order in self.db.get_committed_orders().await? {
             gas += self.estimate_gas_to_fulfill(&order).await?;
         }
         Ok(gas)
@@ -800,16 +798,14 @@ where
 
         let order_res = self.db.update_orders_for_pricing(capacity).await?;
         tracing::debug!(
-            "Found {} orders to price, with request ids: {:?}",
+            "Found {} orders to price, with order ids: {:?}",
             order_res.len(),
-            order_res.iter().map(|(_, order)| order.request.id).collect::<Vec<_>>()
+            order_res.iter().map(|order| order.id()).collect::<Vec<_>>()
         );
 
-        for (order_id, order) in order_res {
+        for order in order_res {
             let picker_clone = self.clone();
-            tasks.spawn(
-                async move { picker_clone.price_order_and_update_db(order_id, &order).await },
-            );
+            tasks.spawn(async move { picker_clone.price_order_and_update_db(&order).await });
         }
 
         Ok(())
@@ -943,7 +939,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        chain_monitor::ChainMonitorService, db::SqliteDb, provers::DefaultProver, OrderStatus,
+        chain_monitor::ChainMonitorService, db::SqliteDb, provers::DefaultProver, FulfillmentType,
+        OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
@@ -1037,7 +1034,7 @@ mod tests {
                 expire_timestamp: None,
                 client_sig: Bytes::new(),
                 lock_price: None,
-                fulfillment_type: None,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
                 error_msg: None,
             }
         }
@@ -1142,13 +1139,12 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let order_id = order.request.id;
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locking);
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
         assert_eq!(db_order.target_timestamp, Some(0));
     }
 
@@ -1162,7 +1158,6 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
-        let order_id = order.request.id;
 
         // set a bad predicate
         order.request.requirements.predicate =
@@ -1171,11 +1166,11 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("predicate check failed, skipping"));
@@ -1191,7 +1186,6 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
-        let order_id = order.request.id;
 
         // set an unsupported selector
         order.request.requirements.selector = FixedBytes::from(Selector::Groth16V1_1 as u32);
@@ -1199,11 +1193,11 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("has an unsupported selector requirement"));
@@ -1225,20 +1219,20 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let order_id = order.request.id;
+        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain(&format!(
-            "Estimated gas cost to lock and fulfill order {order_id:x}:"
+            "Estimated gas cost to lock and fulfill order {request_id:x}:"
         )));
     }
 
@@ -1269,12 +1263,12 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locking);
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
         assert_eq!(db_order.target_timestamp, Some(0));
 
         // Order does not have high enough price when groth16 is used.
@@ -1289,20 +1283,20 @@ mod tests {
 
         // set a Groth16 selector
         order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_0 as u32);
-        let order_id = order.request.id;
+        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain(&format!(
-            "Estimated gas cost to lock and fulfill order {order_id:x}:"
+            "Estimated gas cost to lock and fulfill order {request_id:x}:"
         )));
     }
 
@@ -1328,17 +1322,17 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let order_id = order.request.id;
+        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locking);
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
         assert_eq!(db_order.target_timestamp, Some(0));
 
         // Order does not have high enough price when groth16 is used.
@@ -1356,20 +1350,20 @@ mod tests {
             addr: address!("0x00000000000000000000000000000000ca11bac2"),
             gasLimit: U96::from(200_000),
         };
-        let order_id = order.request.id;
+        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain(&format!(
-            "Estimated gas cost to lock and fulfill order {order_id:x}:"
+            "Estimated gas cost to lock and fulfill order {request_id:x}:"
         )));
     }
 
@@ -1400,12 +1394,12 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locking);
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
         assert_eq!(db_order.target_timestamp, Some(0));
 
         // Order does not have high enough price when groth16 is used.
@@ -1420,20 +1414,20 @@ mod tests {
 
         order.request.id =
             RequestId::try_from(order.request.id).unwrap().set_smart_contract_signed_flag().into();
-        let order_id = order.request.id;
+        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain(&format!(
-            "Estimated gas cost to lock and fulfill order {order_id:x}:"
+            "Estimated gas cost to lock and fulfill order {request_id:x}:"
         )));
     }
 
@@ -1453,11 +1447,11 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("because it is not in allowed addrs"));
@@ -1478,7 +1472,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.db.add_order(order.clone()).await.unwrap();
 
         ctx.picker.find_existing_orders().await.unwrap();
 
@@ -1486,15 +1480,15 @@ mod tests {
 
         // Try and wait for the order to complete pricing
         for _ in 0..4 {
-            let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+            let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
             if db_order.status != OrderStatus::Pricing {
                 break;
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locking);
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
         assert_eq!(db_order.target_timestamp, Some(0));
     }
 
@@ -1521,15 +1515,15 @@ mod tests {
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
-        let order_id = order.request.id;
+        let request_id = order.request.id;
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
         // order is pending lock so stake is counted
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), lock_stake);
 
-        ctx.db.set_proving_status_lock_and_fulfill_orders(order_id, U256::ZERO).await.unwrap();
+        ctx.db.set_proving_status_lock_and_fulfill_orders(&order.id(), U256::ZERO).await.unwrap();
         // order no longer pending lock so stake no longer counted
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
     }
@@ -1551,8 +1545,8 @@ mod tests {
         let order_id = order.request.id;
         assert_eq!(ctx.picker.estimate_gas_to_lock(&order).await.unwrap(), lockin_gas);
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
         assert_eq!(ctx.picker.estimate_gas_to_lock_pending().await.unwrap(), lockin_gas);
@@ -1573,8 +1567,8 @@ mod tests {
 
         let order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.request.id;
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
         assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), fulfill_gas);
@@ -1583,8 +1577,8 @@ mod tests {
         let order =
             ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
         let order_id = order.request.id;
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
         // gas estimate stacks (until estimates factor in bundling)
@@ -1607,9 +1601,8 @@ mod tests {
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let order = ctx.generate_next_order(Default::default()).await;
-        let order_id = order.request.id;
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
         let gas_price = ctx.provider.get_gas_price().await.unwrap();
@@ -1618,7 +1611,7 @@ mod tests {
             U256::from(gas_price) * U256::from(fulfill_gas + lockin_gas)
         );
         // mark the order as locked.
-        ctx.db.set_proving_status_lock_and_fulfill_orders(order_id, U256::ZERO).await.unwrap();
+        ctx.db.set_proving_status_lock_and_fulfill_orders(&order.id(), U256::ZERO).await.unwrap();
         // only fulfillment gas now reserved
         assert_eq!(
             ctx.picker.gas_balance_reserved().await.unwrap(),
@@ -1647,21 +1640,21 @@ mod tests {
         let order = ctx
             .generate_next_order(OrderParams { lock_stake: U256::from(100), ..Default::default() })
             .await;
-        let orders = std::iter::repeat(order).take(2);
+        let mut orders: Vec<Order> = vec![order.clone(), order.clone()];
 
-        for (order_id, order) in orders.into_iter().enumerate() {
-            let order_id = U256::from(order_id);
-            ctx.db.add_order(order_id, order.clone()).await.unwrap();
-            ctx.picker.price_order_and_update_db(order_id, &order).await;
+        for (i, order) in orders.iter_mut().enumerate() {
+            order.request.id = U256::from(i);
+            ctx.db.add_order(order.clone()).await.unwrap();
+            ctx.picker.price_order_and_update_db(&order).await;
         }
 
         // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient stake
         assert_eq!(
-            ctx.db.get_order(U256::from(0)).await.unwrap().unwrap().status,
-            OrderStatus::Locking
+            ctx.db.get_order(&orders[0].id()).await.unwrap().unwrap().status,
+            OrderStatus::FulfillAfterLocking
         );
         assert_eq!(
-            ctx.db.get_order(U256::from(1)).await.unwrap().unwrap().status,
+            ctx.db.get_order(&orders[1].id()).await.unwrap().unwrap().status,
             OrderStatus::Skipped
         );
         assert!(logs_contain("Insufficient available stake to lock order"));
@@ -1682,12 +1675,14 @@ mod tests {
             TestCtxBuilder::default().with_config(config).with_initial_hp(lock_stake).build().await;
         let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
 
-        let order_id = order.request.id;
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        ctx.db.add_order(order.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(!locked);
 
-        assert_eq!(ctx.db.get_order(order_id).await.unwrap().unwrap().status, OrderStatus::Skipped);
+        assert_eq!(
+            ctx.db.get_order(&order.id()).await.unwrap().unwrap().status,
+            OrderStatus::Skipped
+        );
         assert!(logs_contain("journal larger than set limit"));
     }
 
@@ -1704,7 +1699,7 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
-        let order_id = order.request.id;
+        let request_id = order.request.id;
 
         // Modify the order to have a longer expiration time
         let current_time = now_timestamp();
@@ -1714,13 +1709,13 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.db.add_order(order.clone()).await.unwrap();
 
-        let locked = ctx.picker.price_order_and_update_db(order_id, &order).await;
+        let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locking);
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
 
         // Verify that the debug log contains the estimated proving time
         assert!(logs_contain("estimated to take 4s to prove"));
@@ -1740,34 +1735,34 @@ mod tests {
 
         // First order
         let mut order1 = ctx.generate_next_order(Default::default()).await;
-        let order_id1 = order1.request.id;
+        let request_id1 = order1.request.id;
         let current_time = now_timestamp();
         order1.request.offer.biddingStart = current_time;
         order1.request.offer.lockTimeout = 6;
 
-        ctx.db.add_order(order_id1, order1.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id1, &order1).await;
+        ctx.db.add_order(order1.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order1).await;
         assert!(locked);
 
         // Second order will be rejected because it would finish after its deadline with first order
         let mut order2 =
             ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
-        let order_id2 = order2.request.id;
+        let request_id2 = order2.request.id;
 
         order2.request.offer.biddingStart = current_time;
         order2.request.offer.lockTimeout = 6;
 
-        ctx.db.add_order(order_id2, order2.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(order_id2, &order2).await;
+        ctx.db.add_order(order2.clone()).await.unwrap();
+        let locked = ctx.picker.price_order_and_update_db(&order2).await;
         assert!(!locked);
 
         // Check results
         assert_eq!(
-            ctx.db.get_order(order_id1).await.unwrap().unwrap().status,
-            OrderStatus::Locking
+            ctx.db.get_order(&order1.id()).await.unwrap().unwrap().status,
+            OrderStatus::FulfillAfterLocking
         );
         assert_eq!(
-            ctx.db.get_order(order_id2).await.unwrap().unwrap().status,
+            ctx.db.get_order(&order2.id()).await.unwrap().unwrap().status,
             OrderStatus::Skipped
         );
 
@@ -1821,11 +1816,11 @@ mod tests {
         ];
 
         for order in &mut orders {
-            let order_id = order.request.id;
+            let request_id = order.request.id;
 
             // By default, testing infrastructure sets generated orders to `Pricing`
             order.status = OrderStatus::New;
-            ctx.db.add_order(order_id, order.clone()).await.unwrap();
+            ctx.db.add_order(order.clone()).await.unwrap();
         }
 
         let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
@@ -1849,7 +1844,7 @@ mod tests {
         assert!(locked);
 
         // Set one of the in progress orders to complete to free up capacity
-        ctx.db.set_order_complete(orders[0].request.id).await.unwrap();
+        ctx.db.set_order_complete(&orders[0].id()).await.unwrap();
 
         let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
         assert_eq!(capacity, Capacity::PartiallyLocked(1));
@@ -1860,7 +1855,7 @@ mod tests {
         ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, request_size).await.unwrap();
         assert_eq!(pricing_tasks.len(), 1);
 
-        let order = ctx.db.get_order(orders[3].request.id).await.unwrap().unwrap();
+        let order = ctx.db.get_order(&orders[3].id()).await.unwrap().unwrap();
         assert!(order.status == OrderStatus::New);
     }
 
@@ -1871,20 +1866,24 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price_stake_token = "0.0000001".into();
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = TestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(U256::from(1000))
+            .build()
+            .await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
 
-        order.status = OrderStatus::PricingLockedByOther;
+        order.status = OrderStatus::Pricing;
         order.request.offer.biddingStart = now_timestamp();
         order.request.offer.lockTimeout = 1000;
         order.request.offer.timeout = 10000;
         order.request.offer.lockStake = parse_ether("0.1").unwrap();
-
+        order.fulfillment_type = FulfillmentType::FulfillAfterLockExpire;
         let order_id = order.request.id;
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.db.add_order(order.clone()).await.unwrap();
 
-        assert!(ctx.picker.price_order_and_update_db(order_id, &order).await);
+        assert!(ctx.picker.price_order_and_update_db(&order).await);
 
         assert!(logs_contain(&format!(
             "Setting order {:x} to prove after lock expiry at {}",
@@ -1896,7 +1895,7 @@ mod tests {
             order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
         let expected_expire_timestamp =
             order.request.offer.biddingStart + order.request.offer.timeout as u64;
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::FulfillAfterLockExpire);
         assert_eq!(db_order.target_timestamp, Some(expected_target_timestamp));
         assert_eq!(db_order.expire_timestamp, Some(expected_expire_timestamp));
@@ -1913,7 +1912,8 @@ mod tests {
 
         let mut order = ctx.generate_next_order(Default::default()).await;
 
-        order.status = OrderStatus::PricingLockedByOther;
+        order.status = OrderStatus::Pricing;
+        order.fulfillment_type = FulfillmentType::FulfillAfterLockExpire;
         order.request.offer.biddingStart = now_timestamp();
         order.request.offer.lockTimeout = 0;
         order.request.offer.timeout = 10000;
@@ -1921,20 +1921,20 @@ mod tests {
         // Low stake means low reward for filling after it is unfulfilled
         order.request.offer.lockStake = parse_ether("0.00001").unwrap();
 
-        let order_id = order.request.id;
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        let request_id = order.request.id;
+        ctx.db.add_order(order.clone()).await.unwrap();
 
-        assert!(!ctx.picker.price_order_and_update_db(order_id, &order).await);
+        assert!(!ctx.picker.price_order_and_update_db(&order).await);
 
         // Since we know the stake reward is constant, and we know our min_mycle_price_stake_token
         // the execution limit check tells us if the order is profitable or not, since it computes the max number
         // of cycles that can be proven while keeping the order profitable.
         assert!(logs_contain(&format!(
             "Skipping order {:x} due to session limit exceeded",
-            order_id
+            request_id
         )));
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
     }
 
@@ -1955,7 +1955,8 @@ mod tests {
 
         let mut order = ctx.generate_next_order(Default::default()).await;
 
-        order.status = OrderStatus::PricingLockedByOther;
+        order.status = OrderStatus::Pricing;
+        order.fulfillment_type = FulfillmentType::FulfillAfterLockExpire;
         order.request.offer.biddingStart = now_timestamp();
         order.request.offer.lockTimeout = 0;
         order.request.offer.timeout = 10000;
@@ -1963,16 +1964,15 @@ mod tests {
         // Low stake means low reward for filling after it is unfulfilled
         order.request.offer.lockStake = parse_ether("0.00001").unwrap();
 
-        let order_id = order.request.id;
-        ctx.db.add_order(order_id, order.clone()).await.unwrap();
+        ctx.db.add_order(order.clone()).await.unwrap();
 
-        assert!(!ctx.picker.price_order_and_update_db(order_id, &order).await);
+        assert!(!ctx.picker.price_order_and_update_db(&order).await);
 
         assert!(logs_contain(&format!(
             "Removing under priced order (slashed stake reward too low)"
         )));
 
-        let db_order = ctx.db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
     }
 }

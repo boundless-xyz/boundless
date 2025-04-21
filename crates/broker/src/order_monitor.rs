@@ -11,7 +11,7 @@ use crate::{
 };
 use alloy::{
     network::Ethereum,
-    primitives::{utils::parse_ether, Address, U256},
+    primitives::{utils::parse_ether, Address},
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
@@ -93,18 +93,20 @@ where
         Ok(Self { db, chain_monitor, block_time, config, market, provider })
     }
 
-    async fn lock_order(&self, order_id: U256, order: &Order) -> Result<(), LockOrderErr> {
-        if order.status != OrderStatus::Locking {
+    async fn lock_order(&self, order: &Order) -> Result<(), LockOrderErr> {
+        if order.status != OrderStatus::FulfillAfterLocking {
             return Err(LockOrderErr::InvalidStatus(order.status));
         }
 
+        let request_id = order.request.id;
+
         let order_status = self
             .market
-            .get_status(order_id, Some(order.request.expires_at()))
+            .get_status(request_id, Some(order.request.expires_at()))
             .await
-            .context("Failed to get order status")?;
+            .context("Failed to get request status")?;
         if order_status != RequestStatus::Unknown {
-            tracing::warn!("Order {order_id:x} not open: {order_status:?}, skipping");
+            tracing::warn!("Request {} not open: {order_status:?}, skipping", request_id);
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
             return Err(LockOrderErr::AlreadyLocked);
@@ -115,7 +117,11 @@ where
             conf.market.lockin_priority_gas
         };
 
-        tracing::info!("Locking order: {order_id:x} for stake: {}", order.request.offer.lockStake);
+        tracing::info!(
+            "Locking request: {} for stake: {}",
+            request_id,
+            order.request.offer.lockStake
+        );
         let lock_block = self
             .market
             .lock_request(&order.request, &order.client_sig, conf_priority_gas)
@@ -138,36 +144,39 @@ where
             .context("Failed to calculate lock price")?;
 
         self.db
-            .set_proving_status_lock_and_fulfill_orders(order_id, lock_price)
+            .set_proving_status_lock_and_fulfill_orders(&order.id(), lock_price)
             .await
             .with_context(|| {
                 format!(
-                "FATAL STAKE AT RISK: {order_id:x} failed to move from locking -> proving status"
-            )
+                    "FATAL STAKE AT RISK: {} failed to move from locking -> proving status",
+                    order.id()
+                )
             })?;
 
         Ok(())
     }
 
-    async fn lock_orders(&self, current_block: u64, orders: Vec<(U256, Order)>) -> Result<u64> {
+    async fn lock_orders(&self, current_block: u64, orders: Vec<Order>) -> Result<u64> {
         let mut order_count = 0;
-        for (order_id, order) in orders.iter() {
-            match self.lock_order(*order_id, order).await {
-                Ok(_) => tracing::info!("Locked order: {order_id:x}"),
+        for order in orders.iter() {
+            let order_id = order.id();
+            let request_id = order.request.id;
+            match self.lock_order(order).await {
+                Ok(_) => tracing::info!("Locked request: {request_id}"),
                 Err(ref err) => {
                     match err {
                         LockOrderErr::OtherErr(err) => {
-                            tracing::error!("Failed to lock order: {order_id:x} {err:?}");
+                            tracing::error!("Failed to lock request: {request_id} {err:?}");
                         }
                         // Only warn on known / classified errors
                         _ => {
-                            tracing::warn!("Soft failed to lock order: {order_id:x} {err:?}");
+                            tracing::warn!("Soft failed to lock request: {request_id} {err:?}");
                         }
                     }
-                    if let Err(err) = self.db.set_order_failure(*order_id, format!("{err:?}")).await
+                    if let Err(err) = self.db.set_order_failure(&order_id, format!("{err:?}")).await
                     {
                         tracing::error!(
-                            "Failed to set DB failure state for order: {order_id:x}, {err:?}"
+                            "Failed to set DB failure state for order: {order_id}, {err:?}"
                         );
                     }
                 }
@@ -229,19 +238,36 @@ where
                 if first_block == 0 {
                     first_block = current_block;
                 }
-                tracing::debug!("Order monitor processing block {current_block} at timestamp {current_block_timestamp}");
+                tracing::trace!("Order monitor processing block {current_block} at timestamp {current_block_timestamp}");
 
                 // Find orders that we intended to prove after their lock expires.
                 // If they were not fulfilled, set their status to pending proving.
                 // Note, if they were fulfilled, market monitor would have set their status to done.
-                let orders_unlocked = self
+                let lock_expired_orders = self
                     .db
-                    .set_proving_status_fulfill_after_lock_expire_orders(current_block_timestamp)
+                    .get_fulfill_after_lock_expire_orders(current_block_timestamp)
                     .await
                     .context("Failed to find pending prove after lock expire orders")?;
 
-                for (order_id, _) in orders_unlocked {
-                    tracing::info!("Order {order_id:x} was locked by another prover but expired unfulfilled, setting status to pending proving");
+                for order in lock_expired_orders {
+                    let is_fulfilled = self
+                        .db
+                        .is_request_fulfilled(&order.id())
+                        .await
+                        .context("Failed to check if request is fulfilled")?;
+                    if is_fulfilled {
+                        tracing::debug!("Request {:x} was locked by another prover and was fulfilled. Skipping.", order.request.id);
+                        self.db
+                            .set_order_status(&order.id(), OrderStatus::Skipped)
+                            .await
+                            .context("Failed to set order status to skipped")?;
+                    } else {
+                        tracing::info!("Request {:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
+                        self.db
+                            .set_proving_status_fulfill_after_lock_expire_orders(&order.id())
+                            .await
+                            .context("Failed to set order status to pending proving")?;
+                    }
                 }
 
                 let orders = self
@@ -283,7 +309,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, now_timestamp};
+    use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -357,7 +383,6 @@ mod tests {
                 lockStake: U256::from(0),
             },
         );
-        let order_id = U256::from(request.id);
         tracing::info!("addr: {} ID: {:x}", signer.address(), request.id);
 
         // let client_sig = boundless_market.eip721_signature(&request, &signer).await.unwrap();
@@ -366,7 +391,7 @@ mod tests {
             request.sign_request(&signer, market_address, chain_id).await.unwrap().as_bytes();
 
         let order = Order {
-            status: OrderStatus::Locking,
+            status: OrderStatus::FulfillAfterLocking,
             updated_at: Utc::now(),
             target_timestamp: Some(0),
             request,
@@ -377,15 +402,15 @@ mod tests {
             expire_timestamp: None,
             client_sig: client_sig.into(),
             lock_price: None,
-            fulfillment_type: None,
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
         };
         let request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
-        assert_eq!(request_id, order_id);
+        assert!(order.id().contains(&format!("{:x}", request_id)));
 
         provider.anvil_mine(Some(2), Some(block_time)).await.unwrap();
 
-        db.add_order(order_id, order).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
         db.set_last_block(1).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
@@ -403,7 +428,7 @@ mod tests {
         let orders = monitor.back_scan_locks().await.unwrap();
         assert_eq!(orders, 1);
 
-        let order = db.get_order(order_id).await.unwrap().unwrap();
+        let order = db.get_order(&order.id()).await.unwrap().unwrap();
         if let OrderStatus::Failed = order.status {
             let err = order.error_msg.expect("Missing error message for failed order");
             panic!("order failed: {err}");
@@ -468,8 +493,7 @@ mod tests {
                 lockStake: U256::from(0),
             },
         );
-        let order_id = U256::from(request.id);
-        tracing::info!("addr: {} ID: {:x}", signer.address(), order_id);
+        tracing::info!("addr: {} ID: {:x}", signer.address(), request.id);
 
         let chain_id = provider.get_chain_id().await.unwrap();
         let client_sig = request
@@ -479,7 +503,7 @@ mod tests {
             .as_bytes()
             .into();
         let order = Order {
-            status: OrderStatus::Locking,
+            status: OrderStatus::FulfillAfterLocking,
             updated_at: Utc::now(),
             target_timestamp: Some(0),
             request,
@@ -490,13 +514,13 @@ mod tests {
             expire_timestamp: None,
             client_sig,
             lock_price: None,
-            fulfillment_type: None,
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
         };
 
         let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
 
-        db.add_order(order_id, order).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
         db.set_last_block(0).await.unwrap();
 
@@ -514,7 +538,7 @@ mod tests {
 
         monitor.start_monitor(Some(4)).await.unwrap();
 
-        let order = db.get_order(order_id).await.unwrap().unwrap();
+        let order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingProving);
     }
 }

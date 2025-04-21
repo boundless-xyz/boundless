@@ -3,6 +3,12 @@ CREATE TABLE orders (
     data JSONB
 );
 
+CREATE TABLE fulfilled_orders (
+    id TEXT PRIMARY KEY,
+    block_timestamp INTEGER,
+    block_number INTEGER
+);
+
 CREATE TABLE batches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     data JSONB

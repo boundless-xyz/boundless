@@ -138,15 +138,11 @@ pub struct Args {
 enum OrderStatus {
     /// New order found on chain, waiting pricing analysis
     New,
-    /// Order was observed to be locked by another prover, waiting pricing analysis
-    LockedByOther,
     /// Order is in the process of being priced
     Pricing,
-    /// Order was locked by other, and is in the process of being priced
-    PricingLockedByOther,
-    /// Order is ready to lock at target_timestamp
-    Locking,
-    /// Order should commence proving when its lock expires at target_timestamp
+    /// Order is ready to lock at target_timestamp and then be fulfilled
+    FulfillAfterLocking,
+    /// Order is ready to be fulfilled when its lock expires at target_timestamp
     FulfillAfterLockExpire,
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
@@ -172,12 +168,12 @@ enum OrderStatus {
 enum FulfillmentType {
     LockAndFulfill,
     FulfillAfterLockExpire,
-    // Currently unsupported
-    FulfillWithoutLocking,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Order {
+    /// Fulfillment type
+    fulfillment_type: FulfillmentType,
     /// Proof request object
     request: ProofRequest,
     /// status of the order
@@ -211,14 +207,16 @@ struct Order {
     client_sig: Bytes,
     /// Price the lockin was set at
     lock_price: Option<U256>,
-    // Populated during order picking
-    fulfillment_type: Option<FulfillmentType>,
     /// Failure message
     error_msg: Option<String>,
 }
 
 impl Order {
-    pub fn new(request: ProofRequest, client_sig: Bytes) -> Self {
+    pub fn new(
+        request: ProofRequest,
+        client_sig: Bytes,
+        fulfillment_type: FulfillmentType,
+    ) -> Self {
         Self {
             request,
             status: OrderStatus::New,
@@ -231,12 +229,27 @@ impl Order {
             expire_timestamp: None,
             client_sig,
             lock_price: None,
-            fulfillment_type: None,
+            fulfillment_type,
             error_msg: None,
         }
     }
+
+    pub fn id(&self) -> String {
+        format!(
+            "0x{:x}-{}-{:?}",
+            self.request.id,
+            self.request.signing_hash(Address::ZERO, 1).unwrap(),
+            self.fulfillment_type
+        )
+    }
     pub fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
+    }
+}
+
+impl std::fmt::Display for Order {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
     }
 }
 
@@ -268,7 +281,7 @@ struct AggregationState {
 struct Batch {
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.
-    pub orders: Vec<U256>,
+    pub orders: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assessor_proof_id: Option<String>,
     /// Tuple of the current aggregation state, as committed by the set builder guest, and the

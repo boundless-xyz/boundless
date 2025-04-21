@@ -28,7 +28,7 @@ use boundless_market::contracts::{
 
 // Add new state tracking structure
 struct TestState {
-    added_orders: Arc<FrozenVec<Box<u32>>>,
+    added_orders: Arc<FrozenVec<Box<String>>>,
     completed_batch: Arc<AtomicBool>,
 }
 
@@ -82,13 +82,13 @@ enum BatchOperation {
 }
 
 // Generate a valid Order for testing
-fn generate_test_order(id: u32) -> Order {
+fn generate_test_order(request_id: u32) -> Order {
     Order {
         status: OrderStatus::New,
         updated_at: Utc::now(),
         target_timestamp: None,
         request: ProofRequest::new(
-            RequestId::new(Address::ZERO, id),
+            RequestId::new(Address::ZERO, request_id),
             Requirements::new(
                 Digest::ZERO,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
@@ -107,12 +107,12 @@ fn generate_test_order(id: u32) -> Order {
         ),
         image_id: None,
         input_id: None,
-        proof_id: Some(format!("proof_{}", id)),
-        compressed_proof_id: Some(format!("compressed_proof_{}", id)),
+        proof_id: Some(format!("proof_{}", request_id)),
+        compressed_proof_id: Some(format!("compressed_proof_{}", request_id)),
         expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
-        fulfillment_type: Some(FulfillmentType::LockAndFulfill),
+        fulfillment_type: FulfillmentType::LockAndFulfill,
         error_msg: None,
     }
 }
@@ -172,8 +172,10 @@ proptest! {
                 handles.push(tokio::spawn(async move {
                     for op in ops {
                         match op {
-                            DbOperation::AddOrder(id) => {
-                                db.add_order(U256::from(id), generate_test_order(id)).await.unwrap();
+                            DbOperation::AddOrder(request_id) => {
+                                let order = generate_test_order(request_id);
+                                let id = order.id();
+                                db.add_order(order).await.unwrap();
                                 state.added_orders.push(Box::new(id));
                             },
                             DbOperation::OperateOnExistingOrder(operation) => {
@@ -185,46 +187,47 @@ proptest! {
                                 // Randomly select an existing order by index
                                 let len = state.added_orders.len();
                                 let random_index: usize = rand::rng().random_range(0..len);
-                                let id = *state.added_orders.get(random_index).unwrap();
+                                let id = state.added_orders.get(random_index).unwrap();
 
                                 match operation {
                                     ExistingOrderOperation::GetOrder => {
-                                        db.get_order(U256::from(id)).await.unwrap();
+                                        db.get_order(id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderLock { lock_timestamp, expire_timestamp } => {
-                                        db.set_order_lock(U256::from(id), lock_timestamp as u64, expire_timestamp as u64).await.unwrap();
+                                        db.set_order_lock(id, lock_timestamp as u64, expire_timestamp as u64).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetProvingStatus { lock_price } => {
-                                        db.set_proving_status_lock_and_fulfill_orders(U256::from(id), U256::from(lock_price)).await.unwrap();
+                                        db.set_proving_status_lock_and_fulfill_orders(id, U256::from(lock_price)).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderComplete => {
-                                        db.set_order_complete(U256::from(id)).await.unwrap();
+                                        db.set_order_complete(id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SkipOrder => {
-                                        db.skip_order(U256::from(id)).await.unwrap();
+                                        db.skip_order(id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderFailure { failure_str } => {
-                                        db.set_order_failure(U256::from(id), failure_str).await.unwrap();
+                                        db.set_order_failure(id, failure_str).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderProofId { proof_id } => {
-                                        db.set_order_proof_id(U256::from(id), &proof_id).await.unwrap();
+                                        db.set_order_proof_id(id, &proof_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetImageInputIds { image_id, input_id } => {
-                                        db.set_image_input_ids(U256::from(id), &image_id, &input_id).await.unwrap();
+                                        db.set_image_input_ids(id, &image_id, &input_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_aggregation_status(U256::from(id), OrderStatus::PendingAgg).await.unwrap();
+                                        db.set_aggregation_status(id, OrderStatus::PendingAgg).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
-                                        let order = db.get_order(U256::from(id)).await.unwrap();
+                                        let order = db.get_order(id).await.unwrap();
                                         if let Some(order) = order {
                                             if order.proof_id.is_some() && order.lock_price.is_some() {
-                                                db.get_submission_order(U256::from(id)).await.unwrap();
+                                                db.get_submission_order(id).await.unwrap();
                                             }
                                         }
                                     },
                                     ExistingOrderOperation::OrderExists => {
-                                        db.order_exists(U256::from(id)).await.unwrap();
+                                        let request_id = U256::from_str(&id.split("-").next().unwrap()).unwrap();
+                                        db.order_exists_with_request_id(request_id).await.unwrap();
                                     },
                                 }
                             },
@@ -237,7 +240,7 @@ proptest! {
                                         let batch_id = db.get_current_batch().await.unwrap();
                                         let batch = db.get_batch(batch_id).await.unwrap();
                                         if batch.aggregation_state.is_some() {
-                                            db.complete_batch(batch_id, g16_proof_id).await.unwrap();
+                                            db.complete_batch(batch_id, &g16_proof_id).await.unwrap();
                                             state.completed_batch.store(true, Ordering::SeqCst);
                                         }
                                     },
@@ -266,10 +269,10 @@ proptest! {
                                             for _ in 0..count {
                                                 let len = state.added_orders.len();
                                                 let random_index: usize = rand::rng().random_range(0..len);
-                                                let id = *state.added_orders.get(random_index).unwrap();
+                                                let id = state.added_orders.get(random_index).unwrap();
 
                                                 orders.push(AggregationOrder {
-                                                    order_id: U256::from(id),
+                                                    order_id: id.clone(),
                                                     proof_id: format!("proof_{}", id),
                                                     expiration: 1000,
                                                     fee: U256::from(10),

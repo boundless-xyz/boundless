@@ -24,7 +24,7 @@ use crate::{
     chain_monitor::ChainMonitorService,
     db::DbError,
     task::{RetryRes, RetryTask, SupervisorErr},
-    DbObj, Order, OrderStatus,
+    DbObj, FulfillmentType, Order, OrderStatus,
 };
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
@@ -138,7 +138,7 @@ where
                 .context("Missing transaction data")?;
             let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
                 .context("Failed to decode calldata")?;
-            let order_exists = match db.order_exists(request_id).await {
+            let order_exists = match db.order_exists_with_request_id(request_id).await {
                 Ok(val) => val,
                 Err(err) => {
                     tracing::error!("Failed to check if order exists in db: {err:?}");
@@ -168,12 +168,23 @@ where
                 continue;
             }
 
-            tracing::info!("Found open order: {}", calldata.request.id);
+            let fulfillment_type = match req_status {
+                RequestStatus::Locked => FulfillmentType::FulfillAfterLockExpire,
+                _ => FulfillmentType::LockAndFulfill,
+            };
+
+            tracing::info!(
+                "Found open order: {} with request status: {:?}, adding to database with fulfillment type: {:?}",
+                calldata.request.id,
+                req_status,
+                fulfillment_type
+            );
             if let Err(err) = db
-                .add_order(
-                    request_id,
-                    Order::new(calldata.request.clone(), calldata.clientSignature.clone()),
-                )
+                .add_order(Order::new(
+                    calldata.request.clone(),
+                    calldata.clientSignature.clone(),
+                    fulfillment_type,
+                ))
                 .await
             {
                 tracing::error!("Failed to insert order in to database: {err:?}");
@@ -247,20 +258,20 @@ where
                             event.prover
                         );
                         if event.prover != prover_addr {
-                            if let Err(e) = db
-                                .set_order_status(
-                                    U256::from(event.requestId),
-                                    OrderStatus::LockedByOther,
-                                )
-                                .await
-                            {
-                                tracing::error!(
-                                    "Failed to update order status to LockedByOther: {e:?}"
-                                );
+                            let (proof_request, signature) =
+                                market.get_submitted_request(event.requestId, None).await.unwrap();
+                            let order = Order::new(
+                                proof_request,
+                                signature,
+                                FulfillmentType::FulfillAfterLockExpire,
+                            );
+                            if let Err(e) = db.add_order(order).await {
+                                tracing::error!("Failed to add order to database: {e:?}");
                             } else {
                                 tracing::info!(
-                                    "Set order {:x} status to LockedByOther",
-                                    event.requestId
+                                    "Added order {:x} to database with fulfillment type: {:?}",
+                                    event.requestId,
+                                    FulfillmentType::FulfillAfterLockExpire
                                 );
                             }
                         }
@@ -289,10 +300,20 @@ where
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
-                    Ok((event, _)) => {
+                    Ok((event, log)) => {
                         tracing::info!("Detected request fulfilled {:x}", event.requestId);
-                        if let Err(e) = db.set_order_complete(U256::from(event.requestId)).await {
-                            tracing::error!("Failed to update order status to Done: {e:?}");
+                        if let Err(e) = db
+                            .set_request_fulfilled(
+                                &event.requestId.to_string(),
+                                log.block_timestamp.unwrap(),
+                                log.block_number.unwrap(),
+                            )
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to store fulfillment for request id {:x}: {e:?}",
+                                event.requestId
+                            );
                         }
                     }
                     Err(err) => {
@@ -363,10 +384,11 @@ where
         }
 
         if let Err(err) = db
-            .add_order(
-                U256::from(calldata.request.id),
-                Order::new(calldata.request, calldata.clientSignature),
-            )
+            .add_order(Order::new(
+                calldata.request,
+                calldata.clientSignature,
+                FulfillmentType::LockAndFulfill,
+            ))
             .await
         {
             match err {
