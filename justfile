@@ -287,10 +287,12 @@ bento action="up" env_file="" compose_flags="":
         exit 1
     fi
 
+# Load environment variables from a .env.NETWORK file
 env NETWORK:
 	#!/usr/bin/env bash
 	FILE=".env.{{NETWORK}}"
 	if [ -f "$FILE" ]; then
+		echo "# Run this command with 'eval \$(just env {{NETWORK}})' to load variables into your shell"
 		grep -v '^#' "$FILE" | tr -d '"' | xargs -I {} echo export {}
 	else
 		echo "Error: $FILE file not found." >&2
