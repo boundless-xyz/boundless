@@ -16,14 +16,14 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
-ENV SCCACHE_RECACHE=1
-
 # Install rust and a target rust version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 RUN chmod -R a+w $RUSTUP_HOME $CARGO_HOME
 RUN rustup install 1.85
 
 FROM rust-builder AS builder
+
+ENV SCCACHE_RECACHE=1
 
 ARG NVCC_APPEND_FLAGS=""
 ARG CUDA_OPT_LEVEL=1
