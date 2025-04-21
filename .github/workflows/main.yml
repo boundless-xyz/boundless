@@ -509,6 +509,8 @@ jobs:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
     needs: files-changed
     if: needs.files-changed.outputs.docker == 'true'
+    env:
+      SCCACHE_RECACHE: 1
     steps:
       - name: checkout code
         uses: actions/checkout@v4
