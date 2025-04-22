@@ -76,15 +76,19 @@ impl AggregatorService {
         proofs: &[String],
         finalize: bool,
     ) -> Result<AggregationState> {
-        // TODO(#268): Handle failure to get an individual order.
         let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
         for proof_id in proofs {
-            let receipt = self
-                .prover
-                .get_receipt(proof_id)
-                .await
-                .with_context(|| format!("Failed to get proof receipt for {proof_id}"))?
-                .with_context(|| format!("Proof receipt not found for {proof_id}"))?;
+            let receipt = match self.prover.get_receipt(proof_id).await {
+                Ok(Some(r)) => r,
+                Ok(None) => {
+                    tracing::warn!("Skipping proof {proof_id}: receipt not found");
+                    continue;
+                }
+                Err(err) => {
+                    tracing::warn!("Skipping proof {proof_id}: failed to get receipt: {err}");
+                    continue;
+                }
+            };
             let claim = receipt
                 .claim()
                 .with_context(|| format!("Receipt for {proof_id} missing claim"))?
@@ -164,12 +168,19 @@ impl AggregatorService {
         let mut assumptions = vec![];
 
         for order_id in order_ids {
-            let order = self
-                .db
-                .get_order(*order_id)
-                .await
-                .with_context(|| format!("Failed to get DB order ID {order_id:x}"))?
-                .with_context(|| format!("order ID {order_id:x} missing from DB"))?;
+            let Some(order) = (match self.db.get_order(*order_id).await {
+                Ok(Some(o)) => Some(o),
+                Ok(None) => {
+                    tracing::warn!("Skipping order {order_id:x}: missing from DB");
+                    continue;
+                }
+                Err(err) => {
+                    tracing::warn!("Skipping order {order_id:x}: failed to get from DB: {err}");
+                    continue;
+                }
+            }) else {
+                continue;
+            };
 
             let proof_id = order
                 .proof_id
