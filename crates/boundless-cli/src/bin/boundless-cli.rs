@@ -281,17 +281,17 @@ enum ProvingCommands {
     ///   --tx-hashes 0x111,0x222,0x333  # Optional, must match request_ids length and order
     Fulfill {
         /// The proof requests identifiers (comma-separated list of hex values)
-        #[arg(long)]
+        #[arg(long, value_delimiter = ',')]
         request_ids: Vec<U256>,
 
         /// The request digests (comma-separated list of hex values).
         /// If provided, must have the same length and order as request_ids.
-        #[arg(long)]
+        #[arg(long, value_delimiter = ',')]
         request_digests: Option<Vec<B256>>,
 
         /// The tx hash of the requests submissions (comma-separated list of hex values).
         /// If provided, must have the same length and order as request_ids.
-        #[arg(long)]
+        #[arg(long, value_delimiter = ',')]
         tx_hashes: Option<Vec<B256>>,
 
         /// The order stream service URL.
