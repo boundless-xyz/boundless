@@ -271,7 +271,6 @@ mod tests {
         let proving_service =
             ProvingService::new(db.clone(), prover, config.clone()).await.unwrap();
 
-        let order_id = U256::ZERO;
         let min_price = 2;
         let max_price = 4;
 

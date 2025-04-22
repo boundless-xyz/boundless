@@ -148,11 +148,21 @@ pub trait BrokerDb {
     async fn get_current_batch(&self) -> Result<usize, DbError>;
     async fn set_request_fulfilled(
         &self,
-        request_id: &str,
+        request_id: U256,
         block_timestamp: u64,
         block_number: u64,
     ) -> Result<(), DbError>;
-    async fn is_request_fulfilled(&self, request_id: &str) -> Result<bool, DbError>;
+    // Checks the fulfillment table for the given request_id
+    async fn is_request_fulfilled(&self, request_id: U256) -> Result<bool, DbError>;
+    async fn set_request_locked(
+        &self,
+        request_id: U256,
+        locker: &str,
+        block_timestamp: u64,
+        block_number: u64,
+    ) -> Result<(), DbError>;
+    // Checks the locked table for the given request_id
+    async fn is_request_locked(&self, request_id: U256) -> Result<bool, DbError>;
     /// Update a batch with the results of an aggregation step.
     ///
     /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
@@ -1205,17 +1215,18 @@ impl BrokerDb for SqliteDb {
         }
     }
 
+    #[instrument(level = "trace", skip(self))]
     async fn set_request_fulfilled(
         &self,
-        request_id: &str,
+        request_id: U256,
         block_timestamp: u64,
         block_number: u64,
     ) -> Result<(), DbError> {
-        let res = sqlx::query(
+        sqlx::query(
             r#"
-            INSERT INTO fulfilled_orders (id, block_timestamp, block_number) VALUES ($1, $2, $3)"#,
+            INSERT INTO fulfilled_requests (id, block_timestamp, block_number) VALUES ($1, $2, $3)"#,
         )
-        .bind(request_id)
+        .bind(format!("0x{:x}", request_id))
         .bind(block_timestamp as i64)
         .bind(block_number as i64)
         .execute(&self.pool)
@@ -1224,9 +1235,39 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
-    async fn is_request_fulfilled(&self, request_id: &str) -> Result<bool, DbError> {
-        let res = sqlx::query(r#"SELECT * FROM fulfilled_orders WHERE id = $1"#)
-            .bind(request_id)
+    #[instrument(level = "trace", skip(self))]
+    async fn is_request_fulfilled(&self, request_id: U256) -> Result<bool, DbError> {
+        let res = sqlx::query(r#"SELECT * FROM fulfilled_requests WHERE id = $1"#)
+            .bind(format!("0x{:x}", request_id))
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(res.is_some())
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    async fn set_request_locked(
+        &self,
+        request_id: U256,
+        locker: &str,
+        block_timestamp: u64,
+        block_number: u64,
+    ) -> Result<(), DbError> {
+        sqlx::query(r#"INSERT INTO locked_requests (id, locker, block_timestamp, block_number) VALUES ($1, $2, $3, $4)"#)
+            .bind(format!("0x{:x}", request_id))
+            .bind(locker)
+            .bind(block_timestamp as i64)
+            .bind(block_number as i64)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    async fn is_request_locked(&self, request_id: U256) -> Result<bool, DbError> {
+        let res = sqlx::query(r#"SELECT * FROM locked_requests WHERE id = $1"#)
+            .bind(format!("0x{:x}", request_id))
             .fetch_optional(&self.pool)
             .await?;
 
@@ -1966,7 +2007,7 @@ mod tests {
     async fn set_and_check_request_fulfilled(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let request_id = "test_request_123";
+        let request_id = U256::from(123);
         let block_timestamp = 1000;
         let block_number = 42;
 
@@ -1980,6 +2021,28 @@ mod tests {
         assert!(db.is_request_fulfilled(request_id).await.unwrap());
 
         // Different request should still not be fulfilled
-        assert!(!db.is_request_fulfilled("different_request").await.unwrap());
+        assert!(!db.is_request_fulfilled(U256::from(413)).await.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn set_and_check_request_locked(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        let request_id = U256::from(123);
+        let locker = "test_locker";
+        let block_timestamp = 1000;
+        let block_number = 42;
+
+        // Initially should not be locked
+        assert!(!db.is_request_locked(request_id).await.unwrap());
+
+        // Set as locked
+        db.set_request_locked(request_id, locker, block_timestamp, block_number).await.unwrap();
+
+        // Should now be locked
+        assert!(db.is_request_locked(request_id).await.unwrap());
+
+        // Different request should still not be locked
+        assert!(!db.is_request_locked(U256::from(413)).await.unwrap());
     }
 }

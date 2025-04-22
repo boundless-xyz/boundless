@@ -11,7 +11,7 @@ use crate::{
 };
 use alloy::{
     network::Ethereum,
-    primitives::{utils::parse_ether, Address},
+    primitives::{utils::parse_ether, Address, U256},
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
@@ -109,6 +109,16 @@ where
             tracing::warn!("Request {} not open: {order_status:?}, skipping", request_id);
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
+            return Err(LockOrderErr::AlreadyLocked);
+        }
+
+        let is_locked = self
+            .db
+            .is_request_locked(U256::from(order.request.id))
+            .await
+            .context("Failed to check if request is locked")?;
+        if is_locked {
+            tracing::warn!("Request {} already locked: {order_status:?}, skipping", request_id);
             return Err(LockOrderErr::AlreadyLocked);
         }
 
@@ -252,7 +262,7 @@ where
                 for order in lock_expired_orders {
                     let is_fulfilled = self
                         .db
-                        .is_request_fulfilled(&order.id())
+                        .is_request_fulfilled(U256::from(order.request.id))
                         .await
                         .context("Failed to check if request is fulfilled")?;
                     if is_fulfilled {

@@ -251,12 +251,29 @@ where
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
-                    Ok((event, _)) => {
+                    Ok((event, log)) => {
                         tracing::info!(
                             "Detected request {:x} locked by {:x}",
                             event.requestId,
                             event.prover
                         );
+                        if let Err(e) = db
+                            .set_request_locked(
+                                U256::from(event.requestId),
+                                &event.prover.to_string(),
+                                log.block_timestamp.unwrap(),
+                                log.block_number.unwrap(),
+                            )
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to store request locked for request {:x} in db: {e:?}",
+                                event.requestId
+                            );
+                        }
+
+                        // If the request was not locked by the prover, we create an order to evaluate the request
+                        // for fulfilling after the lock expires.
                         if event.prover != prover_addr {
                             let (proof_request, signature) =
                                 market.get_submitted_request(event.requestId, None).await.unwrap();
@@ -266,7 +283,7 @@ where
                                 FulfillmentType::FulfillAfterLockExpire,
                             );
                             if let Err(e) = db.add_order(order).await {
-                                tracing::error!("Failed to add order to database: {e:?}");
+                                tracing::error!("Failed to add order to database with fulfillment type: {:?}: {e:?}", FulfillmentType::FulfillAfterLockExpire);
                             } else {
                                 tracing::info!(
                                     "Added order {:x} to database with fulfillment type: {:?}",
@@ -277,7 +294,7 @@ where
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        tracing::warn!("Failed to fetch RequestLocked event log: {:?}", err);
                     }
                 }
             })
@@ -304,7 +321,7 @@ where
                         tracing::info!("Detected request fulfilled {:x}", event.requestId);
                         if let Err(e) = db
                             .set_request_fulfilled(
-                                &event.requestId.to_string(),
+                                U256::from(event.requestId),
                                 log.block_timestamp.unwrap(),
                                 log.block_number.unwrap(),
                             )
@@ -317,7 +334,7 @@ where
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        tracing::warn!("Failed to fetch RequestFulfilled event log: {:?}", err);
                     }
                 }
             })
