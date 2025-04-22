@@ -4,6 +4,8 @@ import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
 import { ChainId, getServiceNameV1, getEnvVar } from '../util';
 
+require('dotenv').config();
+
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
@@ -12,6 +14,7 @@ export = () => {
   
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
+  const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
 
   const logLevel = config.require('LOG_LEVEL');
   const dockerDir = config.require('DOCKER_DIR');
@@ -65,8 +68,13 @@ export = () => {
     context: {
       location: dockerDir,
     },
+    // Due to limitations with cargo-chef, we need to build for amd64, even though slasher doesn't
+    // strictly need r0vm. See `dockerfiles/slasher.dockerfile` for more details.
     platforms: ['linux/amd64'],
     push: true,
+    builder: dockerRemoteBuilder ? {
+      name: dockerRemoteBuilder,
+    } : undefined,
     dockerfile: {
       location: `${dockerDir}/dockerfiles/slasher.dockerfile`,
     },

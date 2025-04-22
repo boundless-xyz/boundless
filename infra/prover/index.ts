@@ -5,6 +5,8 @@ import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { getEnvVar, ChainId, getServiceNameV1 } from "../util";
 
+require('dotenv').config();
+
 export = () => {
   // Read config
   const config = new pulumi.Config();
@@ -12,7 +14,7 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
   const serviceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
-  
+  const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
 
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
@@ -199,6 +201,9 @@ export = () => {
     },
     platforms: ['linux/amd64'],
     push: true,
+    builder: dockerRemoteBuilder ? {
+      name: dockerRemoteBuilder,
+    } : undefined,
     dockerfile: {
       location: `${dockerDir}/dockerfiles/broker.dockerfile`,
     },

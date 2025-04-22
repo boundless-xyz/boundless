@@ -17,9 +17,31 @@ RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecr
         PATH="$PATH:/root/.risc0/bin" rzup install; \
     fi
 
-FROM init AS builder
+RUN cargo install cargo-chef
+
+FROM init AS planner
 
 WORKDIR /src
+
+COPY Cargo.toml .
+COPY Cargo.lock .
+COPY crates/ ./crates/
+COPY rust-toolchain.toml .
+COPY contracts/ ./contracts/
+COPY documentation/ ./documentation/
+COPY lib/ ./lib/
+COPY remappings.txt .
+COPY foundry.toml .
+
+RUN cargo chef prepare  --recipe-path recipe.json
+
+FROM init as builder
+
+WORKDIR /src
+
+COPY --from=planner /src/recipe.json /src/recipe.json
+
+RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY Cargo.toml .
 COPY Cargo.lock .

@@ -145,7 +145,6 @@ const DEVELOPERS_ITEMS = [
         text: "Crate Docs",
         link: "https://risc0.github.io/risc0-ethereum/risc0_steel/",
       },
-
     ],
   },
   {
@@ -229,7 +228,6 @@ const PROVERS_ITEMS = [
         text: "Bento Technical Design",
         link: "/provers/bento",
       },
-
     ],
   },
 ];
@@ -265,6 +263,7 @@ export function generateSitemap() {
 
 export default defineConfig({
   logoUrl: "/logo.svg",
+  topNav: [{ text: "Boundless Explorer", link: "https://explorer.beboundless.xyz" }],
   font: {
     mono: {
       google: "Ubuntu Mono",

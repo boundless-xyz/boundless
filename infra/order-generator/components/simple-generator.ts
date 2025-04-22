@@ -15,6 +15,7 @@ interface SimpleGeneratorArgs {
   logLevel: string;
   dockerDir: string;
   dockerTag: string;
+  dockerRemoteBuilder?: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
   pinataGateway: string;
@@ -90,6 +91,9 @@ export class SimpleGenerator extends pulumi.ComponentResource {
       context: {
         location: args.dockerDir,
       },
+      builder: args.dockerRemoteBuilder ? {
+        name: args.dockerRemoteBuilder,
+      } : undefined,
       platforms: ['linux/amd64'],
       push: true,
       dockerfile: {

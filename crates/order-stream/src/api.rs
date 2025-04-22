@@ -6,7 +6,8 @@ use alloy::primitives::Address;
 use anyhow::Context;
 use axum::extract::{Json, Path, Query, State};
 use boundless_market::order_stream_client::{
-    ErrMsg, Nonce, OrderData, SubmitOrderRes, HEALTH_CHECK, ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
+    ErrMsg, Nonce, OrderData, SubmitOrderRes, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
+    ORDER_SUBMISSION_PATH,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -78,7 +79,7 @@ pub(crate) async fn list_orders(
 
 #[utoipa::path(
     get,
-    path = "api/orders/<request_id>",
+    path = format!("{}/<request_id>", ORDER_LIST_PATH),
     params(
         ("id" = String, Path, description = "Request ID")
     ),
@@ -99,7 +100,7 @@ pub(crate) async fn find_orders_by_request_id(
 
 #[utoipa::path(
     get,
-    path = "/api/nonce/<addr>",
+    path = format!("{}/<addr>", AUTH_GET_NONCE),
     params(
         Pagination,
     ),
