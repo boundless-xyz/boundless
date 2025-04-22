@@ -48,17 +48,60 @@ mod defaults {
         3
     }
 }
+use serde::de::{self, Deserializer, Visitor};
+use std::fmt;
+
+fn deserialize_string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct StringOrNumberVisitor;
+
+    impl<'de> Visitor<'de> for StringOrNumberVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string or number")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(value.to_owned())
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(value.to_string())
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(value.to_string())
+        }
+    }
+
+    deserializer.deserialize_any(StringOrNumberVisitor)
+}
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct MarketConf {
     /// Mega Cycle price (in native token)
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub mcycle_price: String,
     /// Mega Cycle price (in staking token)
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub mcycle_price_stake_token: String,
     /// Assumption price (in native token)
     ///
     /// UNUSED CURRENTLY
+    #[serde(default, deserialize_with = "deserialize_string_or_number")]
     pub assumption_price: Option<String>,
     /// Optional max cycles (in mcycles)
     ///
@@ -80,6 +123,7 @@ pub struct MarketConf {
     /// On startup the number of blocks to look back for possible open orders
     pub lookback_blocks: u64,
     /// Max stake amount, in (native token)
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub max_stake: String,
     /// ImageID's that skip preflight
     pub skip_preflight_ids: Option<Vec<B256>>,
@@ -114,15 +158,19 @@ pub struct MarketConf {
     pub groth16_verify_gas_estimate: u64,
     /// Balance warning threshold (in native token)
     /// if the submitter balance drops below this the broker will issue warning logs
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub balance_warn_threshold: Option<String>,
     /// Balance warning threshold (in native token)
     /// if the submitter balance drops below this the broker will issue error logs
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub balance_error_threshold: Option<String>,
     /// Stake balance warning threshold (in stake tokens)
     /// if the stake balance drops below this the broker will issue warning logs
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub stake_balance_warn_threshold: Option<String>,
     /// Stake balance error threshold (in stake tokens)
     /// if the stake balance drops below this the broker will issue error logs
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub stake_balance_error_threshold: Option<String>,
     /// Max concurrent locks
     ///
