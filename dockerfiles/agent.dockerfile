@@ -49,6 +49,8 @@ SHELL ["/bin/bash", "-c"]
 # ENV RUSTFLAGS="-C target-cpu=native"
 ENV SCCACHE_RECACHE=1
 
+RUN echo "SCCACHE_RECACHE: $SCCACHE_RECACHE"
+
 RUN \
     # --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     # --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc2 \
