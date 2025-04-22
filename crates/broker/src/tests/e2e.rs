@@ -26,7 +26,6 @@ use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{is_dev_mode, sha::Digest};
 use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
-use tracing_subscriber::{fmt, EnvFilter};
 use tracing_test::traced_test;
 use url::Url;
 

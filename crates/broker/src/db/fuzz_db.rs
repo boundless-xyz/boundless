@@ -28,7 +28,7 @@ use boundless_market::contracts::{
 
 // Add new state tracking structure
 struct TestState {
-    added_orders: Arc<FrozenVec<Box<String>>>,
+    added_orders: Arc<FrozenVec<String>>,
     completed_batch: Arc<AtomicBool>,
 }
 
@@ -176,7 +176,7 @@ proptest! {
                                 let order = generate_test_order(request_id);
                                 let id = order.id();
                                 db.add_order(order).await.unwrap();
-                                state.added_orders.push(Box::new(id));
+                                state.added_orders.push(id);
                             },
                             DbOperation::OperateOnExistingOrder(operation) => {
                                 // Skip if no orders have been added yet
@@ -226,7 +226,7 @@ proptest! {
                                         }
                                     },
                                     ExistingOrderOperation::OrderExists => {
-                                        let request_id = U256::from_str(&id.split("-").next().unwrap()).unwrap();
+                                        let request_id = U256::from_str(id.split("-").next().unwrap()).unwrap();
                                         db.order_exists_with_request_id(request_id).await.unwrap();
                                     },
                                 }
@@ -272,7 +272,7 @@ proptest! {
                                                 let id = state.added_orders.get(random_index).unwrap();
 
                                                 orders.push(AggregationOrder {
-                                                    order_id: id.clone(),
+                                                    order_id: id.to_string(),
                                                     proof_id: format!("proof_{}", id),
                                                     expiration: 1000,
                                                     fee: U256::from(10),

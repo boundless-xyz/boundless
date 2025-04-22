@@ -1512,7 +1512,8 @@ mod tests {
         let bad_id = U256::from(10);
         db.set_order_lock(&bad_id.to_string(), 1, 1).await.unwrap();
     }
-
+    
+    #[sqlx::test]
     async fn set_order_fulfill_after_lock_expire(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let order = create_order();

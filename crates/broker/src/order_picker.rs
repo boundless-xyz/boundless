@@ -1254,7 +1254,6 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let order_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1318,8 +1317,6 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let request_id = order.request.id;
-
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
@@ -1385,7 +1382,6 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let order_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1509,7 +1505,6 @@ mod tests {
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
-        let request_id = order.request.id;
 
         ctx.db.add_order(order.clone()).await.unwrap();
         let locked = ctx.picker.price_order_and_update_db(&order).await;
@@ -1536,7 +1531,6 @@ mod tests {
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let order = ctx.generate_next_order(Default::default()).await;
-        let order_id = order.request.id;
         assert_eq!(ctx.picker.estimate_gas_to_lock(&order).await.unwrap(), lockin_gas);
 
         ctx.db.add_order(order.clone()).await.unwrap();
@@ -1560,7 +1554,6 @@ mod tests {
         assert_eq!(ctx.picker.pending_locked_stake().await.unwrap(), U256::ZERO);
 
         let order = ctx.generate_next_order(Default::default()).await;
-        let order_id = order.request.id;
         ctx.db.add_order(order.clone()).await.unwrap();
         let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
@@ -1570,7 +1563,6 @@ mod tests {
         // add another order
         let order =
             ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
-        let order_id = order.request.id;
         ctx.db.add_order(order.clone()).await.unwrap();
         let locked = ctx.picker.price_order_and_update_db(&order).await;
         assert!(locked);
@@ -1639,7 +1631,7 @@ mod tests {
         for (i, order) in orders.iter_mut().enumerate() {
             order.request.id = U256::from(i);
             ctx.db.add_order(order.clone()).await.unwrap();
-            ctx.picker.price_order_and_update_db(&order).await;
+            ctx.picker.price_order_and_update_db(order).await;
         }
 
         // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient stake
@@ -1693,7 +1685,6 @@ mod tests {
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
-        let request_id = order.request.id;
 
         // Modify the order to have a longer expiration time
         let current_time = now_timestamp();
@@ -1808,8 +1799,6 @@ mod tests {
         ];
 
         for order in &mut orders {
-            let request_id = order.request.id;
-
             // By default, testing infrastructure sets generated orders to `Pricing`
             order.status = OrderStatus::New;
             ctx.db.add_order(order.clone()).await.unwrap();
@@ -1960,9 +1949,7 @@ mod tests {
 
         assert!(!ctx.picker.price_order_and_update_db(&order).await);
 
-        assert!(logs_contain(&format!(
-            "Removing under priced order (slashed stake reward too low)"
-        )));
+        assert!(logs_contain("Removing under priced order (slashed stake reward too low)"));
 
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
