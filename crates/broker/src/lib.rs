@@ -29,6 +29,7 @@ use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};
+use task::{RetryPolicy, Supervisor};
 use tokio::task::JoinSet;
 use url::Url;
 
@@ -132,8 +133,8 @@ enum OrderStatus {
     Pricing,
     /// Order is ready to lock at target_timestamp
     Locking,
-    /// Order has been locked in and ready to begin proving
-    Locked,
+    /// Order is ready to commence proving (either locked or filling without locking)
+    PendingProving,
     /// Order is actively ready for proving
     Proving,
     /// Order is ready for aggregation
@@ -150,6 +151,8 @@ enum OrderStatus {
     Failed,
     /// Order was analyzed and marked as skipable
     Skipped,
+    /// Order was observed to be locked by another prover
+    LockedByOther,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -349,8 +352,10 @@ where
     pub async fn start_service(&self) -> Result<()> {
         let mut supervisor_tasks: JoinSet<Result<()>> = JoinSet::new();
 
+        let config = self.config_watcher.config.clone();
+
         let loopback_blocks = {
-            let config = match self.config_watcher.config.lock_all() {
+            let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
             };
@@ -364,8 +369,10 @@ where
         );
 
         let cloned_chain_monitor = chain_monitor.clone();
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, cloned_chain_monitor)
+            Supervisor::new(cloned_chain_monitor, cloned_config)
+                .spawn()
                 .await
                 .context("Failed to start chain monitor")?;
             Ok(())
@@ -378,6 +385,7 @@ where
             self.provider.clone(),
             self.db.clone(),
             chain_monitor.clone(),
+            self.args.private_key.address(),
         ));
 
         let block_times =
@@ -385,8 +393,12 @@ where
 
         tracing::debug!("Estimated block time: {block_times}");
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, market_monitor).await.context("Failed to start market monitor")?;
+            Supervisor::new(market_monitor, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start market monitor")?;
             Ok(())
         });
 
@@ -403,8 +415,10 @@ where
                     client.clone(),
                     self.args.private_key.clone(),
                 ));
+            let cloned_config = config.clone();
             supervisor_tasks.spawn(async move {
-                task::supervisor(1, offchain_market_monitor)
+                Supervisor::new(offchain_market_monitor, cloned_config)
+                    .spawn()
                     .await
                     .context("Failed to start offchain market monitor")?;
                 Ok(())
@@ -412,28 +426,24 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
+        let prover: provers::ProverObj = if risc0_zkvm::is_dev_mode() {
+            tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
+            Receipts generated from this process are invalid and should never be used in production.");
+            Arc::new(provers::DefaultProver::new())
+        } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
             tracing::info!("Configured to run with Bonsai backend");
             Arc::new(
-                provers::Bonsai::new(
-                    self.config_watcher.config.clone(),
-                    bonsai_api_url.as_ref(),
-                    bonsai_api_key,
-                )
-                .context("Failed to construct Bonsai client")?,
+                provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
+                    .context("Failed to construct Bonsai client")?,
             )
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
 
             Arc::new(
-                provers::Bonsai::new(
-                    self.config_watcher.config.clone(),
-                    bento_api_url.as_ref(),
-                    "",
-                )
-                .context("Failed to initialize Bento client")?,
+                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "")
+                    .context("Failed to initialize Bento client")?,
             )
         } else {
             Arc::new(provers::DefaultProver::new())
@@ -442,14 +452,18 @@ where
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             prover.clone(),
             self.args.boundless_market_address,
             self.provider.clone(),
             chain_monitor.clone(),
         ));
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
+            Supervisor::new(order_picker, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start order picker")?;
             Ok(())
         });
 
@@ -457,27 +471,29 @@ where
             self.db.clone(),
             self.provider.clone(),
             chain_monitor.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             block_times,
             self.args.boundless_market_address,
         )?);
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, order_monitor).await.context("Failed to start order monitor")?;
+            Supervisor::new(order_monitor, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start order monitor")?;
             Ok(())
         });
 
         let proving_service = Arc::new(
-            proving::ProvingService::new(
-                self.db.clone(),
-                prover.clone(),
-                self.config_watcher.config.clone(),
-            )
-            .await
-            .context("Failed to initialize proving service")?,
+            proving::ProvingService::new(self.db.clone(), prover.clone(), config.clone())
+                .await
+                .context("Failed to initialize proving service")?,
         );
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, proving_service)
+            Supervisor::new(proving_service, cloned_config)
+                .spawn()
                 .await
                 .context("Failed to start proving service")?;
             Ok(())
@@ -497,29 +513,39 @@ where
                 assessor_img_data.1,
                 self.args.boundless_market_address,
                 prover_addr,
-                self.config_watcher.config.clone(),
+                config.clone(),
                 prover.clone(),
             )
             .await
             .context("Failed to initialize aggregator service")?,
         );
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, aggregator).await.context("Failed to start aggregator service")?;
+            Supervisor::new(aggregator, cloned_config)
+                .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                .spawn()
+                .await
+                .context("Failed to start aggregator service")?;
             Ok(())
         });
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             prover.clone(),
             self.provider.clone(),
             self.args.set_verifier_address,
             self.args.boundless_market_address,
             set_builder_img_data.0,
         )?);
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, submitter).await.context("Failed to start submitter service")?;
+            Supervisor::new(submitter, cloned_config)
+                .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                .spawn()
+                .await
+                .context("Failed to start submitter service")?;
             Ok(())
         });
 
@@ -635,7 +661,7 @@ pub mod test_utils {
     use alloy::network::Ethereum;
     use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
-    use boundless_market::contracts::test_utils::TestCtx;
+    use boundless_market_test_utils::TestCtx;
     use guest_assessor::ASSESSOR_GUEST_PATH;
     use guest_set_builder::SET_BUILDER_PATH;
     use tempfile::NamedTempFile;

@@ -10,6 +10,7 @@ export class Notifications extends pulumi.ComponentResource {
       serviceAccountIds: string[];
       slackChannelId: pulumi.Output<string>;
       slackTeamId: pulumi.Output<string>;
+      opsAccountId: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -39,8 +40,57 @@ export class Notifications extends pulumi.ComponentResource {
       ],
     });
 
+    // Create an IAM Role for AWS SNS to log delivery status to Cloudwatch
+    // https://docs.aws.amazon.com/sns/latest/dg/topics-attrib-prereq.html
+    const snsLoggingRole = new aws.iam.Role('snsLoggingRole', {
+      assumeRolePolicy: {
+          Version: '2012-10-17',
+          Statement: [
+              {
+                  Effect: 'Allow',
+                  Principal: {
+                      Service: 'sns.amazonaws.com',
+                  },
+                  Action: 'sts:AssumeRole',
+              },
+          ],
+      },
+      inlinePolicies: [
+        {
+            name: "snsLoggingPolicy",
+            policy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [{
+                    Effect: "Allow",
+                    Action: [
+                      "logs:CreateLogGroup",
+                      "logs:CreateLogStream",
+                      "logs:PutLogEvents",
+                      "logs:PutMetricFilter",
+                      "logs:PutRetentionPolicy"
+                    ],
+                    Resource: "arn:aws:logs:*:*:*"
+                }],
+            }),
+        },
+      ],
+    });
+
+    const snsLoggingRoleArn = pulumi.interpolate`${snsLoggingRole.arn}`;
+
     // Create an SNS topic for the alerts
-    this.slackSNSTopic = new aws.sns.Topic("boundless-alerts-topic", { name: "boundless-alerts-topic" });
+    this.slackSNSTopic = new aws.sns.Topic("boundless-alerts-topic", {
+      name: "boundless-alerts-topic",
+      applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackSampleRate: 100,
+      httpFailureFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackSampleRate: 100,
+      sqsFailureFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackSampleRate: 100,
+    } as aws.sns.TopicArgs);
 
     // Create a policy that allows the service accounts to publish to the SNS topic
     // https://repost.aws/knowledge-center/cloudwatch-cross-account-sns
@@ -81,6 +131,41 @@ export class Notifications extends pulumi.ComponentResource {
         policy: snsTopicPolicy.apply(snsTopicPolicy => snsTopicPolicy.json),
     });
 
+    // Create a dead letter queue for the Slack channel subscription.
+    // NOTE: Pulumi does not support attaching dead letter queues to slack channel subscriptions,
+    // so we manually attach this in the console.
+    const sqsDeadLetterQueue = new aws.sqs.Queue("sqsDeadLetterQueue", {
+      name: "sqsDeadLetterQueue",
+    });
+    new aws.sqs.QueuePolicy("sqsDeadLetterQueuePolicy", {
+      queueUrl: sqsDeadLetterQueue.id,
+      policy: {
+        Version: "2012-10-17",
+        Statement: [{
+          Effect: "Allow",
+          Principal: {
+            Service: "sns.amazonaws.com",
+          },
+          Action: "sqs:SendMessage",
+          Resource: sqsDeadLetterQueue.arn,
+        },{
+          Effect: "Allow",
+          Principal: {
+            Service: "chatbot.amazonaws.com",
+          },
+          Action: "sqs:SendMessage",
+          Resource: sqsDeadLetterQueue.arn,
+        },{
+          Effect: "Allow",
+          Principal: {
+            AWS: args.opsAccountId,
+          },
+          Action: "sqs:GetQueueAttributes",
+          Resource: sqsDeadLetterQueue.arn,
+        }],
+      },
+    });
+
     // Create a Slack channel configuration for the alerts
     let slackChannelConfiguration = pulumi.all([slackChannelIdOutput, slackTeamIdOutput])
       .apply(([slackChannelId, slackTeamId]) => new aws.chatbot.SlackChannelConfiguration("boundless-alerts", {
@@ -91,6 +176,6 @@ export class Notifications extends pulumi.ComponentResource {
         snsTopicArns: [this.slackSNSTopic.arn],
         loggingLevel: "INFO",
       }));
-    
+
   }
 }

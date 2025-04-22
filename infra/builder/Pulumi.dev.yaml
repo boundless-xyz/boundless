@@ -1,0 +1,6 @@
+config:
+  aws:region: us-west-2
+  builder:PUBLIC_KEY:
+    secure: v1:vH5WaXZ+vWA2HrjF:JrgeNxjUrg7DiC1FiV/YC11pyhJ3+7Vc37/pQHTXiWVFjyI8QZg9RznM9p7FodGkKR37+7YZOIUtvuAPyf73Jr/0HL7b++SSzIEmMO5dkcHGAAWIypU8WYwzLIbdymCX
+secretsprovider: awskms:///arn:aws:kms:us-west-2:751442549745:alias/builder-secrets-key
+encryptedkey: AQICAHieCPC/wlUu7Ug5yadFnozOWWbBhYIApoNEIll2q0bRvQGpEFRlOaKF4G2EuO40YIkNAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMPiFF5jiFGjOAmTz+AgEQgDuTvufr56b55KwXkLUHmmMTn0kqeZj+IxSeqvMz8BzwwU/cXD5kAy7/dLcmTMpfbGf0I/7zF+rFnb7y6A==

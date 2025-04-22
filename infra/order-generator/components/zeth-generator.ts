@@ -16,6 +16,7 @@ interface ZethGeneratorArgs {
   logLevel: string;
   dockerDir: string;
   dockerTag: string;
+  dockerRemoteBuilder?: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
   pinataGateway: string;
@@ -49,6 +50,7 @@ export class ZethGenerator extends pulumi.ComponentResource {
       logLevel, 
       dockerDir, 
       dockerTag, 
+      dockerRemoteBuilder,
       setVerifierAddr, 
       boundlessMarketAddr, 
       pinataGateway, 
@@ -130,6 +132,9 @@ export class ZethGenerator extends pulumi.ComponentResource {
       context: {
         location: dockerDir,
       },
+      builder: dockerRemoteBuilder ? {
+        name: dockerRemoteBuilder,
+      } : undefined,
       platforms: ['linux/amd64'],
       push: true,
       dockerfile: {

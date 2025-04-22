@@ -49,11 +49,13 @@ mod defaults {
     }
 }
 /// All configuration related to markets mechanics
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct MarketConf {
     /// Mega Cycle price (in native token)
     pub mcycle_price: String,
+    /// Mega Cycle price (in staking token)
+    pub mcycle_price_stake_token: String,
     /// Assumption price (in native token)
     ///
     /// UNUSED CURRENTLY
@@ -135,6 +137,7 @@ impl Default for MarketConf {
     fn default() -> Self {
         Self {
             mcycle_price: "0.1".to_string(),
+            mcycle_price_stake_token: "0.1".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
@@ -161,7 +164,7 @@ impl Default for MarketConf {
 }
 
 /// All configuration related to prover (bonsai / Bento) mechanics
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProverConf {
     /// Number of retries to poll for proving status. Provides a little durability
     /// for transient failures.
@@ -192,6 +195,10 @@ pub struct ProverConf {
     pub set_builder_guest_path: Option<PathBuf>,
     /// Assessor ELF path
     pub assessor_set_guest_path: Option<PathBuf>,
+    /// Max critical task retries on recoverable failures.
+    ///
+    /// None indicates there are infinite number of retries.
+    pub max_critical_task_retries: Option<u32>,
 }
 
 impl Default for ProverConf {
@@ -206,12 +213,13 @@ impl Default for ProverConf {
             proof_retry_sleep_ms: 1000,
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
+            max_critical_task_retries: None,
         }
     }
 }
 
 /// All configuration related to batching / aggregation
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BatcherConfig {
     /// Max batch duration before publishing (in seconds)
     pub batch_max_time: Option<u64>,
@@ -262,7 +270,7 @@ impl Default for BatcherConfig {
 }
 
 /// Top level config for the broker service
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default, Debug)]
 pub struct Config {
     /// Market / bidding configurations
     pub market: MarketConf,
@@ -296,7 +304,7 @@ pub enum ConfigErr {
     InvalidConfig,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ConfigLock {
     config: Arc<RwLock<Config>>,
 }
@@ -423,6 +431,7 @@ mod tests {
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1"
+mcycle_price_stake_token = "0.1"
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
@@ -448,6 +457,7 @@ block_deadline_buffer_secs = 120"#;
     const CONFIG_TEMPL_2: &str = r#"
 [market]
 mcycle_price = "0.1"
+mcycle_price_stake_token = "0.1"
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300

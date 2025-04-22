@@ -24,7 +24,6 @@ test: test-foundry test-cargo
 
 # Run Foundry tests
 test-foundry:
-    forge clean # Required by OpenZeppelin upgrades plugin
     forge test -vvv --isolate
 
 # Run all Cargo tests
@@ -32,11 +31,11 @@ test-cargo: test-cargo-root test-cargo-bento test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli -- --include-ignored
 
 # Run Cargo tests for bento
 test-cargo-bento:
-    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb --exclude order-stream
+    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -49,7 +48,8 @@ test-cargo-db:
     just test-db setup
     DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
     cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
 
 # Manage test postgres instance (setup or clean, defaults to setup)
@@ -102,11 +102,11 @@ check-format:
 # Run Cargo clippy
 check-clippy:
     RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets -F boundless-order-generator/zeth
+    cd examples/counter && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cd examples/counter && cargo clippy --workspace --all-targets
-    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cd bento && cargo clippy --workspace --all-targets
+    cd bento && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets
 
 # Format all code
 format:
@@ -139,7 +139,7 @@ localnet action="up": check-deps
     ANVIL_BLOCK_TIME="2"
     RISC0_DEV_MODE="1"
     CHAIN_KEY="anvil"
-    RUST_LOG="info,broker=debug,boundless_market=debug"
+    RUST_LOG="info,broker=debug,boundless_market=debug,order_stream=debug"
     # This key is a prefunded address for the anvil test configuration (index 0)
     DEPLOYER_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -159,6 +159,7 @@ localnet action="up": check-deps
         forge build || { echo "Failed to build contracts"; just localnet down; exit 1; }
         echo "Building Rust project..."
         cargo build --bin broker || { echo "Failed to build broker binary"; just localnet down; exit 1; }
+        cargo build --bin order_stream || { echo "Failed to build order-stream binary"; just localnet down; exit 1; }
         # Check if Anvil is already running
         if nc -z localhost $ANVIL_PORT; then
             echo "Anvil is already running on port $ANVIL_PORT. Reusing existing instance."
@@ -170,18 +171,15 @@ localnet action="up": check-deps
         echo "Deploying contracts..."
         DEPLOYER_PRIVATE_KEY=$DEPLOYER_PRIVATE_KEY CHAIN_KEY=$CHAIN_KEY RISC0_DEV_MODE=$RISC0_DEV_MODE BOUNDLESS_MARKET_OWNER=$ADMIN_ADDRESS forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$ANVIL_PORT --broadcast -vv || { echo "Failed to deploy contracts"; just localnet down; exit 1; }
         echo "Fetching contract addresses..."
-        VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroVerifierRouter") | select(.transactionType == "CREATE") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
         SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
         BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
         HIT_POINTS_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
         echo "Contract deployed at addresses:"
-        echo "VERIFIER_ADDRESS=$VERIFIER_ADDRESS"
         echo "SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
         echo "BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
         echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS"
         echo "Updating .env.localnet file..."
         # Update the environment variables in .env.localnet
-        sed -i.bak "s/^VERIFIER_ADDRESS=.*/VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
         # Add HIT_POINTS_ADDRESS to .env.localnet
@@ -194,15 +192,23 @@ localnet action="up": check-deps
         cast send --private-key $DEPLOYER_PRIVATE_KEY \
             --rpc-url http://localhost:$ANVIL_PORT \
             $HIT_POINTS_ADDRESS "mint(address, uint256)" $ADMIN_ADDRESS $DEPOSIT_AMOUNT
+
+        # Start order stream server
+        just test-db setup
+        DATABASE_URL={{DATABASE_URL}} RUST_LOG=$RUST_LOG ./target/debug/order_stream \
+            --min-balance 0 \
+            --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
+            --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
+        # Start a broker
         RISC0_DEV_MODE=$RISC0_DEV_MODE RUST_LOG=$RUST_LOG ./target/debug/broker \
             --private-key $PRIVATE_KEY \
             --boundless-market-address $BOUNDLESS_MARKET_ADDRESS \
             --set-verifier-address $SET_VERIFIER_ADDRESS \
             --rpc-url http://localhost:$ANVIL_PORT \
+            --order-stream-url http://localhost:8585 \
             --deposit-amount $DEPOSIT_AMOUNT > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
         echo "Localnet is running!"
-        echo "Make sure to run 'source <(just env localnet)' to load the environment variables before interacting with the network."
-        echo "Alternatively, you can copy the content of `.env.localnet` into the `.env` file."
+        echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
     elif [ "{{action}}" = "down" ]; then
         if [ -f {{PID_FILE}} ]; then
             while read pid; do
@@ -210,6 +216,7 @@ localnet action="up": check-deps
             done < {{PID_FILE}}
             rm {{PID_FILE}}
         fi
+        just test-db clean
     else
         echo "Unknown action: {{action}}"
         echo "Available actions: up, down"

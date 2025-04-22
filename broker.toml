@@ -1,5 +1,6 @@
 [market]
 mcycle_price = "0.00001"
+mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
 assumption_price = "0.1"
 # peak_prove_khz = 500
 min_deadline = 300
@@ -8,12 +9,13 @@ max_stake = "5" # HP
 skip_preflight_ids = []
 max_file_size = 50_000_000
 max_concurrent_locks = 2
+max_critical_task_retries = 10
 # max_fetch_retries = 2
 # allow_client_addresses = []
 # lockin_priority_gas = 100
 
 [prover]
-bonsai_r0_zkvm_ver = "1.2.1"
+bonsai_r0_zkvm_ver = "2.0.0"
 status_poll_retry_count = 3
 status_poll_ms = 1000
 req_retry_count = 3

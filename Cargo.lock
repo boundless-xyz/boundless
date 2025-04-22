@@ -2822,6 +2822,7 @@ dependencies = [
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
+ "boundless-market-test-utils",
  "bytemuck",
  "chrono",
  "clap",
@@ -2859,7 +2860,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
- "boundless-market",
+ "boundless-market-test-utils",
  "bytemuck",
  "chrono",
  "clap",
@@ -2893,13 +2894,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-market-test-utils"
+version = "0.7.0"
+dependencies = [
+ "alloy 0.12.6",
+ "alloy-primitives 0.8.25",
+ "alloy-sol-types",
+ "anyhow",
+ "boundless-market",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "risc0-aggregation",
+ "risc0-circuit-recursion",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
+]
+
+[[package]]
 name = "boundless-order-generator"
 version = "0.7.0"
 dependencies = [
  "alloy 0.12.6",
  "anyhow",
  "boundless-market",
- "bytemuck",
+ "boundless-market-test-utils",
  "clap",
  "dotenvy",
  "guest-assessor",
@@ -2909,7 +2928,6 @@ dependencies = [
  "reqwest",
  "reth-chainspec",
  "risc0-zkvm",
- "serde",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.19",
@@ -2929,6 +2947,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "boundless-market",
+ "boundless-market-test-utils",
  "clap",
  "dotenvy",
  "futures-util",
@@ -2936,7 +2955,6 @@ dependencies = [
  "guest-set-builder",
  "guest-util",
  "hex",
- "reqwest",
  "risc0-zkvm",
  "sqlx",
  "thiserror 2.0.12",
@@ -2963,6 +2981,7 @@ dependencies = [
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
+ "boundless-market-test-utils",
  "broker",
  "chrono",
  "clap",
@@ -3010,6 +3029,7 @@ dependencies = [
  "anyhow",
  "axum",
  "boundless-market",
+ "boundless-market-test-utils",
  "broker",
  "clap",
  "guest-assessor",
@@ -3958,6 +3978,7 @@ dependencies = [
  "anyhow",
  "boundless-market",
  "glob",
+ "postcard",
  "regex",
  "risc0-steel",
  "risc0-zkvm",
@@ -6736,6 +6757,7 @@ dependencies = [
  "async-stream",
  "axum",
  "boundless-market",
+ "boundless-market-test-utils",
  "clap",
  "futures-util",
  "guest-assessor",
@@ -8569,8 +8591,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-steel"
-version = "2.0.0-rc.5"
-source = "git+https://github.com/risc0/risc0-ethereum?tag=v2.0.0#38591d7a1302d437b76937bd3e0432005b33f616"
+version = "2.0.0-rc.7"
+source = "git+https://github.com/risc0/risc0-ethereum?tag=v2.0.2#728ec4b0432ddb49d8416b7a3c3cfdfe052356f9"
 dependencies = [
  "alloy 0.12.6",
  "alloy-consensus 0.12.6",

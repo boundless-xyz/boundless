@@ -13,13 +13,13 @@ use alloy::{
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance,
-        test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count},
-        Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+        hit_points::default_allowance, Callback, Input, Offer, Predicate, PredicateType,
+        ProofRequest, RequestId, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
 };
+use boundless_market_test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count};
 use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
 use guest_util::{ECHO_ELF, ECHO_ID};

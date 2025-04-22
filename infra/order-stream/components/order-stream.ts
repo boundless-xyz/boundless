@@ -6,6 +6,7 @@ import * as pulumi from '@pulumi/pulumi';
 import { getServiceNameV1 } from '../../util';
 
 const SERVICE_NAME_BASE = 'order-stream';
+const HEALTH_CHECK_PATH = '/api/v1/health';
 
 export class OrderStreamInstance extends pulumi.ComponentResource {
   public lbUrl: pulumi.Output<string>;
@@ -29,29 +30,30 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       albDomain?: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
       bypassAddrs: string;
+      boundlessAlertsTopicArn?: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
     super(`${SERVICE_NAME_BASE}-${args.chainId}`, name, opts);
 
-    const { 
-      chainId, 
-      ciCacheSecret, 
-      dockerDir, 
-      dockerTag, 
-      orderStreamPingTime, 
-      privSubNetIds, 
-      pubSubNetIds, 
-      githubTokenSecret, 
-      minBalance, 
-      boundlessAddress, 
+    const {
+      chainId,
+      ciCacheSecret,
+      dockerDir,
+      dockerTag,
+      orderStreamPingTime,
+      privSubNetIds,
+      pubSubNetIds,
+      githubTokenSecret,
+      minBalance,
+      boundlessAddress,
       vpcId,
       rdsPassword,
       albDomain,
       ethRpcUrl,
       bypassAddrs,
     } = args;
-    
+
     const stackName = pulumi.getStack();
     const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
 
@@ -61,7 +63,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       cert = new aws.acm.Certificate(`${serviceName}-cert`, {
         domainName: pulumi.interpolate`${albDomain}`,
         validationMethod: "DNS",
-      });
+      }, { protect: true });
     }
 
     const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
@@ -77,11 +79,11 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       forceDelete: true,
       name: `${serviceName}-repo`,
     });
-  
+
     const authToken = aws.ecr.getAuthorizationTokenOutput({
       registryId: ecrRepository.repository.registryId,
     });
-  
+
     // Optionally add in the gh token secret and sccache s3 creds to the build ctx
     let buildSecrets = {};
     if (ciCacheSecret !== undefined) {
@@ -96,7 +98,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         githubTokenSecret
       }
     }
-  
+
     const image = new docker_build.Image(`${serviceName}-img`, {
       tags: [pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:${dockerTag}`],
       context: {
@@ -152,7 +154,9 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         protocol: 'HTTP',
       };
     }
-  
+
+    // Protect the load balancer so it doesn't get deleted if the stack is accidently modified/deleted
+    // Important as the A record of this resource is tied to DNS.
     const loadbalancer = new awsx.lb.ApplicationLoadBalancer(`${serviceName}-lb`, {
       name: `${serviceName}-lb`,
       subnetIds: pubSubNetIds,
@@ -168,13 +172,13 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
           healthyThreshold: 2,
           port: '8585',
           protocol: 'HTTP',
-          path: '/api/health',
+          path: HEALTH_CHECK_PATH,
         },
       },
       // This should be slightly greater than the order-steam configured ping/pong time
       idleTimeout: orderStreamPingTime + orderStreamPingTime * 0.2,
-    });
-  
+    }, { protect: true });
+
     const orderStreamSecGroup = new aws.ec2.SecurityGroup(`${serviceName}-sg`, {
       name: `${serviceName}-sg`,
       vpcId: vpcId,
@@ -207,7 +211,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     const rdsUser = 'worker';
     const rdsPort = 5432;
     const rdsDbName = 'orderstream';
-    
+
     const dbSubnets = new aws.rds.SubnetGroup(`${serviceName}-dbsubnets`, {
       subnetIds: privSubNetIds,
     });
@@ -232,7 +236,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         },
       ],
     });
-  
+
     const rds = new aws.rds.Instance(`${serviceName}-rds`, {
       engine: 'postgres',
       engineVersion: '17.2',
@@ -250,8 +254,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       dbSubnetGroupName: dbSubnets.name,
       vpcSecurityGroupIds: [rdsSecurityGroup.id],
       storageType: 'gp3',
-    });
-  
+    }, { protect: true });
+
     const webAcl = new aws.wafv2.WebAcl(`${serviceName}-acl`, {
       defaultAction: {
         allow: {},
@@ -305,18 +309,18 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         sampledRequestsEnabled: true,
       },
     });
-  
+
     new aws.wafv2.WebAclAssociation(`${serviceName}-wacl-assoc`, {
       resourceArn: loadbalancer.loadBalancer.arn,
       webAclArn: webAcl.arn,
     });
-    
+
     const dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
       secretId: dbUrlSecret.id,
       secretString: pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${rds.address}:${rdsPort}/${rdsDbName}?sslmode=require`,
     });
-  
+
     const dbSecretAccessPolicy = new aws.iam.Policy(`${serviceName}-db-url-policy`, {
       policy: dbUrlSecret.arn.apply((secretArn): aws.iam.PolicyDocument => {
         return {
@@ -337,7 +341,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         Service: 'ecs-tasks.amazonaws.com',
       }),
     });
-  
+
     ecrRepository.repository.arn.apply(arn => {
       new aws.iam.RolePolicy(`${serviceName}-ecs-execution-pol`, {
         role: executionRole.id,
@@ -371,7 +375,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         },
       });
     })
-    
+
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, {
       name: `${serviceName}-cluster`,
     });
@@ -461,7 +465,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
             },
           ],
           healthCheck: {
-            command: ['CMD-SHELL', 'curl -f http://localhost:8585/api/health || exit 1'],
+            command: ['CMD-SHELL', `curl -f http://localhost:8585${HEALTH_CHECK_PATH} || exit 1`],
             interval: 60,
             timeout: 5,
             retries: 1,
@@ -476,7 +480,9 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         },
       },
     });
-  
+
+    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-log-err-filter`, {
       name: `${serviceName}-log-err-filter`,
       logGroupName: serviceLogGroup,
@@ -489,7 +495,59 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       // Whitespace prevents us from alerting on SQL injection probes.
       pattern: `"ERROR "`,
     }, { dependsOn: [service] });
-  
+
+    // Two errors within an hour triggers alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
+      name: `${serviceName}-log-err`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-err`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      // Two errors within an hour triggers alarm.
+      evaluationPeriods: 60,
+      datapointsToAlarm: 2,
+      treatMissingData: 'notBreaching',
+      alarmDescription: 'Order stream log ERROR level',
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    // Convert the arns to the format expected by the Cloudwatch metric alarm.
+    // The format is of form:
+    //  app/order-stream-11155111-lb/a1fb2124f59f54fb
+    // and
+    //  targetgroup/order-stream-11155111-tg/6f6f9bce2553bf09
+    const loadBalancerId = pulumi.interpolate`${loadbalancer.loadBalancer.arn.apply((arn) => arn.split('/').pop())}`;
+    const targetGroupId = pulumi.interpolate`targetgroup/${loadbalancer.defaultTargetGroup.arn.apply((arn) => arn.split('/').pop())}`;
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-health-check-alarm`, {
+      name: `${serviceName}-health-check-alarm`,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      metricName: `UnHealthyHostCount`,
+      dimensions: {
+        TargetGroup: targetGroupId,
+        LoadBalancer: loadBalancerId,
+      },
+      namespace: 'AWS/ApplicationELB',
+      period: 60,
+      statistic: 'Sum',
+      threshold: 1,
+      alarmDescription: 'Order stream health check alarm',
+      actionsEnabled: true,
+      alarmActions,
+    });
+
     this.lbUrl = albEndPoint;
     this.swaggerUrl = domain.apply((domain) => {
       return albDomain ? `https://${domain}/swagger-ui` : `http://${domain}/swagger-ui`;
