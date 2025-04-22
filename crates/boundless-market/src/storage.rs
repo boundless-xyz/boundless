@@ -66,6 +66,32 @@ pub trait StorageProvider {
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error>;
 }
 
+#[async_trait]
+impl<S: StorageProvider + Sync + ?Sized> StorageProvider for Box<S> {
+    type Error = S::Error;
+
+    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
+        self.upload_image(elf).await
+    }
+
+    async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
+        self.upload_input(input).await
+    }
+}
+
+#[async_trait]
+impl<S: StorageProvider + Sync + Send + ?Sized> StorageProvider for Arc<S> {
+    type Error = S::Error;
+
+    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
+        self.upload_image(elf).await
+    }
+
+    async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
+        self.upload_input(input).await
+    }
+}
+
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 /// A storage provider that can be used to upload images and inputs to a public URL.
