@@ -93,6 +93,14 @@ check-format:
     cd examples/counter && cargo fmt --all --check
     cd examples/smart-contract-requestor && cargo sort --workspace --check
     cd examples/smart-contract-requestor && cargo fmt --all --check
+    cd examples/composition && cargo sort --workspace --check
+    cd examples/composition && cargo fmt --all --check
+    cd examples/counter-with-callback && cargo sort --workspace --check
+    cd examples/counter-with-callback && cargo fmt --all --check
+    cd crates/guest/assessor && cargo sort --workspace --check
+    cd crates/guest/assessor && cargo fmt --all --check
+    cd crates/guest/util && cargo sort --workspace --check
+    cd crates/guest/util && cargo fmt --all --check
     cd bento && cargo sort --workspace --check
     cd bento && cargo fmt --all --check
     cd documentation && bun run check
@@ -116,6 +124,14 @@ format:
     cd examples/counter && cargo fmt --all
     cd examples/smart-contract-requestor && cargo sort --workspace
     cd examples/smart-contract-requestor && cargo fmt --all
+    cd examples/composition && cargo sort --workspace
+    cd examples/composition && cargo fmt --all
+    cd examples/counter-with-callback && cargo sort --workspace
+    cd examples/counter-with-callback && cargo fmt --all
+    cd crates/guest/assessor && cargo sort --workspace
+    cd crates/guest/assessor && cargo fmt --all
+    cd crates/guest/util && cargo sort --workspace
+    cd crates/guest/util && cargo fmt --all
     cd bento && cargo sort --workspace
     cd bento && cargo fmt --all
     cd documentation && bun run format-markdown
