@@ -10,7 +10,7 @@ use crate::{
     db::DbObj,
     provers::{ProverError, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    FulfillmentType, Order, OrderStatus,
+    FulfillmentType, Order,
 };
 use crate::{now_timestamp, provers::ProofResult};
 use alloy::{

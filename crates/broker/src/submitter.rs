@@ -246,7 +246,7 @@ where
 
                 let request_digest = order_request
                     .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
-                let request_id = order_request.id.clone();
+                let request_id = order_request.id;
                 fulfillment_to_order_id.insert(request_id, order_id);
                 fulfillments.push(Fulfillment {
                     id: request_id,

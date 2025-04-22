@@ -159,14 +159,14 @@ impl AggregatorService {
         })
     }
 
-    async fn prove_assessor(&self, order_ids: Vec<String>) -> Result<String> {
+    async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
         let mut fills = vec![];
         let mut assumptions = vec![];
 
         for order_id in order_ids {
             let order = self
                 .db
-                .get_order(&order_id)
+                .get_order(order_id)
                 .await
                 .with_context(|| format!("Failed to get DB order ID {order_id}"))?
                 .with_context(|| format!("order ID {order_id} missing from DB"))?;
@@ -400,7 +400,7 @@ impl AggregatorService {
             );
 
             let assessor_proof_id =
-                self.prove_assessor(assessor_order_ids.clone()).await.with_context(|| {
+                self.prove_assessor(&assessor_order_ids).await.with_context(|| {
                     format!("Failed to prove assessor with orders {:x?}", assessor_order_ids)
                 })?;
 
@@ -533,7 +533,7 @@ impl RetryTask for AggregatorService {
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Add, sync::Arc};
+    use std::sync::Arc;
 
     use super::*;
     use crate::{

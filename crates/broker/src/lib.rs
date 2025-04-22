@@ -172,6 +172,19 @@ enum FulfillmentType {
     FulfillWithoutLocking,
 }
 
+/// An Order represents a proof request and a specific method of fulfillment.
+///
+/// Requests can be fulfilled in multiple ways, for example by locking then fulfilling them,
+/// by waiting for an existing lock to expire then fulfilling for slashed stake, or by fulfilling
+/// without locking at all.
+///
+/// For a given request, each type of fulfillment results in a separate Order being created, with different
+/// FulfillmentType values.
+///
+/// Additionally, there may be multiple requests with the same request_id, but different ProofRequest
+/// details. Those also result in separate Order objects being created.
+///
+/// See the id() method for more details on how Orders are identified.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Order {
     /// Fulfillment type
@@ -213,19 +226,6 @@ struct Order {
     error_msg: Option<String>,
 }
 
-// An Order represents a proof request and a specific method of fulfillment.
-//
-// Requests can be fulfilled in multiple ways, for example by locking then fulfilling them,
-// by waiting for an existing lock to expire then fulfilling for slashed stake, or by fulfilling
-// without locking at all.
-//
-// For a given request, each type of fulfillment results in a separate Order being created, with different
-// FulfillmentType values.
-//
-// Additionally, there may be multiple requests with the same request_id, but different ProofRequest
-// details. Those also result in separate Order objects being created.
-//
-// See the id() method for more details on how Orders are identified.
 impl Order {
     pub fn new(
         request: ProofRequest,

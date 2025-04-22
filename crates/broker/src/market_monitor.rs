@@ -24,7 +24,7 @@ use crate::{
     chain_monitor::ChainMonitorService,
     db::DbError,
     task::{RetryRes, RetryTask, SupervisorErr},
-    DbObj, FulfillmentType, Order, OrderStatus,
+    DbObj, FulfillmentType, Order,
 };
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;

@@ -40,10 +40,10 @@ use super::{
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
-// Fraction of stake the protocol gives to the prover who fills an order that was locked by another prover but expired
-// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
-// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
-// TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
+/// Fraction of stake the protocol gives to the prover who fills an order that was locked by another prover but expired
+/// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
+/// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
+/// TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
 const FRACTION_STAKE_REWARD: u64 = 4;
 
 /// Boundless market errors.
