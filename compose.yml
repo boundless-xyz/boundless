@@ -85,7 +85,7 @@ services:
       # NOTE: we build a single image for all agents so specify the GPU flags here
       # TODO: can we clean this up / make it more logical?
       args:
-        NVCC_APPEND_FLAGS: ${NVCC_APPEND_FLAGS:-"--gpu-architecture=compute_70 --gpu-code=compute_70,sm_70 --generate-code arch=compute_70,code=sm_70"}
+        NVCC_APPEND_FLAGS: ${NVCC_APPEND_FLAGS:---gpu-architecture=compute_70 --gpu-code=compute_70,sm_70 --generate-code arch=compute_70,code=sm_70}
         CUDA_OPT_LEVEL: 1
 
     mem_limit: 4G
