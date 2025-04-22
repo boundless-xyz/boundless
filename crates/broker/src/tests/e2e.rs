@@ -305,7 +305,7 @@ async fn simple_e2e_with_callback() {
 
 #[tokio::test]
 #[traced_test]
-async fn simple_e2e_locked_by_other() {
+async fn e2e_fulfill_after_lock_expiry() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
@@ -322,10 +322,7 @@ async fn simple_e2e_locked_by_other() {
 
     let locker_market = ctx.customer_market.clone();
     let locker_signer = ctx.customer_signer.clone();
-    let locker_provider = ctx.prover_provider.clone();
-    let prover_market = ctx.prover_market.clone();
     let prover_signer = ctx.prover_signer.clone();
-    let prover_provider = ctx.prover_provider.clone();
 
     ctx.hit_points_service.mint(locker_signer.address(), default_allowance()).await.unwrap();
     ctx.hit_points_service.mint(prover_signer.address(), default_allowance()).await.unwrap();

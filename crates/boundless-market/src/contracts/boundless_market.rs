@@ -40,8 +40,7 @@ use super::{
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
-// fraction the stake the protocol gives to the prover who fills an order that was locked by another prover but expired
-// e.g. a value of 1 means 1/4 of the original stake is given to the prover who fills the order.
+// Fraction of stake the protocol gives to the prover who fills an order that was locked by another prover but expired
 // This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
 // The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
 // TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
@@ -1317,9 +1316,9 @@ impl Offer {
         self.biddingStart + (self.lockTimeout as u64)
     }
 
-    /// Returns the amount of stake that the protocol gives to the prover who fills an order that
-    /// was locked by another prover but that prover did not fulfill the order.
-    pub fn stake_reward_if_unfulfilled(&self) -> U256 {
+    /// Returns the amount of stake that the protocol awards to the prover who fills an order that
+    /// was locked by another prover but not fulfilled by lock expiry.
+    pub fn stake_reward_if_locked_and_not_fulfilled(&self) -> U256 {
         self.lockStake / U256::from(FRACTION_STAKE_REWARD)
     }
 }

@@ -346,7 +346,7 @@ where
             } else {
                 // Note this does not account for gas cost unlike a normal order
                 // TODO: Update to account for gas once the stake token to gas token exchange rate is known
-                let price = order.request.offer.stake_reward_if_unfulfilled();
+                let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
                 let min_cycle_price_stake_token =
                     min_mcycle_price_stake_token.div_ceil(U256::from(1_000_000));
                 (price / min_cycle_price_stake_token)
@@ -594,7 +594,7 @@ where
 
         // Reward for the order is a fraction of the stake once the lock has expired
         let one_mill = U256::from(1_000_000);
-        let price = order.request.offer.stake_reward_if_unfulfilled();
+        let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
         let mcycle_price_in_stake_tokens = price / total_cycles * one_mill;
 
         tracing::info!(

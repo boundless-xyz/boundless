@@ -252,7 +252,6 @@ where
 
                 // Find orders that we intended to prove after their lock expires.
                 // If they were not fulfilled, set their status to pending proving.
-                // Note, if they were fulfilled, market monitor would have set their status to done.
                 let lock_expired_orders = self
                     .db
                     .get_fulfill_after_lock_expire_orders(current_block_timestamp)

@@ -76,7 +76,7 @@ pub struct AggregationOrder {
 #[async_trait]
 pub trait BrokerDb {
     async fn add_order(&self, order: Order) -> Result<Option<Order>, DbError>;
-    async fn order_exists_with_request_id(&self, id: U256) -> Result<bool, DbError>;
+    async fn order_exists_with_request_id(&self, request_id: U256) -> Result<bool, DbError>;
     async fn get_order(&self, id: &str) -> Result<Option<Order>, DbError>;
     async fn get_submission_order(
         &self,
@@ -308,8 +308,6 @@ impl BrokerDb for SqliteDb {
         }
     }
 
-    // Pick orders that are either new or were locked by others, and updates their status to either
-    // Pricing or PricingLockedByOther
     #[instrument(level = "trace", skip_all, fields(limit = %limit))]
     async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<Order>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
@@ -677,12 +675,11 @@ impl BrokerDb for SqliteDb {
 
     #[instrument(level = "trace", skip_all)]
     async fn get_committed_orders_count(&self) -> Result<u32, DbError> {
-        // Note we do not include orders that are pending proving after lock expire,
-        // as we are unsure if we will commit to proving them or not until the lock expires.
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(OrderStatus::FulfillAfterLocking)
+        .bind(OrderStatus::FulfillAfterLockExpire)
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)

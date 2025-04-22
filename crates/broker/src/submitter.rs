@@ -193,7 +193,7 @@ where
                 let mut stake_reward = U256::ZERO;
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price.push((order_request.clone(), client_sig.clone()));
-                    stake_reward = order_request.offer.stake_reward_if_unfulfilled();
+                    stake_reward = order_request.offer.stake_reward_if_locked_and_not_fulfilled();
                 }
 
                 order_prices.insert(order_id, OrderPrice { price: lock_price, stake_reward });
@@ -343,7 +343,6 @@ where
             }
 
             if !requests_to_price.is_empty() {
-                // split the tuple into two vectors
                 let (requests, client_sigs): (Vec<ProofRequest>, Vec<Bytes>) =
                     requests_to_price.into_iter().unzip();
                 tracing::info!(
