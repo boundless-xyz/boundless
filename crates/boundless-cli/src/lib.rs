@@ -241,11 +241,7 @@ impl DefaultProver {
         &self,
         orders: &[Order],
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
-        let mut fills = Vec::new();
-        let mut receipts = Vec::new();
-        let mut claims = Vec::new();
-        let mut claim_digests = Vec::new();
-        for order in orders.iter() {
+        let orders_jobs = orders.iter().map(|order| async {
             let request = order.request.clone();
             let order_elf = fetch_url(&request.imageUrl).await?;
             let order_input: Vec<u8> = match request.input.inputType {
@@ -283,10 +279,21 @@ impl DefaultProver {
                 journal: order_journal.clone(),
             };
 
-            receipts.push(order_receipt.clone());
-            claims.push(order_claim.clone());
-            claim_digests.push(order_claim_digest);
-            fills.push(fill.clone());
+            Ok::<_, anyhow::Error>((order_receipt, order_claim, order_claim_digest, fill))
+        });
+
+        let results = futures::future::join_all(orders_jobs).await;
+        let mut receipts = Vec::new();
+        let mut claims = Vec::new();
+        let mut claim_digests = Vec::new();
+        let mut fills = Vec::new();
+
+        for result in results {
+            let (receipt, claim, claim_digest, fill) = result?;
+            receipts.push(receipt);
+            claims.push(claim);
+            claim_digests.push(claim_digest);
+            fills.push(fill);
         }
 
         let assessor_receipt = self.assessor(fills.clone(), receipts.clone()).await?;
