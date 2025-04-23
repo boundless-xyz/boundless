@@ -113,6 +113,12 @@ check-clippy:
     cargo clippy --workspace --all-targets -F boundless-order-generator/zeth
     cd examples/counter && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
+    cd examples/composition && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets
+    cd examples/counter-with-callback && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets
+    cd examples/smart-contract-requestor && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cargo clippy --workspace --all-targets
     cd bento && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
 
