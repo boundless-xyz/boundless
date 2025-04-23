@@ -288,7 +288,11 @@ impl DefaultProver {
         let mut claim_digests = Vec::new();
         let mut fills = Vec::new();
 
-        for result in results {
+        for (i, result) in results.into_iter().enumerate() {
+            if let Err(e) = result {
+                tracing::warn!("Failed to prove request 0x{:x}: {}", orders[i].request.id, e);
+                continue;
+            }
             let (receipt, claim, claim_digest, fill) = result?;
             receipts.push(receipt);
             claims.push(claim);
@@ -314,12 +318,13 @@ impl DefaultProver {
 
         let mut boundless_fills = Vec::new();
 
-        for (i, order) in orders.iter().enumerate() {
+        for i in 0..fills.len() {
             let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                 claims[i].clone(),
                 merkle_path(&claim_digests, i),
                 verifier_parameters.digest(),
             );
+            let order = &orders[i];
             let order_seal = if is_groth16_selector(order.request.requirements.selector) {
                 let receipt = self.compress(&receipts[i]).await?;
                 encode_seal(&receipt)?
