@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(missing_docs)]
+#![allow(missing_docs)] // DO NOT MERGE: That would be too lazy
 #![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
 
-use std::borrow::Cow;
+use std::{borrow::{Cow,}};
 
 use risc0_zkvm::{Journal, ReceiptClaim};
 use url::Url;
 
-use crate::contracts::{Input, Offer, ProofRequest, RequestId};
+use crate::{storage::{StorageProvider, BuiltinStorageProvider}, contracts::{Input, Offer, ProofRequest, RequestId}};
 
 // Idea: A pipeline like construction where each output must be (convertable to) the input to the
 // next stage.
@@ -69,6 +69,9 @@ pub trait Layer {
     async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error>;
 }
 
+// DO NOT MERGE: Consider the alternative factoring of this that works by removing the passthrough
+// struct and instead giving a reference to preprocess that it uses to prepare the input, then
+// passing the input again to postprocess.
 pub trait Adapt<Input>: Layer {
     type Postprocessed;
     type Passthrough;
@@ -129,15 +132,32 @@ where
     }
 }
 
-pub struct StorageLayer {}
+#[non_exhaustive]
+pub struct StorageLayer<S: StorageProvider> {
+    /// Maximum number of bytes to send as an inline input.
+    ///
+    /// Inputs larger than this size will be uploaded using the given storage provider. Set to none
+    /// to indicate that inputs should always be sent inline.
+    pub inline_input_max_bytes: Option<usize>,
+    pub storage_provider: S,
+}
 
-impl Layer for StorageLayer {
+impl<S: StorageProvider> Layer for StorageLayer<S> {
     type Input = ProgramAndInput;
-    type Error = anyhow::Error;
+    type Error = S::Error;
     type Output = (Url, Input);
 
-    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
-        todo!()
+    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
+        let program_url = self.storage_provider.upload_program(&input.program).await?;
+        let request_input = match self.inline_input_max_bytes {
+            Some(limit) if input.input.len() > limit => {
+                Input::url(self.storage_provider.upload_input(&input.input).await?)
+            }
+            _ => {
+                Input::inline(input.input.to_vec())
+            }
+        };
+        Ok((program_url, request_input))
     }
 }
 
@@ -210,7 +230,7 @@ impl Adapt<<PreflightLayer as Layer>::Output> for RequestIdLayer {
 }
 
 #[allow(unused)]
-type Example = ((((StorageLayer, PreflightLayer), RequestIdLayer), OfferLayer), Finalizer);
+type Example = ((((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequestIdLayer), OfferLayer), Finalizer);
 
 #[allow(dead_code)]
 trait AssertLayer<Input, Output>: Layer<Input = Input, Output = Output> {}
