@@ -822,32 +822,43 @@ where
                 .build()
                 .await?;
 
+            let fetch_order_jobs = request_ids.iter().enumerate().map(|(i, request_id)| {
+                let client = client.clone();
+                let boundless_market = boundless_market.clone();
+                async move {
+                    let order = client
+                        .fetch_order(
+                            *request_id,
+                            tx_hashes.as_ref().map(|tx_hashes| tx_hashes[i]),
+                            request_digests.as_ref().map(|request_digests| request_digests[i]),
+                        )
+                        .await?;
+                    tracing::debug!("Fetched order details: {:?}", order.request);
+
+                    let sig: Bytes = order.signature.as_bytes().into();
+                    order.request.verify_signature(
+                        &sig,
+                        args.config.boundless_market_address,
+                        boundless_market.get_chain_id().await?,
+                    )?;
+                    let is_locked = boundless_market.is_locked(*request_id).await?;
+                    Ok::<_, anyhow::Error>((order, sig, is_locked))
+                }
+            });
+
+            let results = futures::future::join_all(fetch_order_jobs).await;
             let mut orders = Vec::new();
             let mut signatures = Vec::new();
             let mut requests_to_price = Vec::new();
-            for (i, request_id) in request_ids.iter().enumerate() {
-                let order = client
-                    .fetch_order(
-                        *request_id,
-                        tx_hashes.as_ref().map(|tx_hashes| tx_hashes[i]),
-                        request_digests.as_ref().map(|request_digests| request_digests[i]),
-                    )
-                    .await?;
-                tracing::debug!("Fetched order details: {:?}", order.request);
 
+            for result in results {
+                let (order, sig, is_locked) = result?;
                 // If the request is not locked in, we need to "price" which checks the requirements
                 // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
                 // and empty if the request is locked.
-                if !boundless_market.is_locked(*request_id).await? {
+                if !is_locked {
                     requests_to_price.push(order.request.clone());
                 }
-
-                let sig: Bytes = order.signature.as_bytes().into();
-                order.request.verify_signature(
-                    &sig,
-                    args.config.boundless_market_address,
-                    boundless_market.get_chain_id().await?,
-                )?;
                 orders.push(order);
                 signatures.push(sig);
             }
