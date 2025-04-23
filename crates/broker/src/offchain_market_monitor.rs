@@ -33,7 +33,7 @@ impl OffchainMarketMonitor {
     ) -> Result<(), SupervisorErr> {
         // TODO: retry until it can reestablish a connection.
         tracing::debug!("Connecting to off-chain market: {}", client.base_url);
-        let socket = client.connect_async(signer).await.map_err(SupervisorErr::Fault)?;
+        let socket = client.connect_async(signer).await.map_err(SupervisorErr::Recover)?;
 
         let stream = order_stream(socket);
         tracing::info!("Subscribed to offchain Order stream");
