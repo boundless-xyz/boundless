@@ -56,13 +56,14 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
+use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{convert_timestamp, fetch_url, DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
-    default_executor,
+    compute_image_id, default_executor,
     sha::{Digest, Digestible},
     ExecutorEnv, Journal, SessionInfo,
 };
@@ -267,6 +268,32 @@ enum ProvingCommands {
         ///
         /// If provided, the request will be fetched offchain via the provided order stream service URL.
         #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["request_path", "tx_hash"])]
+        order_stream_url: Option<Url>,
+    },
+
+    Benchmark {
+        /// Proof request ids to benchmark.
+        #[arg(long, value_delimiter = ',')]
+        request_ids: Vec<U256>,
+
+        /// Bonsai API URL
+        ///
+        /// Toggling this disables Bento proving and uses Bonsai as a backend
+        #[clap(env = "BONSAI_API_URL")]
+        bonsai_api_url: Option<String>,
+
+        /// Bonsai API Key
+        ///
+        /// Not necessary if using Bento without authentication, which is the default.
+        #[clap(env = "BONSAI_API_KEY", hide_env_values = true)]
+        bonsai_api_key: Option<String>,
+
+        /// Offchain order stream service URL to submit offchain requests to
+        #[clap(
+            long,
+            env = "ORDER_STREAM_URL",
+            default_value = "https://order-stream.beboundless.xyz"
+        )]
         order_stream_url: Option<Url>,
     },
 
@@ -871,7 +898,156 @@ where
             tracing::info!("Successfully locked request 0x{:x}", request_id);
             Ok(())
         }
+        ProvingCommands::Benchmark {
+            request_ids,
+            bonsai_api_url,
+            bonsai_api_key,
+            order_stream_url,
+        } => benchmark(request_ids, bonsai_api_url, bonsai_api_key, order_stream_url, args).await,
     }
+}
+
+/// Execute a proof request using the RISC Zero zkVM executor and measure performance
+async fn benchmark(
+    request_ids: &[U256],
+    bonsai_api_url: &Option<String>,
+    bonsai_api_key: &Option<String>,
+    order_stream_url: &Option<Url>,
+    args: &MainArgs,
+) -> Result<()> {
+    tracing::info!("Starting benchmark for {} requests", request_ids.len());
+    if request_ids.is_empty() {
+        bail!("No request IDs provided");
+    }
+
+    const DEFAULT_BENTO_API_URL: &str = "http://localhost:8081";
+    if let Some(url) = bonsai_api_url.as_ref() {
+        tracing::info!("Using Bonsai endpoint: {}", url);
+    } else {
+        tracing::info!("Defaulting to Default Bento endpoint: {}", DEFAULT_BENTO_API_URL);
+        std::env::set_var("BONSAI_API_URL", DEFAULT_BENTO_API_URL);
+    };
+    if bonsai_api_key.is_none() {
+        tracing::debug!("Assuming Bento, setting BONSAI_API_KEY to empty string");
+        std::env::set_var("BONSAI_API_KEY", "");
+    }
+    let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
+
+    // Track performance metrics across all runs
+    let mut worst_khz = f64::MAX;
+    let mut worst_time = 0.0;
+    let mut worst_cycles = 0;
+    let mut worst_request_id = U256::ZERO;
+
+    for (idx, request_id) in request_ids.iter().enumerate() {
+        tracing::info!(
+            "Benchmarking request {}/{}: 0x{:x}",
+            idx + 1,
+            request_ids.len(),
+            request_id
+        );
+
+        // Fetch the request from order stream or on-chain
+        let client = ClientBuilder::new()
+            .with_private_key(args.config.private_key.clone())
+            .with_rpc_url(args.config.rpc_url.clone())
+            .with_boundless_market_address(args.config.boundless_market_address)
+            .with_set_verifier_address(args.config.set_verifier_address)
+            .with_timeout(args.config.tx_timeout)
+            .with_order_stream_url(order_stream_url.clone())
+            .build()
+            .await?;
+
+        let order = client.fetch_order(*request_id, None, None).await?;
+        let request = order.request;
+
+        tracing::debug!("Fetched request 0x{:x}", request_id);
+        tracing::debug!("Image URL: {}", request.imageUrl);
+
+        // Fetch ELF and input
+        tracing::debug!("Fetching ELF from {}", request.imageUrl);
+        let elf = fetch_url(&request.imageUrl).await?;
+
+        tracing::debug!("Processing input");
+        let input = match request.input.inputType {
+            InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
+            InputType::Url => {
+                let input_url = std::str::from_utf8(&request.input.data)
+                    .context("Input URL is not valid UTF-8")?;
+                tracing::debug!("Fetching input from {}", input_url);
+                GuestEnv::decode(&fetch_url(input_url).await?)?.stdin
+            }
+            _ => bail!("Unsupported input type"),
+        };
+
+        // Upload ELF
+        let image_id = compute_image_id(&elf)?.to_string();
+        prover.upload_img(&image_id, elf).await.unwrap();
+        tracing::debug!("Uploaded ELF to {}", image_id);
+
+        // Upload input
+        let input_id =
+            prover.upload_input(input).await.context("Failed to upload set-builder input")?;
+        tracing::debug!("Uploaded input to {}", input_id);
+
+        let assumptions = vec![];
+
+        // Start timing
+        let start_time = std::time::Instant::now();
+
+        let proof_id =
+            prover.create_session(image_id, input_id, assumptions.clone(), false).await?;
+        tracing::debug!("Created session {}", proof_id.uuid);
+
+        let (stats, elapsed_time) = loop {
+            let status = proof_id.status(&prover).await?;
+
+            match status.status.as_ref() {
+                "RUNNING" => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    continue;
+                }
+                "SUCCEEDED" => {
+                    let Some(stats) = status.stats else {
+                        bail!("Bento failed to return proof stats in response");
+                    };
+                    break (stats, status.elapsed_time);
+                }
+                _ => {
+                    let err_msg = status.error_msg.unwrap_or_default();
+                    bail!("snark proving failed: {err_msg}");
+                }
+            }
+        };
+
+        let total_cycles = stats.total_cycles;
+        let elapsed_secs = start_time.elapsed().as_secs_f64();
+        
+        // Calculate the hz based on the duration and total cycles as observed by the client
+        let khz = (total_cycles / 1000) as f64 / elapsed_secs;
+        tracing::debug!("Khz: {:.2} proved in {:.2}s", khz, elapsed_secs);
+        
+        if let Some(time) = elapsed_time {
+            tracing::debug!("Server side time: {:?}", time);
+        }
+        
+        // Track worst-case performance
+        if khz < worst_khz {
+            worst_khz = khz;
+            worst_time = elapsed_secs;
+            worst_cycles = total_cycles;
+            worst_request_id = *request_id;
+        }
+    }
+    
+    // Report worst-case performance
+    tracing::info!("Worst-case performance:");
+    tracing::info!("  Request ID: 0x{:x}", worst_request_id);
+    tracing::info!("  Performance: {:.2} KHz", worst_khz);
+    tracing::info!("  Time: {:.2} seconds", worst_time);
+    tracing::info!("  Cycles: {}", worst_cycles);
+
+    Ok(())
 }
 
 /// Submit an offer and create a proof request
