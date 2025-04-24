@@ -719,6 +719,7 @@ where
 
         let gas_balance_reserved = self.gas_balance_reserved().await?;
 
+        let available = balance.saturating_sub(gas_balance_reserved);
         tracing::debug!(
             "available gas balance: (account_balance) {} - (expected_future_gas) {} = {}",
             format_ether(balance),
