@@ -128,6 +128,9 @@ pub struct MarketConf {
     ///
     /// Maximum number of concurrent lockin requests that can be processed at once
     pub max_concurrent_locks: Option<u32>,
+    /// Optional cache directory for storing downloaded images and inputs
+    /// if not set, files will be re-downloaded every time
+    pub cache_dir: Option<PathBuf>,
 }
 
 impl Default for MarketConf {
@@ -155,6 +158,7 @@ impl Default for MarketConf {
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
             max_concurrent_locks: None,
+            cache_dir: None,
         }
     }
 }

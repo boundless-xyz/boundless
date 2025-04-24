@@ -373,7 +373,7 @@ where
         if request_id.smart_contract_signed {
             let erc1271 = IERC1271::new(request_id.addr, provider);
             let request_hash = calldata.request.signing_hash(market_addr, chain_id)?;
-            tracing::info!(
+            tracing::debug!(
                 "Validating ERC1271 signature for request 0x{:x}, calling contract: {} with hash {:x}",
                 calldata.request.id,
                 request_id.addr,

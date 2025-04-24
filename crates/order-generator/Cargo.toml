@@ -19,7 +19,6 @@ required-features = ["zeth"]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 anyhow = { workspace = true }
 boundless-market = { workspace = true }
-bytemuck = { workspace = true }
 clap = { workspace = true, features = ["env"] }
 dotenvy = { workspace = true }
 hex = { workspace = true }
@@ -28,7 +27,6 @@ reth-chainspec = { git = "https://github.com/risc0/reth", branch = "p1.1.0_zstd"
     "std",
 ], optional = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
-serde = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

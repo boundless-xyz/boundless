@@ -41,19 +41,19 @@ const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum PriceOrderErr {
-    #[error("Failed to fetch / push input: {0}")]
-    FetchInputErr(anyhow::Error),
+    #[error("failed to fetch / push input")]
+    FetchInputErr(#[source] anyhow::Error),
 
-    #[error("Failed to fetch / push image: {0}")]
-    FetchImageErr(anyhow::Error),
+    #[error("failed to fetch / push image")]
+    FetchImageErr(#[source] anyhow::Error),
 
-    #[error("Guest execution faulted: {0}")]
+    #[error("guest panicked: {0}")]
     GuestPanic(String),
 
-    #[error("Request: {0}")]
+    #[error("invalid request")]
     RequestError(#[from] RequestError),
 
-    #[error("Other: {0}")]
+    #[error(transparent)]
     OtherErr(#[from] anyhow::Error),
 }
 
@@ -287,7 +287,7 @@ where
             return Ok(Skip);
         }
 
-        let (skip_preflight, max_size, peak_prove_khz, fetch_retries, max_mcycle_limit) = {
+        let (skip_preflight, peak_prove_khz, max_mcycle_limit) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             let skip_preflight =
                 if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
@@ -296,13 +296,7 @@ where
                     false
                 };
 
-            (
-                skip_preflight,
-                config.market.max_file_size,
-                config.market.peak_prove_khz,
-                config.market.max_fetch_retries,
-                config.market.max_mcycle_limit,
-            )
+            (skip_preflight, config.market.peak_prove_khz, config.market.max_mcycle_limit)
         };
 
         // If we skip preflight we lock the order asap, or schedule it to be proven after the lock expires asap
@@ -318,11 +312,11 @@ where
         }
 
         // TODO: Move URI handling like this into the prover impls
-        let image_id = crate::upload_image_uri(&self.prover, order, max_size, fetch_retries)
+        let image_id = crate::upload_image_uri(&self.prover, order, &self.config)
             .await
             .map_err(PriceOrderErr::FetchImageErr)?;
 
-        let input_id = crate::upload_input_uri(&self.prover, order, max_size, fetch_retries)
+        let input_id = crate::upload_input_uri(&self.prover, order, &self.config)
             .await
             .map_err(PriceOrderErr::FetchInputErr)?;
 
@@ -750,13 +744,15 @@ where
 
         let gas_balance_reserved = self.gas_balance_reserved().await?;
 
+        let available = balance.saturating_sub(gas_balance_reserved);
         tracing::debug!(
-            "Available Balance = account_balance({}) - expected_future_gas({})",
+            "available gas balance: (account_balance) {} - (expected_future_gas) {} = {}",
             format_ether(balance),
-            format_ether(gas_balance_reserved)
+            format_ether(gas_balance_reserved),
+            format_ether(available)
         );
 
-        Ok(balance - gas_balance_reserved)
+        Ok(available)
     }
 
     /// Return available stake balance.
@@ -834,7 +830,7 @@ impl Capacity {
     fn increment_locked_order(&mut self) {
         match self {
             Capacity::Idle(capacity) | Capacity::PartiallyLocked(capacity) => {
-                *capacity = capacity.saturating_sub(1)
+                *self = Capacity::PartiallyLocked(capacity.saturating_sub(1))
             }
             Capacity::Unlimited => (),
         }
@@ -892,6 +888,8 @@ where
                             .get_pricing_order_capacity()
                             .await
                             .map_err(SupervisorErr::Recover)?;
+
+                        tracing::trace!("Updated capacity to {capacity:?}");
                     }
 
                     _ = pricing_check_timer.tick() => {
@@ -917,7 +915,7 @@ where
                                 capacity.increment_locked_order();
                             }
                             Ok(false) => {
-                                // Order was not successfully marked as locked
+                                // Order was not selected for locking.
                             }
                             Err(e) => {
                                 return Err(SupervisorErr::Recover(anyhow::anyhow!("Pricing task failed: {e}")));
