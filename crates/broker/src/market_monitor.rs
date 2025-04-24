@@ -241,7 +241,7 @@ where
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, _)) => {
-                        tracing::info!(
+                        tracing::debug!(
                             "Detected request {:x} locked by {:x}",
                             event.requestId,
                             event.prover
@@ -254,7 +254,7 @@ where
                                 )
                                 .await
                             {
-                                tracing::error!("Failed to update order status to Done: {e:?}");
+                                tracing::error!("Failed to update order status to LockedByOther: {e:?}");
                             }
                         }
                     }
@@ -283,7 +283,7 @@ where
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, _)) => {
-                        tracing::info!("Detected request fulfilled {:x}", event.requestId);
+                        tracing::debug!("Detected request fulfilled {:x}", event.requestId);
                         if let Err(e) = db.set_order_complete(U256::from(event.requestId)).await {
                             tracing::error!("Failed to update order status to Done: {e:?}");
                         }
@@ -322,7 +322,7 @@ where
         if request_id.smart_contract_signed {
             let erc1271 = IERC1271::new(request_id.addr, provider);
             let request_hash = calldata.request.signing_hash(market_addr, chain_id)?;
-            tracing::info!(
+            tracing::debug!(
                 "Validating ERC1271 signature for request 0x{:x}, calling contract: {} with hash {:x}",
                 calldata.request.id,
                 request_id.addr,
