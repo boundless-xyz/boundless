@@ -936,7 +936,7 @@ async fn benchmark(
     // Track performance metrics across all runs
     let mut worst_khz = f64::MAX;
     let mut worst_time = 0.0;
-    let mut worst_cycles = 0;
+    let mut worst_cycles = 0.0;
     let mut worst_request_id = U256::ZERO;
 
     // Check if we can connect to PostgreSQL using environment variables
@@ -1044,34 +1044,36 @@ async fn benchmark(
             }
         };
 
-        let total_cycles = stats.total_cycles;
-        let elapsed_secs = start_time.elapsed().as_secs_f64();
-
         // Try to get effective KHz from PostgreSQL if available
-        let khz = if let Some(ref pool) = pg_pool {
-            let query = r#"
-            SELECT CAST(res1.total_cycles AS decimal) / (res2.elapsed_sec * 1000) AS khz
-            FROM (
-                SELECT output->'total_cycles' total_cycles 
-                FROM tasks 
-                WHERE task_id = 'init' AND job_id = $1
-            ) res1, (
-                SELECT EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at))) AS elapsed_sec 
-                FROM tasks 
-                WHERE job_id = $1
-            ) res2
+        let (total_cycles, elapsed_secs) = if let Some(ref pool) = pg_pool {
+            let total_cycles_query = r#"
+            SELECT CAST(output->>'total_cycles' AS FLOAT8)
+            FROM tasks
+            WHERE task_id = 'init' AND job_id = $1::uuid
         "#;
 
-            sqlx::query_scalar::<_, f64>(query)
-                .bind(&proof_id.uuid)
-                .fetch_one(pool)
-                .await
-                .context("Failed to get PostgreSQL metrics")?
+            let elapsed_secs_query = r#"
+            SELECT EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at)))
+            FROM tasks
+            WHERE job_id = $1::uuid
+        "#;
+
+            let total_cycles: f64 =
+                sqlx::query_scalar(total_cycles_query).bind(&proof_id.uuid).fetch_one(pool).await?;
+
+            let elapsed_secs: f64 =
+                sqlx::query_scalar(elapsed_secs_query).bind(&proof_id.uuid).fetch_one(pool).await?;
+
+            (total_cycles, elapsed_secs)
         } else {
             // Calculate the hz based on the duration and total cycles as observed by the client
             tracing::debug!("No PostgreSQL data found for job, using client-side calculation.");
-            (total_cycles / 1000) as f64 / elapsed_secs
+            let total_cycles: f64 = stats.total_cycles as f64;
+            let elapsed_secs = start_time.elapsed().as_secs_f64();
+            (total_cycles, elapsed_secs)
         };
+
+        let khz = total_cycles * 1000.0 / elapsed_secs;
 
         tracing::info!("KHz: {:.2} proved in {:.2}s", khz, elapsed_secs);
 
@@ -1103,7 +1105,8 @@ async fn create_pg_pool() -> Result<sqlx::PgPool> {
     let user = std::env::var("POSTGRES_USER").context("POSTGRES_USER not set")?;
     let password = std::env::var("POSTGRES_PASSWORD").context("POSTGRES_PASSWORD not set")?;
     let db = std::env::var("POSTGRES_DB").context("POSTGRES_DB not set")?;
-    let host = std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let host = "127.0.0.1";
+    // let host = std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
 
     let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
