@@ -1047,24 +1047,24 @@ async fn benchmark(
         // Try to get effective KHz from PostgreSQL if available
         let (total_cycles, elapsed_secs) = if let Some(ref pool) = pg_pool {
             let total_cycles_query = r#"
-                SELECT CAST(output->>'total_cycles')
+                SELECT (output->>'total_cycles')::FLOAT8
                 FROM tasks
                 WHERE task_id = 'init' AND job_id = $1::uuid
             "#;
 
             let elapsed_secs_query = r#"
-                SELECT EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at)))
+                SELECT EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at)))::FLOAT8
                 FROM tasks
                 WHERE job_id = $1::uuid
             "#;
 
-            let total_cycles: i32 =
+            let total_cycles: f64 =
                 sqlx::query_scalar(total_cycles_query).bind(&proof_id.uuid).fetch_one(pool).await?;
 
             let elapsed_secs: f64 =
                 sqlx::query_scalar(elapsed_secs_query).bind(&proof_id.uuid).fetch_one(pool).await?;
 
-            (total_cycles as f64, elapsed_secs)
+            (total_cycles, elapsed_secs)
         } else {
             // Calculate the hz based on the duration and total cycles as observed by the client
             tracing::debug!("No PostgreSQL data found for job, using client-side calculation.");
@@ -1073,7 +1073,7 @@ async fn benchmark(
             (total_cycles, elapsed_secs)
         };
 
-        let khz = total_cycles * 1000.0 / elapsed_secs;
+        let khz = (total_cycles / 1000.0) / elapsed_secs;
 
         tracing::info!("KHz: {:.2} proved in {:.2}s", khz, elapsed_secs);
 
