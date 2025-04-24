@@ -595,9 +595,10 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn());
+        let chain_id = provider.get_chain_id().await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.get_chain_id().await.unwrap(),
+            chain_id,
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -611,7 +612,6 @@ mod tests {
         .unwrap();
 
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
-        let chain_id = provider.get_chain_id().await.unwrap();
         let min_price = 2;
 
         // First order
@@ -654,6 +654,8 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -697,6 +699,8 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -806,6 +810,8 @@ mod tests {
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
             request: order_request,
+            boundless_market_address: Address::ZERO,
+            chain_id,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -864,6 +870,8 @@ mod tests {
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
             request: order_request,
+            boundless_market_address: Address::ZERO,
+            chain_id,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -969,6 +977,8 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -1077,6 +1087,8 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -1193,6 +1205,8 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
         };
 
         // add first order and aggregate
@@ -1227,6 +1241,8 @@ mod tests {
             lock_price: Some(U256::from(min_price)),
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
         };
 
         db.add_order(order2.clone()).await.unwrap();

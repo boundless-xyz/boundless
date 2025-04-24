@@ -114,6 +114,8 @@ fn generate_test_order(request_id: u32) -> Order {
         lock_price: Some(U256::from(10)),
         fulfillment_type: FulfillmentType::LockAndFulfill,
         error_msg: None,
+        boundless_market_address: Address::ZERO,
+        chain_id: 1,
     }
 }
 

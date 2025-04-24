@@ -707,6 +707,8 @@ mod tests {
             lock_price: Some(U256::ZERO),
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: market_address,
+            chain_id,
         };
         let order_id = order.id();
         db.add_order(order.clone()).await.unwrap();

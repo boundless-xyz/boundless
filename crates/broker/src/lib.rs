@@ -141,9 +141,9 @@ enum OrderStatus {
     /// Order is in the process of being priced
     Pricing,
     /// Order is ready to lock at target_timestamp and then be fulfilled
-    FulfillAfterLocking,
+    WaitingToLock,
     /// Order is ready to be fulfilled when its lock expires at target_timestamp
-    FulfillAfterLockExpire,
+    WaitingForLockToExpire,
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
     /// Order is actively ready for proving
@@ -187,6 +187,10 @@ enum FulfillmentType {
 /// See the id() method for more details on how Orders are identified.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Order {
+    /// Address of the boundless market contract. Stored as it is required to compute the order id.
+    boundless_market_address: Address,
+    /// Chain ID of the boundless market contract. Stored as it is required to compute the order id.
+    chain_id: u64,
     /// Fulfillment type
     fulfillment_type: FulfillmentType,
     /// Proof request object
@@ -231,8 +235,12 @@ impl Order {
         request: ProofRequest,
         client_sig: Bytes,
         fulfillment_type: FulfillmentType,
+        boundless_market_address: Address,
+        chain_id: u64,
     ) -> Self {
         Self {
+            boundless_market_address,
+            chain_id,
             request,
             status: OrderStatus::New,
             updated_at: Utc::now(),
@@ -256,7 +264,7 @@ impl Order {
         format!(
             "0x{:x}-{}-{:?}",
             self.request.id,
-            self.request.signing_hash(Address::ZERO, 1).unwrap(),
+            self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap(),
             self.fulfillment_type
         )
     }

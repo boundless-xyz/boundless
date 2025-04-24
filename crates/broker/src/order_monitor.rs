@@ -94,7 +94,7 @@ where
     }
 
     async fn lock_order(&self, order: &Order) -> Result<(), LockOrderErr> {
-        if order.status != OrderStatus::FulfillAfterLocking {
+        if order.status != OrderStatus::WaitingToLock {
             return Err(LockOrderErr::InvalidStatus(order.status));
         }
 
@@ -400,7 +400,7 @@ mod tests {
             request.sign_request(&signer, market_address, chain_id).await.unwrap().as_bytes();
 
         let order = Order {
-            status: OrderStatus::FulfillAfterLocking,
+            status: OrderStatus::WaitingToLock,
             updated_at: Utc::now(),
             target_timestamp: Some(0),
             request,
@@ -413,6 +413,8 @@ mod tests {
             lock_price: None,
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: market_address,
+            chain_id,
         };
         let request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();
         assert!(order.id().contains(&format!("{:x}", request_id)));
@@ -512,7 +514,7 @@ mod tests {
             .as_bytes()
             .into();
         let order = Order {
-            status: OrderStatus::FulfillAfterLocking,
+            status: OrderStatus::WaitingToLock,
             updated_at: Utc::now(),
             target_timestamp: Some(0),
             request,
@@ -525,6 +527,8 @@ mod tests {
             lock_price: None,
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: market_address,
+            chain_id,
         };
 
         let _request_id = boundless_market.submit_request(&order.request, &signer).await.unwrap();

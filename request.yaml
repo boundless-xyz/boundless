@@ -1,7 +1,7 @@
 # Unique ID for this request, constructed from the client address and a 32-bit index.
 # Constructed as (address(client) << 32) | index
 id: 0 # if set to 0, gets overwritten by a random id
- 
+
 # Specifies the requirements for the delivered proof, including the program that must be run,
 # and the constraints on the journal's value, which define the statement to be proven.
 requirements:
@@ -13,24 +13,24 @@ requirements:
         addr: "0x0000000000000000000000000000000000000000"
         gasLimit: 0
     selector: "00000000"
- 
+
 # A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
 # provers that are evaluating whether to bid on the request.
 imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu"
- 
+
 # Input to be provided to the zkVM guest execution.
 # The input data is a encoded guest environment.
 # See crates/boundless-market/src/input.rs for additional details.
 input:
     inputType: Inline
     data: "0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"
- 
+
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 offer:
-    minPrice: 000000000000000
-    maxPrice: 1000000000
+    minPrice: 100000000000000
+    maxPrice: 2000000000000000
     biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
-    rampUpPeriod: 60 # 1 min
-    timeout: 300 # 10 mins 
-    lockTimeout: 60 # 1 minutes
-    lockStake: 500000000000000000 # 0.5 HP tokens (set between 1 and 100)
+    rampUpPeriod: 300
+    timeout: 3600 # 1 hor
+    lockTimeout: 2700 # 45 minutes
+    lockStake: 5000000000000000000 # 5 HP tokens (set between 1 and 100)

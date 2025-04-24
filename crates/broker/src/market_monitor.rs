@@ -94,6 +94,7 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Result<u64> {
         let current_block = chain_monitor.current_block_number().await?;
+        let chain_id = provider.get_chain_id().await?;
 
         let start_block = current_block.saturating_sub(lookback_blocks);
 
@@ -184,6 +185,8 @@ where
                     calldata.request.clone(),
                     calldata.clientSignature.clone(),
                     fulfillment_type,
+                    market_addr,
+                    chain_id,
                 ))
                 .await
             {
@@ -244,6 +247,7 @@ where
         db: DbObj,
     ) -> Result<()> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        let chain_id = provider.get_chain_id().await?;
         let event = market.instance().RequestLocked_filter().watch().await?;
         tracing::info!("Subscribed to RequestLocked event");
 
@@ -281,6 +285,8 @@ where
                                 proof_request,
                                 signature,
                                 FulfillmentType::FulfillAfterLockExpire,
+                                market_addr,
+                                chain_id,
                             );
                             if let Err(e) = db.add_order(order).await {
                                 tracing::error!("Failed to add order to database with fulfillment type: {:?}: {e:?}", FulfillmentType::FulfillAfterLockExpire);
@@ -405,6 +411,8 @@ where
                 calldata.request,
                 calldata.clientSignature,
                 FulfillmentType::LockAndFulfill,
+                market_addr,
+                chain_id,
             ))
             .await
         {

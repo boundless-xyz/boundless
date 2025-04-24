@@ -244,7 +244,7 @@ mod tests {
         provers::{encode_input, DefaultProver},
         FulfillmentType, OrderStatus,
     };
-    use alloy::primitives::{Bytes, U256};
+    use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
@@ -275,7 +275,7 @@ mod tests {
         let max_price = 4;
 
         let order = Order {
-            status: OrderStatus::FulfillAfterLocking,
+            status: OrderStatus::WaitingToLock,
             updated_at: Utc::now(),
             target_timestamp: Some(0),
             request: ProofRequest {
@@ -308,6 +308,8 @@ mod tests {
             lock_price: None,
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
         };
 
         db.add_order(order.clone()).await.unwrap();
@@ -377,6 +379,8 @@ mod tests {
             lock_price: None,
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
         };
         db.add_order(order.clone()).await.unwrap();
 

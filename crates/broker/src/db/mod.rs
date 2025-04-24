@@ -375,7 +375,7 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $5"#,
         )
-        .bind(OrderStatus::FulfillAfterLocking)
+        .bind(OrderStatus::WaitingToLock)
         // TODO: can we work out how to correctly
         // use bind + a json field with out string formatting
         // the sql query?
@@ -420,7 +420,7 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $5"#,
         )
-        .bind(OrderStatus::FulfillAfterLockExpire)
+        .bind(OrderStatus::WaitingForLockToExpire)
         .bind(
             i64::try_from(lock_expire_timestamp)
                 .map_err(|_| DbError::BadBlockNumb(lock_expire_timestamp.to_string()))?,
@@ -481,7 +481,7 @@ impl BrokerDb for SqliteDb {
         let orders: Vec<DbOrder> = sqlx::query_as(
             "SELECT * FROM orders WHERE data->>'status' = $1 AND data->>'target_timestamp' <= $2",
         )
-        .bind(OrderStatus::FulfillAfterLockExpire)
+        .bind(OrderStatus::WaitingForLockToExpire)
         .bind(end_timestamp as i64)
         .fetch_all(&self.pool)
         .await?;
@@ -664,7 +664,7 @@ impl BrokerDb for SqliteDb {
         let orders: Vec<DbOrder> = sqlx::query_as(
             "SELECT * FROM orders WHERE data->>'status' = $1 AND data->>'target_timestamp' <= $2",
         )
-        .bind(OrderStatus::FulfillAfterLocking)
+        .bind(OrderStatus::WaitingToLock)
         .bind(end_timestamp as i64)
         .fetch_all(&self.pool)
         .await?;
@@ -678,8 +678,8 @@ impl BrokerDb for SqliteDb {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
         )
-        .bind(OrderStatus::FulfillAfterLocking)
-        .bind(OrderStatus::FulfillAfterLockExpire)
+        .bind(OrderStatus::WaitingToLock)
+        .bind(OrderStatus::WaitingForLockToExpire)
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
@@ -697,7 +697,7 @@ impl BrokerDb for SqliteDb {
         let orders: Vec<DbOrder> = sqlx::query_as(
             "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
         )
-        .bind(OrderStatus::FulfillAfterLocking)
+        .bind(OrderStatus::WaitingToLock)
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
@@ -1356,6 +1356,8 @@ mod tests {
             lock_price: None,
             fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
         }
     }
 
@@ -1498,7 +1500,7 @@ mod tests {
         db.set_order_lock(&order.id(), lock_timestamp, expire_timestamp).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
+        assert_eq!(db_order.status, OrderStatus::WaitingToLock);
         assert_eq!(db_order.target_timestamp, Some(lock_timestamp));
         assert_eq!(db_order.expire_timestamp, Some(expire_timestamp));
     }
@@ -1512,7 +1514,7 @@ mod tests {
         let bad_id = U256::from(10);
         db.set_order_lock(&bad_id.to_string(), 1, 1).await.unwrap();
     }
-    
+
     #[sqlx::test]
     async fn set_order_fulfill_after_lock_expire(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
@@ -1524,7 +1526,7 @@ mod tests {
             .await
             .unwrap();
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLockExpire);
+        assert_eq!(db_order.status, OrderStatus::WaitingForLockToExpire);
         assert_eq!(db_order.target_timestamp, Some(lock_timestamp));
         assert_eq!(db_order.expire_timestamp, Some(expire_timestamp));
     }
@@ -1560,14 +1562,14 @@ mod tests {
 
         // Create orders with different target timestamps
         let mut order1 = create_order();
-        order1.status = OrderStatus::FulfillAfterLockExpire;
+        order1.status = OrderStatus::WaitingForLockToExpire;
         order1.request.id = U256::from(1);
         order1.target_timestamp = Some(10);
         db.add_order(order1.clone()).await.unwrap();
 
         let mut order2 = create_order();
         order2.request.id = U256::from(2);
-        order2.status = OrderStatus::FulfillAfterLockExpire;
+        order2.status = OrderStatus::WaitingForLockToExpire;
         order2.target_timestamp = Some(20);
         db.add_order(order2.clone()).await.unwrap();
 
@@ -1665,7 +1667,7 @@ mod tests {
         let good_end = 25;
         let bad_end = 15;
         let mut order1 = create_order();
-        order1.status = OrderStatus::FulfillAfterLocking;
+        order1.status = OrderStatus::WaitingToLock;
         order1.target_timestamp = Some(target_timestamp);
         order1.request.id = id;
         db.add_order(order1.clone()).await.unwrap();

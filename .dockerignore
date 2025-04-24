@@ -11,3 +11,4 @@ cache
 scripts
 examples
 crates/**/target
+examples/**/target

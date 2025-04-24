@@ -997,6 +997,8 @@ mod tests {
         async fn generate_next_order(&self, params: OrderParams) -> Order {
             let image_url = self.storage_provider.upload_image(ECHO_ELF).await.unwrap();
             let image_id = Digest::from(ECHO_ID);
+            let chain_id = self.provider.get_chain_id().await.unwrap();
+            let boundless_market_address = self.boundless_market.instance().address();
 
             Order {
                 status: OrderStatus::Pricing,
@@ -1032,6 +1034,8 @@ mod tests {
                 lock_price: None,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 error_msg: None,
+                boundless_market_address: boundless_market_address.clone(),
+                chain_id,
             }
         }
     }
@@ -1140,7 +1144,7 @@ mod tests {
         assert!(locked);
 
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
+        assert_eq!(db_order.status, OrderStatus::WaitingToLock);
         assert_eq!(db_order.target_timestamp, Some(0));
     }
 
@@ -1263,7 +1267,7 @@ mod tests {
         assert!(locked);
 
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
+        assert_eq!(db_order.status, OrderStatus::WaitingToLock);
         assert_eq!(db_order.target_timestamp, Some(0));
 
         // Order does not have high enough price when groth16 is used.
@@ -1325,7 +1329,7 @@ mod tests {
         assert!(locked);
 
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
+        assert_eq!(db_order.status, OrderStatus::WaitingToLock);
         assert_eq!(db_order.target_timestamp, Some(0));
 
         // Order does not have high enough price when groth16 is used.
@@ -1391,7 +1395,7 @@ mod tests {
         assert!(locked);
 
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
+        assert_eq!(db_order.status, OrderStatus::WaitingToLock);
         assert_eq!(db_order.target_timestamp, Some(0));
 
         // Order does not have high enough price when groth16 is used.
@@ -1478,7 +1482,7 @@ mod tests {
         }
 
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
+        assert_eq!(db_order.status, OrderStatus::WaitingToLock);
         assert_eq!(db_order.target_timestamp, Some(0));
     }
 
@@ -1637,7 +1641,7 @@ mod tests {
         // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient stake
         assert_eq!(
             ctx.db.get_order(&orders[0].id()).await.unwrap().unwrap().status,
-            OrderStatus::FulfillAfterLocking
+            OrderStatus::WaitingToLock
         );
         assert_eq!(
             ctx.db.get_order(&orders[1].id()).await.unwrap().unwrap().status,
@@ -1700,7 +1704,7 @@ mod tests {
         assert!(locked);
 
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLocking);
+        assert_eq!(db_order.status, OrderStatus::WaitingToLock);
 
         // Verify that the debug log contains the estimated proving time
         assert!(logs_contain("estimated to take 4s to prove"));
@@ -1742,7 +1746,7 @@ mod tests {
         // Check results
         assert_eq!(
             ctx.db.get_order(&order1.id()).await.unwrap().unwrap().status,
-            OrderStatus::FulfillAfterLocking
+            OrderStatus::WaitingToLock
         );
         assert_eq!(
             ctx.db.get_order(&order2.id()).await.unwrap().unwrap().status,
@@ -1877,7 +1881,7 @@ mod tests {
         let expected_expire_timestamp =
             order.request.offer.biddingStart + order.request.offer.timeout as u64;
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::FulfillAfterLockExpire);
+        assert_eq!(db_order.status, OrderStatus::WaitingForLockToExpire);
         assert_eq!(db_order.target_timestamp, Some(expected_target_timestamp));
         assert_eq!(db_order.expire_timestamp, Some(expected_expire_timestamp));
     }

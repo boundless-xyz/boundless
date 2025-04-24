@@ -48,6 +48,8 @@ impl OffchainMarketMonitor {
                                 elm.order.request,
                                 elm.order.signature.as_bytes().into(),
                                 FulfillmentType::FulfillAfterLockExpire,
+                                client.boundless_market_address,
+                                client.chain_id,
                             ))
                             .await
                         {
