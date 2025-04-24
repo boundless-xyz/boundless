@@ -254,7 +254,9 @@ where
                                 )
                                 .await
                             {
-                                tracing::error!("Failed to update order status to LockedByOther: {e:?}");
+                                tracing::error!(
+                                    "Failed to update order status to LockedByOther: {e:?}"
+                                );
                             }
                         }
                     }
