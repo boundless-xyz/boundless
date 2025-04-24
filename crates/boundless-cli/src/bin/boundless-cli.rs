@@ -939,6 +939,30 @@ async fn benchmark(
     let mut worst_cycles = 0;
     let mut worst_request_id = U256::ZERO;
 
+    // Check if we can connect to PostgreSQL using environment variables
+    let pg_connection_available = std::env::var("POSTGRES_USER").is_ok()
+        && std::env::var("POSTGRES_PASSWORD").is_ok()
+        && std::env::var("POSTGRES_DB").is_ok();
+
+    let pg_pool = if pg_connection_available {
+        match create_pg_pool().await {
+            Ok(pool) => {
+                tracing::info!("Successfully connected to PostgreSQL database");
+                Some(pool)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to connect to PostgreSQL database: {}", e);
+                None
+            }
+        }
+    } else {
+        tracing::warn!(
+            "PostgreSQL environment variables not found, using client-side metrics only. \
+            This will be less accurate for smaller proofs."
+        );
+        None
+    };
+
     for (idx, request_id) in request_ids.iter().enumerate() {
         tracing::info!(
             "Benchmarking request {}/{}: 0x{:x}",
@@ -1022,15 +1046,39 @@ async fn benchmark(
 
         let total_cycles = stats.total_cycles;
         let elapsed_secs = start_time.elapsed().as_secs_f64();
-        
-        // Calculate the hz based on the duration and total cycles as observed by the client
-        let khz = (total_cycles / 1000) as f64 / elapsed_secs;
-        tracing::debug!("Khz: {:.2} proved in {:.2}s", khz, elapsed_secs);
-        
+
+        // Try to get effective KHz from PostgreSQL if available
+        let khz = if let Some(ref pool) = pg_pool {
+            let query = r#"
+            SELECT CAST(res1.total_cycles AS decimal) / (res2.elapsed_sec * 1000) AS khz
+            FROM (
+                SELECT output->'total_cycles' total_cycles 
+                FROM tasks 
+                WHERE task_id = 'init' AND job_id = $1
+            ) res1, (
+                SELECT EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at))) AS elapsed_sec 
+                FROM tasks 
+                WHERE job_id = $1
+            ) res2
+        "#;
+
+            sqlx::query_scalar::<_, f64>(query)
+                .bind(&proof_id.uuid)
+                .fetch_one(pool)
+                .await
+                .context("Failed to get PostgreSQL metrics")?
+        } else {
+            // Calculate the hz based on the duration and total cycles as observed by the client
+            tracing::debug!("No PostgreSQL data found for job, using client-side calculation.");
+            (total_cycles / 1000) as f64 / elapsed_secs
+        };
+
+        tracing::info!("KHz: {:.2} proved in {:.2}s", khz, elapsed_secs);
+
         if let Some(time) = elapsed_time {
             tracing::debug!("Server side time: {:?}", time);
         }
-        
+
         // Track worst-case performance
         if khz < worst_khz {
             worst_khz = khz;
@@ -1039,7 +1087,7 @@ async fn benchmark(
             worst_request_id = *request_id;
         }
     }
-    
+
     // Report worst-case performance
     tracing::info!("Worst-case performance:");
     tracing::info!("  Request ID: 0x{:x}", worst_request_id);
@@ -1048,6 +1096,19 @@ async fn benchmark(
     tracing::info!("  Cycles: {}", worst_cycles);
 
     Ok(())
+}
+
+/// Create a PostgreSQL connection pool using environment variables
+async fn create_pg_pool() -> Result<sqlx::PgPool> {
+    let user = std::env::var("POSTGRES_USER").context("POSTGRES_USER not set")?;
+    let password = std::env::var("POSTGRES_PASSWORD").context("POSTGRES_PASSWORD not set")?;
+    let db = std::env::var("POSTGRES_DB").context("POSTGRES_DB not set")?;
+    let host = std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
+
+    let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
+
+    sqlx::PgPool::connect(&connection_string).await.context("Failed to connect to PostgreSQL")
 }
 
 /// Submit an offer and create a proof request
