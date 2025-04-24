@@ -1091,6 +1091,7 @@ async fn benchmark(
     }
 
     // Report worst-case performance
+    // TODO include message to give context and share how to update broker config with value
     tracing::info!("Worst-case performance:");
     tracing::info!("  Request ID: 0x{:x}", worst_request_id);
     tracing::info!("  Performance: {:.2} KHz", worst_khz);
