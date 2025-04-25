@@ -121,13 +121,15 @@ pub enum StorageProviderType {
 #[derive(Clone, Debug, Parser)]
 /// Configuration for the storage provider.
 pub struct StorageProviderConfig {
-    /// Storage provider to use [possible values: s3, pinata, file, load0]
+    /// Storage provider to use [possible values: s3, pinata, file, load-network]
     ///
     /// - For 's3', the following options are required:
     ///   --s3-access-key, --s3-secret-key, --s3-bucket, --s3-url, --aws-region
     /// - For 'pinata', the following option is required:
     ///   --pinata-jwt (optionally, you can specify --pinata-api-url, --ipfs-gateway-url)
-    /// - For 'file', no additional options are required (optionally, you can specify --file-path)    
+    /// - For 'file', no additional options are required (optionally, you can specify --file-path)  
+    /// - For 'load-network'  the following option is required:
+    ///   --load0_api_key
     #[arg(long, env, value_enum, default_value_t = StorageProviderType::Pinata)]
     pub storage_provider: StorageProviderType,
 
@@ -166,6 +168,7 @@ pub struct StorageProviderConfig {
     /// Path for file storage provider
     #[arg(long)]
     pub file_path: Option<PathBuf>,
+
     // **Load Network Storage Provider Options**
     /// Load Network load0 API key 
     #[arg(long, env, required_if_eq("storage_provider", "load-network"))]
@@ -225,6 +228,7 @@ impl StorageProvider for BuiltinStorageProvider {
 /// Otherwise, the following environment variables are checked in order:
 /// - `PINATA_JWT`, `PINATA_API_URL`, `IPFS_GATEWAY_URL`: Pinata storage provider;
 /// - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
+/// - `LOAD0_ENDPOINT`, `LOAD_0_API_KEY`: Load Network storage provider.
 pub async fn storage_provider_from_env(
 ) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
     if risc0_zkvm::is_dev_mode() {
@@ -315,6 +319,9 @@ const LOAD0_ENDPOINT: &str = "https://load0.network/";
 
 impl LoadNetworkStorageProvider {
     /// Creates a new Load Network storage provider from the environment variables.
+    /// if not API key is provided, there is a rate limit of 6 reqs/min
+    /// providing an API key lift the limit to 60 reqs/min
+    /// visit cloud.load.network to get an API key
     pub async fn from_env() -> Result<Self, LoadNetworkStorageProviderError> {
         let endpoint = std::env::var("LOAD0_ENDPOINT")
             .unwrap_or_else(|_| LOAD0_ENDPOINT.to_string());
@@ -328,7 +335,7 @@ impl LoadNetworkStorageProvider {
             load0_api_key: api_key,
         })
     }
-    /// Creates a new Pinata storage provider from the given configuration.
+    /// Creates a new Load Network storage provider from the given configuration.
     pub async fn from_config(config: &StorageProviderConfig) -> Result<Self, LoadNetworkStorageProviderError> {
         Ok(Self {
             client: reqwest::Client::new(),
