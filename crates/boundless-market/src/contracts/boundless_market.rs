@@ -902,7 +902,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                     .context("Failed to get transaction")?
                     .context("Transaction not found")?;
                 let inputs = tx_data.input();
-                let fills = decode_calldata(inputs).context("Failed to decode calldata")?;
+                let (fills, _) = decode_calldata(inputs).context("Failed to decode calldata")?;
                 for fill in fills {
                     if fill.id == request_id {
                         return Ok((fill.journal.clone(), fill.seal.clone()));
@@ -1327,39 +1327,40 @@ impl Offer {
     }
 }
 
-fn decode_calldata(data: &Bytes) -> Result<Vec<Fulfillment>> {
+/// Decodes the given calldata into a vector of Fulfillment objects.
+pub fn decode_calldata(data: &Bytes) -> Result<(Vec<Fulfillment>, AssessorReceipt)> {
     if let Ok(call) = IBoundlessMarket::submitRootAndFulfillBatchCall::abi_decode(data, true) {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) =
         IBoundlessMarket::submitRootAndFulfillBatchAndWithdrawCall::abi_decode(data, true)
     {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::fulfillCall::abi_decode(data, true) {
-        return Ok(vec![call.fill]);
+        return Ok((vec![call.fill], call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::fulfillBatchCall::abi_decode(data, true) {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::fulfillAndWithdrawCall::abi_decode(data, true) {
-        return Ok(vec![call.fill]);
+        return Ok((vec![call.fill], call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::fulfillBatchAndWithdrawCall::abi_decode(data, true) {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::priceAndFulfillCall::abi_decode(data, true) {
-        return Ok(vec![call.fill]);
+        return Ok((vec![call.fill], call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchCall::abi_decode(data, true) {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::priceAndFulfillAndWithdrawCall::abi_decode(data, true) {
-        return Ok(vec![call.fill]);
+        return Ok((vec![call.fill], call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchAndWithdrawCall::abi_decode(data, true)
     {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
 
     Err(anyhow!(
