@@ -16,7 +16,7 @@ See `contracts/src/SmartContractClient.sol` for the client logic that validates 
 ### Entities
 
 - Request Builder
-  - Responsible for building the proof request and submitting it to the market. This is a fully permissionless role. Request builders are expected to be incentivized to fufill this role outside of the Boundless protocol.
+  - Responsible for building the proof request and submitting it to the market. This is a fully permissionless role. Request builders are expected to be incentivized to fulfill this role outside of the Boundless protocol.
 - Smart Contract Requestor
   - An ERC-1271 contract that contains the logic for authorizing a proof request, and has deposited funds to Boundless Market for fulfilling requests.
 - Provers
