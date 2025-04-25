@@ -1,4 +1,4 @@
-name: Lint / Format / Test
+name: Main workflow
 
 on:
   pull_request:
