@@ -318,7 +318,7 @@ where
     // Add to the max price an estimated upper bound on the gas costs.
     // Add a 10% buffer to the gas costs to account for flucuations after submission.
     let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
-    let gas_cost_estimate = gas_price + (gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
+    let gas_cost_estimate = (gas_price + (gas_price / 10)) * LOCK_FULFILL_GAS_UPPER_BOUND;
     let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
     tracing::info!(
         "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",

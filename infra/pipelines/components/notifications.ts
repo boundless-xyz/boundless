@@ -79,7 +79,7 @@ export class Notifications extends pulumi.ComponentResource {
     const snsLoggingRoleArn = pulumi.interpolate`${snsLoggingRole.arn}`;
 
     // Create an SNS topic for the alerts
-    this.slackSNSTopic = new aws.sns.Topic("boundless-alerts-topic", { 
+    this.slackSNSTopic = new aws.sns.Topic("boundless-alerts-topic", {
       name: "boundless-alerts-topic",
       applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
       applicationSuccessFeedbackRoleArn: snsLoggingRoleArn,
