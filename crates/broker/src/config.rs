@@ -49,7 +49,7 @@ mod defaults {
     }
 }
 /// All configuration related to markets mechanics
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct MarketConf {
     /// Mega Cycle price (in native token)
@@ -128,6 +128,9 @@ pub struct MarketConf {
     ///
     /// Maximum number of concurrent lockin requests that can be processed at once
     pub max_concurrent_locks: Option<u32>,
+    /// Optional cache directory for storing downloaded images and inputs
+    /// if not set, files will be re-downloaded every time
+    pub cache_dir: Option<PathBuf>,
 }
 
 impl Default for MarketConf {
@@ -155,12 +158,13 @@ impl Default for MarketConf {
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
             max_concurrent_locks: None,
+            cache_dir: None,
         }
     }
 }
 
 /// All configuration related to prover (bonsai / Bento) mechanics
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProverConf {
     /// Number of retries to poll for proving status. Provides a little durability
     /// for transient failures.
@@ -191,6 +195,10 @@ pub struct ProverConf {
     pub set_builder_guest_path: Option<PathBuf>,
     /// Assessor ELF path
     pub assessor_set_guest_path: Option<PathBuf>,
+    /// Max critical task retries on recoverable failures.
+    ///
+    /// None indicates there are infinite number of retries.
+    pub max_critical_task_retries: Option<u32>,
 }
 
 impl Default for ProverConf {
@@ -205,12 +213,13 @@ impl Default for ProverConf {
             proof_retry_sleep_ms: 1000,
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
+            max_critical_task_retries: None,
         }
     }
 }
 
 /// All configuration related to batching / aggregation
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BatcherConfig {
     /// Max batch duration before publishing (in seconds)
     pub batch_max_time: Option<u64>,
@@ -261,7 +270,7 @@ impl Default for BatcherConfig {
 }
 
 /// Top level config for the broker service
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default, Debug)]
 pub struct Config {
     /// Market / bidding configurations
     pub market: MarketConf,
@@ -295,7 +304,7 @@ pub enum ConfigErr {
     InvalidConfig,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ConfigLock {
     config: Arc<RwLock<Config>>,
 }

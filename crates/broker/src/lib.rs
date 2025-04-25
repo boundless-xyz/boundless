@@ -4,6 +4,8 @@
 
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
+use crate::config::ConfigLock;
+use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, U256},
@@ -18,7 +20,7 @@ use boundless_market::{
     selector::is_groth16_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use clap::{ArgAction, Parser};
+use clap::Parser;
 pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
@@ -27,7 +29,7 @@ use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};
-use storage::UriHandlerBuilder;
+use task::{RetryPolicy, Supervisor};
 use tokio::task::JoinSet;
 use url::Url;
 
@@ -120,16 +122,6 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
-
-    /// Set to skip caching of images
-    ///
-    /// By default images are cached locally in cache_dir. Set this flag to redownload them every time
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub nocache: bool,
-
-    /// Cache directory for storing downloaded images and inputs
-    #[clap(long, default_value = "/tmp/broker_cache", conflicts_with = "nocache")]
-    pub cache_dir: Option<PathBuf>,
 }
 
 /// Status of a order as it moves through the lifecycle
@@ -292,9 +284,9 @@ where
     }
 
     async fn get_assessor_image(&self) -> Result<(Digest, Vec<u8>)> {
-        let (assessor_path, max_file_size) = {
+        let assessor_path = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
-            (config.prover.assessor_set_guest_path.clone(), config.market.max_file_size)
+            config.prover.assessor_set_guest_path.clone()
         };
 
         if let Some(path) = assessor_path {
@@ -312,10 +304,8 @@ where
 
             let (image_id, image_url_str) =
                 boundless_market.image_info().await.context("Failed to get contract image_info")?;
-            let image_uri = UriHandlerBuilder::new(&image_url_str)
-                .set_cache_dir(&self.args.cache_dir)
-                .set_max_size(max_file_size)
-                .build()
+            let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
+                .await
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading assessor image from: {image_uri}");
             let image_data =
@@ -326,9 +316,9 @@ where
     }
 
     async fn get_set_builder_image(&self) -> Result<(Digest, Vec<u8>)> {
-        let (set_builder_path, max_file_size) = {
+        let set_builder_path = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
-            (config.prover.set_builder_guest_path.clone(), config.market.max_file_size)
+            config.prover.set_builder_guest_path.clone()
         };
 
         if let Some(path) = set_builder_path {
@@ -348,10 +338,8 @@ where
                 .image_info()
                 .await
                 .context("Failed to get contract image_info")?;
-            let image_uri = UriHandlerBuilder::new(&image_url_str)
-                .set_cache_dir(&self.args.cache_dir)
-                .set_max_size(max_file_size)
-                .build()
+            let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
+                .await
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading aggregation-set image from: {image_uri}");
             let image_data =
@@ -364,8 +352,10 @@ where
     pub async fn start_service(&self) -> Result<()> {
         let mut supervisor_tasks: JoinSet<Result<()>> = JoinSet::new();
 
+        let config = self.config_watcher.config.clone();
+
         let loopback_blocks = {
-            let config = match self.config_watcher.config.lock_all() {
+            let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
             };
@@ -379,8 +369,10 @@ where
         );
 
         let cloned_chain_monitor = chain_monitor.clone();
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, cloned_chain_monitor)
+            Supervisor::new(cloned_chain_monitor, cloned_config)
+                .spawn()
                 .await
                 .context("Failed to start chain monitor")?;
             Ok(())
@@ -401,8 +393,12 @@ where
 
         tracing::debug!("Estimated block time: {block_times}");
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, market_monitor).await.context("Failed to start market monitor")?;
+            Supervisor::new(market_monitor, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start market monitor")?;
             Ok(())
         });
 
@@ -419,8 +415,10 @@ where
                     client.clone(),
                     self.args.private_key.clone(),
                 ));
+            let cloned_config = config.clone();
             supervisor_tasks.spawn(async move {
-                task::supervisor(1, offchain_market_monitor)
+                Supervisor::new(offchain_market_monitor, cloned_config)
+                    .spawn()
                     .await
                     .context("Failed to start offchain market monitor")?;
                 Ok(())
@@ -428,28 +426,24 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
+        let prover: provers::ProverObj = if risc0_zkvm::is_dev_mode() {
+            tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
+            Receipts generated from this process are invalid and should never be used in production.");
+            Arc::new(provers::DefaultProver::new())
+        } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
             tracing::info!("Configured to run with Bonsai backend");
             Arc::new(
-                provers::Bonsai::new(
-                    self.config_watcher.config.clone(),
-                    bonsai_api_url.as_ref(),
-                    bonsai_api_key,
-                )
-                .context("Failed to construct Bonsai client")?,
+                provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
+                    .context("Failed to construct Bonsai client")?,
             )
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
 
             Arc::new(
-                provers::Bonsai::new(
-                    self.config_watcher.config.clone(),
-                    bento_api_url.as_ref(),
-                    "",
-                )
-                .context("Failed to initialize Bento client")?,
+                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "")
+                    .context("Failed to initialize Bento client")?,
             )
         } else {
             Arc::new(provers::DefaultProver::new())
@@ -458,14 +452,18 @@ where
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             prover.clone(),
             self.args.boundless_market_address,
             self.provider.clone(),
             chain_monitor.clone(),
         ));
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, order_picker).await.context("Failed to start order picker")?;
+            Supervisor::new(order_picker, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start order picker")?;
             Ok(())
         });
 
@@ -473,27 +471,29 @@ where
             self.db.clone(),
             self.provider.clone(),
             chain_monitor.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             block_times,
             self.args.boundless_market_address,
         )?);
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, order_monitor).await.context("Failed to start order monitor")?;
+            Supervisor::new(order_monitor, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start order monitor")?;
             Ok(())
         });
 
         let proving_service = Arc::new(
-            proving::ProvingService::new(
-                self.db.clone(),
-                prover.clone(),
-                self.config_watcher.config.clone(),
-            )
-            .await
-            .context("Failed to initialize proving service")?,
+            proving::ProvingService::new(self.db.clone(), prover.clone(), config.clone())
+                .await
+                .context("Failed to initialize proving service")?,
         );
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, proving_service)
+            Supervisor::new(proving_service, cloned_config)
+                .spawn()
                 .await
                 .context("Failed to start proving service")?;
             Ok(())
@@ -513,29 +513,39 @@ where
                 assessor_img_data.1,
                 self.args.boundless_market_address,
                 prover_addr,
-                self.config_watcher.config.clone(),
+                config.clone(),
                 prover.clone(),
             )
             .await
             .context("Failed to initialize aggregator service")?,
         );
 
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, aggregator).await.context("Failed to start aggregator service")?;
+            Supervisor::new(aggregator, cloned_config)
+                .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                .spawn()
+                .await
+                .context("Failed to start aggregator service")?;
             Ok(())
         });
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),
-            self.config_watcher.config.clone(),
+            config.clone(),
             prover.clone(),
             self.provider.clone(),
             self.args.set_verifier_address,
             self.args.boundless_market_address,
             set_builder_img_data.0,
         )?);
+        let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
-            task::supervisor(1, submitter).await.context("Failed to start submitter service")?;
+            Supervisor::new(submitter, cloned_config)
+                .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                .spawn()
+                .await
+                .context("Failed to start submitter service")?;
             Ok(())
         });
 
@@ -576,48 +586,36 @@ where
 async fn upload_image_uri(
     prover: &ProverObj,
     order: &Order,
-    max_size: usize,
-    retries: Option<u8>,
+    config: &ConfigLock,
 ) -> Result<String> {
-    let mut uri = UriHandlerBuilder::new(&order.request.imageUrl).set_max_size(max_size);
+    let uri =
+        create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
 
-    if let Some(retry) = retries {
-        uri = uri.set_retries(retry);
-    }
-    let uri = uri.build().context("Uri parse failure")?;
+    let image_data = uri
+        .fetch()
+        .await
+        .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
+    let image_id =
+        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
 
-    if !uri.exists() {
-        let image_data = uri
-            .fetch()
-            .await
-            .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
-        let image_id =
-            risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
+    let required_image_id = Digest::from(order.request.requirements.imageId.0);
+    ensure!(
+        image_id == required_image_id,
+        "image ID does not match requirements; expect {}, got {}",
+        required_image_id,
+        image_id
+    );
+    let image_id = image_id.to_string();
 
-        let required_image_id = Digest::from(order.request.requirements.imageId.0);
-        ensure!(
-            image_id == required_image_id,
-            "image ID does not match requirements; expect {}, got {}",
-            required_image_id,
-            image_id
-        );
-        let image_id = image_id.to_string();
+    prover.upload_image(&image_id, image_data).await.context("Failed to upload image to prover")?;
 
-        prover
-            .upload_image(&image_id, image_data)
-            .await
-            .context("Failed to upload image to prover")?;
-
-        Ok(image_id)
-    } else {
-        Ok(uri.id().context("Invalid image URI type")?)
-    }
+    Ok(image_id)
 }
+
 async fn upload_input_uri(
     prover: &ProverObj,
     order: &Order,
-    max_size: usize,
-    retries: Option<u8>,
+    config: &ConfigLock,
 ) -> Result<String> {
     Ok(match order.request.input.inputType {
         InputType::Inline => prover
@@ -633,27 +631,19 @@ async fn upload_input_uri(
             let input_uri_str =
                 std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");
-            let mut input_uri = UriHandlerBuilder::new(input_uri_str).set_max_size(max_size);
+            let input_uri =
+                create_uri_handler(input_uri_str, config).await.context("URL handling failed")?;
 
-            if let Some(retry) = retries {
-                input_uri = input_uri.set_retries(retry);
-            }
-            let input_uri = input_uri.build().context("Failed to parse input uri")?;
+            let input_data = GuestEnv::decode(
+                &input_uri
+                    .fetch()
+                    .await
+                    .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
+            )
+            .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
+            .stdin;
 
-            if !input_uri.exists() {
-                let input_data = GuestEnv::decode(
-                    &input_uri
-                        .fetch()
-                        .await
-                        .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
-                )
-                .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-                .stdin;
-
-                prover.upload_input(input_data).await.context("Failed to upload input")?
-            } else {
-                input_uri.id().context("invalid input URI type")?
-            }
+            prover.upload_input(input_data).await.context("Failed to upload input")?
         }
         //???
         _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
@@ -713,8 +703,6 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
-                nocache: true,
-                cache_dir: None,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }

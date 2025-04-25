@@ -15,7 +15,7 @@ It is only deployed to the dev account, so there is only one stack: `Pulumi.dev.
   ```
 4. Confirm you can ssh in: `ssh ec2-user@<INSTANCE DNS>`
 5. Register the builder in docker, filling in the instance name: `docker buildx create --name aws-builder --driver docker-container --platform linux/amd64 ssh://ec2-user@<INSTANCE DNS>`
-6. Set env variable: `export DOCKER_REMOTE_BUILDER="aws-builder"` Our Pulumi stacks are configured to read this variable. 
+6. Set env variable: `export DOCKER_REMOTE_BUILDER="aws-builder"` Our Pulumi stacks are configured to read this variable.
 7. Now when you run `pulumi up` the docker builds will run remotely.
 
 ## Development
