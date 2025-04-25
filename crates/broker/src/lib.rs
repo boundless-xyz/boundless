@@ -149,7 +149,7 @@ enum OrderStatus {
     Done,
     /// Order failed
     Failed,
-    /// Order was analyzed and marked as skipable
+    /// Order was analyzed and marked as skippable
     Skipped,
     /// Order was observed to be locked by another prover
     LockedByOther,
