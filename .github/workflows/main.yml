@@ -47,6 +47,8 @@ jobs:
 
   rust:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    needs: files-changed
+    if: needs.files-changed.outputs.main == 'true'
     services:
       postgres:
         image: postgres:latest
@@ -252,6 +254,8 @@ jobs:
 
   rust-pkg-check:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    needs: files-changed
+    if: needs.files-changed.outputs.main == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -280,6 +284,8 @@ jobs:
 
   link-check:
     runs-on: [ self-hosted, Linux, X64, prod, cpu]
+    needs: files-changed
+    if: needs.files-changed.outputs.docs == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -341,6 +347,8 @@ jobs:
 
   foundry:
     runs-on: [ self-hosted, Linux, X64, prod, cpu]
+    needs: files-changed
+    if: needs.files-changed.outputs.main == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -363,6 +371,8 @@ jobs:
   docs-rs:
     # TODO: Revert this change when CC on self-hosted runners in fixed.
     runs-on: ubuntu-latest
+    needs: files-changed
+    if: needs.files-changed.outputs.main == 'true'
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
       - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
@@ -383,6 +393,8 @@ jobs:
   # Check that cargo publish can package the boundless-market crate
   check-pusblish:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    needs: files-changed
+    if: needs.files-changed.outputs.main == 'true'
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
       - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
@@ -398,6 +410,8 @@ jobs:
 
   examples:
     runs-on: [ self-hosted, Linux, X64, prod, cuda, g6.4xlarge ]
+    needs: files-changed
+    if: needs.files-changed.outputs.examples == 'true'
     strategy:
       matrix:
         workspace:
@@ -484,27 +498,6 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
-  files-changed:
-    runs-on: ubuntu-latest
-    outputs:
-      docker: ${{ steps.changes.outputs.docker }}
-      bento: ${{ steps.changes.outputs.bento }}
-
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3.0.0
-        id: changes
-        with:
-          filters: |
-            docker:
-              - 'dockerfiles/**'
-              - 'compose.yml'
-              - '.env.broker-template'
-            bento:
-              - 'bento/**'
-
   docker:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
     needs: files-changed
@@ -545,3 +538,43 @@ jobs:
 
       - name: docker compose build
         run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
+
+  files-changed:
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.changes.outputs.docker }}
+      bento: ${{ steps.changes.outputs.bento }}
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3.0.0
+        id: changes
+        with:
+          filters: |
+            # Changes to the Docker files. Docker jobs are slow.
+            docker:
+              - 'dockerfiles/**'
+              - 'compose.yml'
+              - '.env.broker-template'
+            # Changes to bento.
+            bento:
+              - 'bento/**'
+            # Changes affect the main codebase (rust + contracts).
+            main:
+              - '*' # run is anything in the root changed.
+              - 'crates/**'
+              - 'contracts/**'
+            # Changes that could effect the examples.
+            examples:
+              - '*' # run is anything in the root changed.
+              - 'crates/**'
+              - 'contracts/**'
+              - 'examples/**'
+            docs:
+              - '*' # run is anything in the root changed.
+              - 'crates/**'
+              - 'contracts/**'
+              - 'documentation/**'
+
