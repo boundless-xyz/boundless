@@ -34,8 +34,8 @@ jobs:
       - docker
       - rust-pkg-check
       - docs-rs
-      - bento
-      - bento_run
+      - bento-check
+      - bento-run
 
     runs-on: ubuntu-latest
     steps:
@@ -130,8 +130,10 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
-  bento:
+  bento-check:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    needs: files-changed
+    if: needs.files-changed.outputs.bento == 'true'
     services:
       postgres:
         image: postgres:latest
@@ -205,7 +207,7 @@ jobs:
         run: sccache --show-stats
 
 
-  bento_run:
+  bento-run:
     runs-on: [ self-hosted, Linux, X64, prod, cuda, g6.4xlarge ]
     needs: files-changed
     if: needs.files-changed.outputs.bento == 'true'
