@@ -175,7 +175,7 @@ where
             };
 
             tracing::info!(
-                "Found open order: {} with request status: {:?}, adding to database with fulfillment type: {:?}",
+                "Found open order: {:x} with request status: {:?}, adding to database with fulfillment type: {:?}",
                 calldata.request.id,
                 req_status,
                 fulfillment_type
@@ -259,13 +259,12 @@ where
                         tracing::info!(
                             "Detected request {:x} locked by {:x}",
                             event.requestId,
-                            event.prover
+                            event.prover,
                         );
                         if let Err(e) = db
                             .set_request_locked(
                                 U256::from(event.requestId),
                                 &event.prover.to_string(),
-                                log.block_timestamp.unwrap(),
                                 log.block_number.unwrap(),
                             )
                             .await
@@ -328,7 +327,6 @@ where
                         if let Err(e) = db
                             .set_request_fulfilled(
                                 U256::from(event.requestId),
-                                log.block_timestamp.unwrap(),
                                 log.block_number.unwrap(),
                             )
                             .await

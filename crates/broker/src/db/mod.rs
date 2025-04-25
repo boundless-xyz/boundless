@@ -121,9 +121,6 @@ pub trait BrokerDb {
     /// Get all orders that are committed to be fulfilled, including those that have been selected
     /// to lock or are locked and are not yet fulfilled.
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
-    /// Get a count of orders that are committed to be fulfilled, including those that have been
-    /// selected to lock or are locked and are not yet fulfilled.
-    async fn get_committed_orders_count(&self) -> Result<u32, DbError>;
     async fn get_proving_order(&self) -> Result<Option<Order>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<Order>, DbError>;
     async fn set_order_proof_id(&self, order_id: &str, proof_id: &str) -> Result<(), DbError>;
@@ -149,7 +146,6 @@ pub trait BrokerDb {
     async fn set_request_fulfilled(
         &self,
         request_id: U256,
-        block_timestamp: u64,
         block_number: u64,
     ) -> Result<(), DbError>;
     // Checks the fulfillment table for the given request_id
@@ -158,7 +154,6 @@ pub trait BrokerDb {
         &self,
         request_id: U256,
         locker: &str,
-        block_timestamp: u64,
         block_number: u64,
     ) -> Result<(), DbError>;
     // Checks the locked table for the given request_id
@@ -674,30 +669,11 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_committed_orders_count(&self) -> Result<u32, DbError> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
-        )
-        .bind(OrderStatus::WaitingToLock)
-        .bind(OrderStatus::WaitingForLockToExpire)
-        .bind(OrderStatus::PendingProving)
-        .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
-        .bind(OrderStatus::SkipAggregation)
-        .bind(OrderStatus::PendingSubmission)
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(u32::try_from(count).expect("count should never be negative"))
-    }
-
-    #[instrument(level = "trace", skip_all)]
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
-            "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
+            "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
-        .bind(OrderStatus::WaitingToLock)
+        .bind(OrderStatus::WaitingForLockToExpire)
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
@@ -1216,15 +1192,13 @@ impl BrokerDb for SqliteDb {
     async fn set_request_fulfilled(
         &self,
         request_id: U256,
-        block_timestamp: u64,
         block_number: u64,
     ) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO fulfilled_requests (id, block_timestamp, block_number) VALUES ($1, $2, $3)"#,
+            INSERT INTO fulfilled_requests (id, block_number) VALUES ($1, $2)"#,
         )
         .bind(format!("0x{:x}", request_id))
-        .bind(block_timestamp as i64)
         .bind(block_number as i64)
         .execute(&self.pool)
         .await?;
@@ -1247,16 +1221,16 @@ impl BrokerDb for SqliteDb {
         &self,
         request_id: U256,
         locker: &str,
-        block_timestamp: u64,
         block_number: u64,
     ) -> Result<(), DbError> {
-        sqlx::query(r#"INSERT INTO locked_requests (id, locker, block_timestamp, block_number) VALUES ($1, $2, $3, $4)"#)
-            .bind(format!("0x{:x}", request_id))
-            .bind(locker)
-            .bind(block_timestamp as i64)
-            .bind(block_number as i64)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            r#"INSERT INTO locked_requests (id, locker, block_number) VALUES ($1, $2, $3)"#,
+        )
+        .bind(format!("0x{:x}", request_id))
+        .bind(locker)
+        .bind(block_number as i64)
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }
@@ -2008,14 +1982,13 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let request_id = U256::from(123);
-        let block_timestamp = 1000;
         let block_number = 42;
 
         // Initially should not be fulfilled
         assert!(!db.is_request_fulfilled(request_id).await.unwrap());
 
         // Set as fulfilled
-        db.set_request_fulfilled(request_id, block_timestamp, block_number).await.unwrap();
+        db.set_request_fulfilled(request_id, block_number).await.unwrap();
 
         // Should now be fulfilled
         assert!(db.is_request_fulfilled(request_id).await.unwrap());
@@ -2030,14 +2003,12 @@ mod tests {
 
         let request_id = U256::from(123);
         let locker = "test_locker";
-        let block_timestamp = 1000;
         let block_number = 42;
-
         // Initially should not be locked
         assert!(!db.is_request_locked(request_id).await.unwrap());
 
         // Set as locked
-        db.set_request_locked(request_id, locker, block_timestamp, block_number).await.unwrap();
+        db.set_request_locked(request_id, locker, block_number).await.unwrap();
 
         // Should now be locked
         assert!(db.is_request_locked(request_id).await.unwrap());

@@ -382,13 +382,12 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         let pending_tx = call.send().await?;
 
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        let tx_hash = *pending_tx.tx_hash();
+        tracing::debug!("Broadcasting tx {}", tx_hash);
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = pending_tx.with_timeout(Some(self.timeout)).get_receipt().await.context(
+            format!("failed to confirm tx {:?} within timeout {:?}", tx_hash, self.timeout),
+        )?;
 
         if !receipt.status() {
             // TODO: Get + print revertReason

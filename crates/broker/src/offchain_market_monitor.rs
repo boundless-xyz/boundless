@@ -2,7 +2,10 @@
 //
 // All rights reserved.
 
-use alloy::signers::{local::PrivateKeySigner, Signer};
+use alloy::{
+    primitives::U256,
+    signers::{local::PrivateKeySigner, Signer},
+};
 use anyhow::Result;
 use boundless_market::order_stream_client::{order_stream, Client as OrderStreamClient};
 use futures_util::StreamExt;
@@ -39,7 +42,7 @@ impl OffchainMarketMonitor {
                 match order {
                     Ok(elm) => {
                         tracing::info!(
-                            "Detected new order {:x} - stream id: {}",
+                            "Detected new order with stream id {:x}, request id: {:x}",
                             elm.id,
                             elm.order.request.id
                         );

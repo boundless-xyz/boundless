@@ -10,7 +10,7 @@ use crate::{
     db::DbObj,
     provers::{ProverError, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    FulfillmentType, Order,
+    FulfillmentType, Order, OrderStatus,
 };
 use crate::{now_timestamp, provers::ProofResult};
 use alloy::{
@@ -771,7 +771,29 @@ where
         };
 
         if let Some(max) = max_concurrent_locks {
-            let committed_orders_count = self.db.get_committed_orders_count().await?;
+            let committed_orders = self.db.get_committed_orders().await?;
+            let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
+            let order_id_and_status = committed_orders
+                .iter()
+                .map(|order| {
+                    (
+                        hex::encode(order.request.id.to_be_bytes_trimmed_vec()),
+                        order.status,
+                        (if order.status == OrderStatus::WaitingToLock
+                            || order.status == OrderStatus::WaitingForLockToExpire
+                        {
+                            format!("Target: {}", order.target_timestamp.unwrap())
+                        } else {
+                            "".to_string()
+                        }),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            // todo only print on diff
+            tracing::debug!(
+                "Committed orders count: {committed_orders_count}. Maximum concurrent locks: {max}. Committed orders: {order_id_and_status:?}"
+            );
             let available_slots = max.saturating_sub(committed_orders_count);
             if committed_orders_count == 0 {
                 Ok(Capacity::Idle(available_slots))
@@ -784,10 +806,6 @@ where
     }
 
     async fn spawn_pricing_tasks(&self, tasks: &mut JoinSet<bool>, capacity: u32) -> Result<()> {
-        if capacity == 0 {
-            return Ok(());
-        }
-
         let order_res = self.db.update_orders_for_pricing(capacity).await?;
         tracing::debug!(
             "Found {} orders to price, with order ids: {:?}",
@@ -799,7 +817,6 @@ where
             let picker_clone = self.clone();
             tasks.spawn(async move { picker_clone.price_order_and_update_db(&order).await });
         }
-
         Ok(())
     }
 }
@@ -893,11 +910,10 @@ where
                     }
 
                     _ = pricing_check_timer.tick() => {
-
                         // Queue up orders that can be added to capacity.
                         let order_size = capacity.request_size(pricing_tasks.len());
-                        tracing::debug!(
-                            "Current capacity: {capacity:?}, pricing tasks: {pricing_tasks:?}. Spawning {order_size} pricing tasks"
+                        tracing::trace!(
+                            "Current capacity: {capacity:?}, active pricing tasks: {pricing_tasks:?}. Spawning {order_size} pricing tasks"
                         );
                         picker_copy
                             .spawn_pricing_tasks(&mut pricing_tasks, order_size)
