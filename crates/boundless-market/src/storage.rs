@@ -30,7 +30,7 @@ use std::{
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use aws_sdk_s3::{
-    config::{Builder, Credentials, Region},
+    config::{endpoint, Builder, Credentials, Region},
     presigning::{PresigningConfig, PresigningConfigError},
     primitives::ByteStream,
     types::CreateBucketConfiguration,
@@ -74,6 +74,8 @@ pub enum BuiltinStorageProvider {
     S3(S3StorageProvider),
     /// Pinata storage provider.
     Pinata(PinataStorageProvider),
+    /// Load Network Storage provider
+    LoadNetwork(LoadNetworkStorageProvider),
     /// Temporary file storage provider, used for local testing.
     File(TempFileStorageProvider),
 }
@@ -88,6 +90,9 @@ pub enum BuiltinStorageProviderError {
     /// Error type for the Pinata storage provider.
     #[error("Pinata storage provider error")]
     Pinata(#[from] PinataStorageProviderError),
+    /// Error type for the Load Network storage provider.
+    #[error("Load Network storage provider error")]
+    LoadNetwork(#[from] LoadNetworkStorageProviderError),
     /// Error type for the temporary file storage provider.
     #[error("temp file storage provider error")]
     File(#[from] TempFileStorageProviderError),
@@ -107,6 +112,8 @@ pub enum StorageProviderType {
     S3,
     /// Pinata storage provider.
     Pinata,
+    /// Load Network storage provider
+    LoadNetwork,
     /// Temporary file storage provider.
     File,
 }
@@ -114,7 +121,7 @@ pub enum StorageProviderType {
 #[derive(Clone, Debug, Parser)]
 /// Configuration for the storage provider.
 pub struct StorageProviderConfig {
-    /// Storage provider to use [possible values: s3, pinata, file]
+    /// Storage provider to use [possible values: s3, pinata, file, load0]
     ///
     /// - For 's3', the following options are required:
     ///   --s3-access-key, --s3-secret-key, --s3-bucket, --s3-url, --aws-region
@@ -159,6 +166,13 @@ pub struct StorageProviderConfig {
     /// Path for file storage provider
     #[arg(long)]
     pub file_path: Option<PathBuf>,
+    // **Load Network Storage Provider Options**
+    /// Load Network load0 API key 
+    #[arg(long, env, required_if_eq("storage_provider", "load-network"))]
+    pub load0_api_key: Option<String>,
+    /// Load Network (load0) api endpoint
+    #[arg(long, env, requires("load0_api_key"))]
+    pub load0_endpoint: Option<Url>,
 }
 
 impl StorageProviderConfig {
@@ -176,6 +190,8 @@ impl StorageProviderConfig {
             pinata_api_url: None,
             ipfs_gateway_url: None,
             file_path: None,
+            load0_endpoint: None,
+            load0_api_key: None
         }
     }
 }
@@ -188,6 +204,7 @@ impl StorageProvider for BuiltinStorageProvider {
         Ok(match self {
             Self::S3(provider) => provider.upload_image(elf).await?,
             Self::Pinata(provider) => provider.upload_image(elf).await?,
+            Self::LoadNetwork(provider) => provider.upload_image(elf).await?,
             Self::File(provider) => provider.upload_image(elf).await?,
         })
     }
@@ -196,6 +213,7 @@ impl StorageProvider for BuiltinStorageProvider {
         Ok(match self {
             Self::S3(provider) => provider.upload_input(input).await?,
             Self::Pinata(provider) => provider.upload_input(input).await?,
+            Self::LoadNetwork(provider) => provider.upload_input(input).await?,
             Self::File(provider) => provider.upload_input(input).await?,
         })
     }
@@ -221,6 +239,10 @@ pub async fn storage_provider_from_env(
         return Ok(BuiltinStorageProvider::S3(provider));
     }
 
+    if let Ok(provider) = LoadNetworkStorageProvider::from_env().await {
+        return Ok(BuiltinStorageProvider::LoadNetwork(provider));
+    }
+
     Err(BuiltinStorageProviderError::NoProvider)
 }
 
@@ -241,6 +263,10 @@ pub async fn storage_provider_from_config(
             let provider = TempFileStorageProvider::from_config(config)?;
             Ok(BuiltinStorageProvider::File(provider))
         }
+        StorageProviderType::LoadNetwork => {
+            let provider = LoadNetworkStorageProvider::from_config(config).await?;
+            Ok(BuiltinStorageProvider::LoadNetwork(provider))
+        }
     }
 }
 
@@ -260,7 +286,105 @@ impl BuiltinStorageProvider {
     }
 }
 
-/// Storage provider that uploads inputs and inputs to IPFS via Pinata.
+/// Storage provider that uploads ELFs and inputs to Load Network via load0
+#[derive(Clone, Debug)]
+pub struct LoadNetworkStorageProvider {
+    client: reqwest::Client,
+    load0_endpoint: Url,
+    load0_api_key: Option<String>,
+}
+
+#[derive(thiserror::Error, Debug)]
+/// Error type for the Load Network storage provider.
+pub enum LoadNetworkStorageProviderError {
+    /// Error type for reqwest errors.
+    #[error("request error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    /// Error type for Url parsing errors.
+    #[error("url parse error: {0}")]
+    UrlParse(#[from] url::ParseError),
+    /// Error type for environment variable errors.
+    #[error("environment variable error: {0}")]
+    EnvVar(#[from] VarError),
+    /// Error type for other errors.
+    #[error("other error: {0}")]
+    Other(#[from] anyhow::Error),
+}
+
+const LOAD0_ENDPOINT: &str = "https://load0.network/";
+
+impl LoadNetworkStorageProvider {
+    /// Creates a new Load Network storage provider from the environment variables.
+    pub async fn from_env() -> Result<Self, LoadNetworkStorageProviderError> {
+        let endpoint = std::env::var("LOAD0_ENDPOINT")
+            .unwrap_or_else(|_| LOAD0_ENDPOINT.to_string());
+        
+        let api_key = std::env::var("LOAD0_API_KEY").ok();
+        let endpoint = Url::parse(&endpoint)?;
+        
+        Ok(Self {
+            client: reqwest::Client::new(),
+            load0_endpoint: endpoint,
+            load0_api_key: api_key,
+        })
+    }
+    /// Creates a new Pinata storage provider from the given configuration.
+    pub async fn from_config(config: &StorageProviderConfig) -> Result<Self, LoadNetworkStorageProviderError> {
+        Ok(Self {
+            client: reqwest::Client::new(),
+            load0_endpoint: config.load0_endpoint.clone()
+                .unwrap_or_else(|| Url::parse(LOAD0_ENDPOINT).unwrap()),
+            load0_api_key: config.load0_api_key.clone(),
+        })
+    }
+
+    async fn upload(&self, data: impl AsRef<[u8]>, filename: &str) -> Result<Url, LoadNetworkStorageProviderError> {
+        let form = Form::new().part(
+            "file",
+            Part::bytes(data.as_ref().to_vec())
+                .file_name(filename.to_string())
+                .mime_str("application/octet-stream")?,
+        );
+
+        let mut request = self.client
+            .post(self.load0_endpoint.clone().join("upload").unwrap())
+            .multipart(form);
+
+        if let Some(api_key) = &self.load0_api_key {
+            request = request.header("X-Load-Authorization", api_key).header("content-type", "application/octet-stream");
+        }
+
+        let response = request.send().await?;
+        let response = response.error_for_status()?;
+        
+        let json: serde_json::Value = response.json().await?;
+        let optimistic_hash = json.get("optimistic_hash")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("op hash missing in response"))?;
+
+        Ok(self.load0_endpoint.join(&format!("download/{}", optimistic_hash))?)
+
+    }
+}
+
+#[async_trait]
+impl StorageProvider for LoadNetworkStorageProvider {
+    type Error = LoadNetworkStorageProviderError;
+
+    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
+        let image_id = risc0_zkvm::compute_image_id(elf)?;
+        let filename = format!("{}.elf", image_id);
+        self.upload(elf, &filename).await
+    }
+
+    async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
+        let digest = Sha256::digest(input);
+        let filename = format!("{}.input", hex::encode(digest.as_slice()));
+        self.upload(input, &filename).await
+    }
+}
+
+/// Storage provider that uploads ELFs and inputs to IPFS via Pinata.
 #[derive(Clone, Debug)]
 pub struct PinataStorageProvider {
     client: reqwest::Client,
@@ -788,4 +912,19 @@ mod tests {
         let content = response.bytes().await.unwrap();
         assert_eq!(&content[..], input_data);
     }
+
+    #[tokio::test]
+    async fn test_load_network_storage_provider() {
+        let provider = LoadNetworkStorageProvider::from_env().await.unwrap();
+
+        let image_data = guest_util::ECHO_ELF;
+        let input_data = b"test input data for load0";
+
+        let image_url = provider.upload_image(image_data).await.unwrap();
+        let input_url = provider.upload_input(input_data).await.unwrap();
+
+        println!("Image URL: {}", image_url);
+        println!("Input URL: {}", input_url);
+    }
+
 }
