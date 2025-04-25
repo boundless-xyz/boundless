@@ -2649,7 +2649,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         vm.warp(request.offer.deadline() + 1);
 
-        // Slash the original prover that locked and didnt deliver
+        // Slash the original prover that locked and didn't deliver
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.ProverSlashed(
             request.id,
