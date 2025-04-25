@@ -113,7 +113,7 @@ where
                 // Needs update, lock next update value to avoid unnecessary notifications.
                 let mut next_update = self_clone.next_update.write().await;
 
-                // Get the lastest block and gas price.
+                // Get the latest block and gas price.
                 let (block_res, gas_price_res) = tokio::join!(
                     self_clone.provider.get_block_by_number(BlockNumberOrTag::Latest),
                     self_clone.provider.get_gas_price()
