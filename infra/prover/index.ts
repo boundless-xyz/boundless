@@ -78,7 +78,7 @@ export = () => {
   });
 
   // EFS
-  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs`, {
+  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev2`, {
     encrypted: true,
     tags: {
       Name: serviceName,
@@ -348,7 +348,7 @@ export = () => {
         ],
         environment: [
           { name: 'NO_COLOR', value: '1' },
-          { name: 'RUST_LOG', value: 'broker=debug,boundless_market=debug' },
+          { name: 'RUST_LOG', value: 'broker=debug,boundless_market=debug,broker::order_picker=trace' },
           { name: 'RUST_BACKTRACE', value: '1' },
           { name: 'BONSAI_API_URL', value: bonsaiApiUrl },
           { name: 'BUCKET', value: brokerS3BucketName }
