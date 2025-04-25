@@ -1,6 +1,6 @@
 # Onboarding for development deployments
 
-This is a one time setup that enables you to deploy applications to a development AWS accout for testing.
+This is a one time setup that enables you to deploy applications to a development AWS account for testing.
 This bootstraps the account with your personal VPC.
 
 1. `cd infra/bootstrap`
