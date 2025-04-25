@@ -335,7 +335,7 @@ pub struct AppState {
     config: Config,
     /// chain_id
     chain_id: u64,
-    /// Cancelation tokens set when a graceful shutdown is triggered
+    /// Cancellation tokens set when a graceful shutdown is triggered
     shutdown: CancellationToken,
 }
 
