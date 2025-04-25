@@ -58,7 +58,8 @@ pub struct MarketConf {
     pub mcycle_price_stake_token: String,
     /// Assumption price (in native token)
     ///
-    /// UNUSED CURRENTLY
+    /// DEPRECATED
+    #[deprecated]
     pub assumption_price: Option<String>,
     /// Optional max cycles (in mcycles)
     ///
