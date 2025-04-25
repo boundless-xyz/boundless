@@ -88,9 +88,11 @@ A Broker needs a [Bento](/provers/proving-stack#what-is-bento) instance to opera
 
 To check Bento is running correctly, you can send a sample proof workload:
 
+> Before running this, [install Bento CLI](/provers/quick-start#bento-cli-installation)
+
 ```sh [Terminal]
 # In the bento directory
-RUST_LOG=info cargo run --bin bento_cli -- -c 32
+RUST_LOG=info bento_cli -c 32
 ```
 
 ```txt [Terminal]
