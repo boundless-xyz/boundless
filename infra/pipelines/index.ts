@@ -37,7 +37,7 @@ const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
 // Defines the KMS key used to encrypt and decrypt secrets. 
 // Currently, developers logged in as Admin in the Boundless Dev account can encrypt and decrypt secrets.
 // TODO: Only deployment roles should be allowed to decrypt secrets.
-// Staging and prod deployement roles are the only accounts allowed to decrypt secrets.
+// Staging and prod deployment roles are the only accounts allowed to decrypt secrets.
 const pulumiSecrets = new PulumiSecrets("pulumiSecrets", {
   accountId: BOUNDLESS_OPS_ACCOUNT_ID,
   encryptKmsKeyArns: [
@@ -59,7 +59,7 @@ const githubConnection = new aws.codestarconnections.Connection("boundlessGithub
   providerType: "GitHub",
 });
 
-// Resouces that are shared between all deployment pipelines like IAM roles, S3 artifact buckets, etc.
+// Resources that are shared between all deployment pipelines like IAM roles, S3 artifact buckets, etc.
 const codePipelineSharedResources = new CodePipelineSharedResources("codePipelineShared", {
   accountId: BOUNDLESS_OPS_ACCOUNT_ID,
   serviceAccountDeploymentRoleArns: [
