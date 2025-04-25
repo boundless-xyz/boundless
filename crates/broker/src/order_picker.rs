@@ -865,7 +865,7 @@ where
                         // Queue up orders that can be added to capacity.
                         let order_size = capacity.request_size(pricing_tasks.len());
 
-                        tracing::trace!("Spawing {} pricing tasks - {} tasks already running", order_size, pricing_tasks.len());
+                        tracing::trace!("Spawning {} pricing tasks - {} tasks already running", order_size, pricing_tasks.len());
                         picker_copy
                             .spawn_pricing_tasks(&mut pricing_tasks, order_size)
                             .await
