@@ -155,7 +155,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       };
     }
 
-    // Protect the load balancer so it doesn't get deleted if the stack is accidently modified/deleted
+    // Protect the load balancer so it doesn't get deleted if the stack is accidentally modified/deleted
     // Important as the A record of this resource is tied to DNS.
     const loadbalancer = new awsx.lb.ApplicationLoadBalancer(`${serviceName}-lb`, {
       name: `${serviceName}-lb`,
