@@ -52,9 +52,16 @@ mod defaults {
 #[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct MarketConf {
-    /// Mega Cycle price (in native token)
+    /// Mega-cycle price, denominated in the native token (e.g. ETH).
+    ///
+    /// This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
+    /// execution took, as calculated by running the request in preflight. This is one of the inputs to
+    /// decide the minimum price to accept for a request.
     pub mcycle_price: String,
-    /// Mega Cycle price (in staking token)
+    /// Mega-cycle price, denominated in the Boundless staking token.
+    ///
+    /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
+    /// order when paid in staking tokens, as is the case for orders with an expired lock.
     pub mcycle_price_stake_token: String,
     /// Assumption price (in native token)
     ///
@@ -65,72 +72,86 @@ pub struct MarketConf {
     ///
     /// Orders over this max_cycles will be skipped after preflight
     pub max_mcycle_limit: Option<u64>,
-    /// Max journal bytes
+    /// Max journal size in bytes
     ///
-    /// Orders that produce a journal larger than this size in preflight will be skipped
+    /// Orders that produce a journal larger than this size in preflight will be skipped. Since journals
+    /// must be posted onchain to complete an order, an excessively large journal may prevent completion
+    /// of a request.
     #[serde(default = "defaults::max_journal_bytes")]
     pub max_journal_bytes: usize,
-    /// Peak single proof performance in kHz
+    /// Estimated peak performance of the proving cluster, in kHz.
     ///
-    /// Used for sanity checking bids to prevent slashing
+    /// Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
+    /// can be derived from benchmarking using Bento CLI or from data based on fulfilling market orders.
     pub peak_prove_khz: Option<u64>,
-    /// Min seconds left before the deadline allowed to consider bidding on the proof
+    /// Min seconds left before the deadline to consider bidding on a request.
+    ///
+    /// If there is not enough time left before the deadline, the prover may not be able to complete
+    /// proving of the request and finalize the batch for publishing before expiration.
     pub min_deadline: u64,
-    /// Order lookback blocks
-    ///
-    /// On startup the number of blocks to look back for possible open orders
+    /// On startup, the number of blocks to look back for possible open orders.
     pub lookback_blocks: u64,
-    /// Max stake amount, in (native token)
-    pub max_stake: String,
-    /// ImageID's that skip preflight
-    pub skip_preflight_ids: Option<Vec<B256>>,
-    /// Optional allow list for customer address
+    /// Max stake amount, denominated in the Boundless staking token.
     ///
-    /// If enabled, all proof orders not in the allow list are skipped
+    /// Requests that require a higher stake than this will not be considered.
+    pub max_stake: String,
+    /// Optional list of image IDs for which preflight should be skipped.
+    pub skip_preflight_ids: Option<Vec<B256>>,
+    /// Optional allow list for customer address.
+    ///
+    /// If enabled, all requests from clients not in the allow list are skipped.
     pub allow_client_addresses: Option<Vec<Address>>,
-    /// lockinRequest priority gas
+    /// lockRequest priority gas
     ///
     /// Optional additional gas to add to the transaction for lockinRequest, good
     /// for increasing the priority if competing with multiple provers during the
     /// same block
     pub lockin_priority_gas: Option<u64>,
-    /// Max input / image file size allowed for downloading from request URLs
+    /// Max input / image file size allowed for downloading from request URLs.
     pub max_file_size: usize,
     /// Max retries for fetching input / image contents from URLs
     pub max_fetch_retries: Option<u8>,
-    /// Gas estimate for lockin call.
+    /// Gas estimate for lockin call
     ///
-    /// Used for estimating the gas costs associated with an order during pricing.
+    /// Used for estimating the gas costs associated with an order during pricing. If not set a
+    /// conservative default will be used.
     #[serde(default = "defaults::lockin_gas_estimate")]
     pub lockin_gas_estimate: u64,
-    /// Gas estimate for fulfill call.
+    /// Gas estimate for fulfill call
     ///
-    /// Used for estimating the gas costs associated with an order during pricing.
+    /// Used for estimating the gas costs associated with an order during pricing. If not set a
+    /// conservative default will be used.
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
-    /// Gas estimate for proof verification using the RiscZeroGroth16Verifier.
+    /// Gas estimate for proof verification using the RiscZeroGroth16Verifier
     ///
-    /// Used for estimating the gas costs associated with an order during pricing.
+    /// Used for estimating the gas costs associated with an order during pricing. If not set a
+    /// conservative default will be used.
     #[serde(default = "defaults::groth16_verify_gas_estimate")]
     pub groth16_verify_gas_estimate: u64,
-    /// Balance warning threshold (in native token)
-    /// if the submitter balance drops below this the broker will issue warning logs
+    /// Optional balance warning threshold (in native token)
+    ///
+    /// If the submitter balance drops below this the broker will issue warning logs
     pub balance_warn_threshold: Option<String>,
-    /// Balance warning threshold (in native token)
-    /// if the submitter balance drops below this the broker will issue error logs
+    /// Optional balance error threshold (in native token)
+    ///
+    /// If the submitter balance drops below this the broker will issue error logs
     pub balance_error_threshold: Option<String>,
-    /// Stake balance warning threshold (in stake tokens)
-    /// if the stake balance drops below this the broker will issue warning logs
+    /// Optional stake balance warning threshold (in stake tokens)
+    ///
+    /// If the stake balance drops below this the broker will issue warning logs
     pub stake_balance_warn_threshold: Option<String>,
-    /// Stake balance error threshold (in stake tokens)
-    /// if the stake balance drops below this the broker will issue error logs
+    /// Optional stake balance error threshold (in stake tokens)
+    ///
+    /// If the stake balance drops below this the broker will issue error logs
     pub stake_balance_error_threshold: Option<String>,
     /// Max concurrent locks
     ///
-    /// Maximum number of concurrent lockin requests that can be processed at once
+    /// Maximum number of concurrent locked requests that the prover will allow.
     pub max_concurrent_locks: Option<u32>,
     /// Optional cache directory for storing downloaded images and inputs
-    /// if not set, files will be re-downloaded every time
+    ///
+    /// If not set, files will be re-downloaded every time
     pub cache_dir: Option<PathBuf>,
 }
 
@@ -167,16 +188,17 @@ impl Default for MarketConf {
 /// All configuration related to prover (bonsai / Bento) mechanics
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProverConf {
-    /// Number of retries to poll for proving status. Provides a little durability
-    /// for transient failures.
+    /// Number of retries to poll for proving status.
+    ///
+    /// Provides a little durability for transient failures.
     pub status_poll_retry_count: u64,
     /// Polling interval to monitor proving status (in millisecs)
     pub status_poll_ms: u64,
-    /// Optional config, if using bonsai set the zkvm version here
+    /// Optional config, if using bonsai set the zkVM version here
     pub bonsai_r0_zkvm_ver: Option<String>,
     /// Number of retries to query a prover backend for on failures.
-    /// Used for API requests to a prover backend, creating sessions,
-    /// preflighting, uploading images, etc.
+    ///
+    /// Used for API requests to a prover backend, creating sessions, preflighting, uploading images, etc.
     /// Provides a little durability for transient failures.
     pub req_retry_count: u64,
     /// Number of milliseconds to sleep between retries.
@@ -198,6 +220,8 @@ pub struct ProverConf {
     pub assessor_set_guest_path: Option<PathBuf>,
     /// Max critical task retries on recoverable failures.
     ///
+    /// The broker service has a number of subtasks. Some are considered critical. If a task fails, it
+    /// will be retried, but after this number of retries, the process will exit.
     /// None indicates there are infinite number of retries.
     pub max_critical_task_retries: Option<u32>,
 }
@@ -241,10 +265,11 @@ pub struct BatcherConfig {
     pub txn_timeout: Option<u64>,
     /// Polling time, in milliseconds
     ///
-    /// The time between polls for new orders to aggregate and how often to check for
-    /// batch finalize conditions
+    /// The time between polls for new orders to aggregate and how often to check for batch finalize
+    /// conditions
     pub batch_poll_time_ms: Option<u64>,
     /// Use the single TXN submission that batches submit_merkle / fulfill_batch into
+    ///
     /// A single transaction. Requires the `submitRootAndFulfillBatch` method
     /// be present on the deployed contract
     #[serde(default)]
