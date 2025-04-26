@@ -148,7 +148,7 @@ txn_timeout = 45
 single_txn_fulfill = true
 # Polling time, in milliseconds
 #
-# The time between polls for new orders to aggregate and how often to check forbatch finalize
+# The time between polls for new orders to aggregate and how often to check for batch finalize
 # conditions
 #batch_poll_time_ms = 500
 # Max combined journal size (in bytes) that once exceeded will trigger a publish
