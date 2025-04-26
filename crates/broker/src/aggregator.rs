@@ -656,6 +656,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -701,6 +703,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -812,6 +816,8 @@ mod tests {
             request: order_request,
             boundless_market_address: Address::ZERO,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -872,6 +878,8 @@ mod tests {
             request: order_request,
             boundless_market_address: Address::ZERO,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -979,6 +987,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -1089,6 +1099,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
         db.add_order(order.clone()).await.unwrap();
 
@@ -1207,6 +1219,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
 
         // add first order and aggregate
@@ -1243,6 +1257,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
 
         db.add_order(order2.clone()).await.unwrap();

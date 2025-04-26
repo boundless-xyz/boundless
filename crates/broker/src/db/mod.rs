@@ -90,12 +90,14 @@ pub trait BrokerDb {
         id: &str,
         lock_timestamp: u64,
         expire_timestamp: u64,
+        total_cycles: Option<u64>,
     ) -> Result<(), DbError>;
     async fn set_order_fulfill_after_lock_expire(
         &self,
         id: &str,
         lock_expire_timestamp: u64,
         expire_timestamp: u64,
+        total_cycles: Option<u64>,
     ) -> Result<(), DbError>;
     async fn set_proving_status_lock_and_fulfill_orders(
         &self,
@@ -118,8 +120,8 @@ pub trait BrokerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
     async fn get_pending_lock_orders(&self, end_timestamp: u64) -> Result<Vec<Order>, DbError>;
-    /// Get all orders that are committed to be fulfilled, including those that have been selected
-    /// to lock or are locked and are not yet fulfilled.
+    async fn get_pending_fulfill_orders(&self, end_timestamp: u64) -> Result<Vec<Order>, DbError>;
+    /// Get all orders that are committed to be prove and be fulfilled.
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
     async fn get_proving_order(&self) -> Result<Option<Order>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<Order>, DbError>;
@@ -158,6 +160,8 @@ pub trait BrokerDb {
     ) -> Result<(), DbError>;
     // Checks the locked table for the given request_id
     async fn is_request_locked(&self, request_id: U256) -> Result<bool, DbError>;
+    // Checks the locked table for the given request_id
+    async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError>;
     /// Update a batch with the results of an aggregation step.
     ///
     /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
@@ -239,6 +243,14 @@ struct DbBatch {
     id: i64,
     #[sqlx(json)]
     data: Batch,
+}
+
+#[derive(sqlx::FromRow)]
+struct DbLockedRequest {
+    #[allow(dead_code)]
+    id: String,
+    locker: String,
+    block_number: u64,
 }
 
 #[async_trait]
@@ -355,6 +367,7 @@ impl BrokerDb for SqliteDb {
         id: &str,
         lock_timestamp: u64,
         expire_timestamp: u64,
+        total_cycles: Option<u64>,
     ) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
@@ -362,13 +375,15 @@ impl BrokerDb for SqliteDb {
             SET data = json_set(
                        json_set(
                        json_set(
+                       json_set(
                        json_set(data,
                        '$.status', $1),
                        '$.target_timestamp', $2),
                        '$.expire_timestamp', $3),
-                       '$.updated_at', $4)
+                       '$.updated_at', $4),
+                       '$.total_cycles', $5)
             WHERE
-                id = $5"#,
+                id = $6"#,
         )
         .bind(OrderStatus::WaitingToLock)
         // TODO: can we work out how to correctly
@@ -383,6 +398,10 @@ impl BrokerDb for SqliteDb {
                 .map_err(|_| DbError::BadBlockNumb(expire_timestamp.to_string()))?,
         )
         .bind(Utc::now().timestamp())
+        .bind(
+            i64::try_from(total_cycles.unwrap_or(0))
+                .map_err(|_| DbError::BadBlockNumb(expire_timestamp.to_string()))?,
+        )
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -400,20 +419,24 @@ impl BrokerDb for SqliteDb {
         id: &str,
         lock_expire_timestamp: u64,
         expire_timestamp: u64,
+        total_cycles: Option<u64>,
     ) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
-            SET data = json_set(
+            SET data = 
+                       json_set(
+                       json_set(
                        json_set(
                        json_set(
                        json_set(data,
                        '$.status', $1),
                        '$.target_timestamp', $2),
                        '$.expire_timestamp', $3),
-                       '$.updated_at', $4)
+                       '$.updated_at', $4),
+                       '$.total_cycles', $5)
             WHERE
-                id = $5"#,
+                id = $6"#,
         )
         .bind(OrderStatus::WaitingForLockToExpire)
         .bind(
@@ -425,6 +448,10 @@ impl BrokerDb for SqliteDb {
                 .map_err(|_| DbError::BadBlockNumb(expire_timestamp.to_string()))?,
         )
         .bind(Utc::now().timestamp())
+        .bind(
+            i64::try_from(total_cycles.unwrap_or(0))
+                .map_err(|_| DbError::BadBlockNumb(expire_timestamp.to_string()))?,
+        )
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -443,21 +470,25 @@ impl BrokerDb for SqliteDb {
         id: &str,
         lock_price: U256,
     ) -> Result<(), DbError> {
+        let now = Utc::now().timestamp();
         let res = sqlx::query(
             r#"
             UPDATE orders
             SET data = json_set(
                        json_set(
+                       json_set(
                        json_set(data,
                        '$.status', $1),
                        '$.updated_at', $2),
-                       '$.lock_price', $3)
+                       '$.lock_price', $3),
+                       '$.proving_started_at', $4)
             WHERE
-                id = $4"#,
+                id = $5"#,
         )
         .bind(OrderStatus::PendingProving)
-        .bind(Utc::now().timestamp())
+        .bind(now)
         .bind(lock_price.to_string())
+        .bind(now)
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -492,22 +523,26 @@ impl BrokerDb for SqliteDb {
         &self,
         id: &str,
     ) -> Result<(), DbError> {
+        let now = Utc::now().timestamp();
         let res = sqlx::query(
             r#"
             UPDATE orders
             SET data = json_set(
                        json_set(
+                       json_set(
                        json_set(data,
                        '$.status', $1),
                        '$.updated_at', $2),
-                       '$.lock_price', $3)
+                       '$.lock_price', $3),
+                       '$.proving_started_at', $4)
             WHERE
-                id = $4
+                id = $5
             "#,
         )
         .bind(OrderStatus::PendingProving)
-        .bind(Utc::now().timestamp())
+        .bind(now)
         .bind(U256::ZERO.to_string())
+        .bind(now)
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -669,11 +704,31 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
+    async fn get_pending_fulfill_orders(&self, end_timestamp: u64) -> Result<Vec<Order>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7, $8) AND data->>'target_timestamp' <= $9",
+        )
+        .bind(OrderStatus::WaitingToLock)
+        .bind(OrderStatus::WaitingForLockToExpire)
+        .bind(OrderStatus::PendingProving)
+        .bind(OrderStatus::Proving)
+        .bind(OrderStatus::PendingAgg)
+        .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::PendingSubmission)
+        .bind(end_timestamp as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Break if any order-id's are invalid and raise
+        orders.into_iter().map(|elm| Ok(elm.data)).collect()
+    }
+
+    #[instrument(level = "trace", skip_all)]
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
-            "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7, $8)",
+            "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(OrderStatus::WaitingForLockToExpire)
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
@@ -1245,6 +1300,17 @@ impl BrokerDb for SqliteDb {
         Ok(res.is_some())
     }
 
+    #[instrument(level = "trace", skip(self))]
+    async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError> {
+        let res: Option<DbLockedRequest> =
+            sqlx::query_as(r#"SELECT * FROM locked_requests WHERE id = $1"#)
+                .bind(format!("0x{:x}", request_id))
+                .fetch_optional(&self.pool)
+                .await?;
+
+        Ok(res.map(|r| (r.locker, r.block_number)))
+    }
+
     #[cfg(test)]
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError> {
         let res = sqlx::query("INSERT INTO batches (id, data) VALUES ($1, $2)")
@@ -1332,6 +1398,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id: 1,
+            total_cycles: None,
+            proving_started_at: None,
         }
     }
 
@@ -1471,7 +1539,7 @@ mod tests {
 
         let lock_timestamp = 10;
         let expire_timestamp = 20;
-        db.set_order_lock(&order.id(), lock_timestamp, expire_timestamp).await.unwrap();
+        db.set_order_lock(&order.id(), lock_timestamp, expire_timestamp, None).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::WaitingToLock);
@@ -1486,7 +1554,7 @@ mod tests {
         let order = create_order();
         db.add_order(order.clone()).await.unwrap();
         let bad_id = U256::from(10);
-        db.set_order_lock(&bad_id.to_string(), 1, 1).await.unwrap();
+        db.set_order_lock(&bad_id.to_string(), 1, 1, None).await.unwrap();
     }
 
     #[sqlx::test]
@@ -1496,7 +1564,7 @@ mod tests {
         db.add_order(order.clone()).await.unwrap();
         let lock_timestamp = 10;
         let expire_timestamp = 20;
-        db.set_order_fulfill_after_lock_expire(&order.id(), lock_timestamp, expire_timestamp)
+        db.set_order_fulfill_after_lock_expire(&order.id(), lock_timestamp, expire_timestamp, None)
             .await
             .unwrap();
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
@@ -1512,7 +1580,7 @@ mod tests {
         let order = create_order();
         db.add_order(order.clone()).await.unwrap();
         let bad_id = U256::from(10);
-        db.set_order_fulfill_after_lock_expire(&bad_id.to_string(), 1, 1).await.unwrap();
+        db.set_order_fulfill_after_lock_expire(&bad_id.to_string(), 1, 1, None).await.unwrap();
     }
 
     #[sqlx::test]

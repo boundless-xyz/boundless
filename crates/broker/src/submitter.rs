@@ -117,15 +117,6 @@ where
     }
 
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<()> {
-        // TODO: before submitting, check if the orders in the batch are still open
-        /**
-                 *
-                 * 2025-04-25T04:36:02.411225Z DEBUG boundless_market::contracts::boundless_market: raw alloy contract error: TransportError(ErrorResp(ErrorPayload { code: 3, message: "execution reverted", data: Some(RawValue("0x873fd26b0000000000000000d51001491df1c653d3ef8017cc9f8b5282fd81fbe5d4e43700000000000000000000000000000000000000000000000000000000680b10c2")) }))
-        2025-04-25T04:36:02.411268Z ERROR broker::submitter: Failed to submit proofs: Error(BoundlessMarket Err: RequestIsExpired(RequestIsExpired { requestId: 5224277779816806288715163938008125647533140948110854644791, deadline: 1745555650 })) for batch 2
-        2025-04-25T04:36:02.411628Z  WARN broker::submitter: Batch submission attempt 1/3 failed. Error: transaction to fulfill batch failed
-                 *
-                 *
-                 */
         tracing::info!("Submitting batch {batch_id}");
 
         let Some(ref aggregation_state) = batch.aggregation_state else {
@@ -720,6 +711,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: market_address,
             chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
         let order_id = order.id();
         db.add_order(order.clone()).await.unwrap();

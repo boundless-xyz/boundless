@@ -191,8 +191,13 @@ struct Order {
     /// Last update time
     #[serde(with = "ts_seconds")]
     updated_at: DateTime<Utc>,
+    /// Total cycles
+    /// Populated after initial pricing in order picker
+    total_cycles: Option<u64>,
     /// Locking status target UNIX timestamp
     target_timestamp: Option<u64>,
+    /// When proving was commenced at
+    proving_started_at: Option<u64>,
     /// Prover image Id
     ///
     /// Populated after preflight
@@ -245,6 +250,8 @@ impl Order {
             lock_price: None,
             fulfillment_type,
             error_msg: None,
+            total_cycles: None,
+            proving_started_at: None,
         }
     }
 
@@ -735,7 +742,7 @@ pub mod test_utils {
         P: Provider<Ethereum> + 'static + Clone + WalletProvider,
     {
         pub async fn new_test(ctx: &TestCtx<P>, rpc_url: Url) -> Self {
-            let config_file = NamedTempFile::new().unwrap();
+            let config_file: NamedTempFile = NamedTempFile::new().unwrap();
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());

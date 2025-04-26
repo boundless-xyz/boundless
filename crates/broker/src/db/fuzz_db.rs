@@ -116,6 +116,8 @@ fn generate_test_order(request_id: u32) -> Order {
         error_msg: None,
         boundless_market_address: Address::ZERO,
         chain_id: 1,
+        total_cycles: None,
+        proving_started_at: None,
     }
 }
 
@@ -196,7 +198,7 @@ proptest! {
                                         db.get_order(id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderLock { lock_timestamp, expire_timestamp } => {
-                                        db.set_order_lock(id, lock_timestamp as u64, expire_timestamp as u64).await.unwrap();
+                                        db.set_order_lock(id, lock_timestamp as u64, expire_timestamp as u64, None).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetProvingStatus { lock_price } => {
                                         db.set_proving_status_lock_and_fulfill_orders(id, U256::from(lock_price)).await.unwrap();

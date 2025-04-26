@@ -10,7 +10,7 @@ use crate::{
     db::DbObj,
     provers::{ProverError, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    FulfillmentType, Order, OrderStatus,
+    FulfillmentType, Order,
 };
 use crate::{now_timestamp, provers::ProofResult};
 use alloy::{
@@ -66,8 +66,6 @@ pub struct OrderPicker<P> {
     chain_monitor: Arc<ChainMonitorService<P>>,
     market: BoundlessMarketService<Arc<P>>,
     supported_selectors: SupportedSelectors,
-    // Tracks the timestamp when the prover estimates it will complete the locked orders.
-    prover_available_at: Arc<tokio::sync::Mutex<u64>>,
 }
 
 #[derive(Debug)]
@@ -75,12 +73,14 @@ pub struct OrderPicker<P> {
 enum OrderPricingOutcome {
     // Order should be locked and proving commence after lock is secured
     Lock {
+        total_cycles: Option<u64>,
         target_timestamp_secs: u64,
         // TODO handle checking what time the lock should occur before, when estimating proving time.
         expiry_secs: u64,
     },
     // Do not lock the order, but consider proving and fulfilling it after the lock expires
     ProveAfterLockExpire {
+        total_cycles: Option<u64>,
         lock_expire_timestamp_secs: u64,
         expiry_secs: u64,
     },
@@ -113,7 +113,6 @@ where
             chain_monitor,
             market,
             supported_selectors: SupportedSelectors::default(),
-            prover_available_at: Arc::new(tokio::sync::Mutex::new(now_timestamp())),
         }
     }
 
@@ -121,21 +120,31 @@ where
         let f = || async {
             let request_id = order.request.id;
             match self.price_order(order).await {
-                Ok(Lock { target_timestamp_secs, expiry_secs }) => {
-                    tracing::debug!("Locking order with request id {request_id:x}");
+                Ok(Lock { total_cycles, target_timestamp_secs, expiry_secs }) => {
+                    tracing::debug!("Setting order with request id {request_id:x} to lock at {target_timestamp_secs}");
                     self.db
-                        .set_order_lock(&order.id(), target_timestamp_secs, expiry_secs)
+                        .set_order_lock(
+                            &order.id(),
+                            target_timestamp_secs,
+                            expiry_secs,
+                            total_cycles,
+                        )
                         .await
                         .context("Failed to set_order_lock")?;
                     Ok::<_, PriceOrderErr>(true)
                 }
-                Ok(ProveAfterLockExpire { lock_expire_timestamp_secs, expiry_secs }) => {
+                Ok(ProveAfterLockExpire {
+                    total_cycles,
+                    lock_expire_timestamp_secs,
+                    expiry_secs,
+                }) => {
                     tracing::debug!("Setting order with request id {request_id:x} to prove after lock expiry at {lock_expire_timestamp_secs}");
                     self.db
                         .set_order_fulfill_after_lock_expire(
                             &order.id(),
                             lock_expire_timestamp_secs,
                             expiry_secs,
+                            total_cycles,
                         )
                         .await
                         .context("Failed to set_order_fulfill_after_lock_expire")?;
@@ -287,7 +296,7 @@ where
             return Ok(Skip);
         }
 
-        let (skip_preflight, peak_prove_khz, max_mcycle_limit) = {
+        let (skip_preflight, max_mcycle_limit) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             let skip_preflight =
                 if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
@@ -296,18 +305,23 @@ where
                     false
                 };
 
-            (skip_preflight, config.market.peak_prove_khz, config.market.max_mcycle_limit)
+            (skip_preflight, config.market.max_mcycle_limit)
         };
 
         // If we skip preflight we lock the order asap, or schedule it to be proven after the lock expires asap
         if skip_preflight {
             if lock_expired {
                 return Ok(ProveAfterLockExpire {
+                    total_cycles: None,
                     lock_expire_timestamp_secs: lock_expiration,
                     expiry_secs: order_expiration,
                 });
             } else {
-                return Ok(Lock { target_timestamp_secs: 0, expiry_secs: expiration });
+                return Ok(Lock {
+                    total_cycles: None,
+                    target_timestamp_secs: 0,
+                    expiry_secs: expiration,
+                });
             }
         }
 
@@ -444,52 +458,7 @@ where
             return Ok(Skip);
         }
 
-        // Check if the order can be completed before its deadline
-        if let Some(peak_prove_khz) = peak_prove_khz {
-            // TODO: this is a naive solution for the following reasons:
-            // 1. Time estimate based on `peak_prove_khz`, which may not be the actual proving time
-            // 2. This doesn't take into account the aggregation proving time
-            // 3. Doesn't account for non-proving slop
-            // 4. Assumes proofs are prioritized by order of scheduling, and may be cases where a
-            //    previously locked order cannot complete within the deadline if more orders locked.
-            // So if using, a conservative peak_prove_khz should be used.
-
-            // Calculate how long this proof will take to complete in seconds, rounded up.
-            let proof_time_seconds =
-                (proof_res.stats.total_cycles.div_ceil(1_000)).div_ceil(peak_prove_khz);
-
-            // Get the current prover availability time
-            let mut prover_available = self.prover_available_at.lock().await;
-            let start_time = std::cmp::max(*prover_available, now);
-            let completion_time = start_time + proof_time_seconds;
-
-            if completion_time >= expiration {
-                drop(prover_available);
-                // Proof estimated that it cannot complete before the expiration
-                tracing::info!(
-                    "Order with request id {request_id:x} cannot be completed in time. Proof estimated to take {proof_time_seconds}s to complete, would be {}s past deadline",
-                    completion_time.saturating_sub(expiration)
-                );
-                return Ok(Skip);
-            }
-
-            *prover_available = completion_time;
-            drop(prover_available);
-            tracing::debug!(
-                "Order with request id {request_id:x} estimated to take {proof_time_seconds}s to prove"
-            );
-
-            let res = self.evaluate_order(order, &proof_res, order_gas_cost, lock_expired).await;
-            if let Err(e) = res {
-                // Failed to select order, decrement the reserved capacity.
-                let mut prover_available = self.prover_available_at.lock().await;
-                *prover_available = prover_available.saturating_sub(proof_time_seconds);
-                return Err(e);
-            }
-            res
-        } else {
-            self.evaluate_order(order, &proof_res, order_gas_cost, lock_expired).await
-        }
+        self.evaluate_order(order, &proof_res, order_gas_cost, lock_expired).await
     }
 
     async fn evaluate_order(
@@ -568,7 +537,11 @@ where
 
         let expiry_secs = order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
 
-        Ok(Lock { target_timestamp_secs, expiry_secs })
+        Ok(Lock {
+            total_cycles: Some(proof_res.stats.total_cycles),
+            target_timestamp_secs,
+            expiry_secs,
+        })
     }
 
     /// Evaluate if a lock expired order is worth picking based on how much of the slashed stake token we can recover
@@ -609,6 +582,7 @@ where
         }
 
         Ok(ProveAfterLockExpire {
+            total_cycles: Some(proof_res.stats.total_cycles),
             lock_expire_timestamp_secs: order.request.offer.biddingStart
                 + order.request.offer.lockTimeout as u64,
             expiry_secs: order.request.offer.biddingStart + order.request.offer.timeout as u64,
@@ -706,6 +680,7 @@ where
         let mut gas = 0;
         // NOTE: i64::max is the largest timestamp value possible in the DB.
         for order in self.db.get_pending_lock_orders(i64::MAX as u64).await?.iter() {
+            tracing::debug!("Estimating gas to lock order with id {}", order.id());
             gas += self.estimate_gas_to_lock(order).await?;
         }
         Ok(gas)
@@ -717,7 +692,8 @@ where
     // may not matter.
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         let mut gas = 0;
-        for order in self.db.get_committed_orders().await? {
+        for order in self.db.get_pending_fulfill_orders(i64::MAX as u64).await? {
+            tracing::debug!("Estimating gas to fulfill order with id {}", order.id());
             gas += self.estimate_gas_to_fulfill(&order).await?;
         }
         Ok(gas)
@@ -764,47 +740,6 @@ where
         Ok(balance - pending_balance)
     }
 
-    async fn get_pricing_order_capacity(&self) -> Result<Capacity> {
-        let max_concurrent_locks = {
-            let config = self.config.lock_all()?;
-            config.market.max_concurrent_locks
-        };
-
-        if let Some(max) = max_concurrent_locks {
-            let committed_orders = self.db.get_committed_orders().await?;
-            let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
-            let order_id_and_status = committed_orders
-                .iter()
-                .map(|order| {
-                    (
-                        hex::encode(order.request.id.to_be_bytes_trimmed_vec()),
-                        order.status,
-                        (if order.status == OrderStatus::WaitingToLock
-                            || order.status == OrderStatus::WaitingForLockToExpire
-                        {
-                            format!("Target: {}", order.target_timestamp.unwrap())
-                        } else {
-                            "".to_string()
-                        }),
-                    )
-                })
-                .collect::<Vec<_>>();
-
-            // todo only print on diff
-            tracing::debug!(
-                "Committed orders count: {committed_orders_count}. Maximum concurrent locks: {max}. Committed orders: {order_id_and_status:?}"
-            );
-            let available_slots = max.saturating_sub(committed_orders_count);
-            if committed_orders_count == 0 {
-                Ok(Capacity::Idle(available_slots))
-            } else {
-                Ok(Capacity::PartiallyLocked(available_slots))
-            }
-        } else {
-            Ok(Capacity::Unlimited)
-        }
-    }
-
     async fn spawn_pricing_tasks(&self, tasks: &mut JoinSet<bool>, capacity: u32) -> Result<()> {
         let order_res = self.db.update_orders_for_pricing(capacity).await?;
         tracing::debug!(
@@ -821,38 +756,6 @@ where
     }
 }
 
-/// The capacity of the order picker, if there is a limit on the number of concurrent locks.
-#[derive(Debug, PartialEq)]
-enum Capacity {
-    /// There are no pending or currently locked orders.
-    Idle(u32),
-    /// There are orders that are picked to be locked but not fulfilled yet.
-    PartiallyLocked(u32),
-    /// There is no concurrent lock limit.
-    Unlimited,
-}
-
-impl Capacity {
-    /// Returns the number of orders to request from the DB to price. Capped at
-    /// [MAX_PRICING_BATCH_SIZE] to limit pricing tasks spawned.
-    fn request_size(&self, pricing_tasks: usize) -> u32 {
-        match self {
-            Capacity::Idle(capacity) | Capacity::PartiallyLocked(capacity) => std::cmp::min(
-                capacity.saturating_sub(u32::try_from(pricing_tasks).expect("tasks u32 overflow")),
-                MAX_PRICING_BATCH_SIZE,
-            ),
-            Capacity::Unlimited => MAX_PRICING_BATCH_SIZE,
-        }
-    }
-    fn increment_locked_order(&mut self) {
-        match self {
-            Capacity::Idle(capacity) | Capacity::PartiallyLocked(capacity) => {
-                *self = Capacity::PartiallyLocked(capacity.saturating_sub(1))
-            }
-            Capacity::Unlimited => (),
-        }
-    }
-}
 impl<P> RetryTask for OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -868,52 +771,19 @@ where
             // Use JoinSet to track active pricing tasks
             let mut pricing_tasks = JoinSet::new();
 
-            // Set capacity at 0, to ensure the capacity is read before scheduling orders.
-            // Assume orders are partially locked until read from DB.
-            let mut capacity = Capacity::PartiallyLocked(0u32);
-
-            // Check for config updates and current lock count periodically
-            let config_check_interval = tokio::time::Duration::from_secs(10);
-            let mut config_check_timer = tokio::time::interval(config_check_interval);
-
-            // 5 second interval with a 2.5 second delay so config is checked first,
-            // and that the requests are interleaved between config checks.
-            let pricing_check_interval = tokio::time::Duration::from_secs(5);
+            // 5 second interval between spawning pricing tasks.
             let mut pricing_check_timer = tokio::time::interval_at(
-                tokio::time::Instant::now() + tokio::time::Duration::from_millis(2500),
-                pricing_check_interval,
+                tokio::time::Instant::now(),
+                tokio::time::Duration::from_secs(5),
             );
 
             loop {
-                if matches!(capacity, Capacity::Idle(_)) && pricing_tasks.is_empty() {
-                    // All orders complete and no pricing tasks in flight, set the
-                    // prover available estimate to current time to ensure that the
-                    // broker does not wait idle.
-                    tracing::trace!(
-                        "No in progress orders, setting prover available to current time"
-                    );
-                    *picker_copy.prover_available_at.lock().await = now_timestamp();
-                }
                 tokio::select! {
-                    _ = config_check_timer.tick() => {
-                        // Get updated max concurrent locks and calculate capacity based on orders
-                        // that are locked but not fulfilled yet.
-                        tracing::trace!(
-                            "Updating capacity based on pending orders"
-                        );
-                        capacity = picker_copy
-                            .get_pricing_order_capacity()
-                            .await
-                            .map_err(SupervisorErr::Recover)?;
-
-                        tracing::trace!("Updated capacity to {capacity:?}");
-                    }
-
                     _ = pricing_check_timer.tick() => {
                         // Queue up orders that can be added to capacity.
-                        let order_size = capacity.request_size(pricing_tasks.len());
+                        let order_size = MAX_PRICING_BATCH_SIZE.saturating_sub(pricing_tasks.len() as u32);
                         tracing::trace!(
-                            "Current capacity: {capacity:?}, active pricing tasks: {pricing_tasks:?}. Spawning {order_size} pricing tasks"
+                            "Current active pricing tasks: {pricing_tasks:?}. Max possible: {MAX_PRICING_BATCH_SIZE}. Spawning {order_size} pricing tasks"
                         );
                         picker_copy
                             .spawn_pricing_tasks(&mut pricing_tasks, order_size)
@@ -928,10 +798,10 @@ where
                         );
                         match result {
                             Ok(true) => {
-                                capacity.increment_locked_order();
+                                // Order was priced successfully and will proceed to the next stage.
                             }
                             Ok(false) => {
-                                // Order was not selected for locking.
+                                // Order was not priced successfully and will be skipped.
                             }
                             Err(e) => {
                                 return Err(SupervisorErr::Recover(anyhow::anyhow!("Pricing task failed: {e}")));
@@ -1050,6 +920,8 @@ mod tests {
                 error_msg: None,
                 boundless_market_address: boundless_market_address.clone(),
                 chain_id,
+                total_cycles: None,
+                proving_started_at: None,
             }
         }
     }
@@ -1606,8 +1478,8 @@ mod tests {
 
         let order = ctx.generate_next_order(Default::default()).await;
         ctx.db.add_order(order.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(&order).await;
-        assert!(locked);
+        let priced = ctx.picker.price_order_and_update_db(&order).await;
+        assert!(priced);
 
         let gas_price = ctx.provider.get_gas_price().await.unwrap();
         assert_eq!(
@@ -1688,174 +1560,6 @@ mod tests {
             OrderStatus::Skipped
         );
         assert!(logs_contain("journal larger than set limit"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn accept_order_that_completes_before_expiration() {
-        let config = ConfigLock::default();
-        {
-            let mut config_write = config.load_write().unwrap();
-            config_write.market.mcycle_price = "0.0000001".into();
-            config_write.market.peak_prove_khz = Some(1);
-            config_write.market.min_deadline = 0;
-        }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
-
-        let mut order = ctx.generate_next_order(Default::default()).await;
-
-        // Modify the order to have a longer expiration time
-        let current_time = now_timestamp();
-        order.request.offer.biddingStart = current_time;
-        order.request.offer.lockTimeout = 60;
-
-        let _request_id =
-            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
-
-        ctx.db.add_order(order.clone()).await.unwrap();
-
-        let locked = ctx.picker.price_order_and_update_db(&order).await;
-        assert!(locked);
-
-        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::WaitingToLock);
-
-        // Verify that the debug log contains the estimated proving time
-        assert!(logs_contain("estimated to take 4s to prove"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn orders_queue_up_completion_times() {
-        let config = ConfigLock::default();
-        {
-            let mut config_write = config.load_write().unwrap();
-            config_write.market.mcycle_price = "0.0000001".into();
-            config_write.market.peak_prove_khz = Some(1);
-            config_write.market.min_deadline = 0;
-        }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
-
-        // First order
-        let mut order1 = ctx.generate_next_order(Default::default()).await;
-        let current_time = now_timestamp();
-        order1.request.offer.biddingStart = current_time;
-        order1.request.offer.lockTimeout = 6;
-
-        ctx.db.add_order(order1.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(&order1).await;
-        assert!(locked);
-
-        // Second order will be rejected because it would finish after its deadline with first order
-        let mut order2 =
-            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
-
-        order2.request.offer.biddingStart = current_time;
-        order2.request.offer.lockTimeout = 6;
-
-        ctx.db.add_order(order2.clone()).await.unwrap();
-        let locked = ctx.picker.price_order_and_update_db(&order2).await;
-        assert!(!locked);
-
-        // Check results
-        assert_eq!(
-            ctx.db.get_order(&order1.id()).await.unwrap().unwrap().status,
-            OrderStatus::WaitingToLock
-        );
-        assert_eq!(
-            ctx.db.get_order(&order2.id()).await.unwrap().unwrap().status,
-            OrderStatus::Skipped
-        );
-
-        assert!(logs_contain("cannot be completed in time"));
-        assert!(logs_contain("Proof estimated to take 4s to complete"));
-        assert!(logs_contain("s past deadline"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn respects_max_concurrent_locks() {
-        let max_concurrent_locks = 2;
-        let config = ConfigLock::default();
-        {
-            let mut config_write = config.load_write().unwrap();
-            config_write.market.mcycle_price = "0.0000001".into();
-            config_write.market.max_concurrent_locks = Some(max_concurrent_locks);
-        }
-
-        let ctx = TestCtxBuilder::default()
-            .with_config(config)
-            .with_initial_hp(U256::from(1000))
-            .build()
-            .await;
-
-        let mut orders = vec![
-            ctx.generate_next_order(OrderParams {
-                order_index: 1,
-                lock_stake: U256::from(10),
-                ..Default::default()
-            })
-            .await,
-            ctx.generate_next_order(OrderParams {
-                order_index: 2,
-                lock_stake: U256::from(10),
-                ..Default::default()
-            })
-            .await,
-            ctx.generate_next_order(OrderParams {
-                order_index: 3,
-                lock_stake: U256::from(10),
-                ..Default::default()
-            })
-            .await,
-            ctx.generate_next_order(OrderParams {
-                order_index: 4,
-                lock_stake: U256::from(10),
-                ..Default::default()
-            })
-            .await,
-        ];
-
-        for order in &mut orders {
-            // By default, testing infrastructure sets generated orders to `Pricing`
-            order.status = OrderStatus::New;
-            ctx.db.add_order(order.clone()).await.unwrap();
-        }
-
-        let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
-        assert_eq!(capacity, Capacity::Idle(max_concurrent_locks));
-
-        let mut pricing_tasks = JoinSet::new();
-
-        let request_size = capacity.request_size(pricing_tasks.len());
-        assert_eq!(request_size, 2);
-        ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, request_size).await.unwrap();
-
-        // Verify only up to max_concurrent_locks are being priced
-        assert_eq!(pricing_tasks.len(), 2);
-
-        // Finish pricing an order and mark it as complete to free up capacity
-        let locked = pricing_tasks.join_next().await.unwrap().unwrap();
-        assert!(locked);
-        // Complete pricing other order, to ensure no race conditions in the test where db updated
-        // while task still exists in joinset
-        let locked = pricing_tasks.join_next().await.unwrap().unwrap();
-        assert!(locked);
-
-        // Set one of the in progress orders to complete to free up capacity
-        ctx.db.set_order_complete(&orders[0].id()).await.unwrap();
-
-        let capacity = ctx.picker.get_pricing_order_capacity().await.unwrap();
-        assert_eq!(capacity, Capacity::PartiallyLocked(1));
-        assert_eq!(pricing_tasks.len(), 0);
-
-        let request_size = capacity.request_size(pricing_tasks.len());
-        assert_eq!(request_size, 1);
-        ctx.picker.spawn_pricing_tasks(&mut pricing_tasks, request_size).await.unwrap();
-        assert_eq!(pricing_tasks.len(), 1);
-
-        let order = ctx.db.get_order(&orders[3].id()).await.unwrap().unwrap();
-        assert!(order.status == OrderStatus::New);
     }
 
     #[tokio::test]

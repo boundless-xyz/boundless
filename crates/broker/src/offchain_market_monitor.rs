@@ -2,10 +2,7 @@
 //
 // All rights reserved.
 
-use alloy::{
-    primitives::U256,
-    signers::{local::PrivateKeySigner, Signer},
-};
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use anyhow::Result;
 use boundless_market::order_stream_client::{order_stream, Client as OrderStreamClient};
 use futures_util::StreamExt;

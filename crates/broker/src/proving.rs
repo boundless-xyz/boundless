@@ -306,6 +306,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id: 1,
+            total_cycles: None,
+            proving_started_at: None,
         };
 
         db.add_order(order.clone()).await.unwrap();
@@ -377,6 +379,8 @@ mod tests {
             error_msg: None,
             boundless_market_address: Address::ZERO,
             chain_id: 1,
+            total_cycles: None,
+            proving_started_at: None,
         };
         db.add_order(order.clone()).await.unwrap();
 
