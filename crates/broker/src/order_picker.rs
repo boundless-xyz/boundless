@@ -121,7 +121,7 @@ where
             let request_id = order.request.id;
             match self.price_order(order).await {
                 Ok(Lock { total_cycles, target_timestamp_secs, expiry_secs }) => {
-                    tracing::debug!("Setting order with request id {request_id:x} to lock at {target_timestamp_secs}");
+                    tracing::info!("Setting order with request id {request_id:x} to lock at {target_timestamp_secs}");
                     self.db
                         .set_order_lock(
                             &order.id(),
@@ -138,7 +138,7 @@ where
                     lock_expire_timestamp_secs,
                     expiry_secs,
                 }) => {
-                    tracing::debug!("Setting order with request id {request_id:x} to prove after lock expiry at {lock_expire_timestamp_secs}");
+                    tracing::info!("Setting order with request id {request_id:x} to prove after lock expiry at {lock_expire_timestamp_secs}");
                     self.db
                         .set_order_fulfill_after_lock_expire(
                             &order.id(),
@@ -151,7 +151,7 @@ where
                     Ok(true)
                 }
                 Ok(Skip) => {
-                    tracing::debug!("Skipping order with request id {request_id:x}");
+                    tracing::info!("Skipping order with request id {request_id:x}");
                     self.db.skip_order(&order.id()).await.context("Failed to delete order")?;
                     Ok(false)
                 }
@@ -742,7 +742,7 @@ where
 
     async fn spawn_pricing_tasks(&self, tasks: &mut JoinSet<bool>, capacity: u32) -> Result<()> {
         let order_res = self.db.update_orders_for_pricing(capacity).await?;
-        tracing::debug!(
+        tracing::trace!(
             "Found {} orders to price, with order ids: {:?}",
             order_res.len(),
             order_res.iter().map(|order| order.id()).collect::<Vec<_>>()
@@ -783,7 +783,7 @@ where
                         // Queue up orders that can be added to capacity.
                         let order_size = MAX_PRICING_BATCH_SIZE.saturating_sub(pricing_tasks.len() as u32);
                         tracing::trace!(
-                            "Current active pricing tasks: {pricing_tasks:?}. Max possible: {MAX_PRICING_BATCH_SIZE}. Spawning {order_size} pricing tasks"
+                            "Current active pricing tasks: {pricing_tasks:?}. Max possible: {MAX_PRICING_BATCH_SIZE}. Spawning up to {order_size} pricing tasks"
                         );
                         picker_copy
                             .spawn_pricing_tasks(&mut pricing_tasks, order_size)

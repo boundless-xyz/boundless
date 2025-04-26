@@ -73,6 +73,19 @@ struct OrdersByFulfillmentType {
     prove_orders: Vec<Order>,
 }
 
+impl std::fmt::Debug for OrdersByFulfillmentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut all_orders: Vec<_> = self.lock_and_prove_orders.iter().map(|o| o.id()).collect();
+        all_orders.extend(self.prove_orders.iter().map(|o| o.id()));
+        f.debug_struct("OrdersByFulfillmentType")
+            .field("total_orders", &(self.lock_and_prove_orders.len() + self.prove_orders.len()))
+            .field("lock_and_prove_orders", &self.lock_and_prove_orders.len())
+            .field("prove_orders", &self.prove_orders.len())
+            .field("order_ids", &all_orders)
+            .finish()
+    }
+}
+
 #[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
@@ -314,9 +327,9 @@ where
             })
             .collect::<Vec<_>>();
 
-        let capacity_debug_log = format!("Committed orders for proving updated: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
+        let capacity_debug_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
         if self.capacity_debug_log != capacity_debug_log {
-            tracing::debug!(capacity_debug_log);
+            tracing::info!("{}", capacity_debug_log);
             self.capacity_debug_log = capacity_debug_log;
         }
     }
@@ -331,7 +344,7 @@ where
         Ok(())
     }
 
-    async fn skip_invalid_orders(
+    async fn get_valid_orders(
         &self,
         current_block_timestamp: u64,
         min_deadline: u64,
@@ -345,7 +358,10 @@ where
             .await
             .context("Failed to find pending prove after lock expire orders")?;
 
-        tracing::trace!("Found orders that we intend to prove after their lock expires: {lock_expired_orders:?}");
+        tracing::trace!(
+            "Found orders that we intend to prove after their lock expires: {:?}",
+            lock_expired_orders.iter().map(|order| order.id()).collect::<Vec<_>>()
+        );
 
         for order in lock_expired_orders {
             let is_fulfilled = self
@@ -354,7 +370,7 @@ where
                 .await
                 .context("Failed to check if request is fulfilled")?;
             if is_fulfilled {
-                tracing::debug!(
+                tracing::info!(
                     "Request {:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
@@ -380,7 +396,7 @@ where
         for order in pending_lock_orders {
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
-                tracing::debug!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
+                tracing::info!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
                 self.db
                     .set_order_status(&order.id(), OrderStatus::Skipped)
                     .await
@@ -391,14 +407,14 @@ where
                 let our_address = self.provider.default_signer_address().to_string().to_lowercase();
                 let locker_address = locker.to_lowercase();
                 if locker_address != our_address {
-                    tracing::debug!("Request {:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
+                    tracing::info!("Request {:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
                     self.db
                         .set_order_status(&order.id(), OrderStatus::Skipped)
                         .await
                         .context("Failed to set order status to skipped")?;
                 } else {
                     // Edge case where we locked the order, but due to some reason was not moved to proving state. Should not happen.
-                    tracing::debug!("Request {:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
+                    tracing::info!("Request {:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
                     candidate_orders.push(order);
                 }
             } else {
@@ -406,15 +422,14 @@ where
             }
         }
 
+        if candidate_orders.is_empty() {
+            tracing::trace!("No orders to lock and/or prove as of block timestamp {}", current_block_timestamp);
+            return Ok(Vec::new());
+        }
+
         let mut final_orders: Vec<Order> = Vec::new();
         for order in candidate_orders {
             let now = now_timestamp();
-            tracing::trace!(
-                "Checking order: {order:?}. Expires at: {}, current block timestamp: {}, now: {}",
-                order.request.expires_at(),
-                current_block_timestamp,
-                now
-            );
             if order.request.expires_at() < current_block_timestamp {
                 tracing::debug!("Request {:x} has now expired. Skipping.", order.request.id);
                 self.db
@@ -432,11 +447,11 @@ where
             }
         }
 
-        tracing::debug!(
+        tracing::info!(
             "After filtering invalid orders, found total of {} valid orders to proceed to locking and/or proving", 
             final_orders.len()
         );
-        tracing::trace!(
+        tracing::debug!(
             "Final orders ready for locking and/or proving after filtering: {final_orders:?}"
         );
 
@@ -444,8 +459,6 @@ where
     }
 
     fn prioritize_orders(&self, orders: Vec<Order>) -> Vec<Order> {
-        tracing::debug!("Current number of orders ready for proving: {}", orders.len());
-
         // Sort orders by priority - for lock and fulfill orders, use lock expiration, for fulfill after lock expire, use request expiration
         let mut sorted_orders = orders;
         sorted_orders.sort_by(|order_1, order_2| {
@@ -462,7 +475,18 @@ where
             time1.cmp(&time2)
         });
 
-        tracing::trace!("All orders ready for proving, pre-truncation: {sorted_orders:?}");
+        tracing::debug!(
+            "Orders ready for proving, prioritized. Before applying capacity limits: {:?}",
+            sorted_orders
+                .iter()
+                .map(|order| format!(
+                    "{} [Lock expires at: {}, Expires at: {}]",
+                    order.id(),
+                    order.request.lock_expires_at(),
+                    order.request.expires_at()
+                ))
+                .collect::<Vec<_>>()
+        );
 
         sorted_orders
     }
@@ -495,8 +519,8 @@ where
         let capacity_granted = capacity
             .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"));
 
-        tracing::debug!(
-            "Current number of orders ready for proving: {}. Total capacity: {capacity:?}, Capacity granted this iteration: {capacity_granted:?}",
+        tracing::info!(
+            "Current number of orders ready for proving: {}. Total capacity available based on max_concurrent_proofs: {capacity:?}, Capacity granted this iteration: {capacity_granted:?}",
             num_orders
         );
 
@@ -525,7 +549,7 @@ where
 
             let proof_time_seconds = total_commited_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
             let mut prover_available_at = started_proving_at + proof_time_seconds;
-            tracing::debug!("We are committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, and we started working on them at {}, we estimate the prover will be available at {}", num_commited_orders, total_commited_cycles, peak_prove_khz, started_proving_at, prover_available_at);
+            tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available at {}", num_commited_orders, total_commited_cycles, peak_prove_khz, started_proving_at, prover_available_at);
 
             // For each order in consideration, check if it can be completed before its expiration.
             for order in orders_truncated {
@@ -543,10 +567,10 @@ where
                     _ => panic!("Unsupported fulfillment type: {:?}", order.fulfillment_type),
                 };
 
-                tracing::trace!("Order {} estimated to take {} seconds, and would be completed at {}. It expires at {}", order.id(), proof_time_seconds, completion_time, expiration);
+                tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {}. It expires at {}", order.id(), proof_time_seconds, completion_time, expiration);
 
                 if completion_time > expiration {
-                    tracing::debug!("Order {:x} cannot be completed before its expiration at {}, proof estimated to complete at {}. Skipping", order.request.id, expiration, completion_time);
+                    tracing::info!("Order {:x} cannot be completed before its expiration at {}, proof estimated to complete at {}. Skipping", order.request.id, expiration, completion_time);
                     self.db
                         .set_order_status(&order.id(), OrderStatus::Skipped)
                         .await
@@ -561,12 +585,22 @@ where
             final_orders = orders_truncated;
         }
 
-        tracing::debug!(
-            "Started with {} orders. After applying capacity limits, filtered to {} orders",
+        tracing::info!(
+            "Started with {} orders ready to be locked and/or proven. After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
             num_orders,
-            final_orders.len()
+            if let Some(max_concurrent_proofs) = max_concurrent_proofs {
+                max_concurrent_proofs.to_string()
+            } else {
+                "unlimited".to_string()
+            },
+            if let Some(peak_prove_khz) = peak_prove_khz {
+                peak_prove_khz.to_string()
+            } else {
+                "unlimited".to_string()
+            },
+            final_orders.len(),
+            final_orders.iter().map(|order| order.id()).collect::<Vec<_>>()
         );
-        tracing::trace!("Orders after applying capacity limits: {final_orders:?}");
 
         Ok(final_orders)
     }
@@ -611,9 +645,14 @@ where
                     )
                 };
 
-                // Skip orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
+                // Get orders that are valid for locking/proving, skipping orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
                 let valid_orders =
-                    self.skip_invalid_orders(current_block_timestamp, min_deadline).await?;
+                    self.get_valid_orders(current_block_timestamp, min_deadline).await?;
+                
+                if valid_orders.is_empty() {
+                    tracing::trace!("No orders to lock and/or prove as of block timestamp {}", current_block_timestamp);
+                    continue;
+                }
 
                 // Prioritize the orders that intend to fulfill based on when they need to locked and/or proven.
                 let prioritized_orders = self.prioritize_orders(valid_orders);
@@ -629,6 +668,12 @@ where
 
                 // Categorize orders by fulfillment type
                 let categorized_orders = self.categorize_orders(final_orders);
+
+                tracing::info!("After processing block {}[timestamp {}], we will proceed with orders for locking and/or proving: {:?}", 
+                current_block, 
+                current_block_timestamp, 
+                categorized_orders
+                );
 
                 // Proceed with orders based on their fulfillment type.
                 // We first process fulfill after lock expire orders, as they are not dependent on sending a lock transaction, and can be kicked off for proving immediately.
@@ -679,7 +724,7 @@ mod tests {
     use boundless_market_test_utils::{deploy_boundless_market, deploy_hit_points};
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use risc0_zkvm::{guest::env::commit, Digest};
+    use risc0_zkvm::{Digest};
     use std::{future::Future, sync::Arc};
     use tokio::task::JoinSet;
     use tracing_test::traced_test;
@@ -1070,7 +1115,7 @@ mod tests {
         );
         db.add_order(expired_order.clone()).await.unwrap();
 
-        let result = monitor.skip_invalid_orders(current_timestamp, 0).await.unwrap();
+        let result = monitor.get_valid_orders(current_timestamp, 0).await.unwrap();
 
         assert!(result.is_empty());
 
@@ -1106,7 +1151,7 @@ mod tests {
         );
         db.add_order(order.clone()).await.unwrap();
 
-        let result = monitor.skip_invalid_orders(current_timestamp, 100).await.unwrap();
+        let result = monitor.get_valid_orders(current_timestamp, 100).await.unwrap();
 
         assert!(result.is_empty());
 
@@ -1138,10 +1183,8 @@ mod tests {
         .await
         .unwrap();
 
-        let result = monitor
-            .skip_invalid_orders(current_timestamp, current_timestamp + 100)
-            .await
-            .unwrap();
+        let result =
+            monitor.get_valid_orders(current_timestamp, current_timestamp + 100).await.unwrap();
 
         assert!(result.is_empty());
 

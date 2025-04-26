@@ -982,7 +982,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         }
     }
 
-    /// Returns journal and seal if the request is fulfilled.
+    /// Returns proof request and signature for a request submitted onchain.
     pub async fn get_submitted_request(
         &self,
         request_id: U256,

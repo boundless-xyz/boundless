@@ -47,7 +47,7 @@ impl OffchainMarketMonitor {
                             .add_order(Order::new(
                                 elm.order.request,
                                 elm.order.signature.as_bytes().into(),
-                                FulfillmentType::FulfillAfterLockExpire,
+                                FulfillmentType::LockAndFulfill,
                                 client.boundless_market_address,
                                 client.chain_id,
                             ))
