@@ -423,7 +423,10 @@ where
         }
 
         if candidate_orders.is_empty() {
-            tracing::trace!("No orders to lock and/or prove as of block timestamp {}", current_block_timestamp);
+            tracing::trace!(
+                "No orders to lock and/or prove as of block timestamp {}",
+                current_block_timestamp
+            );
             return Ok(Vec::new());
         }
 
@@ -648,9 +651,12 @@ where
                 // Get orders that are valid for locking/proving, skipping orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
                 let valid_orders =
                     self.get_valid_orders(current_block_timestamp, min_deadline).await?;
-                
+
                 if valid_orders.is_empty() {
-                    tracing::trace!("No orders to lock and/or prove as of block timestamp {}", current_block_timestamp);
+                    tracing::trace!(
+                        "No orders to lock and/or prove as of block timestamp {}",
+                        current_block_timestamp
+                    );
                     continue;
                 }
 
@@ -670,8 +676,8 @@ where
                 let categorized_orders = self.categorize_orders(final_orders);
 
                 tracing::info!("After processing block {}[timestamp {}], we will proceed with orders for locking and/or proving: {:?}", 
-                current_block, 
-                current_block_timestamp, 
+                current_block,
+                current_block_timestamp,
                 categorized_orders
                 );
 
@@ -724,7 +730,7 @@ mod tests {
     use boundless_market_test_utils::{deploy_boundless_market, deploy_hit_points};
     use chrono::Utc;
     use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use risc0_zkvm::{Digest};
+    use risc0_zkvm::Digest;
     use std::{future::Future, sync::Arc};
     use tokio::task::JoinSet;
     use tracing_test::traced_test;
