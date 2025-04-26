@@ -78,7 +78,7 @@ export = () => {
   });
 
   // EFS
-  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs`, {
+  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev2`, {
     encrypted: true,
     tags: {
       Name: serviceName,
