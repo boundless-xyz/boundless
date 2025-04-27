@@ -23,7 +23,7 @@ use boundless_market::contracts::{
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 
-/// Maximum number of orders to concurrently work on proving.
+/// Hard limit on the number of orders to concurrently kick off proving work for.
 const MAX_PROVING_BATCH_SIZE: u32 = 10;
 
 #[derive(Error, Debug)]
@@ -41,7 +41,9 @@ pub enum LockOrderErr {
     OtherErr(#[from] anyhow::Error),
 }
 
-/// The capacity of the order monitor, if there is a limit on the number of concurrent proving tasks.
+/// Represents the capacity for proving orders that we have available given our config.
+/// Also manages vending out capacity for proving, preventing too many proofs from being
+/// kicked off in each iteration.
 #[derive(Debug, PartialEq)]
 enum Capacity {
     /// There are orders that have been picked for proving but not fulfilled yet.
@@ -52,7 +54,7 @@ enum Capacity {
 }
 
 impl Capacity {
-    /// Returns the number of orders to request from the DB to price. Capped at
+    /// Returns the number of proofs we can kick off in the current iteration. Capped at
     /// [MAX_PROVING_BATCH_SIZE] to limit number of proving tasks spawned at once.
     fn request_capacity(&self, request: u32) -> u32 {
         match self {
@@ -529,11 +531,11 @@ where
             .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"));
 
         tracing::info!(
-            "Current number of orders ready for proving: {}. Total capacity available based on max_concurrent_proofs: {capacity:?}, Capacity granted this iteration: {capacity_granted:?}",
+            "Current number of orders ready for locking and/or proving: {}. Total capacity available based on max_concurrent_proofs: {capacity:?}, Capacity granted this iteration: {capacity_granted:?}",
             num_orders
         );
 
-        // Given our capacity, truncate the order list
+        // Given our capacity computed from max_concurrent_proofs, truncate the order list.
         let mut orders_truncated = orders;
         if orders_truncated.len() > capacity_granted as usize {
             orders_truncated.truncate(capacity_granted as usize);
@@ -669,7 +671,7 @@ where
                 // Prioritize the orders that intend to fulfill based on when they need to locked and/or proven.
                 let prioritized_orders = self.prioritize_orders(valid_orders);
 
-                // Filter down the orders given our capacity and peak khz limits.
+                // Filter down the orders given our max concurrent proofs and peak khz limits.
                 let final_orders = self
                     .apply_capacity_limits(
                         prioritized_orders,
