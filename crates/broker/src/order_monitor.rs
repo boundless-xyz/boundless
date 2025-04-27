@@ -73,6 +73,12 @@ struct OrdersByFulfillmentType {
     prove_orders: Vec<Order>,
 }
 
+impl OrdersByFulfillmentType {
+    fn len(&self) -> usize {
+        self.lock_and_prove_orders.len() + self.prove_orders.len()
+    }
+}
+
 impl std::fmt::Debug for OrdersByFulfillmentType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut all_orders: Vec<_> = self.lock_and_prove_orders.iter().map(|o| o.id()).collect();
@@ -675,9 +681,10 @@ where
                 // Categorize orders by fulfillment type
                 let categorized_orders = self.categorize_orders(final_orders);
 
-                tracing::info!("After processing block {}[timestamp {}], we will proceed with orders for locking and/or proving: {:?}", 
+                tracing::info!("After processing block {}[timestamp {}], we will now start locking and/or proving {} orders: {:?}", 
                     current_block,
                     current_block_timestamp,
+                    categorized_orders.len(),
                     categorized_orders
                 );
 
@@ -685,7 +692,7 @@ where
                 // We first process fulfill after lock expire orders, as they are not dependent on sending a lock transaction, and can be kicked off for proving immediately.
                 self.process_fulfill_after_lock_expire_orders(&categorized_orders.prove_orders)
                     .await?;
-                // We then process lock and fulfill orders, they may take longer to kick off as we confirm the lock transactions.
+                // We then process lock and fulfill orders, they may take longer to kick off proving as we confirm the lock transactions.
                 self.process_lock_and_fulfill_orders(
                     current_block,
                     &categorized_orders.lock_and_prove_orders,
