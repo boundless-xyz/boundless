@@ -351,7 +351,7 @@ where
     ) -> Result<Vec<Order>> {
         let mut candidate_orders: Vec<Order> = Vec::new();
 
-        // Find orders that we intended to prove after their lock expires
+        // Find the orders that we intended to prove after their lock expires
         let lock_expired_orders = self
             .db
             .get_fulfill_after_lock_expire_orders(current_block_timestamp)
@@ -648,7 +648,7 @@ where
                     )
                 };
 
-                // Get orders that are valid for locking/proving, skipping orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
+                // Get orders that are valid and ready for locking/proving, skipping orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
                 let valid_orders =
                     self.get_valid_orders(current_block_timestamp, min_deadline).await?;
 
@@ -676,9 +676,9 @@ where
                 let categorized_orders = self.categorize_orders(final_orders);
 
                 tracing::info!("After processing block {}[timestamp {}], we will proceed with orders for locking and/or proving: {:?}", 
-                current_block,
-                current_block_timestamp,
-                categorized_orders
+                    current_block,
+                    current_block_timestamp,
+                    categorized_orders
                 );
 
                 // Proceed with orders based on their fulfillment type.

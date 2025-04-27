@@ -1929,7 +1929,7 @@ mod tests {
         db.add_batch(batch_id, batch).await.unwrap();
 
         let g16_proof_id = "Testg16";
-        db.complete_batch(batch_id, g16_proof_id.into()).await.unwrap();
+        db.complete_batch(batch_id, g16_proof_id).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::Complete);

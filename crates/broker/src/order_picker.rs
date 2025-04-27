@@ -918,7 +918,7 @@ mod tests {
                 lock_price: None,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 error_msg: None,
-                boundless_market_address: boundless_market_address.clone(),
+                boundless_market_address: *boundless_market_address,
                 chain_id,
                 total_cycles: None,
                 proving_started_at: None,
@@ -1647,6 +1647,7 @@ mod tests {
     // TODO: Confirm expected behavior for skip_preflight
     #[traced_test]
     #[ignore]
+    #[allow(dead_code)]
     async fn price_locked_by_other_unprofitable_with_skip_preflight_ids() {
         let config = ConfigLock::default();
         {
