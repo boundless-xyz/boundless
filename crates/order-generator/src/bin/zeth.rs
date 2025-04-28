@@ -214,7 +214,7 @@ async fn main() -> Result<()> {
             auto_deposit: args.auto_deposit,
         };
         // Attempt to submit a request.
-        match submit_request(args, build_args, chain_id, boundless_client.clone(), params).await {
+        match submit_request(build_args, chain_id, boundless_client.clone(), params).await {
             Ok(request_id) => {
                 consecutive_failures = 0; // Reset on success.
                 tracing::info!(
@@ -276,7 +276,6 @@ struct RequestParams {
 }
 
 async fn submit_request<P, S>(
-    args: Args,
     build_args: BuildArgs,
     chain_id: u64,
     boundless_client: Client<P, S>,
@@ -363,10 +362,9 @@ where
             let caller = boundless_client.caller();
             let balance = market.balance_of(caller).await?;
             tracing::info!(
-                "Caller {} has balance {} ETH on market {}",
+                "Caller {} has balance {} ETH on market",
                 caller,
-                format_units(balance, "ether")?,
-                args.boundless_market_address
+                format_units(balance, "ether")?
             );
             if balance < auto_deposit {
                 tracing::info!(
@@ -391,14 +389,9 @@ where
     };
 
     tracing::info!(
-        "Submitted request for block {} {} to {} with id {}",
+        "Submitted request for block {} {} with id {}",
         build_args.block_number,
         if params.offchain { "offchain" } else { "onchain" },
-        if params.offchain {
-            args.order_stream_url.clone().unwrap()
-        } else {
-            boundless_client.boundless_market_address
-        },
         request_id
     );
 
