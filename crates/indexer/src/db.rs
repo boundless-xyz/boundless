@@ -628,7 +628,7 @@ impl IndexerDb for AnyDb {
                 block_number, 
                 block_timestamp
             ) VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (request_id) DO NOTHING",
+             ON CONFLICT (request_id, tx_hash) DO NOTHING",
         )
         .bind(format!("{:x}", request_id))
         .bind(format!("{:x}", callback_address))
@@ -646,6 +646,34 @@ impl IndexerDb for AnyDb {
 mod tests {
     use super::*;
     use crate::test_utils::TestDb;
+    use alloy::primitives::{Address, Bytes, B256, U256};
+    use boundless_market::contracts::{
+        AssessorReceipt, Fulfillment, Input, Offer, Predicate, PredicateType, ProofRequest,
+        RequestId, Requirements,
+    };
+    use risc0_zkvm::Digest;
+
+    // generate a test request
+    fn generate_request(id: u32, addr: &Address) -> ProofRequest {
+        ProofRequest::new(
+            RequestId::new(*addr, id),
+            Requirements::new(
+                Digest::default(),
+                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+            ),
+            "https://image_url.dev",
+            Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+            Offer {
+                minPrice: U256::from(20000000000000u64),
+                maxPrice: U256::from(40000000000000u64),
+                biddingStart: 0,
+                timeout: 420,
+                lockTimeout: 420,
+                rampUpPeriod: 1,
+                lockStake: U256::from(10),
+            },
+        )
+    }
 
     #[tokio::test]
     async fn set_get_block() {
@@ -663,5 +691,251 @@ mod tests {
 
         let db_block = db.get_last_block().await.unwrap().unwrap();
         assert_eq!(block_numb, db_block);
+    }
+
+    #[tokio::test]
+    async fn test_transactions() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+
+        db.add_tx(&metadata).await.unwrap();
+
+        // Verify transaction was added
+        let result = sqlx::query("SELECT * FROM transactions WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<i64, _>("block_number"), metadata.block_number as i64);
+    }
+
+    #[tokio::test]
+    async fn test_proof_requests() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let request_digest = B256::ZERO;
+        let request = generate_request(0, &Address::ZERO);
+
+        db.add_proof_request(request_digest, request.clone()).await.unwrap();
+
+        // Verify proof request was added
+        let result = sqlx::query("SELECT * FROM proof_requests WHERE request_digest = $1")
+            .bind(format!("{:x}", request_digest))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", request.id));
+    }
+
+    #[tokio::test]
+    async fn test_assessor_receipts() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+
+        let receipt = AssessorReceipt {
+            prover: Address::ZERO,
+            callbacks: vec![],
+            selectors: vec![],
+            seal: Bytes::default(),
+        };
+
+        db.add_assessor_receipt(receipt.clone(), &metadata).await.unwrap();
+
+        // Verify assessor receipt was added
+        let result = sqlx::query("SELECT * FROM assessor_receipts WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("prover_address"), format!("{:x}", receipt.prover));
+    }
+
+    #[tokio::test]
+    async fn test_fulfillments() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+
+        let fill = Fulfillment {
+            requestDigest: B256::ZERO,
+            id: U256::from(1),
+            imageId: B256::ZERO,
+            journal: Bytes::default(),
+            seal: Bytes::default(),
+        };
+
+        let prover_address = Address::ZERO;
+        db.add_proof_delivered_event(fill.requestDigest, fill.id, &metadata).await.unwrap();
+        db.add_fulfillment(fill.clone(), prover_address, &metadata).await.unwrap();
+
+        // Verify fulfillment was added
+        let result = sqlx::query("SELECT * FROM fulfillments WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("request_digest"), format!("{:x}", fill.requestDigest));
+    }
+
+    #[tokio::test]
+    async fn test_events() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+
+        let request_digest = B256::ZERO;
+        let request_id = U256::from(1);
+
+        // Test request submitted event
+        db.add_request_submitted_event(request_digest, request_id, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM request_submitted_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("request_digest"), format!("{:x}", request_digest));
+
+        // Test request locked event
+        let prover_address = Address::ZERO;
+        db.add_request_locked_event(request_digest, request_id, prover_address, &metadata)
+            .await
+            .unwrap();
+        let result = sqlx::query("SELECT * FROM request_locked_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("prover_address"), format!("{:x}", prover_address));
+
+        // Test proof delivered event
+        db.add_proof_delivered_event(request_digest, request_id, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM proof_delivered_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("request_digest"), format!("{:x}", request_digest));
+
+        // Test request fulfilled event
+        db.add_request_fulfilled_event(request_digest, request_id, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM request_fulfilled_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("request_digest"), format!("{:x}", request_digest));
+    }
+
+    #[tokio::test]
+    async fn test_prover_slashed_event() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+
+        let request_id = U256::from(1);
+        let burn_value = U256::from(100);
+        let transfer_value = U256::from(50);
+        let stake_recipient = Address::ZERO;
+
+        // First add a request locked event (required for prover slashed event)
+        let request_digest = B256::ZERO;
+        let prover_address = Address::ZERO;
+        db.add_request_locked_event(request_digest, request_id, prover_address, &metadata)
+            .await
+            .unwrap();
+
+        // Then test prover slashed event
+        db.add_prover_slashed_event(
+            request_id,
+            burn_value,
+            transfer_value,
+            stake_recipient,
+            &metadata,
+        )
+        .await
+        .unwrap();
+        let result = sqlx::query("SELECT * FROM prover_slashed_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("burn_value"), burn_value.to_string());
+    }
+
+    #[tokio::test]
+    async fn test_account_events() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+
+        let account = Address::ZERO;
+        let value = U256::from(100);
+
+        // Test deposit event
+        db.add_deposit_event(account, value, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM deposit_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("value"), value.to_string());
+
+        // Test withdrawal event
+        db.add_withdrawal_event(account, value, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM withdrawal_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("value"), value.to_string());
+
+        // Test stake deposit event
+        db.add_stake_deposit_event(account, value, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM stake_deposit_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("value"), value.to_string());
+
+        // Test stake withdrawal event
+        db.add_stake_withdrawal_event(account, value, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM stake_withdrawal_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("value"), value.to_string());
+    }
+
+    #[tokio::test]
+    async fn test_callback_failed_event() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+
+        let request_id = U256::from(1);
+        let callback_address = Address::ZERO;
+        let error_data = vec![1, 2, 3, 4];
+
+        db.add_callback_failed_event(request_id, callback_address, error_data.clone(), &metadata)
+            .await
+            .unwrap();
+        let result = sqlx::query("SELECT * FROM callback_failed_events WHERE tx_hash = $1")
+            .bind(format!("{:x}", metadata.tx_hash))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<Vec<u8>, _>("error_data"), error_data);
     }
 }
