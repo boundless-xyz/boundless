@@ -42,8 +42,6 @@ test-cargo-example:
 # Run database tests
 test-cargo-db: 
     just test-db setup
-    git clone https://github.com/risc0/risc0.git && cd risc0/bento
-    DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./crates/taskdb/migrations/
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
@@ -60,6 +58,7 @@ test-db action="setup":
             postgres:latest
         # Wait for PostgreSQL to be ready
         sleep 3
+        docker exec -u postgres postgres-test psql -U postgres -c "CREATE DATABASE test_db;"
     elif [ "{{action}}" = "clean" ]; then
         docker stop postgres-test
         docker rm postgres-test

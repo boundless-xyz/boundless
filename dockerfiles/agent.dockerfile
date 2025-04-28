@@ -28,7 +28,8 @@ ARG CUDA_OPT_LEVEL=1
 ARG S3_CACHE_PREFIX
 
 WORKDIR /src/
-RUN git clone https://github.com/risc0/risc0.git
+# TODO switch this to a tagged commit once one released with bento (https://github.com/boundless-xyz/boundless/issues/570)
+RUN git clone --depth=1 --branch main https://github.com/risc0/risc0.git
 COPY rust-toolchain.toml .
 
 WORKDIR /src/risc0/bento/
