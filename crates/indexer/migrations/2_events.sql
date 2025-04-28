@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS prover_slashed_events (
   block_timestamp   BIGINT      NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS prover_slashed_events_prover_address_idx
+  ON prover_slashed_events (prover_address);
+
 CREATE TABLE IF NOT EXISTS deposit_events (
   account           TEXT        NOT NULL,
   value             TEXT        NOT NULL,
