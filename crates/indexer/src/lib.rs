@@ -7,7 +7,7 @@ use std::{cmp::min, collections::HashMap, sync::Arc};
 use alloy::{
     consensus::Transaction,
     eips::BlockNumberOrTag,
-    network::{Ethereum, EthereumWallet},
+    network::{Ethereum, EthereumWallet, TransactionResponse},
     primitives::{Address, Bytes, B256},
     providers::{
         fillers::{
@@ -20,11 +20,12 @@ use alloy::{
     sol_types::SolCall,
     transports::{RpcError, TransportErrorKind},
 };
+use anyhow::{anyhow, Context};
 use boundless_market::contracts::{
     boundless_market::{decode_calldata, BoundlessMarketService, MarketError},
     EIP712DomainSaltless, IBoundlessMarket,
 };
-use db::{AnyDb, DbError, DbObj, EventMetadata};
+use db::{AnyDb, DbError, DbObj, TxMetadata};
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
@@ -57,6 +58,9 @@ pub enum ServiceError {
 
     #[error("Event query error: {0}")]
     EventQueryError(#[from] alloy::contract::Error),
+
+    #[error("Error: {0}")]
+    Error(#[from] anyhow::Error),
 
     #[error("Maximum retries reached")]
     MaxRetries,
@@ -95,7 +99,7 @@ impl IndexerService<ProviderWallet> {
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
 
-        let db: DbObj = Arc::new(AnyDb::new(db_conn).await.unwrap());
+        let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
 
         let domain = boundless_market.eip712_domain().await?;
 
@@ -134,7 +138,8 @@ where
                             // Irrecoverable errors
                             ServiceError::DatabaseError(_)
                             | ServiceError::MaxRetries
-                            | ServiceError::RequestNotExpired => {
+                            | ServiceError::RequestNotExpired
+                            | ServiceError::Error(_) => {
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
@@ -236,36 +241,43 @@ where
         );
 
         for (log, log_data) in logs {
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
             let tx = self
                 .boundless_market
                 .instance()
                 .provider()
                 .get_transaction_by_hash(tx_hash)
                 .await?
-                .unwrap();
+                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
 
             tracing::debug!(
                 "Processing request submitted event for request: 0x{:x}",
                 log.requestId
             );
 
-            let request =
-                IBoundlessMarket::submitRequestCall::abi_decode(tx.input(), true).unwrap().request;
+            let request = IBoundlessMarket::submitRequestCall::abi_decode(tx.input(), true)
+                .context(anyhow!(
+                    "abi decode failure for request submitted event of tx: {}",
+                    hex::encode(tx_hash)
+                ))?
+                .request;
 
-            let request_digest =
-                request.signing_hash(self.domain.verifying_contract, self.domain.chain_id).unwrap();
+            let request_digest = request
+                .signing_hash(self.domain.verifying_contract, self.domain.chain_id)
+                .context(anyhow!(
+                    "Failed to compute request digest for request: 0x{:x}",
+                    log.requestId
+                ))?;
 
-            let block_number = tx.block_number.unwrap();
+            let block_number = tx.block_number.context("block number not found")?;
             let block_timestamp = match log_data.block_timestamp {
                 Some(ts) => ts,
                 None => self.block_timestamp(block_number).await?,
             };
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
+            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
 
             self.db.add_proof_request(request_digest, request).await?;
-            self.db.add_tx(tx_hash, tx, metadata.block_timestamp).await?;
-            self.db.add_request_submitted_event(request_digest, log.requestId, metadata).await?;
+            self.db.add_request_submitted_event(request_digest, log.requestId, &metadata).await?;
         }
 
         Ok(())
@@ -294,32 +306,39 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing request locked event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
             let tx = self
                 .boundless_market
                 .instance()
                 .provider()
                 .get_transaction_by_hash(tx_hash)
                 .await?
-                .unwrap();
+                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
 
-            let request =
-                IBoundlessMarket::lockRequestCall::abi_decode(tx.input(), true).unwrap().request;
+            let request = IBoundlessMarket::lockRequestCall::abi_decode(tx.input(), true)
+                .context(anyhow!(
+                    "abi decode failure for request locked event of tx: {}",
+                    hex::encode(tx_hash)
+                ))?
+                .request;
 
-            let request_digest =
-                request.signing_hash(self.domain.verifying_contract, self.domain.chain_id).unwrap();
+            let request_digest = request
+                .signing_hash(self.domain.verifying_contract, self.domain.chain_id)
+                .context(anyhow!(
+                    "Failed to compute request digest for request: 0x{:x}",
+                    log.requestId
+                ))?;
 
-            let block_number = tx.block_number.unwrap();
+            let block_number = tx.block_number.context("block number not found")?;
             let block_timestamp = match log_data.block_timestamp {
                 Some(ts) => ts,
                 None => self.block_timestamp(block_number).await?,
             };
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
+            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
 
             self.db.add_proof_request(request_digest, request).await?;
-            self.db.add_tx(tx_hash, tx, metadata.block_timestamp).await?;
             self.db
-                .add_request_locked_event(request_digest, log.requestId, log.prover, metadata)
+                .add_request_locked_event(request_digest, log.requestId, log.prover, &metadata)
                 .await?;
         }
 
@@ -350,16 +369,14 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing proof delivered event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
             // Check if the transaction is already in the cache
             // If it is, use the cached block number and tx_input
             // Otherwise, fetch the transaction from the provider and cache it
             // This is to avoid making multiple calls to the provider for the same transaction
             // as delivery events may be emitted in a batch
-            let (block_number, block_timestamp, tx_input) = match cache.get(tx_hash) {
-                Some((block_number, block_timestamp, tx_input)) => {
-                    (*block_number, *block_timestamp, tx_input)
-                }
+            let (metadata, tx_input) = match cache.get(tx_hash) {
+                Some((metadata, tx_input)) => (metadata.clone(), tx_input),
                 None => {
                     let tx = self
                         .boundless_market
@@ -367,30 +384,32 @@ where
                         .provider()
                         .get_transaction_by_hash(tx_hash)
                         .await?
-                        .unwrap();
+                        .context(anyhow!(
+                            "Transaction not found for hash: {}",
+                            hex::encode(tx_hash)
+                        ))?;
 
-                    let block_number = tx.block_number.unwrap();
+                    let block_number = tx.block_number.context("block number not found")?;
                     let block_timestamp = match log_data.block_timestamp {
                         Some(ts) => ts,
                         None => self.block_timestamp(block_number).await?,
                     };
-                    cache.insert(tx_hash, block_number, block_timestamp, tx.input().clone());
-
-                    self.db.add_tx(tx_hash, tx.clone(), block_timestamp).await?;
-                    (block_number, block_timestamp, &tx.input().clone())
+                    let metadata =
+                        TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+                    cache.insert(metadata.clone(), tx.input().clone());
+                    (metadata, &tx.input().clone())
                 }
             };
 
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
+            let (fills, assessor_receipt) = decode_calldata(tx_input).context(anyhow!(
+                "abi decode failure for proof delivered event of tx: {}",
+                hex::encode(tx_hash)
+            ))?;
 
-            let (fills, assessor_receipt) = decode_calldata(tx_input).unwrap();
-
-            self.db.add_assessor_receipt(assessor_receipt.clone(), metadata.clone()).await?;
+            self.db.add_assessor_receipt(assessor_receipt.clone(), &metadata).await?;
             for fill in fills {
-                self.db
-                    .add_proof_delivered_event(fill.requestDigest, fill.id, metadata.clone())
-                    .await?;
-                self.db.add_fulfillment(fill, assessor_receipt.prover, metadata.clone()).await?;
+                self.db.add_proof_delivered_event(fill.requestDigest, fill.id, &metadata).await?;
+                self.db.add_fulfillment(fill, assessor_receipt.prover, &metadata).await?;
             }
         }
 
@@ -421,17 +440,15 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing fulfilled event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
 
             // Check if the transaction is already in the cache
             // If it is, use the cached block number and tx_input
             // Otherwise, fetch the transaction from the provider and cache it
             // This is to avoid making multiple calls to the provider for the same transaction
             // as fulfilled events may be emitted in a batch
-            let (block_number, block_timestamp, tx_input) = match cache.get(tx_hash) {
-                Some((block_number, block_timestamp, tx_input)) => {
-                    (*block_number, *block_timestamp, tx_input)
-                }
+            let (metadata, tx_input) = match cache.get(tx_hash) {
+                Some((metadata, tx_input)) => (metadata.clone(), tx_input),
                 None => {
                     let tx = self
                         .boundless_market
@@ -439,27 +456,29 @@ where
                         .provider()
                         .get_transaction_by_hash(tx_hash)
                         .await?
-                        .unwrap();
+                        .context(anyhow!(
+                            "Transaction not found for hash: {}",
+                            hex::encode(tx_hash)
+                        ))?;
 
-                    let block_number = tx.block_number.unwrap();
+                    let block_number = tx.block_number.context("block number not found")?;
                     let block_timestamp = match log_data.block_timestamp {
                         Some(ts) => ts,
                         None => self.block_timestamp(block_number).await?,
                     };
-                    cache.insert(tx_hash, block_number, block_timestamp, tx.input().clone());
-
-                    self.db.add_tx(tx_hash, tx.clone(), block_timestamp).await?;
-                    (block_number, block_timestamp, &tx.input().clone())
+                    let metadata =
+                        TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+                    cache.insert(metadata.clone(), tx.input().clone());
+                    (metadata, &tx.input().clone())
                 }
             };
 
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
-
-            let (fills, _) = decode_calldata(tx_input).unwrap();
+            let (fills, _) = decode_calldata(tx_input).context(anyhow!(
+                "abi decode failure for fulfilled event of tx: {}",
+                hex::encode(tx_hash)
+            ))?;
             for fill in fills {
-                self.db
-                    .add_request_fulfilled_event(fill.requestDigest, fill.id, metadata.clone())
-                    .await?;
+                self.db.add_request_fulfilled_event(fill.requestDigest, fill.id, &metadata).await?;
             }
         }
 
@@ -489,21 +508,21 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing slashed event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
             let tx = self
                 .boundless_market
                 .instance()
                 .provider()
                 .get_transaction_by_hash(tx_hash)
                 .await?
-                .unwrap();
+                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
 
-            let block_number = tx.block_number.unwrap();
+            let block_number = tx.block_number.context("block number not found")?;
             let block_timestamp = match log_data.block_timestamp {
                 Some(ts) => ts,
                 None => self.block_timestamp(block_number).await?,
             };
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
+            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
 
             self.db
                 .add_prover_slashed_event(
@@ -511,7 +530,7 @@ where
                     log.stakeBurned,
                     log.stakeTransferred,
                     log.stakeRecipient,
-                    metadata,
+                    &metadata,
                 )
                 .await?;
         }
@@ -542,24 +561,22 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing deposit event for account: 0x{:x}", log.account);
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
             let tx = self
                 .boundless_market
                 .instance()
                 .provider()
                 .get_transaction_by_hash(tx_hash)
                 .await?
-                .unwrap();
+                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
 
-            let block_number = tx.block_number.unwrap();
+            let block_number = tx.block_number.context("block number not found")?;
             let block_timestamp = match log_data.block_timestamp {
                 Some(ts) => ts,
                 None => self.block_timestamp(block_number).await?,
             };
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
-
-            self.db.add_tx(tx_hash, tx, block_timestamp).await?;
-            self.db.add_deposit_event(log.account, log.value, metadata).await?;
+            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+            self.db.add_deposit_event(log.account, log.value, &metadata).await?;
         }
 
         Ok(())
@@ -588,24 +605,22 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing withdrawal event for account: 0x{:x}", log.account);
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
             let tx = self
                 .boundless_market
                 .instance()
                 .provider()
                 .get_transaction_by_hash(tx_hash)
                 .await?
-                .unwrap();
+                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
 
-            let block_number = tx.block_number.unwrap();
+            let block_number = tx.block_number.context("block number not found")?;
             let block_timestamp = match log_data.block_timestamp {
                 Some(ts) => ts,
                 None => self.block_timestamp(block_number).await?,
             };
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
-
-            self.db.add_tx(tx_hash, tx, block_timestamp).await?;
-            self.db.add_withdrawal_event(log.account, log.value, metadata).await?;
+            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+            self.db.add_withdrawal_event(log.account, log.value, &metadata).await?;
         }
 
         Ok(())
@@ -634,24 +649,22 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing stake deposit event for account: 0x{:x}", log.account);
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
             let tx = self
                 .boundless_market
                 .instance()
                 .provider()
                 .get_transaction_by_hash(tx_hash)
                 .await?
-                .unwrap();
+                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
 
-            let block_number = tx.block_number.unwrap();
+            let block_number = tx.block_number.context("block number not found")?;
             let block_timestamp = match log_data.block_timestamp {
                 Some(ts) => ts,
                 None => self.block_timestamp(block_number).await?,
             };
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
-
-            self.db.add_tx(tx_hash, tx, block_timestamp).await?;
-            self.db.add_stake_deposit_event(log.account, log.value, metadata).await?;
+            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+            self.db.add_stake_deposit_event(log.account, log.value, &metadata).await?;
         }
 
         Ok(())
@@ -680,24 +693,22 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing stake withdrawal event for account: 0x{:x}", log.account);
-            let tx_hash = log_data.transaction_hash.unwrap();
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
             let tx = self
                 .boundless_market
                 .instance()
                 .provider()
                 .get_transaction_by_hash(tx_hash)
                 .await?
-                .unwrap();
+                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
 
-            let block_number = tx.block_number.unwrap();
+            let block_number = tx.block_number.context("block number not found")?;
             let block_timestamp = match log_data.block_timestamp {
                 Some(ts) => ts,
                 None => self.block_timestamp(block_number).await?,
             };
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
-
-            self.db.add_tx(tx_hash, tx, block_timestamp).await?;
-            self.db.add_stake_withdrawal_event(log.account, log.value, metadata).await?;
+            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+            self.db.add_stake_withdrawal_event(log.account, log.value, &metadata).await?;
         }
 
         Ok(())
@@ -727,11 +738,9 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing callback failed event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.unwrap();
-            let (block_number, block_timestamp, _tx_input) = match cache.get(tx_hash) {
-                Some((block_number, block_timestamp, tx_input)) => {
-                    (*block_number, *block_timestamp, tx_input)
-                }
+            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
+            let (metadata, _tx_input) = match cache.get(tx_hash) {
+                Some((metadata, tx_input)) => (metadata.clone(), tx_input),
                 None => {
                     let tx = self
                         .boundless_market
@@ -739,27 +748,29 @@ where
                         .provider()
                         .get_transaction_by_hash(tx_hash)
                         .await?
-                        .unwrap();
+                        .context(anyhow!(
+                            "Transaction not found for hash: {}",
+                            hex::encode(tx_hash)
+                        ))?;
 
-                    let block_number = tx.block_number.unwrap();
+                    let block_number = tx.block_number.context("block number not found")?;
                     let block_timestamp = match log_data.block_timestamp {
                         Some(ts) => ts,
                         None => self.block_timestamp(block_number).await?,
                     };
-                    cache.insert(tx_hash, block_number, block_timestamp, tx.input().clone());
-
-                    self.db.add_tx(tx_hash, tx.clone(), block_timestamp).await?;
-                    (block_number, block_timestamp, &tx.input().clone())
+                    let metadata =
+                        TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+                    cache.insert(metadata.clone(), tx.input().clone());
+                    (metadata, &tx.input().clone())
                 }
             };
-            let metadata = EventMetadata::new(tx_hash, block_number, block_timestamp);
 
             self.db
                 .add_callback_failed_event(
                     log.requestId,
                     log.callback,
                     log.error.to_vec(),
-                    metadata,
+                    &metadata,
                 )
                 .await?;
         }
@@ -778,7 +789,7 @@ where
             .provider()
             .get_block_by_number(BlockNumberOrTag::Number(block_number))
             .await?
-            .unwrap()
+            .context(anyhow!("Failed to get block by number: {}", block_number))?
             .header
             .timestamp)
     }
@@ -786,8 +797,8 @@ where
 
 // Cache for transactions to avoid multiple calls to the provider
 struct TxCache {
-    // Mapping from transaction hash to (block number, block timestamp, tx input)
-    cache: HashMap<B256, (u64, u64, Bytes)>,
+    // Mapping from transaction hash to (from, block number, block timestamp, tx input)
+    cache: HashMap<B256, (TxMetadata, Bytes)>,
 }
 
 impl TxCache {
@@ -795,11 +806,11 @@ impl TxCache {
         Self { cache: HashMap::new() }
     }
 
-    fn get(&self, tx_hash: B256) -> Option<&(u64, u64, Bytes)> {
+    fn get(&self, tx_hash: B256) -> Option<&(TxMetadata, Bytes)> {
         self.cache.get(&tx_hash)
     }
 
-    fn insert(&mut self, tx_hash: B256, block_number: u64, block_timestamp: u64, tx_input: Bytes) {
-        self.cache.insert(tx_hash, (block_number, block_timestamp, tx_input));
+    fn insert(&mut self, metadata: TxMetadata, tx_input: Bytes) {
+        self.cache.insert(metadata.tx_hash, (metadata, tx_input));
     }
 }

@@ -4,11 +4,7 @@
 
 use std::{str::FromStr, sync::Arc};
 
-use alloy::{
-    network::TransactionResponse,
-    primitives::{Address, B256, U256},
-    rpc::types::Transaction,
-};
+use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
     AssessorReceipt, Fulfillment, InputType, PredicateType, ProofRequest,
@@ -22,15 +18,16 @@ use thiserror::Error;
 const SQL_BLOCK_KEY: i64 = 0;
 
 #[derive(Debug, Clone)]
-pub struct EventMetadata {
+pub struct TxMetadata {
     pub tx_hash: B256,
+    pub from: Address,
     pub block_number: u64,
     pub block_timestamp: u64,
 }
 
-impl EventMetadata {
-    pub fn new(tx_hash: B256, block_number: u64, block_timestamp: u64) -> Self {
-        Self { tx_hash, block_number, block_timestamp }
+impl TxMetadata {
+    pub fn new(tx_hash: B256, from: Address, block_number: u64, block_timestamp: u64) -> Self {
+        Self { tx_hash, from, block_number, block_timestamp }
     }
 }
 
@@ -57,12 +54,7 @@ pub trait IndexerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
 
-    async fn add_tx(
-        &self,
-        tx_hash: B256,
-        tx: Transaction,
-        block_timestamp: u64,
-    ) -> Result<(), DbError>;
+    async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError>;
 
     async fn add_proof_request(
         &self,
@@ -73,21 +65,21 @@ pub trait IndexerDb {
     async fn add_assessor_receipt(
         &self,
         receipt: AssessorReceipt,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_fulfillment(
         &self,
         fill: Fulfillment,
         prover_address: Address,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_request_submitted_event(
         &self,
         request_digest: B256,
         request_id: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_request_locked_event(
@@ -95,21 +87,21 @@ pub trait IndexerDb {
         request_digest: B256,
         request_id: U256,
         prover_address: Address,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_proof_delivered_event(
         &self,
         request_digest: B256,
         request_id: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_request_fulfilled_event(
         &self,
         request_digest: B256,
         request_id: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_prover_slashed_event(
@@ -118,35 +110,35 @@ pub trait IndexerDb {
         burn_value: U256,
         transfer_value: U256,
         stake_recipient: Address,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_deposit_event(
         &self,
         account: Address,
         value: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_withdrawal_event(
         &self,
         account: Address,
         value: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_stake_deposit_event(
         &self,
         account: Address,
         value: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_stake_withdrawal_event(
         &self,
         account: Address,
         value: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
     async fn add_callback_failed_event(
@@ -154,7 +146,7 @@ pub trait IndexerDb {
         request_id: U256,
         callback_address: Address,
         error_data: Vec<u8>,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 }
 
@@ -218,12 +210,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_tx(
-        &self,
-        tx_hash: B256,
-        tx: Transaction,
-        block_timestamp: u64,
-    ) -> Result<(), DbError> {
+    async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError> {
         sqlx::query(
             "INSERT INTO transactions (
                 tx_hash, 
@@ -233,14 +220,10 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4)
             ON CONFLICT (tx_hash) DO NOTHING",
         )
-        .bind(format!("{:x}", tx_hash))
-        .bind(
-            tx.block_number
-                .ok_or_else(|| DbError::BadTransaction("missing block number".to_string()))?
-                as i64,
-        )
-        .bind(format!("{:x}", tx.from()))
-        .bind(block_timestamp as i64)
+        .bind(format!("{:x}", metadata.tx_hash))
+        .bind(metadata.block_number as i64)
+        .bind(format!("{:x}", metadata.from))
+        .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -312,8 +295,9 @@ impl IndexerDb for AnyDb {
     async fn add_assessor_receipt(
         &self,
         receipt: AssessorReceipt,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO assessor_receipts (
                 tx_hash,
@@ -338,8 +322,9 @@ impl IndexerDb for AnyDb {
         &self,
         fill: Fulfillment,
         prover_address: Address,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO fulfillments (
                 request_digest,
@@ -372,8 +357,9 @@ impl IndexerDb for AnyDb {
         &self,
         request_digest: B256,
         request_id: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO request_submitted_events (
                 request_digest,
@@ -399,8 +385,9 @@ impl IndexerDb for AnyDb {
         request_digest: B256,
         request_id: U256,
         prover_address: Address,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO request_locked_events (
                 request_digest,
@@ -427,8 +414,9 @@ impl IndexerDb for AnyDb {
         &self,
         request_digest: B256,
         request_id: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO proof_delivered_events (
                 request_digest,
@@ -453,8 +441,9 @@ impl IndexerDb for AnyDb {
         &self,
         request_digest: B256,
         request_id: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO request_fulfilled_events (
                 request_digest,
@@ -481,8 +470,9 @@ impl IndexerDb for AnyDb {
         burn_value: U256,
         transfer_value: U256,
         stake_recipient: Address,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         let resutl =
             sqlx::query("SELECT prover_address FROM request_locked_events WHERE request_id = $1")
                 .bind(format!("{:x}", request_id))
@@ -519,8 +509,9 @@ impl IndexerDb for AnyDb {
         &self,
         account: Address,
         value: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO deposit_events (
                 account,
@@ -545,8 +536,9 @@ impl IndexerDb for AnyDb {
         &self,
         account: Address,
         value: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO withdrawal_events (
                 account,
@@ -570,8 +562,9 @@ impl IndexerDb for AnyDb {
         &self,
         account: Address,
         value: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO stake_deposit_events (
                 account,
@@ -595,8 +588,9 @@ impl IndexerDb for AnyDb {
         &self,
         account: Address,
         value: U256,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO stake_withdrawal_events (
                 account,
@@ -622,8 +616,9 @@ impl IndexerDb for AnyDb {
         request_id: U256,
         callback_address: Address,
         error_data: Vec<u8>,
-        metadata: EventMetadata,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO callback_failed_events (
                 request_id,
