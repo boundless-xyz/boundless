@@ -2866,7 +2866,6 @@ dependencies = [
  "guest-set-builder",
  "guest-util",
  "hex",
- "reqwest",
  "risc0-zkvm",
  "sqlx",
  "tempfile",
