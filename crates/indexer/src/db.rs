@@ -324,7 +324,6 @@ impl IndexerDb for AnyDb {
         prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO fulfillments (
                 request_digest,
