@@ -133,6 +133,10 @@ impl StatusPoller {
 
             match status.status.as_ref() {
                 "RUNNING" => {
+                    tracing::trace!(
+                        "Session {proof_id:?} is still running. Elapsed time: {}",
+                        status.elapsed_time.unwrap_or(f64::NAN)
+                    );
                     tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
                         .await;
                     continue;
@@ -141,6 +145,11 @@ impl StatusPoller {
                     let Some(stats) = status.stats else {
                         return Err(ProverError::MissingStatus);
                     };
+                    tracing::trace!(
+                        "Proof {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
+                        stats.cycles,
+                        stats.total_cycles
+                    );
                     return Ok(ProofResult {
                         id: proof_id.uuid.clone(),
                         stats: ExecutorResp {

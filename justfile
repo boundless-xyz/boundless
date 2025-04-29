@@ -111,13 +111,13 @@ check-format:
 check-clippy:
     RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets -F boundless-order-generator/zeth
-    cd examples/counter && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/counter && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/composition && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/composition && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/counter-with-callback && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/counter-with-callback && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/smart-contract-requestor && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/smart-contract-requestor && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
     cd bento && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
@@ -140,7 +140,7 @@ format:
     cd crates/guest/util && cargo fmt --all
     cd bento && cargo sort --workspace
     cd bento && cargo fmt --all
-    cd documentation && bun run format-markdown
+    cd documentation && bun install && bun run format-markdown
     dprint fmt
     forge fmt
 
