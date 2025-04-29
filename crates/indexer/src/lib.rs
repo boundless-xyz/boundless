@@ -153,13 +153,18 @@ where
                             | ServiceError::EventQueryError(_)
                             | ServiceError::RpcError(_) => {
                                 attempt += 1;
+                                // exponential backoff with a maximum delay of 120 seconds
+                                let delay =
+                                    std::time::Duration::from_secs(2u64.pow(attempt - 1).min(120));
                                 tracing::warn!(
-                                    "Failed to process blocks from {} to {}: {:?}, attempt number {}",
+                                    "Failed to process blocks from {} to {}: {:?}, attempt number {}, retrying in {}s",
                                     from_block,
                                     to_block,
                                     e,
-                                    attempt
+                                    attempt,
+                                    delay.as_secs()
                                 );
+                                tokio::time::sleep(delay).await;
                             }
                         },
                     }
