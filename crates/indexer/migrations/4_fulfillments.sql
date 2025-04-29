@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS assessor_receipts (
 );
 
 CREATE TABLE IF NOT EXISTS fulfillments (
-  request_digest      TEXT      REFERENCES proof_delivered_events(request_digest),
+  request_digest      TEXT      NOT NULL,
   request_id          TEXT      NOT NULL,
   prover_address      TEXT      NOT NULL,
   image_id            TEXT      NOT NULL,
