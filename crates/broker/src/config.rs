@@ -157,6 +157,7 @@ pub struct MarketConf {
 
 impl Default for MarketConf {
     fn default() -> Self {
+        // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
         Self {
             mcycle_price: "0.1".to_string(),
