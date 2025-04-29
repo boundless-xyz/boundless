@@ -474,7 +474,7 @@ jobs:
         run: forge test -vvv
         working-directory: ${{ matrix.workspace }}/contracts
 
-      - name: cargo test
+      - name: RUST_LOG="debug" cargo test
         run: cargo test --all-features --locked -- --nocapture
         working-directory: ${{ matrix.workspace }}
         env:
