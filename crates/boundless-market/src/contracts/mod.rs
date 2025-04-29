@@ -427,6 +427,11 @@ impl ProofRequest {
         self.offer.biddingStart + self.offer.timeout as u64
     }
 
+    /// Returns the time, in seconds since the UNIX epoch, at which the request lock expires.
+    pub fn lock_expires_at(&self) -> u64 {
+        self.offer.biddingStart + self.offer.lockTimeout as u64
+    }
+
     /// Return true if the request ID indicates that it is authorized by a smart contract, rather
     /// than an EOA (i.e. an ECDSA key).
     pub fn is_smart_contract_signed(&self) -> bool {

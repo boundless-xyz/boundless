@@ -145,10 +145,11 @@ pub struct MarketConf {
     ///
     /// If the stake balance drops below this the broker will issue error logs
     pub stake_balance_error_threshold: Option<String>,
-    /// Max concurrent locks
+    /// Max concurrent proofs
     ///
-    /// Maximum number of concurrent locked requests that the prover will allow.
-    pub max_concurrent_locks: Option<u32>,
+    /// Maximum number of concurrent proofs that can be processed at once
+    #[serde(alias = "max_concurrent_locks")]
+    pub max_concurrent_proofs: Option<u32>,
     /// Optional cache directory for storing downloaded images and inputs
     ///
     /// If not set, files will be re-downloaded every time
@@ -181,7 +182,7 @@ impl Default for MarketConf {
             balance_error_threshold: None,
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
-            max_concurrent_locks: None,
+            max_concurrent_proofs: None,
             cache_dir: None,
         }
     }

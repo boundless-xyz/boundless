@@ -1,4 +1,4 @@
-name: Find or Create Linear Issue for PR
+name: Find or create Linear issue for PR
 
 on:
   workflow_dispatch:
