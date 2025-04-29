@@ -544,7 +544,7 @@ where
         let mut final_orders: Vec<Order> = Vec::new();
 
         // Apply peak khz limit if specified
-        if peak_prove_khz.is_some() && orders_truncated.len() > 0 {
+        if peak_prove_khz.is_some() && !orders_truncated.is_empty() {
             let peak_prove_khz = peak_prove_khz.unwrap();
             let mut commited_orders = self.db.get_committed_orders().await?;
             let num_commited_orders = commited_orders.len();

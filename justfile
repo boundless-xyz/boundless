@@ -140,7 +140,7 @@ format:
     cd crates/guest/util && cargo fmt --all
     cd bento && cargo sort --workspace
     cd bento && cargo fmt --all
-    cd documentation && bun run format-markdown
+    cd documentation && bun install && bun run format-markdown
     dprint fmt
     forge fmt
 
