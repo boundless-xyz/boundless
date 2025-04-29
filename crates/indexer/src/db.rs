@@ -14,6 +14,7 @@ use sqlx::{
     AnyPool, Row,
 };
 use thiserror::Error;
+use tracing_subscriber::fmt::format;
 
 const SQL_BLOCK_KEY: i64 = 0;
 
@@ -458,7 +459,7 @@ impl IndexerDb for AnyDb {
                 block_number, 
                 block_timestamp
             ) VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (request_digest) DO NOTHING",
+             ON CONFLICT (request_digest, tx_hash) DO NOTHING",
         )
         .bind(format!("{:x}", request_digest))
         .bind(format!("{:x}", request_id))
@@ -470,8 +471,9 @@ impl IndexerDb for AnyDb {
 
         if result.rows_affected() == 0 {
             tracing::warn!(
-                "Proof delivered event for {} already exists in database",
-                format!("id: {:x}, digest: {:x}", request_id, request_digest)
+                "Proof delivered event for {} and tx {} already exists in database",
+                format!("id: {:x}, digest: {:x}", request_id, request_digest),
+                format!("{:x}", metadata.tx_hash)
             );
         }
         Ok(())
