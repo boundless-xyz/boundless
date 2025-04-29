@@ -48,10 +48,10 @@ const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum PriceOrderErr {
-    #[error("failed to fetch / push input")]
+    #[error("failed to fetch / push input: {0}")]
     FetchInputErr(#[source] anyhow::Error),
 
-    #[error("failed to fetch / push image")]
+    #[error("failed to fetch / push image: {0}")]
     FetchImageErr(#[source] anyhow::Error),
 
     #[error("guest panicked: {0}")]
