@@ -211,7 +211,7 @@ async fn test_slash_fulfilled() {
         domain,
     )
     .unwrap();
-    let (fill, root_receipt, assessor_receipt) = prover.fulfill(order).await.unwrap();
+    let (fill, root_receipt, assessor_receipt) = prover.fulfill(&[order]).await.unwrap();
     let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt).unwrap();
     let expires_at = request.offer.biddingStart + request.offer.timeout as u64;
     let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;
