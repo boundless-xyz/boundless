@@ -252,7 +252,7 @@ impl IndexerDb for AnyDb {
             _ => return Err(DbError::BadTransaction("Invalid input type".to_string())),
         };
 
-        let result = sqlx::query(
+        sqlx::query(
             "INSERT INTO proof_requests (
                 request_digest,
                 request_id, 
@@ -295,13 +295,6 @@ impl IndexerDb for AnyDb {
         .bind(request.offer.rampUpPeriod as i64)
         .execute(&self.pool)
         .await?;
-
-        if result.rows_affected() == 0 {
-            tracing::warn!(
-                "Proof request {} already exists in database",
-                format!("id: {:x}, digest: {:x}", request.id, request_digest)
-            );
-        }
         Ok(())
     }
 
@@ -457,7 +450,6 @@ impl IndexerDb for AnyDb {
         request_id: U256,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
         let result = sqlx::query(
             "INSERT INTO proof_delivered_events (
                 request_digest,
@@ -491,7 +483,6 @@ impl IndexerDb for AnyDb {
         request_id: U256,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
         let result = sqlx::query(
             "INSERT INTO request_fulfilled_events (
                 request_digest,
