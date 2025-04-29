@@ -157,6 +157,7 @@ pub struct MarketConf {
 
 impl Default for MarketConf {
     fn default() -> Self {
+        #[allow(deprecated)]
         Self {
             mcycle_price: "0.1".to_string(),
             mcycle_price_stake_token: "0.1".to_string(),
