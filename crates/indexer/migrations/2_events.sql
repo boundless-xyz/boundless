@@ -33,11 +33,12 @@ CREATE INDEX IF NOT EXISTS request_fulfilled_events_request_id_idx
   ON request_fulfilled_events (request_id);
 
 CREATE TABLE IF NOT EXISTS proof_delivered_events (
-  request_digest    TEXT        PRIMARY KEY,
+  request_digest    TEXT        NOT NULL,
   request_id        TEXT        NOT NULL,
   tx_hash           TEXT        NOT NULL REFERENCES transactions(tx_hash),
   block_number      BIGINT      NOT NULL,
-  block_timestamp   BIGINT      NOT NULL
+  block_timestamp   BIGINT      NOT NULL,
+  PRIMARY KEY (request_digest, tx_hash)
 );
 
 CREATE INDEX IF NOT EXISTS proof_delivered_events_request_id_idx
