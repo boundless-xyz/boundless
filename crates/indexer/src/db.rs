@@ -211,7 +211,7 @@ impl IndexerDb for AnyDb {
     }
 
     async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError> {
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO transactions (
                 tx_hash, 
                 block_number, 
@@ -226,6 +226,13 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Transaction {} already exists in database",
+                format!("{:x}", metadata.tx_hash)
+            );
+        }
         Ok(())
     }
 
@@ -245,7 +252,7 @@ impl IndexerDb for AnyDb {
             _ => return Err(DbError::BadTransaction("Invalid input type".to_string())),
         };
 
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO proof_requests (
                 request_digest,
                 request_id, 
@@ -289,6 +296,12 @@ impl IndexerDb for AnyDb {
         .execute(&self.pool)
         .await?;
 
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Proof request {} already exists in database",
+                format!("id: {:x}, digest: {:x}", request.id, request_digest)
+            );
+        }
         Ok(())
     }
 
@@ -298,7 +311,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO assessor_receipts (
                 tx_hash,
                 prover_address,
@@ -315,6 +328,13 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Assessor receipt for tx {} already exists in database",
+                format!("{:x}", metadata.tx_hash)
+            );
+        }
         Ok(())
     }
 
@@ -324,7 +344,7 @@ impl IndexerDb for AnyDb {
         prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO fulfillments (
                 request_digest,
                 request_id,
@@ -349,6 +369,14 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Fulfillment for request {} and tx {} already exists in database",
+                format!("id: {:x}, digest: {:x}", fill.id, fill.requestDigest),
+                format!("{:x}", metadata.tx_hash)
+            );
+        }
         Ok(())
     }
 
@@ -359,7 +387,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO request_submitted_events (
                 request_digest,
                 request_id, 
@@ -376,6 +404,13 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Request submitted event for {} already exists in database",
+                format!("id: {:x}, digest: {:x}", request_id, request_digest)
+            );
+        }
         Ok(())
     }
 
@@ -387,7 +422,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO request_locked_events (
                 request_digest,
                 request_id, 
@@ -406,6 +441,13 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Request locked event for {} already exists in database",
+                format!("id: {:x}, digest: {:x}", request_id, request_digest)
+            );
+        }
         Ok(())
     }
 
@@ -416,7 +458,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO proof_delivered_events (
                 request_digest,
                 request_id, 
@@ -433,6 +475,13 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Proof delivered event for {} already exists in database",
+                format!("id: {:x}, digest: {:x}", request_id, request_digest)
+            );
+        }
         Ok(())
     }
 
@@ -443,7 +492,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO request_fulfilled_events (
                 request_digest,
                 request_id, 
@@ -460,6 +509,13 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Request fulfilled event for {} already exists in database",
+                format!("id: {:x}, digest: {:x}", request_id, request_digest)
+            );
+        }
         Ok(())
     }
 
@@ -478,7 +534,7 @@ impl IndexerDb for AnyDb {
                 .fetch_one(&self.pool)
                 .await?;
         let prover_address: String = resutl.try_get("prover_address")?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO prover_slashed_events (
                 request_id, 
                 prover_address,
@@ -501,6 +557,13 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Prover slashed event for request {} already exists in database",
+                format!("{:x}", request_id)
+            );
+        }
         Ok(())
     }
 
@@ -511,7 +574,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO deposit_events (
                 account,
                 value,
@@ -528,6 +591,14 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Deposit event for account {} and tx {} already exists in database",
+                format!("{:x}", account),
+                format!("{:x}", metadata.tx_hash)
+            );
+        }
         Ok(())
     }
 
@@ -538,7 +609,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO withdrawal_events (
                 account,
                 value,
@@ -555,8 +626,17 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Withdrawal event for account {} and tx {} already exists in database",
+                format!("{:x}", account),
+                format!("{:x}", metadata.tx_hash)
+            );
+        }
         Ok(())
     }
+
     async fn add_stake_deposit_event(
         &self,
         account: Address,
@@ -564,7 +644,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO stake_deposit_events (
                 account,
                 value,
@@ -581,8 +661,17 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Stake deposit event for account {} and tx {} already exists in database",
+                format!("{:x}", account),
+                format!("{:x}", metadata.tx_hash)
+            );
+        }
         Ok(())
     }
+
     async fn add_stake_withdrawal_event(
         &self,
         account: Address,
@@ -590,7 +679,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO stake_withdrawal_events (
                 account,
                 value,
@@ -607,6 +696,14 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Stake withdrawal event for account {} and tx {} already exists in database",
+                format!("{:x}", account),
+                format!("{:x}", metadata.tx_hash)
+            );
+        }
         Ok(())
     }
 
@@ -618,7 +715,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO callback_failed_events (
                 request_id,
                 callback_address,
@@ -637,6 +734,14 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                "Callback failed event for request {} and tx {} already exists in database",
+                format!("{:x}", request_id),
+                format!("{:x}", metadata.tx_hash)
+            );
+        }
         Ok(())
     }
 }
