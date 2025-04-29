@@ -14,7 +14,6 @@ use sqlx::{
     AnyPool, Row,
 };
 use thiserror::Error;
-use tracing_subscriber::fmt::format;
 
 const SQL_BLOCK_KEY: i64 = 0;
 
