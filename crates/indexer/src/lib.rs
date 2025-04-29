@@ -375,38 +375,17 @@ where
         for (log, log_data) in logs {
             tracing::debug!("Processing proof delivered event for request: 0x{:x}", log.requestId);
             let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            // Check if the transaction is already in the cache
-            // If it is, use the cached block number and tx_input
-            // Otherwise, fetch the transaction from the provider and cache it
-            // This is to avoid making multiple calls to the provider for the same transaction
-            // as delivery events may be emitted in a batch
-            let (metadata, tx_input) = match cache.get(tx_hash) {
-                Some((metadata, tx_input)) => (metadata.clone(), tx_input),
+            let ts = match log_data.block_timestamp {
+                Some(ts) => ts,
                 None => {
-                    let tx = self
-                        .boundless_market
-                        .instance()
-                        .provider()
-                        .get_transaction_by_hash(tx_hash)
+                    self.block_timestamp(log_data.block_number.context("block number not found")?)
                         .await?
-                        .context(anyhow!(
-                            "Transaction not found for hash: {}",
-                            hex::encode(tx_hash)
-                        ))?;
-
-                    let block_number = tx.block_number.context("block number not found")?;
-                    let block_timestamp = match log_data.block_timestamp {
-                        Some(ts) => ts,
-                        None => self.block_timestamp(block_number).await?,
-                    };
-                    let metadata =
-                        TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
-                    cache.insert(metadata.clone(), tx.input().clone());
-                    (metadata, &tx.input().clone())
                 }
             };
+            let (metadata, tx_input) =
+                cache.fetch_tx(&self.boundless_market.instance().provider(), tx_hash, ts).await?;
 
-            let (fills, assessor_receipt) = decode_calldata(tx_input).context(anyhow!(
+            let (fills, assessor_receipt) = decode_calldata(&tx_input).context(anyhow!(
                 "abi decode failure for proof delivered event of tx: {}",
                 hex::encode(tx_hash)
             ))?;
@@ -446,39 +425,17 @@ where
         for (log, log_data) in logs {
             tracing::debug!("Processing fulfilled event for request: 0x{:x}", log.requestId);
             let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-
-            // Check if the transaction is already in the cache
-            // If it is, use the cached block number and tx_input
-            // Otherwise, fetch the transaction from the provider and cache it
-            // This is to avoid making multiple calls to the provider for the same transaction
-            // as fulfilled events may be emitted in a batch
-            let (metadata, tx_input) = match cache.get(tx_hash) {
-                Some((metadata, tx_input)) => (metadata.clone(), tx_input),
+            let ts = match log_data.block_timestamp {
+                Some(ts) => ts,
                 None => {
-                    let tx = self
-                        .boundless_market
-                        .instance()
-                        .provider()
-                        .get_transaction_by_hash(tx_hash)
+                    self.block_timestamp(log_data.block_number.context("block number not found")?)
                         .await?
-                        .context(anyhow!(
-                            "Transaction not found for hash: {}",
-                            hex::encode(tx_hash)
-                        ))?;
-
-                    let block_number = tx.block_number.context("block number not found")?;
-                    let block_timestamp = match log_data.block_timestamp {
-                        Some(ts) => ts,
-                        None => self.block_timestamp(block_number).await?,
-                    };
-                    let metadata =
-                        TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
-                    cache.insert(metadata.clone(), tx.input().clone());
-                    (metadata, &tx.input().clone())
                 }
             };
+            let (metadata, tx_input) =
+                cache.fetch_tx(&self.boundless_market.instance().provider(), tx_hash, ts).await?;
 
-            let (fills, _) = decode_calldata(tx_input).context(anyhow!(
+            let (fills, _) = decode_calldata(&tx_input).context(anyhow!(
                 "abi decode failure for fulfilled event of tx: {}",
                 hex::encode(tx_hash)
             ))?;
@@ -744,31 +701,15 @@ where
         for (log, log_data) in logs {
             tracing::debug!("Processing callback failed event for request: 0x{:x}", log.requestId);
             let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let (metadata, _tx_input) = match cache.get(tx_hash) {
-                Some((metadata, tx_input)) => (metadata.clone(), tx_input),
+            let ts = match log_data.block_timestamp {
+                Some(ts) => ts,
                 None => {
-                    let tx = self
-                        .boundless_market
-                        .instance()
-                        .provider()
-                        .get_transaction_by_hash(tx_hash)
+                    self.block_timestamp(log_data.block_number.context("block number not found")?)
                         .await?
-                        .context(anyhow!(
-                            "Transaction not found for hash: {}",
-                            hex::encode(tx_hash)
-                        ))?;
-
-                    let block_number = tx.block_number.context("block number not found")?;
-                    let block_timestamp = match log_data.block_timestamp {
-                        Some(ts) => ts,
-                        None => self.block_timestamp(block_number).await?,
-                    };
-                    let metadata =
-                        TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
-                    cache.insert(metadata.clone(), tx.input().clone());
-                    (metadata, &tx.input().clone())
                 }
             };
+            let (metadata, _tx_input) =
+                cache.fetch_tx(&self.boundless_market.instance().provider(), tx_hash, ts).await?;
 
             self.db
                 .add_callback_failed_event(
@@ -811,11 +752,29 @@ impl TxCache {
         Self { cache: HashMap::new() }
     }
 
-    fn get(&self, tx_hash: B256) -> Option<&(TxMetadata, Bytes)> {
-        self.cache.get(&tx_hash)
-    }
-
-    fn insert(&mut self, metadata: TxMetadata, tx_input: Bytes) {
-        self.cache.insert(metadata.tx_hash, (metadata, tx_input));
+    // Fetch (and cache) metadata and input for a tx
+    // Check if the transaction is already in the cache
+    // If it is, use the cached tx metadata and tx_input
+    // Otherwise, fetch the transaction from the provider and cache it
+    // This is to avoid making multiple calls to the provider for the same transaction
+    // as delivery events may be emitted in a batch
+    async fn fetch_tx<P: Provider<Ethereum>>(
+        &mut self,
+        provider: &P,
+        tx_hash: B256,
+        block_ts: u64,
+    ) -> Result<(TxMetadata, Bytes), ServiceError> {
+        if let Some((meta, input)) = self.cache.get(&tx_hash) {
+            return Ok((meta.clone(), input.clone()));
+        }
+        let tx = provider
+            .get_transaction_by_hash(tx_hash)
+            .await?
+            .context(anyhow!("Transaction not found: {}", hex::encode(tx_hash)))?;
+        let bn = tx.block_number.context("block number not found")?;
+        let meta = TxMetadata::new(tx_hash, tx.from(), bn, block_ts);
+        let input = tx.input().clone();
+        self.cache.insert(tx_hash, (meta.clone(), input.clone()));
+        Ok((meta, input))
     }
 }
