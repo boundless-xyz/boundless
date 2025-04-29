@@ -866,6 +866,7 @@ mod tests {
         };
 
         let prover_address = Address::ZERO;
+        db.add_tx(&metadata).await.unwrap();
         db.add_proof_delivered_event(fill.requestDigest, fill.id, &metadata).await.unwrap();
         db.add_fulfillment(fill.clone(), prover_address, &metadata).await.unwrap();
 
