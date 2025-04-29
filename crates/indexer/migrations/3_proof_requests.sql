@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS proof_requests (
     ramp_up_period      BIGINT    NOT NULL  -- Ramp up period in seconds  
 );
 
+-- Add an index on client_address for faster lookups
+CREATE INDEX IF NOT EXISTS idx_proof_requests_client_address ON proof_requests(client_address);
+
 -- Add an index on image_id for faster lookups
 CREATE INDEX IF NOT EXISTS idx_proof_requests_image_id ON proof_requests(image_id);
 
