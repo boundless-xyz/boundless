@@ -16,6 +16,7 @@ use alloy::{
         },
         Identity, Provider, ProviderBuilder, RootProvider,
     },
+    rpc::types::Log,
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
     transports::{RpcError, TransportErrorKind},
@@ -75,6 +76,8 @@ pub struct IndexerService<P> {
     pub db: DbObj,
     pub domain: EIP712DomainSaltless,
     pub config: IndexerServiceConfig,
+    // Mapping from transaction hash to (from, block number, block timestamp, tx input)
+    pub cache: HashMap<B256, (TxMetadata, Bytes)>,
 }
 
 #[derive(Clone)]
@@ -93,17 +96,14 @@ impl IndexerService<ProviderWallet> {
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
-
         let provider = ProviderBuilder::new().wallet(wallet.clone()).on_http(rpc_url);
-
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
-
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
-
         let domain = boundless_market.eip712_domain().await?;
+        let cache = HashMap::new();
 
-        Ok(Self { boundless_market, db, domain, config })
+        Ok(Self { boundless_market, db, domain, config, cache })
     }
 }
 
@@ -111,7 +111,7 @@ impl<P> IndexerService<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    pub async fn run(self, starting_block: Option<u64>) -> Result<(), ServiceError> {
+    pub async fn run(&mut self, starting_block: Option<u64>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
         let current_block = self.current_block().await?;
         let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
@@ -185,32 +185,19 @@ where
         }
     }
 
-    async fn process_blocks(&self, from: u64, to: u64) -> Result<(), ServiceError> {
-        // First check for new request submitted events
+    async fn process_blocks(&mut self, from: u64, to: u64) -> Result<(), ServiceError> {
         self.process_request_submitted_events(from, to).await?;
-
-        // Then check for new locked in requests
         self.process_locked_events(from, to).await?;
-
-        // Then check for delivered/fulfilled events
-        let mut cache = TxCache::new();
-        self.process_proof_delivered_events(from, to, &mut cache).await?;
-        self.process_fulfilled_events(from, to, &mut cache).await?;
-        self.process_callback_failed_events(from, to, &mut cache).await?;
-
-        // Check for new slashed events
+        self.process_proof_delivered_events(from, to).await?;
+        self.process_fulfilled_events(from, to).await?;
+        self.process_callback_failed_events(from, to).await?;
         self.process_slashed_events(from, to).await?;
-
-        // Check for new deposit events
         self.process_deposit_events(from, to).await?;
-        // Check for new withdrawal events
         self.process_withdrawal_events(from, to).await?;
-        // Check for new stake deposit events
         self.process_stake_deposit_events(from, to).await?;
-        // Check for new stake withdrawal events
         self.process_stake_withdrawal_events(from, to).await?;
+        self.clear_cache();
 
-        // Update the last processed block
         self.update_last_processed_block(to).await?;
 
         Ok(())
@@ -225,7 +212,7 @@ where
     }
 
     async fn process_request_submitted_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
     ) -> Result<(), ServiceError> {
@@ -246,24 +233,17 @@ where
         );
 
         for (log, log_data) in logs {
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let tx = self
-                .boundless_market
-                .instance()
-                .provider()
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
+            let (metadata, input) = self.fetch_tx(log_data).await?;
 
             tracing::debug!(
                 "Processing request submitted event for request: 0x{:x}",
                 log.requestId
             );
 
-            let request = IBoundlessMarket::submitRequestCall::abi_decode(tx.input(), true)
+            let request = IBoundlessMarket::submitRequestCall::abi_decode(&input, true)
                 .context(anyhow!(
                     "abi decode failure for request submitted event of tx: {}",
-                    hex::encode(tx_hash)
+                    hex::encode(metadata.tx_hash)
                 ))?
                 .request;
 
@@ -274,13 +254,6 @@ where
                     log.requestId
                 ))?;
 
-            let block_number = tx.block_number.context("block number not found")?;
-            let block_timestamp = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => self.block_timestamp(block_number).await?,
-            };
-            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
-
             self.db.add_proof_request(request_digest, request).await?;
             self.db.add_request_submitted_event(request_digest, log.requestId, &metadata).await?;
         }
@@ -289,7 +262,7 @@ where
     }
 
     async fn process_locked_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
     ) -> Result<(), ServiceError> {
@@ -311,19 +284,12 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing request locked event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let tx = self
-                .boundless_market
-                .instance()
-                .provider()
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
+            let (metadata, input) = self.fetch_tx(log_data).await?;
 
-            let request = IBoundlessMarket::lockRequestCall::abi_decode(tx.input(), true)
+            let request = IBoundlessMarket::lockRequestCall::abi_decode(&input, true)
                 .context(anyhow!(
                     "abi decode failure for request locked event of tx: {}",
-                    hex::encode(tx_hash)
+                    hex::encode(metadata.tx_hash)
                 ))?
                 .request;
 
@@ -333,13 +299,6 @@ where
                     "Failed to compute request digest for request: 0x{:x}",
                     log.requestId
                 ))?;
-
-            let block_number = tx.block_number.context("block number not found")?;
-            let block_timestamp = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => self.block_timestamp(block_number).await?,
-            };
-            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
 
             self.db.add_proof_request(request_digest, request).await?;
             self.db
@@ -351,10 +310,9 @@ where
     }
 
     async fn process_proof_delivered_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
-        cache: &mut TxCache,
     ) -> Result<(), ServiceError> {
         let event_filter = self
             .boundless_market
@@ -374,20 +332,10 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing proof delivered event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let ts = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => {
-                    self.block_timestamp(log_data.block_number.context("block number not found")?)
-                        .await?
-                }
-            };
-            let (metadata, tx_input) =
-                cache.fetch_tx(&self.boundless_market.instance().provider(), tx_hash, ts).await?;
-
-            let (fills, assessor_receipt) = decode_calldata(&tx_input).context(anyhow!(
+            let (metadata, input) = self.fetch_tx(log_data).await?;
+            let (fills, assessor_receipt) = decode_calldata(&input).context(anyhow!(
                 "abi decode failure for proof delivered event of tx: {}",
-                hex::encode(tx_hash)
+                hex::encode(metadata.tx_hash)
             ))?;
 
             self.db.add_assessor_receipt(assessor_receipt.clone(), &metadata).await?;
@@ -401,10 +349,9 @@ where
     }
 
     async fn process_fulfilled_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
-        cache: &mut TxCache,
     ) -> Result<(), ServiceError> {
         let event_filter = self
             .boundless_market
@@ -424,20 +371,11 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing fulfilled event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let ts = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => {
-                    self.block_timestamp(log_data.block_number.context("block number not found")?)
-                        .await?
-                }
-            };
-            let (metadata, tx_input) =
-                cache.fetch_tx(&self.boundless_market.instance().provider(), tx_hash, ts).await?;
+            let (metadata, input) = self.fetch_tx(log_data).await?;
 
-            let (fills, _) = decode_calldata(&tx_input).context(anyhow!(
+            let (fills, _) = decode_calldata(&input).context(anyhow!(
                 "abi decode failure for fulfilled event of tx: {}",
-                hex::encode(tx_hash)
+                hex::encode(metadata.tx_hash)
             ))?;
             for fill in fills {
                 self.db.add_request_fulfilled_event(fill.requestDigest, fill.id, &metadata).await?;
@@ -448,7 +386,7 @@ where
     }
 
     async fn process_slashed_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
     ) -> Result<(), ServiceError> {
@@ -470,22 +408,7 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing slashed event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let tx = self
-                .boundless_market
-                .instance()
-                .provider()
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
-
-            let block_number = tx.block_number.context("block number not found")?;
-            let block_timestamp = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => self.block_timestamp(block_number).await?,
-            };
-            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
-
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db
                 .add_prover_slashed_event(
                     log.requestId,
@@ -501,7 +424,7 @@ where
     }
 
     async fn process_deposit_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
     ) -> Result<(), ServiceError> {
@@ -523,21 +446,7 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing deposit event for account: 0x{:x}", log.account);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let tx = self
-                .boundless_market
-                .instance()
-                .provider()
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
-
-            let block_number = tx.block_number.context("block number not found")?;
-            let block_timestamp = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => self.block_timestamp(block_number).await?,
-            };
-            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db.add_deposit_event(log.account, log.value, &metadata).await?;
         }
 
@@ -545,7 +454,7 @@ where
     }
 
     async fn process_withdrawal_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
     ) -> Result<(), ServiceError> {
@@ -567,21 +476,7 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing withdrawal event for account: 0x{:x}", log.account);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let tx = self
-                .boundless_market
-                .instance()
-                .provider()
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
-
-            let block_number = tx.block_number.context("block number not found")?;
-            let block_timestamp = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => self.block_timestamp(block_number).await?,
-            };
-            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db.add_withdrawal_event(log.account, log.value, &metadata).await?;
         }
 
@@ -589,7 +484,7 @@ where
     }
 
     async fn process_stake_deposit_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
     ) -> Result<(), ServiceError> {
@@ -611,21 +506,7 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing stake deposit event for account: 0x{:x}", log.account);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let tx = self
-                .boundless_market
-                .instance()
-                .provider()
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
-
-            let block_number = tx.block_number.context("block number not found")?;
-            let block_timestamp = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => self.block_timestamp(block_number).await?,
-            };
-            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db.add_stake_deposit_event(log.account, log.value, &metadata).await?;
         }
 
@@ -633,7 +514,7 @@ where
     }
 
     async fn process_stake_withdrawal_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
     ) -> Result<(), ServiceError> {
@@ -655,21 +536,7 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing stake withdrawal event for account: 0x{:x}", log.account);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let tx = self
-                .boundless_market
-                .instance()
-                .provider()
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .context(anyhow!("Transaction not found for hash: {}", hex::encode(tx_hash)))?;
-
-            let block_number = tx.block_number.context("block number not found")?;
-            let block_timestamp = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => self.block_timestamp(block_number).await?,
-            };
-            let metadata = TxMetadata::new(tx_hash, tx.from(), block_number, block_timestamp);
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db.add_stake_withdrawal_event(log.account, log.value, &metadata).await?;
         }
 
@@ -677,10 +544,9 @@ where
     }
 
     async fn process_callback_failed_events(
-        &self,
+        &mut self,
         from_block: u64,
         to_block: u64,
-        cache: &mut TxCache,
     ) -> Result<(), ServiceError> {
         let event_filter = self
             .boundless_market
@@ -700,16 +566,7 @@ where
 
         for (log, log_data) in logs {
             tracing::debug!("Processing callback failed event for request: 0x{:x}", log.requestId);
-            let tx_hash = log_data.transaction_hash.context("Transaction hash not found")?;
-            let ts = match log_data.block_timestamp {
-                Some(ts) => ts,
-                None => {
-                    self.block_timestamp(log_data.block_number.context("block number not found")?)
-                        .await?
-                }
-            };
-            let (metadata, _tx_input) =
-                cache.fetch_tx(&self.boundless_market.instance().provider(), tx_hash, ts).await?;
+            let (metadata, _tx_input) = self.fetch_tx(log_data).await?;
 
             self.db
                 .add_callback_failed_event(
@@ -739,17 +596,9 @@ where
             .header
             .timestamp)
     }
-}
 
-// Cache for transactions to avoid multiple calls to the provider
-struct TxCache {
-    // Mapping from transaction hash to (from, block number, block timestamp, tx input)
-    cache: HashMap<B256, (TxMetadata, Bytes)>,
-}
-
-impl TxCache {
-    fn new() -> Self {
-        Self { cache: HashMap::new() }
+    fn clear_cache(&mut self) {
+        self.cache.clear();
     }
 
     // Fetch (and cache) metadata and input for a tx
@@ -758,21 +607,22 @@ impl TxCache {
     // Otherwise, fetch the transaction from the provider and cache it
     // This is to avoid making multiple calls to the provider for the same transaction
     // as delivery events may be emitted in a batch
-    async fn fetch_tx<P: Provider<Ethereum>>(
-        &mut self,
-        provider: &P,
-        tx_hash: B256,
-        block_ts: u64,
-    ) -> Result<(TxMetadata, Bytes), ServiceError> {
+    async fn fetch_tx(&mut self, log: Log) -> Result<(TxMetadata, Bytes), ServiceError> {
+        let tx_hash = log.transaction_hash.context("Transaction hash not found")?;
         if let Some((meta, input)) = self.cache.get(&tx_hash) {
             return Ok((meta.clone(), input.clone()));
         }
-        let tx = provider
+        let tx = self
+            .boundless_market
+            .instance()
+            .provider()
             .get_transaction_by_hash(tx_hash)
             .await?
             .context(anyhow!("Transaction not found: {}", hex::encode(tx_hash)))?;
         let bn = tx.block_number.context("block number not found")?;
-        let meta = TxMetadata::new(tx_hash, tx.from(), bn, block_ts);
+        let ts =
+            if let Some(ts) = log.block_timestamp { ts } else { self.block_timestamp(bn).await? };
+        let meta = TxMetadata::new(tx_hash, tx.from(), bn, ts);
         let input = tx.input().clone();
         self.cache.insert(tx_hash, (meta.clone(), input.clone()));
         Ok((meta, input))

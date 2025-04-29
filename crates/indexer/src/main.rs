@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
 
     let args = MainArgs::parse();
 
-    let indexer_service = IndexerService::new(
+    let mut indexer_service = IndexerService::new(
         args.rpc_url.clone(),
         &PrivateKeySigner::random(),
         args.boundless_market_address,
