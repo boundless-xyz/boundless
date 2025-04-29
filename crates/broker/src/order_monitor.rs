@@ -546,22 +546,25 @@ where
         // Apply peak khz limit if specified
         if peak_prove_khz.is_some() && !orders_truncated.is_empty() {
             let peak_prove_khz = peak_prove_khz.unwrap();
-            let mut commited_orders = self.db.get_committed_orders().await?;
-            let num_commited_orders = commited_orders.len();
+            let committed_orders = self.db.get_committed_orders().await?;
+            let num_commited_orders = committed_orders.len();
             let total_commited_cycles =
-                commited_orders.iter().map(|order| order.total_cycles.unwrap()).sum::<u64>();
+                committed_orders.iter().map(|order| order.total_cycles.unwrap()).sum::<u64>();
 
             let now = now_timestamp();
             // Estimate the time the prover will be available given our current committed orders.
-            commited_orders.sort_by_key(|order| order.proving_started_at);
-            let started_proving_at = if !commited_orders.is_empty() {
-                commited_orders[0].proving_started_at.unwrap()
-            } else {
-                now
-            };
+            let started_proving_at = committed_orders
+                .iter()
+                .map(|order| order.proving_started_at.unwrap())
+                .min()
+                .unwrap_or(now);
 
             let proof_time_seconds = total_commited_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
             let mut prover_available_at = started_proving_at + proof_time_seconds;
+            if prover_available_at < now {
+                tracing::warn!("Proofs are behind what is estimated from peak_prove_khz config. Consider lowering this value to avoid overlocking orders.");
+                prover_available_at = now;
+            }
             tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available in {} seconds", 
                 num_commited_orders,
                 total_commited_cycles,
