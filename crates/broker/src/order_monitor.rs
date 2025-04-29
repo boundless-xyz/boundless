@@ -544,23 +544,31 @@ where
         let mut final_orders: Vec<Order> = Vec::new();
 
         // Apply peak khz limit if specified
-        if let Some(peak_prove_khz) = peak_prove_khz {
+        if peak_prove_khz.is_some() && orders_truncated.len() > 0 {
+            let peak_prove_khz = peak_prove_khz.unwrap();
             let mut commited_orders = self.db.get_committed_orders().await?;
             let num_commited_orders = commited_orders.len();
             let total_commited_cycles =
                 commited_orders.iter().map(|order| order.total_cycles.unwrap()).sum::<u64>();
 
+            let now = now_timestamp();
             // Estimate the time the prover will be available given our current committed orders.
             commited_orders.sort_by_key(|order| order.proving_started_at);
             let started_proving_at = if !commited_orders.is_empty() {
                 commited_orders[0].proving_started_at.unwrap()
             } else {
-                now_timestamp()
+                now
             };
 
             let proof_time_seconds = total_commited_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
             let mut prover_available_at = started_proving_at + proof_time_seconds;
-            tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available at {}", num_commited_orders, total_commited_cycles, peak_prove_khz, started_proving_at, prover_available_at);
+            tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available in {} seconds", 
+                num_commited_orders, 
+                total_commited_cycles, 
+                peak_prove_khz, 
+                started_proving_at, 
+                prover_available_at - now
+            );
 
             // For each order in consideration, check if it can be completed before its expiration.
             for order in orders_truncated {
@@ -581,7 +589,12 @@ where
                 tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {}. It expires at {}", order.id(), proof_time_seconds, completion_time, expiration);
 
                 if completion_time > expiration {
-                    tracing::info!("Order {:x} cannot be completed before its expiration at {}, proof estimated to complete at {}. Skipping", order.request.id, expiration, completion_time);
+                    tracing::info!("Order {:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
+                        order.request.id, 
+                        expiration, 
+                        proof_time_seconds, 
+                        completion_time
+                    );
                     self.db
                         .set_order_status(&order.id(), OrderStatus::Skipped)
                         .await
@@ -683,7 +696,7 @@ where
                 // Categorize orders by fulfillment type
                 let categorized_orders = self.categorize_orders(final_orders);
 
-                tracing::info!("After processing block {}[timestamp {}], we will now start locking and/or proving {} orders: {:?}", 
+                tracing::debug!("After processing block {}[timestamp {}], we will now start locking and/or proving {} orders: {:?}", 
                     current_block,
                     current_block_timestamp,
                     categorized_orders.len(),
