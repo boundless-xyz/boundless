@@ -527,6 +527,7 @@ error = ?"#;
     }
 
     #[tokio::test]
+    #[allow(deprecated)]
     async fn config_parser() {
         let mut config_temp = NamedTempFile::new().unwrap();
         write_config(CONFIG_TEMPL, config_temp.as_file_mut());
