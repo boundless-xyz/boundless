@@ -3,11 +3,7 @@
 // All rights reserved.
 
 use crate::{
-    chain_monitor::ChainMonitorService,
-    config::ConfigLock,
-    db::DbObj,
-    task::{RetryRes, RetryTask, SupervisorErr},
-    Order, OrderStatus,
+    chain_monitor::ChainMonitorService, config::ConfigLock, db::DbObj, errors::CodedError, task::{RetryRes, RetryTask, SupervisorErr}, Order, OrderStatus
 };
 use alloy::{
     network::Ethereum,
@@ -23,8 +19,8 @@ use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum LockOrderErr {
-    #[error("Failed to fetch / push image: {0}")]
+pub enum OrderMonitorErr {
+    #[error("Failed to lock order: {0}")]
     OrderLockedInBlock(MarketError),
 
     #[error("Invalid order status for locking: {0:?}")]
@@ -35,6 +31,17 @@ pub enum LockOrderErr {
 
     #[error("Other: {0}")]
     OtherErr(#[from] anyhow::Error),
+}
+
+impl CodedError for OrderMonitorErr {
+    fn code(&self) -> &str {
+        match self {
+            OrderMonitorErr::OrderLockedInBlock(_) => "B-3007",
+            OrderMonitorErr::InvalidStatus(_) => "B-3008",
+            OrderMonitorErr::AlreadyLocked => "B-3009",
+            OrderMonitorErr::OtherErr(_) => "B-3010",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -93,9 +100,9 @@ where
         Ok(Self { db, chain_monitor, block_time, config, market, provider })
     }
 
-    async fn lock_order(&self, order_id: U256, order: &Order) -> Result<(), LockOrderErr> {
+    async fn lock_order(&self, order_id: U256, order: &Order) -> Result<(), OrderMonitorErr> {
         if order.status != OrderStatus::Locking {
-            return Err(LockOrderErr::InvalidStatus(order.status));
+            return Err(OrderMonitorErr::InvalidStatus(order.status));
         }
 
         let order_status = self
@@ -107,7 +114,7 @@ where
             tracing::warn!("Order {order_id:x} not open: {order_status:?}, skipping");
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
-            return Err(LockOrderErr::AlreadyLocked);
+            return Err(OrderMonitorErr::AlreadyLocked);
         }
 
         let conf_priority_gas = {
@@ -120,7 +127,7 @@ where
             .market
             .lock_request(&order.request, &order.client_sig, conf_priority_gas)
             .await
-            .map_err(LockOrderErr::OrderLockedInBlock)?;
+            .map_err(OrderMonitorErr::OrderLockedInBlock)?;
 
         let lock_timestamp = self
             .provider
@@ -153,7 +160,7 @@ where
                 Ok(_) => tracing::info!("Locked order: {order_id:x}"),
                 Err(ref err) => {
                     match err {
-                        LockOrderErr::OtherErr(err) => {
+                        OrderMonitorErr::OtherErr(err) => {
                             tracing::error!("Failed to lock order: {order_id:x} {err:?}");
                         }
                         // Only warn on known / classified errors
@@ -213,7 +220,7 @@ where
 
     // TODO:
     // need to call set_failed() correctly whenever a order triggers a hard failure
-    pub async fn start_monitor(&self, block_limit: Option<u64>) -> Result<()> {
+    pub async fn start_monitor(&self, block_limit: Option<u64>) -> Result<(), OrderMonitorErr> {
         self.back_scan_locks().await?;
 
         // TODO: Move to websocket subscriptions
@@ -251,11 +258,11 @@ where
     }
 }
 
-impl<P> RetryTask for OrderMonitor<P>
+impl<P> RetryTask<OrderMonitorErr> for OrderMonitor<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes {
+    fn spawn(&self) -> RetryRes<OrderMonitorErr> {
         let monitor_clone = self.clone();
         Box::pin(async move {
             tracing::info!("Starting order monitor");

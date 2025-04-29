@@ -11,8 +11,26 @@ use tokio::sync::{watch, Notify, RwLock};
 
 use alloy::{eips::BlockNumberOrTag, providers::Provider};
 use anyhow::{Context, Result};
+use thiserror::Error;
 
-use crate::task::{RetryRes, RetryTask, SupervisorErr};
+use crate::{
+    errors::CodedError,
+    task::{RetryRes, RetryTask, SupervisorErr},
+};
+
+#[derive(Error, Debug)]
+pub enum ChainMonitorErr {
+    #[error("Other: {0}")]
+    OtherErr(#[from] anyhow::Error),
+}
+
+impl CodedError for ChainMonitorErr {
+    fn code(&self) -> &str {
+        match self {
+            ChainMonitorErr::OtherErr(_) => "B-3011",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ChainMonitorService<P> {
@@ -84,11 +102,11 @@ impl<P: Provider> ChainMonitorService<P> {
     }
 }
 
-impl<P> RetryTask for ChainMonitorService<P>
+impl<P> RetryTask<ChainMonitorErr> for ChainMonitorService<P>
 where
     P: Provider + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes {
+    fn spawn(&self) -> RetryRes<ChainMonitorErr> {
         let self_clone = self.clone();
 
         Box::pin(async move {
@@ -99,6 +117,7 @@ where
                 .get_chain_id()
                 .await
                 .context("failed to get chain ID")
+                .map_err(ChainMonitorErr::OtherErr)
                 .map_err(SupervisorErr::Recover)?;
 
             let chain_poll_time = NamedChain::try_from(chain_id)
@@ -121,14 +140,17 @@ where
 
                 let block = block_res
                     .context("failed to latest block")
+                    .map_err(ChainMonitorErr::OtherErr)
                     .map_err(SupervisorErr::Recover)?
                     .context("failed to fetch latest block: no block in response")
+                    .map_err(ChainMonitorErr::OtherErr)
                     .map_err(SupervisorErr::Recover)?;
                 let _ = self_clone.block_number.send_replace(block.header.number);
                 let _ = self_clone.block_timestamp.send_replace(block.header.timestamp);
 
                 let gas_price = gas_price_res
                     .context("failed to get gas price")
+                    .map_err(ChainMonitorErr::OtherErr)
                     .map_err(SupervisorErr::Recover)?;
                 let _ = self_clone.gas_price.send_replace(gas_price);
 

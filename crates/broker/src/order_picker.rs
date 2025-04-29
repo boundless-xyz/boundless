@@ -8,6 +8,7 @@ use crate::{
     chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::DbObj,
+    errors::CodedError,
     provers::{ProverError, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     Order,
@@ -60,8 +61,28 @@ pub enum PriceOrderErr {
     #[error("invalid request")]
     RequestError(#[from] RequestError),
 
+    #[error("database error: {0}")]
+    DbError(#[from] crate::db::DbError),
+
+    #[error("config error: {0}")]
+    ConfigError(#[from] crate::config::ConfigErr),
+
     #[error(transparent)]
     OtherErr(#[from] anyhow::Error),
+}
+
+impl CodedError for PriceOrderErr {
+    fn code(&self) -> &str {
+        match self {
+            PriceOrderErr::FetchInputErr(_) => "B-3001",
+            PriceOrderErr::FetchImageErr(_) => "B-3002",
+            PriceOrderErr::GuestPanic(_) => "B-3003",
+            PriceOrderErr::RequestError(_) => "B-3004",
+            PriceOrderErr::DbError(_) => "B-3005",
+            PriceOrderErr::ConfigError(_) => "B-3006",
+            PriceOrderErr::OtherErr(_) => "B-3999",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -588,7 +609,7 @@ where
         Ok(ProveImmediate)
     }
 
-    async fn find_existing_orders(&self) -> Result<()> {
+    async fn find_existing_orders(&self) -> Result<(), PriceOrderErr> {
         let pricing_orders = self
             .db
             .get_active_pricing_orders()
@@ -739,7 +760,7 @@ where
         Ok(balance - pending_balance)
     }
 
-    async fn get_pricing_order_capacity(&self) -> Result<Capacity> {
+    async fn get_pricing_order_capacity(&self) -> Result<Capacity, PriceOrderErr> {
         let max_concurrent_locks = {
             let config = self.config.lock_all()?;
             config.market.max_concurrent_locks
@@ -758,7 +779,11 @@ where
         }
     }
 
-    async fn spawn_pricing_tasks(&self, tasks: &mut JoinSet<bool>, capacity: u32) -> Result<()> {
+    async fn spawn_pricing_tasks(
+        &self,
+        tasks: &mut JoinSet<bool>,
+        capacity: u32,
+    ) -> Result<(), PriceOrderErr> {
         if capacity == 0 {
             return Ok(());
         }
@@ -808,11 +833,11 @@ impl Capacity {
         }
     }
 }
-impl<P> RetryTask for OrderPicker<P>
+impl<P> RetryTask<PriceOrderErr> for OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
-    fn spawn(&self) -> RetryRes {
+    fn spawn(&self) -> RetryRes<PriceOrderErr> {
         let picker_copy = self.clone();
 
         Box::pin(async move {
@@ -883,7 +908,7 @@ where
                                 // Order was not selected for locking.
                             }
                             Err(e) => {
-                                return Err(SupervisorErr::Recover(anyhow::anyhow!("Pricing task failed: {e}")));
+                                return Err(SupervisorErr::Recover(PriceOrderErr::OtherErr(anyhow::anyhow!("Pricing task failed: {e}"))));
                             }
                         }
                     }

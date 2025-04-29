@@ -3,7 +3,7 @@
 // All rights reserved.
 
 use alloy::primitives::{utils, Address, U256};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{contracts::eip712_domain, input::InputBuilder};
 use chrono::Utc;
@@ -14,13 +14,33 @@ use risc0_zkvm::{
 };
 
 use crate::{
-    config::ConfigLock,
+    config::{ConfigErr, ConfigLock},
     db::{AggregationOrder, DbObj},
+    errors::CodedError,
     now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     AggregationState, Batch, BatchStatus,
 };
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AggregatorErr {
+    #[error("Failed to read config")]
+    ConfigErr(#[from] ConfigErr),
+
+    #[error("Other: {0}")]
+    OtherErr(#[from] anyhow::Error),
+}
+
+impl CodedError for AggregatorErr {
+    fn code(&self) -> &str {
+        match self {
+            AggregatorErr::OtherErr(_) => "B-3012",
+            AggregatorErr::ConfigErr(_) => "B-3013",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AggregatorService {
@@ -438,7 +458,7 @@ impl AggregatorService {
         Ok(aggregation_state.proof_id)
     }
 
-    async fn aggregate(&mut self) -> Result<()> {
+    async fn aggregate(&mut self) -> Result<(), AggregatorErr> {
         // Get the current batch. This aggregator service works on one batch at a time, including
         // any proofs ready for aggregation into the current batch.
         let batch_id =
@@ -483,11 +503,15 @@ impl AggregatorService {
             }
             BatchStatus::PendingCompression => {
                 let Some(aggregation_state) = batch.aggregation_state else {
-                    bail!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None");
+                    return Err(AggregatorErr::OtherErr(anyhow::anyhow!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None")));
                 };
                 (aggregation_state.proof_id, true)
             }
-            status => bail!("Unexpected batch status {status:?}"),
+            status => {
+                return Err(AggregatorErr::OtherErr(anyhow::anyhow!(
+                    "Unexpected batch status {status:?}"
+                )))
+            }
         };
 
         if compress {
@@ -509,8 +533,8 @@ impl AggregatorService {
     }
 }
 
-impl RetryTask for AggregatorService {
-    fn spawn(&self) -> RetryRes {
+impl RetryTask<AggregatorErr> for AggregatorService {
+    fn spawn(&self) -> RetryRes<AggregatorErr> {
         let mut self_clone = self.clone();
 
         Box::pin(async move {
@@ -521,6 +545,7 @@ impl RetryTask for AggregatorService {
                         .config
                         .lock_all()
                         .context("Failed to lock config")
+                        .map_err(AggregatorErr::OtherErr)
                         .map_err(SupervisorErr::Fault)?;
                     config.batcher.batch_poll_time_ms.unwrap_or(1000)
                 };

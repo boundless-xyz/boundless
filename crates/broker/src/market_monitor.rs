@@ -23,11 +23,27 @@ use futures_util::StreamExt;
 use crate::{
     chain_monitor::ChainMonitorService,
     db::DbError,
+    errors::CodedError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, Order, OrderStatus,
 };
+use thiserror::Error;
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
+
+#[derive(Error, Debug)]
+pub enum MarketMonitorErr {
+    #[error("Other: {0}")]
+    OtherErr(#[from] anyhow::Error),
+}
+
+impl CodedError for MarketMonitorErr {
+    fn code(&self) -> &str {
+        match self {
+            MarketMonitorErr::OtherErr(_) => "B-3012",
+        }
+    }
+}
 
 pub struct MarketMonitor<P> {
     lookback_blocks: u64,
@@ -92,7 +108,7 @@ where
         provider: Arc<P>,
         db: DbObj,
         chain_monitor: Arc<ChainMonitorService<P>>,
-    ) -> Result<u64> {
+    ) -> Result<u64, CodedError> {
         let current_block = chain_monitor.current_block_number().await?;
 
         let start_block = current_block.saturating_sub(lookback_blocks);

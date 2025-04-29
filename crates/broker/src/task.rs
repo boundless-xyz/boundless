@@ -2,29 +2,30 @@
 //
 // All rights reserved.
 
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
 
-use anyhow::{Context, Error as AnyhowErr, Result as AnyhowRes};
+use anyhow::{Context, Result as AnyhowRes};
 use thiserror::Error;
 use tokio::task::JoinSet;
 
-use crate::config::ConfigLock;
+use crate::{config::ConfigLock, errors::CodedError};
 
 #[derive(Error, Debug)]
-pub enum SupervisorErr {
+pub enum SupervisorErr<E: CodedError> {
     /// Restart / replace the task after failure
     #[error("Recoverable error: {0}")]
-    Recover(AnyhowErr),
+    Recover(E),
     /// Hard failure and exit the task set
     #[error("Hard failure: {0}")]
-    Fault(AnyhowErr),
+    Fault(E),
 }
 
-pub type RetryRes = Pin<Box<dyn Future<Output = Result<(), SupervisorErr>> + Send + 'static>>;
+pub type RetryRes<E: CodedError> =
+    Pin<Box<dyn Future<Output = Result<(), SupervisorErr<E>>> + Send + 'static>>;
 
-pub trait RetryTask {
+pub trait RetryTask<E: CodedError> {
     /// Defines how to spawn a task to be monitored for restarts
-    fn spawn(&self) -> RetryRes;
+    fn spawn(&self) -> RetryRes<E>;
 }
 
 /// Configuration for retry behavior in the supervisor
@@ -65,21 +66,23 @@ impl RetryPolicy {
 }
 
 /// Supervisor for managing and monitoring tasks with retry capabilities
-pub(crate) struct Supervisor<T: RetryTask> {
+pub(crate) struct Supervisor<T: RetryTask<E>, E: CodedError> {
     /// The task to be supervised
     task: Arc<T>,
     /// Configuration for retry behavior
     retry_policy: RetryPolicy,
     config: ConfigLock,
+    _error: PhantomData<E>,
 }
 
-impl<T> Supervisor<T>
+impl<T: RetryTask<E>, E: CodedError> Supervisor<T, E>
 where
-    T: RetryTask + Send,
+    T: Send,
+    E: Send + Sync,
 {
     /// Create a new supervisor with a single task
     pub fn new(task: Arc<T>, config: ConfigLock) -> Self {
-        Self { task, retry_policy: RetryPolicy::default(), config }
+        Self { task, retry_policy: RetryPolicy::default(), config, _error: PhantomData }
     }
 
     /// Configure the retry policy
