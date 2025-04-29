@@ -546,6 +546,9 @@ jobs:
     outputs:
       docker: ${{ steps.changes.outputs.docker }}
       bento: ${{ steps.changes.outputs.bento }}
+      main:      ${{ steps.changes.outputs.main }}
+      examples:  ${{ steps.changes.outputs.examples }}
+      docs:      ${{ steps.changes.outputs.docs }}
 
     steps:
       - name: checkout code
