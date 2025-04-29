@@ -563,10 +563,10 @@ where
             let proof_time_seconds = total_commited_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
             let mut prover_available_at = started_proving_at + proof_time_seconds;
             tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available in {} seconds", 
-                num_commited_orders, 
-                total_commited_cycles, 
-                peak_prove_khz, 
-                started_proving_at, 
+                num_commited_orders,
+                total_commited_cycles,
+                peak_prove_khz,
+                started_proving_at,
                 prover_available_at - now
             );
 
@@ -590,9 +590,9 @@ where
 
                 if completion_time > expiration {
                     tracing::info!("Order {:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
-                        order.request.id, 
-                        expiration, 
-                        proof_time_seconds, 
+                        order.request.id,
+                        expiration,
+                        proof_time_seconds,
                         completion_time
                     );
                     self.db
