@@ -526,6 +526,7 @@ error = ?"#;
         file.set_len(data.len() as u64).unwrap();
     }
 
+    #[allow(deprecated)]
     #[tokio::test]
     async fn config_parser() {
         let mut config_temp = NamedTempFile::new().unwrap();
@@ -572,6 +573,7 @@ error = ?"#;
         Config::load(config_temp.path()).await.unwrap();
     }
 
+    #[allow(deprecated)]
     #[tokio::test]
     #[traced_test]
     async fn config_watcher() {
