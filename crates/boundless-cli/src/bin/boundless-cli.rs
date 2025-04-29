@@ -270,19 +270,29 @@ enum ProvingCommands {
         order_stream_url: Option<Url>,
     },
 
-    /// Fulfill a proof request using the RISC Zero zkVM default prover
+    /// Fulfill one or more proof requests using the RISC Zero zkVM default prover.
+    ///
+    /// This command can process multiple requests in a single batch, which is more efficient
+    /// than fulfilling requests individually.
+    ///
+    /// Example usage:
+    ///   --request-ids 0x123,0x456,0x789  # Comma-separated list of request IDs
+    ///   --request-digests 0xabc,0xdef,0x012  # Optional, must match request_ids length and order
+    ///   --tx-hashes 0x111,0x222,0x333  # Optional, must match request_ids length and order
     Fulfill {
-        /// The proof request identifier
-        #[arg(long)]
-        request_id: U256,
+        /// The proof requests identifiers (comma-separated list of hex values)
+        #[arg(long, value_delimiter = ',')]
+        request_ids: Vec<U256>,
 
-        /// The request digest
-        #[arg(long)]
-        request_digest: Option<B256>,
+        /// The request digests (comma-separated list of hex values).
+        /// If provided, must have the same length and order as request_ids.
+        #[arg(long, value_delimiter = ',')]
+        request_digests: Option<Vec<B256>>,
 
-        /// The tx hash of the request submission
-        #[arg(long)]
-        tx_hash: Option<B256>,
+        /// The tx hash of the requests submissions (comma-separated list of hex values).
+        /// If provided, must have the same length and order as request_ids.
+        #[arg(long, value_delimiter = ',')]
+        tx_hashes: Option<Vec<B256>>,
 
         /// The order stream service URL.
         ///
@@ -770,8 +780,20 @@ where
             tracing::debug!("Journal: {:?}", journal);
             Ok(())
         }
-        ProvingCommands::Fulfill { request_id, request_digest, tx_hash, order_stream_url } => {
-            tracing::info!("Fulfilling proof request 0x{:x}", request_id);
+        ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes, order_stream_url } => {
+            if request_digests.is_some()
+                && request_ids.len() != request_digests.as_ref().unwrap().len()
+            {
+                bail!("request_ids and request_digests must have the same length");
+            }
+            if tx_hashes.is_some() && request_ids.len() != tx_hashes.as_ref().unwrap().len() {
+                bail!("request_ids and tx_hashes must have the same length");
+            }
+
+            let request_ids_string =
+                request_ids.iter().map(|id| format!("0x{:x}", id)).collect::<Vec<_>>().join(", ");
+            tracing::info!("Fulfilling proof requests {}", request_ids_string);
+
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor ELF from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
@@ -800,35 +822,57 @@ where
                 .build()
                 .await?;
 
-            let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
-            tracing::debug!("Fetched order details: {:?}", order.request);
+            let fetch_order_jobs = request_ids.iter().enumerate().map(|(i, request_id)| {
+                let client = client.clone();
+                let boundless_market = boundless_market.clone();
+                async move {
+                    let order = client
+                        .fetch_order(
+                            *request_id,
+                            tx_hashes.as_ref().map(|tx_hashes| tx_hashes[i]),
+                            request_digests.as_ref().map(|request_digests| request_digests[i]),
+                        )
+                        .await?;
+                    tracing::debug!("Fetched order details: {:?}", order.request);
 
-            let sig: Bytes = order.signature.as_bytes().into();
-            order.request.verify_signature(
-                &sig,
-                args.config.boundless_market_address,
-                boundless_market.get_chain_id().await?,
-            )?;
+                    let sig: Bytes = order.signature.as_bytes().into();
+                    order.request.verify_signature(
+                        &sig,
+                        args.config.boundless_market_address,
+                        boundless_market.get_chain_id().await?,
+                    )?;
+                    let is_locked = boundless_market.is_locked(*request_id).await?;
+                    Ok::<_, anyhow::Error>((order, sig, is_locked))
+                }
+            });
 
-            let (fill, root_receipt, assessor_receipt) = prover.fulfill(order.clone()).await?;
-            let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt)?;
+            let results = futures::future::join_all(fetch_order_jobs).await;
+            let mut orders = Vec::new();
+            let mut signatures = Vec::new();
+            let mut requests_to_price = Vec::new();
+
+            for result in results {
+                let (order, sig, is_locked) = result?;
+                // If the request is not locked in, we need to "price" which checks the requirements
+                // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
+                // and empty if the request is locked.
+                if !is_locked {
+                    requests_to_price.push(order.request.clone());
+                }
+                orders.push(order);
+                signatures.push(sig);
+            }
+
+            let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
+            let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
             tracing::debug!("Submitting root {} to SetVerifier", order_fulfilled.root);
             set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
             tracing::debug!("Successfully submitted root to SetVerifier");
 
-            // If the request is not locked in, we need to "price" which checks the requirements
-            // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
-            // and empty if the request is locked.
-            let requests_to_price: Vec<ProofRequest> =
-                (!boundless_market.is_locked(*request_id).await?)
-                    .then_some(order.request)
-                    .into_iter()
-                    .collect();
-
             match boundless_market
                 .price_and_fulfill_batch(
                     requests_to_price,
-                    vec![sig],
+                    signatures,
                     order_fulfilled.fills,
                     order_fulfilled.assessorReceipt,
                     None,
@@ -836,11 +880,11 @@ where
                 .await
             {
                 Ok(_) => {
-                    tracing::info!("Successfully fulfilled request 0x{:x}", request_id);
+                    tracing::info!("Successfully fulfilled requests {}", request_ids_string);
                     Ok(())
                 }
                 Err(e) => {
-                    tracing::error!("Failed to fulfill request 0x{:x}: {}", request_id, e);
+                    tracing::error!("Failed to fulfill requests {}: {}", request_ids_string, e);
                     bail!("Failed to fulfill request: {}", e)
                 }
             }
@@ -1877,16 +1921,16 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
-                request_id,
-                request_digest: None,
-                tx_hash: None,
+                request_ids: vec![request_id],
+                request_digests: None,
+                tx_hashes: None,
                 order_stream_url: None,
             })),
         })
         .await
         .unwrap();
 
-        assert!(logs_contain(&format!("Successfully fulfilled request 0x{:x}", request.id)));
+        assert!(logs_contain(&format!("Successfully fulfilled requests 0x{:x}", request.id)));
 
         // test the Status command
         run(&MainArgs {
@@ -1926,6 +1970,55 @@ mod tests {
             "Successfully verified proof for request 0x{:x}",
             request.id
         )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+    async fn test_proving_multiple_requests() {
+        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+
+        let mut request_ids = Vec::new();
+        for _ in 0..3 {
+            let request = generate_request(
+                ctx.customer_market.index_from_nonce().await.unwrap(),
+                &ctx.customer_signer.address(),
+            );
+
+            ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+            request_ids.push(request.id);
+        }
+
+        // test the Fulfill command
+        run(&MainArgs {
+            config: config.clone(),
+            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+                request_ids: request_ids.clone(),
+                request_digests: None,
+                tx_hashes: None,
+                order_stream_url: None,
+            })),
+        })
+        .await
+        .unwrap();
+
+        let request_ids_str =
+            request_ids.iter().map(|id| format!("0x{:x}", id)).collect::<Vec<_>>().join(", ");
+        assert!(logs_contain(&format!("Successfully fulfilled requests {request_ids_str}")));
+
+        for request_id in request_ids {
+            // test the Status command
+            run(&MainArgs {
+                config: config.clone(),
+                command: Command::Request(Box::new(RequestCommands::Status {
+                    request_id,
+                    expires_at: None,
+                })),
+            })
+            .await
+            .unwrap();
+            assert!(logs_contain(&format!("Request 0x{:x} status: Fulfilled", request_id)));
+        }
     }
 
     #[tokio::test]
@@ -1978,9 +2071,9 @@ mod tests {
         run(&MainArgs {
             config,
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
-                request_id: request.id,
-                request_digest: None,
-                tx_hash: None,
+                request_ids: vec![request.id],
+                request_digests: None,
+                tx_hashes: None,
                 order_stream_url: None,
             })),
         })
@@ -2032,9 +2125,9 @@ mod tests {
         run(&MainArgs {
             config,
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
-                request_id: request.id,
-                request_digest: None,
-                tx_hash: None,
+                request_ids: vec![request.id],
+                request_digests: None,
+                tx_hashes: None,
                 order_stream_url: None,
             })),
         })
@@ -2133,16 +2226,16 @@ mod tests {
         run(&MainArgs {
             config,
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
-                request_id,
-                request_digest: None,
-                tx_hash: None,
+                request_ids: vec![request_id],
+                request_digests: None,
+                tx_hashes: None,
                 order_stream_url: Some(order_stream_url),
             })),
         })
         .await
         .unwrap();
 
-        assert!(logs_contain(&format!("Successfully fulfilled request 0x{:x}", request.id)));
+        assert!(logs_contain(&format!("Successfully fulfilled requests 0x{:x}", request.id)));
 
         // Clean up
         order_stream_handle.abort();
