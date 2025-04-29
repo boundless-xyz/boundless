@@ -2827,6 +2827,7 @@ dependencies = [
  "chrono",
  "clap",
  "dotenvy",
+ "futures",
  "guest-assessor",
  "guest-set-builder",
  "guest-util",
