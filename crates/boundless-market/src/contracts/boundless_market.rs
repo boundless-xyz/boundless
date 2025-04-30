@@ -488,6 +488,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         match pending_tx.with_timeout(Some(self.timeout)).get_receipt().await {
             Ok(receipt) => Ok(receipt),
             Err(PendingTransactionError::TransportError(err)) if err.is_null_resp() => {
+                tracing::debug!("failed to query receipt of confirmed transaction, retrying");
                 // There is a race condition with some providers where a transaction will be
                 // confirmed through the RPC, but querying the receipt returns null when requested
                 // immediately after.
