@@ -228,7 +228,7 @@ where
         };
 
         // Does the order expire within the min deadline
-        let seconds_left = expiration - now;
+        let seconds_left = expiration.saturating_sub(now);
         if seconds_left <= min_deadline {
             tracing::info!("Removing order with request id {request_id:x} because it expires within min_deadline: {seconds_left}, min_deadline: {min_deadline}");
             return Ok(Skip);
@@ -737,7 +737,7 @@ where
     async fn available_stake_balance(&self) -> Result<U256> {
         let balance = self.market.balance_of_stake(self.provider.default_signer_address()).await?;
         let pending_balance = self.pending_locked_stake().await?;
-        Ok(balance - pending_balance)
+        Ok(balance.saturating_sub(pending_balance))
     }
 
     async fn spawn_pricing_tasks(&self, tasks: &mut JoinSet<bool>, capacity: u32) -> Result<()> {
