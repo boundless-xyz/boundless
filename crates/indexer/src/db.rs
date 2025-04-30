@@ -154,7 +154,7 @@ pub type DbObj = Arc<dyn IndexerDb + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct AnyDb {
-    pool: AnyPool,
+    pub pool: AnyPool,
 }
 
 impl AnyDb {
@@ -173,6 +173,10 @@ impl AnyDb {
         sqlx::migrate!().run(&pool).await?;
 
         Ok(Self { pool })
+    }
+
+    pub fn pool(&self) -> &AnyPool {
+        &self.pool
     }
 }
 
