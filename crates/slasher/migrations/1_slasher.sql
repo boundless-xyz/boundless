@@ -1,6 +1,7 @@
 CREATE TABLE orders (
     id TEXT PRIMARY KEY,
-    expires_at BIGINT NOT NULL
+    expires_at BIGINT NOT NULL,
+    lock_expires_at BIGINT NOT NULL
 );
 
 CREATE TABLE last_block (

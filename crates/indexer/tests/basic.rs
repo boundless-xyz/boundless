@@ -123,13 +123,13 @@ async fn test_e2e() {
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
 
     let (fill, root_receipt, assessor_receipt) = prover
-        .fulfill(Order {
+        .fulfill(&[Order {
             request: request.clone(),
             request_digest: request
                 .signing_hash(ctx.boundless_market_address, anvil.chain_id())
                 .unwrap(),
             signature: PrimitiveSignature::try_from(client_sig.as_ref()).unwrap(),
-        })
+        }])
         .await
         .unwrap();
     let order_fulfilled =
