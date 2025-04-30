@@ -1,5 +1,5 @@
 [package]
-name = "boundless-slasher"
+name = "boundless-indexer"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }
@@ -18,8 +18,8 @@ boundless-market = { workspace = true }
 clap = { workspace = true }
 dotenvy = { workspace = true }
 hex = { workspace = true }
-risc0-zkvm = { workspace = true, features = ["std", "default"] }
-sqlx = { workspace = true, features = [ "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
@@ -28,11 +28,12 @@ url = { workspace = true }
 
 [dev-dependencies]
 boundless-cli = { workspace = true }
+boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 futures-util = { workspace = true }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
-risc0-ethereum-contracts = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["std", "default"] }
 tracing-test = { workspace = true }
 

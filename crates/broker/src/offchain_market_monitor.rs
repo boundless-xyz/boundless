@@ -2,17 +2,14 @@
 //
 // All rights reserved.
 
-use alloy::{
-    primitives::U256,
-    signers::{local::PrivateKeySigner, Signer},
-};
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use anyhow::Result;
 use boundless_market::order_stream_client::{order_stream, Client as OrderStreamClient};
 use futures_util::StreamExt;
 
 use crate::{
     task::{RetryRes, RetryTask, SupervisorErr},
-    DbObj, Order,
+    DbObj, FulfillmentType, Order,
 };
 
 pub struct OffchainMarketMonitor {
@@ -42,18 +39,18 @@ impl OffchainMarketMonitor {
                 match order {
                     Ok(elm) => {
                         tracing::info!(
-                            "Detected new order {:x} - stream id: {}",
+                            "Detected new order with stream id {:x}, request id: {:x}",
                             elm.id,
                             elm.order.request.id
                         );
                         if let Err(err) = db
-                            .add_order(
-                                U256::from(elm.order.request.id),
-                                Order::new(
-                                    elm.order.request,
-                                    elm.order.signature.as_bytes().into(),
-                                ),
-                            )
+                            .add_order(Order::new(
+                                elm.order.request,
+                                elm.order.signature.as_bytes().into(),
+                                FulfillmentType::LockAndFulfill,
+                                client.boundless_market_address,
+                                client.chain_id,
+                            ))
                             .await
                         {
                             tracing::error!("Failed to add new order into DB: {err:?}");
