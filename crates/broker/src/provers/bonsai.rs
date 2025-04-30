@@ -145,6 +145,11 @@ impl StatusPoller {
                     let Some(stats) = status.stats else {
                         return Err(ProverError::MissingStatus);
                     };
+                    tracing::trace!(
+                        "Proof {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
+                        stats.cycles,
+                        stats.total_cycles
+                    );
                     return Ok(ProofResult {
                         id: proof_id.uuid.clone(),
                         stats: ExecutorResp {

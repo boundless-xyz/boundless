@@ -2,8 +2,8 @@
 //
 // All rights reserved.
 
-use alloy::primitives::{utils, Address, U256};
-use anyhow::{Context, Result};
+use alloy::primitives::{utils, Address};
+use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{contracts::eip712_domain, input::InputBuilder};
 use chrono::Utc;
@@ -179,21 +179,21 @@ impl AggregatorService {
         })
     }
 
-    async fn prove_assessor(&self, order_ids: &[U256]) -> Result<String> {
+    async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
         let mut fills = vec![];
         let mut assumptions = vec![];
 
         for order_id in order_ids {
             let order = self
                 .db
-                .get_order(*order_id)
+                .get_order(order_id)
                 .await
-                .with_context(|| format!("Failed to get DB order ID {order_id:x}"))?
-                .with_context(|| format!("order ID {order_id:x} missing from DB"))?;
+                .with_context(|| format!("Failed to get DB order ID {order_id}"))?
+                .with_context(|| format!("order ID {order_id} missing from DB"))?;
 
             let proof_id = order
                 .proof_id
-                .with_context(|| format!("Missing proof_id for order: {order_id:x}"))?;
+                .with_context(|| format!("Missing proof_id for order: {order_id}"))?;
 
             assumptions.push(proof_id.clone());
 
@@ -239,19 +239,18 @@ impl AggregatorService {
     }
 
     /// Get the sum of the size of the journals for proofs in a batch
-    async fn get_combined_journal_size(&self, order_ids: &[U256]) -> Result<usize> {
+    async fn get_combined_journal_size(&self, order_ids: &[String]) -> Result<usize> {
         let mut journal_size = 0;
         for order_id in order_ids {
             let order = self
                 .db
-                .get_order(*order_id)
+                .get_order(order_id)
                 .await
-                .with_context(|| format!("Failed to get order {order_id:x}"))?
-                .with_context(|| format!("Order {order_id:x} missing from DB"))?;
+                .with_context(|| format!("Failed to get order {order_id}"))?
+                .with_context(|| format!("Order {order_id} missing from DB"))?;
 
-            let proof_id = order
-                .proof_id
-                .with_context(|| format!("Missing proof_id for order {order_id:x}"))?;
+            let proof_id =
+                order.proof_id.with_context(|| format!("Missing proof_id for order {order_id}"))?;
 
             let journal = self
                 .prover
@@ -322,7 +321,7 @@ impl AggregatorService {
 
         // Finalize the batch if the journal size is already above the max
         let batch_journal_size = self.get_combined_journal_size(&batch.orders).await?;
-        let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id).collect();
+        let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
         let pending_journal_size = self.get_combined_journal_size(&pending_order_ids).await?;
         let journal_size = batch_journal_size + pending_journal_size;
         if journal_size >= conf_max_journal_bytes {
@@ -407,12 +406,12 @@ impl AggregatorService {
         finalize: bool,
     ) -> Result<String> {
         let assessor_proof_id = if finalize {
-            let assessor_order_ids: Vec<U256> = batch
+            let assessor_order_ids: Vec<String> = batch
                 .orders
                 .iter()
-                .copied()
-                .chain(new_proofs.iter().map(|p| p.order_id))
-                .chain(groth16_proofs.iter().map(|p| p.order_id))
+                .chain(new_proofs.iter().map(|p| &p.order_id))
+                .chain(groth16_proofs.iter().map(|p| &p.order_id))
+                .cloned()
                 .collect();
 
             tracing::debug!(
@@ -524,7 +523,7 @@ impl AggregatorService {
             tracing::debug!("Completed groth16 compression for batch {batch_id}");
 
             self.db
-                .complete_batch(batch_id, compress_proof_id)
+                .complete_batch(batch_id, &compress_proof_id)
                 .await
                 .context("Failed to set batch as complete")?;
         }
@@ -559,7 +558,7 @@ impl RetryTask<AggregatorErr> for AggregatorService {
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Add, sync::Arc};
+    use std::sync::Arc;
 
     use super::*;
     use crate::{
@@ -567,7 +566,7 @@ mod tests {
         db::SqliteDb,
         now_timestamp,
         provers::{encode_input, DefaultProver, Prover},
-        BatchStatus, Order, OrderStatus,
+        BatchStatus, FulfillmentType, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
@@ -621,9 +620,10 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn());
+        let chain_id = provider.get_chain_id().await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
-            provider.get_chain_id().await.unwrap(),
+            chain_id,
             Digest::from(SET_BUILDER_ID),
             SET_BUILDER_ELF.to_vec(),
             Digest::from(ASSESSOR_GUEST_ID),
@@ -637,7 +637,6 @@ mod tests {
         .unwrap();
 
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
-        let chain_id = provider.get_chain_id().await.unwrap();
         let min_price = 2;
 
         // First order
@@ -678,10 +677,14 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
         // Second order
         let order_request = ProofRequest::new(
@@ -721,14 +724,18 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -829,16 +836,20 @@ mod tests {
             expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
             request: order_request,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
         // Aggregate the first order. Should not finalize.
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let option_batch = db.get_complete_batch().await.unwrap();
@@ -846,7 +857,7 @@ mod tests {
 
         let aggregating_batch_id = db.get_current_batch().await.unwrap();
         let aggregating_batch = db.get_batch(aggregating_batch_id).await.unwrap();
-        assert_eq!(aggregating_batch.orders, vec![order_id]);
+        assert_eq!(aggregating_batch.orders, vec![order.id()]);
         assert!(aggregating_batch.aggregation_state.is_some());
         assert!(!aggregating_batch.aggregation_state.unwrap().guest_state.mmr.is_finalized());
 
@@ -887,15 +898,19 @@ mod tests {
             expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
             request: order_request,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -993,14 +1008,18 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -1101,16 +1120,20 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
         provider.anvil_mine(Some(51), Some(2)).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -1121,7 +1144,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn jounal_size_finalize() {
+    async fn journal_size_finalize() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
@@ -1209,20 +1232,24 @@ mod tests {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
-            request: order_request,
+            request: order_request.clone(),
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
-            proof_id: Some(proof_res.id),
+            proof_id: Some(proof_res.clone().id),
             compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
 
         // add first order and aggregate
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
         aggregator.aggregate().await.unwrap();
         assert!(logs_contain("journal size below limit 20 < 30"));
 
@@ -1230,8 +1257,36 @@ mod tests {
 
         // Add another order, this should cross the journal limit threshold and
         // trigger the batch to be finalized
-        let order_id = U256::from(order.request.id.add(U256::from(1)));
-        db.add_order(order_id, order.clone()).await.unwrap();
+        let mut order_request_2 = order_request.clone();
+        order_request_2.id = RequestId::new(customer_signer.address(), 1).into();
+
+        let client_sig_2 = order_request_2
+            .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
+            .unwrap()
+            .as_bytes();
+
+        let order2 = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_timestamp: None,
+            request: order_request_2,
+            image_id: Some(image_id_str.clone()),
+            input_id: Some(input_id.clone()),
+            proof_id: Some(proof_res.id),
+            compressed_proof_id: None,
+            expire_timestamp: Some(now_timestamp() + 1000),
+            client_sig: client_sig_2.into(),
+            lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
+            error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
+        };
+
+        db.add_order(order2.clone()).await.unwrap();
         aggregator.aggregate().await.unwrap();
         assert!(logs_contain("journal size target hit 40 >= 30"));
 

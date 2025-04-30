@@ -15,8 +15,11 @@ use alloy::{
 };
 
 use anyhow::{Context, Result};
-use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService, IBoundlessMarket, RequestId, RequestStatus,
+use boundless_market::{
+    contracts::{
+        boundless_market::BoundlessMarketService, IBoundlessMarket, RequestId, RequestStatus,
+    },
+    order_stream_client::Client as OrderStreamClient,
 };
 use futures_util::StreamExt;
 
@@ -25,7 +28,7 @@ use crate::{
     db::DbError,
     errors::CodedError,
     task::{RetryRes, RetryTask, SupervisorErr},
-    DbObj, Order, OrderStatus,
+    DbObj, FulfillmentType, Order,
 };
 use thiserror::Error;
 
@@ -52,6 +55,7 @@ pub struct MarketMonitor<P> {
     db: DbObj,
     chain_monitor: Arc<ChainMonitorService<P>>,
     prover_addr: Address,
+    order_stream: Option<OrderStreamClient>,
 }
 
 sol! {
@@ -74,8 +78,17 @@ where
         db: DbObj,
         chain_monitor: Arc<ChainMonitorService<P>>,
         prover_addr: Address,
+        order_stream: Option<OrderStreamClient>,
     ) -> Self {
-        Self { lookback_blocks, market_addr, provider, db, chain_monitor, prover_addr }
+        Self {
+            lookback_blocks,
+            market_addr,
+            provider,
+            db,
+            chain_monitor,
+            prover_addr,
+            order_stream,
+        }
     }
 
     /// Queries chain history to sample for the median block time
@@ -110,6 +123,7 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
     ) -> Result<u64, CodedError> {
         let current_block = chain_monitor.current_block_number().await?;
+        let chain_id = provider.get_chain_id().await?;
 
         let start_block = current_block.saturating_sub(lookback_blocks);
 
@@ -154,7 +168,7 @@ where
                 .context("Missing transaction data")?;
             let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
                 .context("Failed to decode calldata")?;
-            let order_exists = match db.order_exists(request_id).await {
+            let order_exists = match db.order_exists_with_request_id(request_id).await {
                 Ok(val) => val,
                 Err(err) => {
                     tracing::error!("Failed to check if order exists in db: {err:?}");
@@ -184,12 +198,25 @@ where
                 continue;
             }
 
-            tracing::info!("Found open order: {}", calldata.request.id);
+            let fulfillment_type = match req_status {
+                RequestStatus::Locked => FulfillmentType::FulfillAfterLockExpire,
+                _ => FulfillmentType::LockAndFulfill,
+            };
+
+            tracing::info!(
+                "Found open order: {:x} with request status: {:?}, adding to database with fulfillment type: {:?}",
+                calldata.request.id,
+                req_status,
+                fulfillment_type
+            );
             if let Err(err) = db
-                .add_order(
-                    request_id,
-                    Order::new(calldata.request.clone(), calldata.clientSignature.clone()),
-                )
+                .add_order(Order::new(
+                    calldata.request.clone(),
+                    calldata.clientSignature.clone(),
+                    fulfillment_type,
+                    market_addr,
+                    chain_id,
+                ))
                 .await
             {
                 tracing::error!("Failed to insert order in to database: {err:?}");
@@ -247,8 +274,10 @@ where
         prover_addr: Address,
         provider: Arc<P>,
         db: DbObj,
+        order_stream: Option<OrderStreamClient>,
     ) -> Result<()> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        let chain_id = provider.get_chain_id().await?;
         let event = market.instance().RequestLocked_filter().watch().await?;
         tracing::info!("Subscribed to RequestLocked event");
 
@@ -256,28 +285,73 @@ where
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
-                    Ok((event, _)) => {
-                        tracing::debug!(
+                    Ok((event, log)) => {
+                        tracing::info!(
                             "Detected request {:x} locked by {:x}",
                             event.requestId,
-                            event.prover
+                            event.prover,
                         );
+                        if let Err(e) = db
+                            .set_request_locked(
+                                U256::from(event.requestId),
+                                &event.prover.to_string(),
+                                log.block_number.unwrap(),
+                            )
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to store request locked for request {:x} in db: {e:?}",
+                                event.requestId
+                            );
+                        }
+
+                        // If the request was not locked by the prover, we create an order to evaluate the request
+                        // for fulfilling after the lock expires.
                         if event.prover != prover_addr {
-                            if let Err(e) = db
-                                .set_order_status(
-                                    U256::from(event.requestId),
-                                    OrderStatus::LockedByOther,
-                                )
-                                .await
-                            {
-                                tracing::error!(
-                                    "Failed to update order status to LockedByOther: {e:?}"
+                            // Try to get from market first. If the request was submitted via the order stream, we will be unable to find it there.
+                            // In that case we check the order stream.
+                            let mut order: Option<Order> = None;
+                            if let Ok((proof_request, signature)) = market.get_submitted_request(event.requestId, None).await {
+                                order = Some(Order::new(
+                                    proof_request,
+                                    signature,
+                                    FulfillmentType::FulfillAfterLockExpire,
+                                    market_addr,
+                                    chain_id,
+                                ));
+                            } else if let Some(order_stream) = &order_stream {
+                                if let Ok(order_stream_order) = order_stream.fetch_order(event.requestId, None).await {
+                                    let proof_request = order_stream_order.request;
+                                    let signature = order_stream_order.signature;
+                                    order = Some(Order::new(
+                                        proof_request,
+                                        signature.as_bytes().into(),
+                                        FulfillmentType::FulfillAfterLockExpire,
+                                        market_addr,
+                                        chain_id,
+                                    ));
+                                }
+                            }
+
+                            if order.is_none() {
+                                tracing::warn!("Failed to get order from market or order stream for locked request {:x}. Unable to evaluate for fulfillment after lock expires.", event.requestId);
+                                return;
+                            }
+
+                            let order = order.unwrap();
+                            if let Err(e) = db.add_order(order.clone()).await {
+                                tracing::error!("Failed to add order {} to database with fulfillment type: {:?}: {e:?}", order.id(), FulfillmentType::FulfillAfterLockExpire);
+                            } else {
+                                tracing::info!(
+                                    "Added order {:x} to database with fulfillment type: {:?}",
+                                    event.requestId,
+                                    FulfillmentType::FulfillAfterLockExpire
                                 );
                             }
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        tracing::warn!("Failed to fetch RequestLocked event log: {:?}", err);
                     }
                 }
             })
@@ -300,14 +374,23 @@ where
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
-                    Ok((event, _)) => {
-                        tracing::debug!("Detected request fulfilled {:x}", event.requestId);
-                        if let Err(e) = db.set_order_complete(U256::from(event.requestId)).await {
-                            tracing::error!("Failed to update order status to Done: {e:?}");
+                    Ok((event, log)) => {
+                        tracing::info!("Detected request fulfilled {:x}", event.requestId);
+                        if let Err(e) = db
+                            .set_request_fulfilled(
+                                U256::from(event.requestId),
+                                log.block_number.unwrap(),
+                            )
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to store fulfillment for request id {:x}: {e:?}",
+                                event.requestId
+                            );
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        tracing::warn!("Failed to fetch RequestFulfilled event log: {:?}", err);
                     }
                 }
             })
@@ -374,10 +457,13 @@ where
         }
 
         if let Err(err) = db
-            .add_order(
-                U256::from(calldata.request.id),
-                Order::new(calldata.request, calldata.clientSignature),
-            )
+            .add_order(Order::new(
+                calldata.request,
+                calldata.clientSignature,
+                FulfillmentType::LockAndFulfill,
+                market_addr,
+                chain_id,
+            ))
             .await
         {
             match err {
@@ -407,6 +493,7 @@ where
         let provider = self.provider.clone();
         let db = self.db.clone();
         let chain_monitor = self.chain_monitor.clone();
+        let order_stream = self.order_stream.clone();
         let prover_addr = self.prover_addr;
 
         Box::pin(async move {
@@ -434,7 +521,7 @@ where
                     tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");
                     Err(SupervisorErr::Recover(err))
                 }
-                Err(err) = Self::monitor_order_locks(market_addr, prover_addr, provider.clone(), db.clone()) => {
+                Err(err) = Self::monitor_order_locks(market_addr, prover_addr, provider.clone(), db.clone(), order_stream.clone()) => {
                     tracing::error!("Monitor for order locks failed, restarting: {err:?}");
                     Err(SupervisorErr::Recover(err))
                 }
@@ -557,7 +644,7 @@ mod tests {
         tokio::spawn(chain_monitor.spawn());
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let market_monitor =
-            MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor, Address::ZERO);
+            MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor, Address::ZERO, None);
 
         let block_time = market_monitor.get_block_time().await.unwrap();
         assert_eq!(block_time, 2);
