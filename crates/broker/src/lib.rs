@@ -352,11 +352,11 @@ where
         };
 
         if let Some(path) = assessor_path {
-            let elf_buf = std::fs::read(path).context("Failed to read assessor path")?;
-            let img_id = risc0_zkvm::compute_image_id(&elf_buf)
+            let program_buf = std::fs::read(path).context("Failed to read assessor path")?;
+            let img_id = risc0_zkvm::compute_image_id(&program_buf)
                 .context("Failed to compute assessor imageId")?;
 
-            Ok((img_id, elf_buf))
+            Ok((img_id, program_buf))
         } else {
             let boundless_market = BoundlessMarketService::new(
                 self.args.boundless_market_address,
@@ -384,11 +384,11 @@ where
         };
 
         if let Some(path) = set_builder_path {
-            let elf_buf = std::fs::read(path).context("Failed to read set-builder path")?;
-            let img_id = risc0_zkvm::compute_image_id(&elf_buf)
+            let program_buf = std::fs::read(path).context("Failed to read set-builder path")?;
+            let img_id = risc0_zkvm::compute_image_id(&program_buf)
                 .context("Failed to compute set-builder imageId")?;
 
-            Ok((img_id, elf_buf))
+            Ok((img_id, program_buf))
         } else {
             let set_verifier_contract = SetVerifierService::new(
                 self.args.set_verifier_address,

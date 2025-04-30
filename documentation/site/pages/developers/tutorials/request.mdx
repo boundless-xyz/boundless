@@ -66,14 +66,14 @@ Built-in providers are listed in the [`BuiltinStorageProvider`](https://docs.rs/
 The recommended storage provider is IPFS, specifically through [Pinata](https://pinata.cloud) (the free tier should be sufficient for most Boundless use cases).
 To use Pinata, [fetch the required JWT credential](https://docs.pinata.cloud/account-management/api-keys) and set it to the `PINATA_JWT` environment variable in the `.env` file.
 
-With the storage provider added to the `Client`, the executable can be uploaded with the `upload_image` method:
+With the storage provider added to the `Client`, the executable can be uploaded with the `upload_program` method:
 
 <StripRustCodeComments>
 ```rust
 # use boundless_market::client::ClientBuilder;
 # async fn upload_program(PROGRAM: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
 # let boundless_client = ClientBuilder::new().build().await?;
-let image_url = boundless_client.upload_image(PROGRAM).await?;
+let program_url = boundless_client.upload_program(PROGRAM).await?;
 # Ok(())
 # }
 ```
@@ -99,7 +99,7 @@ Inputs can also be included directly into the request instead as in-line input.
 When submitting requests onchain, this will cost more gas if the inputs are large.
 The offchain order-stream service also places limits on the size of in-line input.
 
-> Relevant links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [Pinata](https://pinata.cloud), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload\_image for PinataStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/struct.PinataStorageProvider.html)
+> Relevant links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [Pinata](https://pinata.cloud), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload\_program for PinataStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/struct.PinataStorageProvider.html)
 
 ### 4. Execute the Program to Estimate Cycles and to Get the Journal
 
@@ -143,12 +143,12 @@ A proof request consists of four essential components that specify which program
 # use risc0_zkvm::sha::{Digest, Digestible};
 # fn create_proof_request(
 # ECHO_ID: Digest,
-# image_url: url::Url,
+# program_url: url::Url,
 # input_url: url::Url,
 # mcycles_count: u64,
 # journal: Vec<u8>) -> Result<ProofRequest> {
 let request = ProofRequest::builder()
-  .with_image_url(image_url)
+  .with_image_url(program_url)
   .with_input(input_url)
   .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
   .with_offer(

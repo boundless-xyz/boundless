@@ -12,7 +12,7 @@ use aws_sdk_s3::{
 };
 use std::path::Path;
 
-/// Object store elf dir
+/// Object store program dir (ELF)
 pub const ELF_BUCKET_DIR: &str = "elfs";
 
 /// Object store input dir

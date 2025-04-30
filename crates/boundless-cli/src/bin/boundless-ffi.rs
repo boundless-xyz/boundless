@@ -35,10 +35,10 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct MainArgs {
-    /// URL of the SetBuilder ELF
+    /// URL of the SetBuilder program
     #[clap(long)]
     set_builder_url: String,
-    /// URL of the Assessor ELF
+    /// URL of the Assessor program
     #[clap(long)]
     assessor_url: String,
     /// Address of the prover
@@ -72,8 +72,12 @@ async fn main() -> Result<()> {
     let set_builder_program = fetch_url(&args.set_builder_url).await?;
     let assessor_program = fetch_url(&args.assessor_url).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
-    let prover =
-        DefaultProver::new(set_builder_program, assessor_program, args.prover_address, domain.clone())?;
+    let prover = DefaultProver::new(
+        set_builder_program,
+        assessor_program,
+        args.prover_address,
+        domain.clone(),
+    )?;
     let request =
         <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?, true)
             .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;

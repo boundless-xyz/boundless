@@ -152,9 +152,9 @@ async fn main() -> Result<()> {
         .build()
         .await?;
 
-    // Upload the ZETH_GUESTS_RETH_ETHEREUM ELF to the storage provider so that it can be fetched by the market.
-    let image_url = boundless_client.upload_image(ZETH_GUESTS_RETH_ETHEREUM_ELF).await?;
-    tracing::info!("Uploaded image to {}", image_url);
+    // Upload the ZETH_GUESTS_RETH_ETHEREUM program to the storage provider so that it can be fetched by the market.
+    let program_url = boundless_client.upload_program(ZETH_GUESTS_RETH_ETHEREUM_ELF).await?;
+    tracing::info!("Uploaded program to {}", program_url);
 
     let mut block_number = args.start_block.unwrap_or(provider.get_block_number().await?);
     let mut ticker = tokio::time::interval(Duration::from_secs(args.interval));
@@ -198,7 +198,7 @@ async fn main() -> Result<()> {
             BuildArgs { block_number, block_count, cache: None, rpc: rpc.clone(), chain };
 
         let params = RequestParams {
-            image_url: image_url.clone(),
+            program_url: program_url.clone(),
             min: args.min_price_per_mcycle,
             max: args.max_price_per_mcycle,
             ramp_up: args.ramp_up,
@@ -258,7 +258,7 @@ async fn main() -> Result<()> {
 }
 
 struct RequestParams {
-    image_url: Url,
+    program_url: Url,
     min: U256,
     max: U256,
     ramp_up: u32,
@@ -330,7 +330,7 @@ where
     let journal = session_info.journal;
 
     let request = ProofRequest::builder()
-        .with_image_url(params.image_url)
+        .with_image_url(params.program_url)
         .with_input(input_url)
         .with_requirements(Requirements::new(
             ZETH_GUESTS_RETH_ETHEREUM_ID,

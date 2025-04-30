@@ -113,9 +113,9 @@ async fn run<P: StorageProvider>(
         .await
         .context("failed to build boundless client")?;
 
-    // Upload the ECHO ELF to the storage provider so that it can be fetched by the market.
-    let image_url = client.upload_image(ECHO_ELF).await.context("failed to upload image")?;
-    tracing::info!("Uploaded image to {}", image_url);
+    // Upload the ECHO program to the storage provider so that it can be fetched by the market.
+    let program_url = client.upload_program(ECHO_ELF).await.context("failed to upload program")?;
+    tracing::info!("Uploaded program to {}", program_url);
 
     // We use a timestamp as input to the ECHO guest code as the Counter contract
     // accepts only unique proofs. Using the same input twice would result in the same proof.
@@ -127,14 +127,14 @@ async fn run<P: StorageProvider>(
     let input_url = client.upload_input(&input_encoded).await.context("failed to upload input")?;
     tracing::info!("Uploaded input to {}", input_url);
 
-    // Dry run the ECHO ELF with the input to get the journal and cycle count.
+    // Dry run the ECHO program with the input to get the journal and cycle count.
     // This can be useful to estimate the cost of the poof request.
     // It can also be useful to ensure the guest can be executed correctly and we do not send into
     // the market unprovable proof requests. If you have a different mechanism to get the expected
     // journal and set a price, you can skip this step.
     let env = ExecutorEnv::builder().write_slice(&echo_input.stdin).build()?;
     let session_info =
-        default_executor().execute(env, ECHO_ELF).context("failed to execute ELF")?;
+        default_executor().execute(env, ECHO_ELF).context("failed to execute program")?;
     let mcycles_count = session_info
         .segments
         .iter()
@@ -144,7 +144,7 @@ async fn run<P: StorageProvider>(
     let journal = session_info.journal;
 
     // Create a proof request with the image, input, requirements and offer.
-    // The ELF (i.e. image) is specified by the image URL.
+    // The program (i.e. image) is specified by the image URL.
     // The input can be specified by an URL, as in this example, or can be posted on chain by using
     // the `with_inline` method with the input bytes.
     // The requirements are the ECHO_ID and the digest of the journal. In this way, the market can
@@ -157,7 +157,7 @@ async fn run<P: StorageProvider>(
     // - the lockin price: the price at which the request can be locked in by a prover, if the
     //   request is not fulfilled before the timeout, the prover can be slashed.
     let request = ProofRequest::builder()
-        .with_image_url(image_url)
+        .with_image_url(program_url)
         .with_input(input_url)
         .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
         .with_offer(

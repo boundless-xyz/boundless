@@ -15,12 +15,15 @@
 #![allow(missing_docs)] // DO NOT MERGE: That would be too lazy
 #![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
 
-use std::{borrow::{Cow,}};
+use std::borrow::Cow;
 
 use risc0_zkvm::{Journal, ReceiptClaim};
 use url::Url;
 
-use crate::{storage::{StorageProvider, BuiltinStorageProvider}, contracts::{Input, Offer, ProofRequest, RequestId}};
+use crate::{
+    contracts::{Input, Offer, ProofRequest, RequestId},
+    storage::{BuiltinStorageProvider, StorageProvider},
+};
 
 // Idea: A pipeline like construction where each output must be (convertable to) the input to the
 // next stage.
@@ -50,8 +53,9 @@ pub trait RequestBuilder<Input> {
 }
 
 impl<I, L> RequestBuilder<I> for L
-where L: Layer<Output = ProofRequest>,
-      I: Into<L::Input>
+where
+    L: Layer<Output = ProofRequest>,
+    I: Into<L::Input>,
 {
     type Error = L::Error;
 
@@ -81,7 +85,6 @@ pub trait Adapt<Input>: Layer {
     fn postprocess(&self, pass: Self::Passthrough, out: Self::Output) -> Self::Postprocessed;
 }
 
-
 impl<L> Adapt<L::Input> for L
 where
     L: Layer + ?Sized,
@@ -90,7 +93,7 @@ where
     type Postprocessed = L::Output;
 
     fn preprocess(&self, input: Self::Input) -> (Self::Passthrough, Self::Input) {
-        ((), input) 
+        ((), input)
     }
 
     fn postprocess(&self, (): Self::Passthrough, out: Self::Output) -> Self::Postprocessed {
@@ -153,9 +156,7 @@ impl<S: StorageProvider> Layer for StorageLayer<S> {
             Some(limit) if input.input.len() > limit => {
                 Input::url(self.storage_provider.upload_input(&input.input).await?)
             }
-            _ => {
-                Input::inline(input.input.to_vec())
-            }
+            _ => Input::inline(input.input.to_vec()),
         };
         Ok((program_url, request_input))
     }
@@ -230,7 +231,10 @@ impl Adapt<<PreflightLayer as Layer>::Output> for RequestIdLayer {
 }
 
 #[allow(unused)]
-type Example = ((((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequestIdLayer), OfferLayer), Finalizer);
+type Example = (
+    (((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequestIdLayer), OfferLayer),
+    Finalizer,
+);
 
 #[allow(dead_code)]
 trait AssertLayer<Input, Output>: Layer<Input = Input, Output = Output> {}

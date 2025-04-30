@@ -86,11 +86,11 @@ struct MainArgs {
     /// Number of seconds before the request expires.
     #[clap(long, default_value = "1800")]
     timeout: u32,
-    /// Elf file to use as the guest image, given as a path.
+    /// Program binary file to use as the guest image, given as a path.
     ///
     /// If unspecified, defaults to the included echo guest.
     #[clap(long)]
-    elf: Option<PathBuf>,
+    program: Option<PathBuf>,
     /// Input for the guest, given as a string or a path to a file.
     ///
     /// If unspecified, defaults to the current (risc0_zkvm::serde encoded) timestamp.
@@ -167,7 +167,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .build()
         .await?;
 
-    let elf = match &args.elf {
+    let program = match &args.program {
         Some(path) => std::fs::read(path)?,
         None => {
             // A build of the echo guest, which simply commits the bytes it reads from inputs.
@@ -175,10 +175,10 @@ async fn run(args: &MainArgs) -> Result<()> {
             fetch_http(&Url::parse(url)?).await?
         }
     };
-    let image_id = compute_image_id(&elf)?;
+    let image_id = compute_image_id(&program)?;
 
-    let image_url = boundless_client.upload_image(&elf).await?;
-    tracing::info!("Uploaded image to {}", image_url);
+    let program_url = boundless_client.upload_program(&program).await?;
+    tracing::info!("Uploaded program to {}", program_url);
 
     let mut i = 0u64;
     loop {
@@ -201,7 +201,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             InputBuilder::new().write_slice(&input).build_env()?
         };
 
-        let session_info = default_executor().execute(env.clone().try_into()?, &elf)?;
+        let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
         let journal = session_info.journal;
 
         let cycles_count =
@@ -238,7 +238,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         );
 
         let request = ProofRequest::builder()
-            .with_image_url(image_url.clone())
+            .with_image_url(program_url.clone())
             .with_input(Input::inline(env.encode()?))
             .with_requirements(Requirements::new(
                 image_id,
@@ -336,7 +336,7 @@ mod tests {
             ramp_up: 0,
             timeout: 1000,
             lock_timeout: 1000,
-            elf: None,
+            program: None,
             input: OrderInput { input: None, input_file: None },
             encode_input: false,
             warn_balance_below: None,
