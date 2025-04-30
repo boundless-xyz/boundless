@@ -13,11 +13,20 @@ use crate::{config::ConfigLock, errors::CodedError};
 #[derive(Error, Debug)]
 pub enum SupervisorErr<E: CodedError> {
     /// Restart / replace the task after failure
-    #[error("Recoverable error: {0}")]
+    #[error("{code} Recoverable error: {0}", code = self.code())]
     Recover(E),
     /// Hard failure and exit the task set
-    #[error("Hard failure: {0}")]
+    #[error("{code} Hard failure: {0}", code = self.code())]
     Fault(E),
+}
+
+impl<E: CodedError> CodedError for SupervisorErr<E> {
+    fn code(&self) -> &str {
+        match self {
+            SupervisorErr::Recover(_) => "[B-SUP-RECOVER]",
+            SupervisorErr::Fault(_) => "[B-SUP-FAULT]",
+        }
+    }
 }
 
 pub type RetryRes<E: CodedError> =
@@ -78,7 +87,7 @@ pub(crate) struct Supervisor<T: RetryTask<E>, E: CodedError> {
 impl<T: RetryTask<E>, E: CodedError> Supervisor<T, E>
 where
     T: Send,
-    E: Send + Sync,
+    E: Send + Sync + 'static,
 {
     /// Create a new supervisor with a single task
     pub fn new(task: Arc<T>, config: ConfigLock) -> Self {
@@ -190,11 +199,26 @@ mod tests {
     use super::*;
     use anyhow::Context;
     use async_channel::{Receiver, Sender};
+    use thiserror::Error;
     use tracing_test::traced_test;
 
     struct TestTask {
         tx: Sender<u32>,
         rx: Receiver<u32>,
+    }
+
+    #[derive(Error, Debug)]
+    enum TestErr {
+        #[error("Sample error: {0}")]
+        SampleErr(anyhow::Error),
+    }
+
+    impl CodedError for TestErr {
+        fn code(&self) -> &str {
+            match self {
+                TestErr::SampleErr(_) => "[B-TEST-001]",
+            }
+        }
     }
 
     impl TestTask {
@@ -211,7 +235,7 @@ mod tests {
             self.tx.close()
         }
 
-        async fn process_item(rx: Receiver<u32>) -> Result<(), SupervisorErr> {
+        async fn process_item(rx: Receiver<u32>) -> Result<(), SupervisorErr<TestErr>> {
             loop {
                 let value = match rx.recv().await {
                     Ok(val) => val,
@@ -229,10 +253,22 @@ mod tests {
                     // mock a clean exit
                     1 => return Ok(()),
                     // Mock a soft failure
-                    2 => return Err(SupervisorErr::Recover(anyhow::anyhow!("Sample error"))),
+                    2 => {
+                        return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
+                            "Sample error"
+                        ))))
+                    }
                     // Mock a hard failure
-                    3 => return Err(SupervisorErr::Fault(anyhow::anyhow!("FAILURE"))),
-                    _ => return Err(SupervisorErr::Recover(anyhow::anyhow!("UNKNOWN VALUE TYPE"))),
+                    3 => {
+                        return Err(SupervisorErr::Fault(TestErr::SampleErr(anyhow::anyhow!(
+                            "FAILURE"
+                        ))))
+                    }
+                    _ => {
+                        return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
+                            "UNKNOWN VALUE TYPE"
+                        ))))
+                    }
                 }
             }
 
@@ -240,8 +276,8 @@ mod tests {
         }
     }
 
-    impl RetryTask for TestTask {
-        fn spawn(&self) -> RetryRes {
+    impl RetryTask<TestErr> for TestTask {
+        fn spawn(&self) -> RetryRes<TestErr> {
             let rx_copy = self.rx.clone();
             Box::pin(Self::process_item(rx_copy))
         }

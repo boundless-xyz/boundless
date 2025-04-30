@@ -14,8 +14,8 @@ use risc0_zkvm::{
 };
 
 use crate::{
-    config::{ConfigErr, ConfigLock},
-    db::{AggregationOrder, DbObj},
+    config::ConfigLock,
+    db::{AggregationOrder, DbError, DbObj},
     errors::CodedError,
     now_timestamp,
     provers::{self, ProverObj},
@@ -26,18 +26,18 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AggregatorErr {
-    #[error("Failed to read config")]
-    ConfigErr(#[from] ConfigErr),
+    #[error("DB Error: {0}")]
+    DbErr(#[from] DbError),
 
-    #[error("Other: {0}")]
-    OtherErr(#[from] anyhow::Error),
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
 }
 
 impl CodedError for AggregatorErr {
     fn code(&self) -> &str {
         match self {
-            AggregatorErr::OtherErr(_) => "B-3012",
-            AggregatorErr::ConfigErr(_) => "B-3013",
+            AggregatorErr::DbErr(_) => "[B-AGG-001]",
+            AggregatorErr::UnexpectedErr(_) => "[B-AGG-500]",
         }
     }
 }
@@ -502,12 +502,12 @@ impl AggregatorService {
             }
             BatchStatus::PendingCompression => {
                 let Some(aggregation_state) = batch.aggregation_state else {
-                    return Err(AggregatorErr::OtherErr(anyhow::anyhow!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None")));
+                    return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None")));
                 };
                 (aggregation_state.proof_id, true)
             }
             status => {
-                return Err(AggregatorErr::OtherErr(anyhow::anyhow!(
+                return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!(
                     "Unexpected batch status {status:?}"
                 )))
             }
@@ -544,8 +544,8 @@ impl RetryTask<AggregatorErr> for AggregatorService {
                         .config
                         .lock_all()
                         .context("Failed to lock config")
-                        .map_err(AggregatorErr::OtherErr)
-                        .map_err(SupervisorErr::Fault)?;
+                        .map_err(AggregatorErr::UnexpectedErr)
+                        .map_err(SupervisorErr::Recover)?;
                     config.batcher.batch_poll_time_ms.unwrap_or(1000)
                 };
 

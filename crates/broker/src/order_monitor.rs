@@ -5,7 +5,8 @@
 use crate::{
     chain_monitor::ChainMonitorService,
     config::ConfigLock,
-    db::DbObj,
+    db::{DbError, DbObj},
+    errors::CodedError,
     now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
     FulfillmentType, Order, OrderStatus,
@@ -29,25 +30,33 @@ const MAX_PROVING_BATCH_SIZE: u32 = 10;
 #[derive(Error, Debug)]
 pub enum OrderMonitorErr {
     #[error("Failed to lock order: {0}")]
-    OrderLockedInBlock(MarketError),
+    LockTxFailed(String),
 
     #[error("Invalid order status for locking: {0:?}")]
     InvalidStatus(OrderStatus),
 
+    #[error("Insufficient balance for lock")]
+    InsufficientBalance,
+
     #[error("Order already locked")]
     AlreadyLocked,
 
-    #[error("Other: {0}")]
-    OtherErr(#[from] anyhow::Error),
+    #[error("DB Error: {0}")]
+    DbErr(#[from] DbError),
+
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedError(#[from] anyhow::Error),
 }
 
 impl CodedError for OrderMonitorErr {
     fn code(&self) -> &str {
         match self {
-            OrderMonitorErr::OrderLockedInBlock(_) => "B-3007",
-            OrderMonitorErr::InvalidStatus(_) => "B-3008",
-            OrderMonitorErr::AlreadyLocked => "B-3009",
-            OrderMonitorErr::OtherErr(_) => "B-3010",
+            OrderMonitorErr::LockTxFailed(_) => "[B-OM-007]",
+            OrderMonitorErr::InvalidStatus(_) => "[B-OM-008]",
+            OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
+            OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
+            OrderMonitorErr::DbErr(_) => "[B-OM-001]",
+            OrderMonitorErr::UnexpectedError(_) => "[B-OM-500]",
         }
     }
 }
@@ -142,7 +151,7 @@ where
             market = market.with_timeout(Duration::from_secs(txn_timeout));
         }
         {
-            let config = config.lock_all().context("Failed to lock config")?;
+            let config = config.lock_all()?;
             market = market.with_stake_balance_alert(
                 &config
                     .market
@@ -171,7 +180,7 @@ where
     }
 
     async fn lock_order(&self, order: &Order) -> Result<(), OrderMonitorErr> {
-        if order.status != OrderStatus::Locking {
+        if order.status != OrderStatus::WaitingToLock {
             return Err(OrderMonitorErr::InvalidStatus(order.status));
         }
 
@@ -196,7 +205,7 @@ where
             .context("Failed to check if request is locked")?;
         if is_locked {
             tracing::warn!("Request {} already locked: {order_status:?}, skipping", request_id);
-            return Err(LockOrderErr::AlreadyLocked);
+            return Err(OrderMonitorErr::AlreadyLocked);
         }
 
         let conf_priority_gas = {
@@ -213,7 +222,21 @@ where
             .market
             .lock_request(&order.request, &order.client_sig, conf_priority_gas)
             .await
-            .map_err(OrderMonitorErr::OrderLockedInBlock)?;
+            .map_err(|e| -> OrderMonitorErr {
+                match e {
+                    MarketError::LockRevert(e) => {
+                        OrderMonitorErr::LockTxFailed(format!("0x{:x}", e))
+                    }
+                    MarketError::Error(e) => {
+                        if e.to_string().contains("InsufficientBalance") {
+                            OrderMonitorErr::InsufficientBalance
+                        } else {
+                            OrderMonitorErr::UnexpectedError(e.into())
+                        }
+                    }
+                    _ => OrderMonitorErr::UnexpectedError(e.into()),
+                }
+            })?;
 
         let lock_timestamp = self
             .provider
@@ -252,18 +275,25 @@ where
                 Ok(_) => tracing::info!("Locked request: {request_id}"),
                 Err(ref err) => {
                     match err {
-                        OrderMonitorErr::OtherErr(err) => {
-                            tracing::error!("Failed to lock order: {order_id:x} {err:?}");
+                        OrderMonitorErr::UnexpectedError(inner) => {
+                            tracing::error!(
+                                "Failed to lock order: {order_id} - {} - {inner:?}",
+                                err.code()
+                            );
                         }
                         // Only warn on known / classified errors
                         _ => {
-                            tracing::warn!("Soft failed to lock request: {request_id} {err:?}");
+                            tracing::warn!(
+                                "Soft failed to lock request: {request_id} - {} - {err:?}",
+                                err.code()
+                            );
                         }
                     }
                     if let Err(err) = self.db.set_order_failure(&order_id, format!("{err:?}")).await
                     {
                         tracing::error!(
-                            "Failed to set DB failure state for order: {order_id}, {err:?}"
+                            "Failed to set DB failure state for order: {order_id} - {} - {err:?}",
+                            err.code()
                         );
                     }
                 }
@@ -319,7 +349,11 @@ where
         };
 
         let max = max_concurrent_proofs.unwrap();
-        let committed_orders = self.db.get_committed_orders().await?;
+        let committed_orders = self
+            .db
+            .get_committed_orders()
+            .await
+            .map_err(|e| OrderMonitorErr::UnexpectedError(e.into()))?;
         let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
 
         self.log_capacity(committed_orders, max).await;
@@ -655,7 +689,7 @@ where
         }
     }
 
-    pub async fn start_monitor(mut self) -> Result<()> {
+    pub async fn start_monitor(mut self) -> Result<(), OrderMonitorErr> {
         self.back_scan_locks().await?;
 
         let mut last_block = 0;

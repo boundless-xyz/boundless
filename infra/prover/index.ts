@@ -3,7 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { getEnvVar, ChainId, getServiceNameV1 } from "../util";
+import { getEnvVar, ChainId, getServiceNameV1, Severity } from "../util";
 
 require('dotenv').config();
 
@@ -357,53 +357,172 @@ export = () => {
     },
   }, { dependsOn: [fileSystem,mountTargets] });
 
-  new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
-    name: `${serviceName}-log-err-filter`,
-    logGroupName: serviceName,
-    metricTransformation: {
-      namespace: `Boundless/Services/${serviceName}`,
-      name: `${serviceName}-log-err`,
-      value: '1',
-      defaultValue: '0',
-    },
-    pattern: 'ERROR',
-  }, { dependsOn: [service] });
-
-  new aws.cloudwatch.LogMetricFilter(`${serviceName}-lock-filter`, {
-    name: `${serviceName}-log-lock-filter`,
-    logGroupName: serviceName,
-    metricTransformation: {
-      namespace: `Boundless/Services/${serviceName}`,
-      name: `${serviceName}-log-lock`,
-      value: '1',
-      defaultValue: '0',
-    },
-    pattern: '?"Locked order" ?"locked order" ?"Order locked"',
-  }, { dependsOn: [service] });
-
   const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
 
-  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
-    name: `${serviceName}-log-err`,
-    metricQueries: [
-      {
-        id: 'm1',
-        metric: {
-          namespace: `Boundless/Services/${serviceName}`,
-          metricName: `${serviceName}-log-err`,
-          period: 60,
-          stat: 'Maximum',
-        },
-        returnData: true,
+  const createErrorCodeAlarm = (
+    pattern: string, 
+    metricName: string, 
+    severity: Severity,
+    alarmConfig?: Partial<aws.cloudwatch.MetricAlarmArgs>,
+    metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
+    description?: string
+  ): void => {
+    // Generate a metric by filtering for the error code
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-${metricName}-filter`, {
+      name: `${serviceName}-${metricName}-filter`,
+      logGroupName: serviceName,
+      metricTransformation: {
+        namespace: `Boundless/Services/${serviceName}`,
+        name: `${serviceName}-${metricName}`,
+        value: '1',
+        defaultValue: '0',
       },
-    ],
+      pattern,
+    }, { dependsOn: [service] });
+
+    // Create an alarm for the metric
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricName}-alarm`, {
+      name: `${serviceName}-${metricName}-${severity}`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-${metricName}`,
+            period: 60,
+            stat: 'Sum',
+            ...metricConfig
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `${severity} ${metricName} ${description}`,
+      actionsEnabled: true,
+      alarmActions,
+      ...alarmConfig
+    });
+  }
+
+  // Alarms across the entire prover, matching using regex
+  // Note: AWS has a limit of 5 filter patterns containing regex for each log group
+  // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPattern.html
+
+  // 3 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
+  createErrorCodeAlarm('%^\[B-[A-Z]+-500\]$%', 'unexpected-errors', Severity.SEV2, {
+    threshold: 5,
+  }, { period: 300 });
+
+  // 5 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
+  createErrorCodeAlarm('%^\[B-[A-Z]+-500\]$%', 'unexpected-errors', Severity.SEV2, {
+    threshold: 10,
+  }, { period: 300 });
+
+  // 10 errors of any kind across the entire prover within an hour triggers a SEV2 alarm
+  createErrorCodeAlarm('%^\[B-[A-Z]+-\d+\]$%', 'assorted-errors', Severity.SEV2, {
+    threshold: 10,
+  }, { period: 3600 });
+  
+  //
+  // Alarms for specific services and error codes
+  //
+
+  //
+  // DB
+  //
+  // 1 db locked error triggers a SEV2 alarm
+  createErrorCodeAlarm('[B-DB-001]', 'db-locked-error', Severity.SEV2);
+
+  // 1 db pool timeout error triggers a SEV2 alarm
+  createErrorCodeAlarm('[B-DB-002]', 'db-pool-timeout-error', Severity.SEV2);
+
+  // 1 db unexpected error triggers a SEV2 alarm
+  createErrorCodeAlarm('[B-DB-500]', 'db-unexpected-error', Severity.SEV2);
+
+  //
+  // On-chain Market Monitor
+  //
+  // Any 1 unexpected error in the on-chain market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('[B-CHM-500]', 'chain-monitor-unexpected-error', Severity.SEV2);
+
+  // 3 unexpected errors within 5 minutes in the chain monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('[B-CHM-500]', 'chain-monitor-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+
+  //
+  // Off-chain Market Monitor
+  //
+  // Any 1 unexpected error in the off-chain market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('[B-OMM-500]', 'off-chain-market-monitor-unexpected-error', Severity.SEV2);
+
+  // 3 unexpected errors within 5 minutes in the off-chain market monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('[B-OMM-500]', 'off-chain-market-monitor-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+
+  //
+  // Order Picker
+  //
+  // Any 1 unexpected error in the order picker triggers a SEV2 alarm.
+  createErrorCodeAlarm('[B-OP-500]', 'order-picker-unexpected-error', Severity.SEV2, {
     threshold: 1,
-    comparisonOperator: 'GreaterThanOrEqualToThreshold',
-    evaluationPeriods: 1,
-    datapointsToAlarm: 1,
-    treatMissingData: 'notBreaching',
-    alarmDescription: `ERROR log detected for ${serviceName}`,
-    actionsEnabled: true,
-    alarmActions,
   });
+
+  // 3 errors when fetching images/inputs within 15 minutes triggers a SEV2 alarm.
+  createErrorCodeAlarm('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 900 });
+
+  // 3 unexpected errors within 5 minutes in the order picker triggers a SEV1 alarm.
+  createErrorCodeAlarm('[B-OP-500]', 'order-picker-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+
+  //
+  // Order Monitor
+  //
+  // Any 1 unexpected error in the order monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('[B-OM-500]', 'order-monitor-unexpected-error', Severity.SEV2);
+
+  // 3 unexpected errors within 5 minutes in the order monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('[B-OM-500]', 'order-monitor-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+
+  //
+  // Prover
+  //
+  // Any 1 unexpected error in the prover triggers a SEV2 alarm.
+  createErrorCodeAlarm('[B-PR-500]', 'prover-unexpected-error', Severity.SEV2);
+
+  // 3 unexpected errors within 5 minutes in the prover triggers a SEV1 alarm.
+  createErrorCodeAlarm('[B-PR-500]', 'prover-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+
+  // Aggregator
+  // Any 1 unexpected error in the aggregator triggers a SEV2 alarm.
+  createErrorCodeAlarm('[B-AG-500]', 'aggregator-unexpected-error', Severity.SEV2);
+
+  // 3 unexpected errors within 5 minutes in the aggregator triggers a SEV1 alarm.
+  createErrorCodeAlarm('[B-AG-500]', 'aggregator-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+
+  //
+  // Submitter
+  //
+  // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
+  createErrorCodeAlarm('[B-SUB-500]', 'submitter-unexpected-error', Severity.SEV2);
+
+  // 3 unexpected errors within 5 minutes in the submitter triggers a SEV1 alarm.
+  createErrorCodeAlarm('[B-SUB-500]', 'submitter-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+  
 };

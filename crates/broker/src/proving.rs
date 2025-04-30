@@ -4,13 +4,33 @@
 
 use crate::{
     config::ConfigLock,
-    db::DbObj,
+    db::{DbError, DbObj},
+    errors::CodedError,
     futures_retry::retry,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Order, OrderStatus,
 };
 use anyhow::{Context, Result};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ProvingErr {
+    #[error("{code} DB Error: {0}", code = self.code())]
+    DbErr(#[from] DbError),
+
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl CodedError for ProvingErr {
+    fn code(&self) -> &str {
+        match self {
+            ProvingErr::DbErr(_) => "[B-PRO-001]",
+            ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ProvingService {
@@ -76,13 +96,14 @@ impl ProvingService {
         // Mostly hit by skipping pre-flight
         let image_id = match order.image_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::upload_image_uri(&self.prover, &order, &self.config)
+            None => crate::storage::upload_image_uri(&self.prover, &order, &self.config)
                 .await
                 .context("Failed to upload image")?,
         };
+
         let input_id = match order.input_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::upload_input_uri(&self.prover, &order, &self.config)
+            None => crate::storage::upload_input_uri(&self.prover, &order, &self.config)
                 .await
                 .context("Failed to upload input")?,
         };
@@ -107,13 +128,8 @@ impl ProvingService {
         Ok(())
     }
 
-    pub async fn find_and_monitor_proofs(&self) -> Result<()> {
-        let current_proofs = self
-            .db
-            .get_active_proofs()
-            .await
-            .context("Failed to get active proofs from the DB")
-            .map_err(SupervisorErr::Fault)?;
+    pub async fn find_and_monitor_proofs(&self) -> Result<(), ProvingErr> {
+        let current_proofs = self.db.get_active_proofs().await?;
 
         tracing::info!("Found {} proofs currently proving", current_proofs.len());
         for order in current_proofs {
@@ -159,8 +175,8 @@ impl ProvingService {
     }
 }
 
-impl RetryTask for ProvingService {
-    fn spawn(&self) -> RetryRes {
+impl RetryTask<ProvingErr> for ProvingService {
+    fn spawn(&self) -> RetryRes<ProvingErr> {
         let proving_service_copy = self.clone();
         Box::pin(async move {
             tracing::info!("Starting proving service");

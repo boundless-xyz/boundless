@@ -28,7 +28,7 @@ use risc0_zkvm::{
 
 use crate::{
     config::{ConfigErr, ConfigLock},
-    db::DbObj,
+    db::{DbError, DbObj},
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType,
@@ -39,18 +39,18 @@ use crate::errors::CodedError;
 
 #[derive(Error, Debug)]
 pub enum SubmitterErr {
-    #[error("Failed to read config")]
-    ConfigErr(#[from] ConfigErr),
+    #[error("{code} DB Error: {0}", code = self.code())]
+    DbErr(#[from] DbError),
 
-    #[error("Other: {0}")]
-    OtherErr(#[from] anyhow::Error),
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
 }
 
 impl CodedError for SubmitterErr {
     fn code(&self) -> &str {
         match self {
-            SubmitterErr::OtherErr(_) => "B-3012",
-            SubmitterErr::ConfigErr(_) => "B-3013",
+            SubmitterErr::DbErr(_) => "[B-SUB-001]",
+            SubmitterErr::UnexpectedErr(_) => "[B-SUB-500]",
         }
     }
 }
@@ -446,14 +446,8 @@ where
         bail!("transaction to fulfill batch failed");
     }
 
-    pub async fn process_next_batch(&self) -> Result<bool, SupervisorErr<SubmitterErr>> {
-        let batch_res = self
-            .db
-            .get_complete_batch()
-            .await
-            .context("Failed to check db for complete batch")
-            .map_err(SubmitterErr::OtherErr)
-            .map_err(SupervisorErr::Recover)?;
+    pub async fn process_next_batch(&self) -> Result<bool, SubmitterErr> {
+        let batch_res = self.db.get_complete_batch().await?;
 
         let Some((batch_id, batch)) = batch_res else {
             return Ok(false);
@@ -462,8 +456,7 @@ where
         let max_batch_submission_attempts = self
             .config
             .lock_all()
-            .map_err(SubmitterErr::ConfigErr)
-            .map_err(SupervisorErr::Recover)?
+            .context("Failed to read config")?
             .batcher
             .max_submission_attempts;
 
@@ -473,7 +466,7 @@ where
                 Ok(_) => {
                     if let Err(db_err) = self.db.set_batch_submitted(batch_id).await {
                         tracing::error!("Failed to set batch submitted status: {db_err:?}");
-                        return Err(SupervisorErr::Fault(SubmitterErr::OtherErr(db_err.into())));
+                        return Err(SubmitterErr::DbErr(db_err));
                     }
                     tracing::info!(
                         "Completed batch: {batch_id} total_fees: {}",
@@ -494,7 +487,7 @@ where
         tracing::error!("Batch {batch_id} has reached max submission attempts. Errors: {errors:?}");
         if let Err(err) = self.db.set_batch_failure(batch_id, format!("{errors:?}")).await {
             tracing::error!("Failed to set batch failure in db: {batch_id} - {err:?}");
-            return Err(SupervisorErr::Recover(SubmitterErr::OtherErr(err.into()).into()));
+            return Err(SubmitterErr::DbErr(err));
         }
         Ok(false)
     }
@@ -510,7 +503,7 @@ where
         Box::pin(async move {
             tracing::info!("Starting Submitter service");
             loop {
-                obj_clone.process_next_batch().await?;
+                obj_clone.process_next_batch().await.map_err(SupervisorErr::Recover)?;
 
                 // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

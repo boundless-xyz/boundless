@@ -20,14 +20,14 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum ChainMonitorErr {
-    #[error("Other: {0}")]
-    OtherErr(#[from] anyhow::Error),
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
 }
 
 impl CodedError for ChainMonitorErr {
     fn code(&self) -> &str {
         match self {
-            ChainMonitorErr::OtherErr(_) => "B-3011",
+            ChainMonitorErr::UnexpectedErr(_) => "[B-CHM-500]",
         }
     }
 }
@@ -117,7 +117,7 @@ where
                 .get_chain_id()
                 .await
                 .context("failed to get chain ID")
-                .map_err(ChainMonitorErr::OtherErr)
+                .map_err(ChainMonitorErr::UnexpectedErr)
                 .map_err(SupervisorErr::Recover)?;
 
             let chain_poll_time = NamedChain::try_from(chain_id)
@@ -140,17 +140,17 @@ where
 
                 let block = block_res
                     .context("failed to latest block")
-                    .map_err(ChainMonitorErr::OtherErr)
+                    .map_err(ChainMonitorErr::UnexpectedErr)
                     .map_err(SupervisorErr::Recover)?
                     .context("failed to fetch latest block: no block in response")
-                    .map_err(ChainMonitorErr::OtherErr)
+                    .map_err(ChainMonitorErr::UnexpectedErr)
                     .map_err(SupervisorErr::Recover)?;
                 let _ = self_clone.block_number.send_replace(block.header.number);
                 let _ = self_clone.block_timestamp.send_replace(block.header.timestamp);
 
                 let gas_price = gas_price_res
                     .context("failed to get gas price")
-                    .map_err(ChainMonitorErr::OtherErr)
+                    .map_err(ChainMonitorErr::UnexpectedErr)
                     .map_err(SupervisorErr::Recover)?;
                 let _ = self_clone.gas_price.send_replace(gas_price);
 
