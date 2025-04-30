@@ -205,7 +205,7 @@ export = () => {
       name: dockerRemoteBuilder,
     } : undefined,
     dockerfile: {
-      location: `${dockerDir}/dockerfiles/broker.dockerfile`,
+      location: `${dockerDir}/dockerfiles/${isDev ? 'dev/' : ''}broker.dockerfile`,
     },
     buildArgs: {
       S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
@@ -368,12 +368,12 @@ export = () => {
     description?: string
   ): void => {
     // Generate a metric by filtering for the error code
-    new aws.cloudwatch.LogMetricFilter(`${serviceName}-${metricName}-filter`, {
-      name: `${serviceName}-${metricName}-filter`,
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-${metricName}-${severity}-filter`, {
+      name: `${serviceName}-${metricName}-${severity}-filter`,
       logGroupName: serviceName,
       metricTransformation: {
         namespace: `Boundless/Services/${serviceName}`,
-        name: `${serviceName}-${metricName}`,
+        name: `${serviceName}-${metricName}-${severity}`,
         value: '1',
         defaultValue: '0',
       },
@@ -381,14 +381,14 @@ export = () => {
     }, { dependsOn: [service] });
 
     // Create an alarm for the metric
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricName}-alarm`, {
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricName}-${severity}-alarm`, {
       name: `${serviceName}-${metricName}-${severity}`,
       metricQueries: [
         {
           id: 'm1',
           metric: {
             namespace: `Boundless/Services/${serviceName}`,
-            metricName: `${serviceName}-${metricName}`,
+            metricName: `${serviceName}-${metricName}-${severity}`,
             period: 60,
             stat: 'Sum',
             ...metricConfig
@@ -417,18 +417,27 @@ export = () => {
     threshold: 5,
   }, { period: 300 });
 
-  // 5 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
-  createErrorCodeAlarm('%^\[B-[A-Z]+-500\]$%', 'unexpected-errors', Severity.SEV2, {
-    threshold: 10,
-  }, { period: 300 });
-
   // 10 errors of any kind across the entire prover within an hour triggers a SEV2 alarm
   createErrorCodeAlarm('%^\[B-[A-Z]+-\d+\]$%', 'assorted-errors', Severity.SEV2, {
     threshold: 10,
   }, { period: 3600 });
   
+  // Alarms at the supervisor level
   //
-  // Alarms for specific services and error codes
+  // 2 supervisor restarts within 15 mins triggers a SEV2 alarm
+  createErrorCodeAlarm('[B-SUP-RECOVER]', 'supervisor-recover-errors', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 900 });
+
+  // 1 supervisor fault triggers a SEV2 alarm
+  createErrorCodeAlarm('[B-SUP-FAULT]', 'supervisor-fault-errors', Severity.SEV2, {
+    threshold: 1,
+  });
+  
+  //
+  // Alarms for specific services and error codes.
+  // Matching without using regex to avoid the AWS limit.
+  //
   //
 
   //
