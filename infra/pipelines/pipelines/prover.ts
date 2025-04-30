@@ -207,7 +207,7 @@ export class ProverPipeline extends pulumi.ComponentResource {
       description: `Deployment for ${APP_NAME}`,
       serviceRole: role.arn,
       environment: {
-        computeType: "BUILD_GENERAL1_MEDIUM",
+        computeType: "BUILD_GENERAL1_LARGE",
         image: "aws/codebuild/standard:7.0",
         type: "LINUX_CONTAINER",
         privilegedMode: true,

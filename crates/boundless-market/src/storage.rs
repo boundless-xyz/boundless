@@ -166,6 +166,9 @@ pub struct StorageProviderConfig {
     /// S3 region
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
     pub aws_region: Option<String>,
+    /// Use presigned URLs for S3
+    #[arg(long, env, requires("s3_access_key"), default_value = "true")]
+    pub s3_use_presigned: Option<bool>,
 
     // **Pinata Storage Provider Options**
     /// Pinata JWT
@@ -193,6 +196,7 @@ impl StorageProviderConfig {
             s3_secret_key: None,
             s3_bucket: None,
             s3_url: None,
+            s3_use_presigned: None,
             aws_region: None,
             pinata_jwt: None,
             pinata_api_url: None,
@@ -448,6 +452,7 @@ impl StorageProvider for PinataStorageProvider {
 pub struct S3StorageProvider {
     s3_bucket: String,
     client: aws_sdk_s3::Client,
+    presigned: bool, // use s3:// urls or presigned https://
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -486,8 +491,9 @@ impl S3StorageProvider {
         let bucket = std::env::var("S3_BUCKET")?;
         let url = std::env::var("S3_URL")?;
         let region = std::env::var("AWS_REGION")?;
+        let presigned = std::env::var_os("S3_NO_PRESIGNED").is_none();
 
-        Self::from_parts(access_key, secret_key, bucket, url, region).await
+        Self::from_parts(access_key, secret_key, bucket, url, region, presigned).await
     }
 
     /// Creates a new S3 storage provider from the given parts.
@@ -497,6 +503,7 @@ impl S3StorageProvider {
         bucket: String,
         url: String,
         region: String,
+        presigned: bool,
     ) -> Result<Self, S3StorageProviderError> {
         let cred = Credentials::new(
             access_key.clone(),
@@ -533,7 +540,7 @@ impl S3StorageProvider {
             }
         }
 
-        Ok(Self { s3_bucket: bucket, client })
+        Ok(Self { s3_bucket: bucket, client, presigned })
     }
 
     /// Creates a new S3 storage provider from the given configuration.
@@ -564,7 +571,11 @@ impl S3StorageProvider {
             .clone()
             .ok_or_else(|| S3StorageProviderError::Config("s3_region".to_string()))?;
 
-        Self::from_parts(access_key, secret_key, bucket, url, region).await
+        let presigned = config
+            .s3_use_presigned
+            .ok_or_else(|| S3StorageProviderError::Config("s3_use_presigned".to_string()))?;
+
+        Self::from_parts(access_key, secret_key, bucket, url, region, presigned).await
     }
 
     async fn upload(
@@ -582,6 +593,10 @@ impl S3StorageProvider {
             .send()
             .await
             .map_err(|e| S3Error::from(e.into_service_error()))?;
+
+        if !self.presigned {
+            return Ok(Url::parse(&format!("s3://{}/{}", self.s3_bucket, key)).unwrap());
+        }
 
         // TODO(victor): Presigned requests are somewhat large. It would be nice to instead set up
         // IAM permissions on the upload to make it public, and provide a simple URL.
