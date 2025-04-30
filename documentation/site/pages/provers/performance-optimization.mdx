@@ -50,12 +50,12 @@ start_services() {
 
 ### Defining a Test Harness
 
-It is recommended to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your ELF and inputs file for the proofs you plan to generate.
+It is recommended to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your program and inputs file for the proofs you plan to generate.
 
 To try a realistic example:
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -f /path/to/elf -i /path/to/input`
+RUST_LOG=info cargo run --bin bento_cli -- -f /path/to/program -i /path/to/input`
 ```
 
 If you intend to operate across a variety of different workloads (such as those that may be fed by the [Broker](/provers/broker)), you can also use the following command to generate a synthetic workload:
