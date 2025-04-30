@@ -15,13 +15,15 @@
 #![allow(missing_docs)] // DO NOT MERGE: That would be too lazy
 #![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
-use risc0_zkvm::{Journal, ReceiptClaim};
+use anyhow::Context;
+use risc0_zkvm::{Executor, Journal, ReceiptClaim};
 use url::Url;
 
 use crate::{
     contracts::{Input, Offer, ProofRequest, RequestId},
+    input::GuestEnv,
     storage::{BuiltinStorageProvider, StorageProvider},
 };
 
@@ -101,6 +103,8 @@ where
     }
 }
 
+/// Define a layer as a stack of two layers. Output of layer A is piped into layer B, with pre and
+/// post-processing defined by the [Adapt] trait when required.
 impl<A, B> Layer for (A, B)
 where
     A: Layer,
@@ -120,18 +124,20 @@ where
     }
 }
 
-pub struct ProgramAndInput {
+// TODO: Either define this as an enum that can also take a URL that is pre-uploaded, or use the
+// Adapt trait to accept URL inputs such that it bypasses the StorageLayer.
+pub struct ProgramAndEnv {
     pub program: Cow<'static, [u8]>,
-    pub input: Cow<'static, [u8]>,
+    pub env: GuestEnv,
 }
 
-impl<Program, Input> Into<ProgramAndInput> for (Program, Input)
+impl<Program, Stdin> From<(Program, Stdin)> for ProgramAndEnv
 where
     Program: Into<Cow<'static, [u8]>>,
-    Input: Into<Cow<'static, [u8]>>,
+    Stdin: Into<Vec<u8>>,
 {
-    fn into(self) -> ProgramAndInput {
-        ProgramAndInput { program: self.0.into(), input: self.1.into() }
+    fn from(value: (Program, Stdin)) -> Self {
+        Self { program: value.0.into(), env: GuestEnv { stdin: value.1.into() } }
     }
 }
 
@@ -145,25 +151,46 @@ pub struct StorageLayer<S: StorageProvider> {
     pub storage_provider: S,
 }
 
-impl<S: StorageProvider> Layer for StorageLayer<S> {
-    type Input = ProgramAndInput;
-    type Error = S::Error;
+impl<S: StorageProvider> Layer for StorageLayer<S>
+where S::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Input = ProgramAndEnv;
+    type Error = anyhow::Error;
     type Output = (Url, Input);
 
     async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
         let program_url = self.storage_provider.upload_program(&input.program).await?;
+        let input_data = input.env.encode().context("failed to encode guest environment")?;
         let request_input = match self.inline_input_max_bytes {
-            Some(limit) if input.input.len() > limit => {
-                Input::url(self.storage_provider.upload_input(&input.input).await?)
+            Some(limit) if input_data.len() > limit => {
+                Input::url(self.storage_provider.upload_input(&input_data).await?)
             }
-            _ => Input::inline(input.input.to_vec()),
+            _ => Input::inline(input_data),
         };
         Ok((program_url, request_input))
     }
 }
 
-pub struct PreflightLayer {}
+// TODO: Add non-default ways to build a StorageLayer.
+impl<S> Default for StorageLayer<S>
+where
+    S: StorageProvider + Default,
+{
+    fn default() -> Self {
+        Self {
+            // Default max inline input size is 2 kB.
+            inline_input_max_bytes: Some(2 * 1024),
+            storage_provider: S::default(),
+        }
+    }
+}
 
+#[non_exhaustive]
+pub struct PreflightLayer {
+    executor: Rc<dyn Executor>,
+}
+
+#[non_exhaustive]
 pub struct PreflightInfo {
     pub cycles: u64,
     pub journal: Journal,
@@ -171,6 +198,12 @@ pub struct PreflightInfo {
 }
 
 impl Layer for PreflightLayer {
+    // TODO: Defining the Layer::Input as a Url for the program codifies that fetching the program
+    // and input from the Internet is part of the preflight process. This is recommended because it
+    // ensure the data is actually available, but there are certainly cases where this is not
+    // desirable. In these cases, the caller could not use PreflightLayer as written. Should this
+    // be rewritten to take the program and environment and use an Adapt impl or simmilar to handle
+    // the fetch?
     type Input = (Url, Input);
     type Output = (Url, Input, PreflightInfo);
     type Error = anyhow::Error;
@@ -241,6 +274,6 @@ trait AssertLayer<Input, Output>: Layer<Input = Input, Output = Output> {}
 #[allow(dead_code)]
 trait AssertRequestBuilder<Input>: RequestBuilder<Input> {}
 
-impl AssertLayer<ProgramAndInput, ProofRequest> for Example {}
-impl AssertRequestBuilder<ProgramAndInput> for Example {}
+impl AssertLayer<ProgramAndEnv, ProofRequest> for Example {}
+impl AssertRequestBuilder<ProgramAndEnv> for Example {}
 impl AssertRequestBuilder<(&'static [u8], Vec<u8>)> for Example {}
