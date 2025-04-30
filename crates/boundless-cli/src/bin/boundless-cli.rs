@@ -56,7 +56,7 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use boundless_cli::{convert_timestamp, fetch_url, DefaultProver, OrderFulfilled};
+use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -78,7 +78,7 @@ use boundless_market::{
     },
     input::{GuestEnv, InputBuilder},
     selector::ProofType,
-    storage::{StorageProvider, StorageProviderConfig},
+    storage::{fetch_url, StorageProvider, StorageProviderConfig},
 };
 
 #[derive(Subcommand, Clone, Debug)]

@@ -33,7 +33,6 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ExecutorEnv, ProverOpts, Receipt, ReceiptClaim,
 };
-use url::Url;
 
 use boundless_market::{
     contracts::{
@@ -85,35 +84,6 @@ impl OrderFulfilled {
 pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
     let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
     t.with_timezone(&Local)
-}
-
-/// Fetches the content of a URL.
-/// Supported URL schemes are `http`, `https`, and `file`.
-pub async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
-    tracing::debug!("Fetching URL: {}", url_str);
-    let url = Url::parse(url_str)?;
-
-    match url.scheme() {
-        "http" | "https" => fetch_http(&url).await,
-        "file" => fetch_file(&url).await,
-        _ => bail!("unsupported URL scheme: {}", url.scheme()),
-    }
-}
-
-async fn fetch_http(url: &Url) -> Result<Vec<u8>> {
-    let response = reqwest::get(url.as_str()).await?;
-    let status = response.status();
-    if !status.is_success() {
-        bail!("HTTP request failed with status: {}", status);
-    }
-
-    Ok(response.bytes().await?.to_vec())
-}
-
-async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
-    let path = std::path::Path::new(url.path());
-    let data = tokio::fs::read(path).await?;
-    Ok(data)
 }
 
 /// The default prover implementation.

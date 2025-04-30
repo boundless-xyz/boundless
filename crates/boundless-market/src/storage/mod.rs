@@ -25,7 +25,9 @@ mod file;
 mod mock;
 mod pinata;
 mod s3;
+mod fetch;
 
+pub use fetch::fetch_url;
 pub use file::{TempFileStorageProvider, TempFileStorageProviderError};
 pub use mock::{MockStorageError, MockStorageProvider};
 pub use pinata::{PinataStorageProvider, PinataStorageProviderError};
