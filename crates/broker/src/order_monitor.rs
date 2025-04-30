@@ -29,16 +29,16 @@ const MAX_PROVING_BATCH_SIZE: u32 = 10;
 
 #[derive(Error, Debug)]
 pub enum OrderMonitorErr {
-    #[error("Failed to lock order: {0}")]
+    #[error("{code} Failed to lock order: {0}", code = self.code())]
     LockTxFailed(String),
 
-    #[error("Invalid order status for locking: {0:?}")]
+    #[error("{code} Invalid order status for locking: {0:?}", code = self.code())]
     InvalidStatus(OrderStatus),
 
-    #[error("Insufficient balance for lock")]
+    #[error("{code} Insufficient balance for lock", code = self.code())]
     InsufficientBalance,
 
-    #[error("Order already locked")]
+    #[error("{code} Order already locked", code = self.code())]
     AlreadyLocked,
 
     #[error("{code} Unexpected error: {0}", code = self.code())]
@@ -227,7 +227,7 @@ where
                         if e.to_string().contains("InsufficientBalance") {
                             OrderMonitorErr::InsufficientBalance
                         } else {
-                            OrderMonitorErr::UnexpectedError(e.into())
+                            OrderMonitorErr::UnexpectedError(e)
                         }
                     }
                     _ => OrderMonitorErr::UnexpectedError(e.into()),

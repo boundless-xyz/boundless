@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::{default::Default, error::Error, str::FromStr, sync::Arc};
+use std::{default::Default, str::FromStr, sync::Arc};
 
 use alloy::primitives::{ruint::ParseError as RuintParseErr, Bytes, B256, U256};
 use async_trait::async_trait;

@@ -408,19 +408,22 @@ export = () => {
     });
   }
 
-  // Alarms across the entire prover, matching using regex
+  // Alarms across the entire prover.
   // Note: AWS has a limit of 5 filter patterns containing regex for each log group
   // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPattern.html
 
-  // 3 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
+  // [Regex]3 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('%\[B-[A-Z]+-500\]%', 'unexpected-errors', Severity.SEV2, {
     threshold: 5,
   }, { period: 300 });
 
-  // 10 errors of any kind across the entire prover within an hour triggers a SEV2 alarm
+  // [Regex] 10 errors of any kind across the entire prover within an hour triggers a SEV2 alarm
   createErrorCodeAlarm('%\[B-[A-Z]+-\d+\]%', 'assorted-errors', Severity.SEV2, {
     threshold: 10,
   }, { period: 3600 });
+
+  // Matches on any ERROR log that does NOT contain an error code. Ensures we don't miss any errors.
+  createErrorCodeAlarm('ERROR -"[B-"', 'error-without-code', Severity.SEV2);
   
   // Alarms at the supervisor level
   //

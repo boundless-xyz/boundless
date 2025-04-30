@@ -4,7 +4,6 @@
 
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
-use crate::config::ConfigLock;
 use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
@@ -12,10 +11,9 @@ use alloy::{
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
-    input::GuestEnv,
+    contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::Client as OrderStreamClient,
     selector::is_groth16_selector,
 };
@@ -24,7 +22,6 @@ use clap::Parser;
 pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
-use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;

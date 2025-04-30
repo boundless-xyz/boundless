@@ -443,7 +443,8 @@ where
     }
 
     pub async fn process_next_batch(&self) -> Result<bool, SubmitterErr> {
-        let batch_res = self.db.get_complete_batch().await?;
+        let batch_res =
+            self.db.get_complete_batch().await.context("Failed to get complete batch")?;
 
         let Some((batch_id, batch)) = batch_res else {
             return Ok(false);
@@ -460,10 +461,10 @@ where
         for attempt in 0..max_batch_submission_attempts {
             match self.submit_batch(batch_id, &batch).await {
                 Ok(_) => {
-                    if let Err(db_err) = self.db.set_batch_submitted(batch_id).await {
-                        tracing::error!("Failed to set batch submitted status: {db_err:?}");
-                        return Err(SubmitterErr::DbErr(db_err));
-                    }
+                    self.db
+                        .set_batch_submitted(batch_id)
+                        .await
+                        .context("Failed to set batch submitted")?;
                     tracing::info!(
                         "Completed batch: {batch_id} total_fees: {}",
                         format_ether(batch.fees)
@@ -483,7 +484,9 @@ where
         tracing::error!("Batch {batch_id} has reached max submission attempts. Errors: {errors:?}");
         if let Err(err) = self.db.set_batch_failure(batch_id, format!("{errors:?}")).await {
             tracing::error!("Failed to set batch failure in db: {batch_id} - {err:?}");
-            return Err(SubmitterErr::DbErr(err));
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Failed to set batch failure in db: {batch_id} - {err:?}"
+            )));
         }
         Ok(false)
     }

@@ -4,7 +4,7 @@
 
 use crate::{config::ConfigLock, errors::CodedError};
 use alloy::primitives::bytes::Buf;
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use aws_config::retry::RetryConfig;
 use aws_sdk_s3::{

@@ -125,7 +125,8 @@ impl ProvingService {
     }
 
     pub async fn find_and_monitor_proofs(&self) -> Result<(), ProvingErr> {
-        let current_proofs = self.db.get_active_proofs().await?;
+        let current_proofs =
+            self.db.get_active_proofs().await.context("Failed to get active proofs")?;
 
         tracing::info!("Found {} proofs currently proving", current_proofs.len());
         for order in current_proofs {
@@ -193,7 +194,9 @@ impl RetryTask<ProvingErr> for ProvingService {
                     .db
                     .get_proving_order()
                     .await
-                    .map_err(|err| SupervisorErr::Recover(err.into()))?;
+                    .context("Failed to get proving order")
+                    .map_err(ProvingErr::UnexpectedError)
+                    .map_err(SupervisorErr::Recover)?;
 
                 if let Some(order) = order_res {
                     let order_id = order.id();

@@ -763,7 +763,11 @@ where
         tasks: &mut JoinSet<bool>,
         capacity: u32,
     ) -> Result<(), OrderPickerErr> {
-        let order_res = self.db.update_orders_for_pricing(capacity).await?;
+        let order_res = self
+            .db
+            .update_orders_for_pricing(capacity)
+            .await
+            .context("Failed to update orders for pricing")?;
         tracing::trace!(
             "Found {} orders to price, with order ids: {:?}",
             order_res.len(),

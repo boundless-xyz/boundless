@@ -3,7 +3,7 @@
 // All rights reserved.
 
 use alloy::primitives::{utils, Address};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{contracts::eip712_domain, input::InputBuilder};
 use chrono::Utc;
@@ -456,15 +456,20 @@ impl AggregatorService {
     async fn aggregate(&mut self) -> Result<(), AggregatorErr> {
         // Get the current batch. This aggregator service works on one batch at a time, including
         // any proofs ready for aggregation into the current batch.
-        let batch_id = self.db.get_current_batch().await?;
-        let batch = self.db.get_batch(batch_id).await?;
+        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
+        let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
         let (aggregation_proof_id, compress) = match batch.status {
             BatchStatus::Aggregating => {
                 // Fetch all proofs that are pending aggregation from the DB.
-                let new_proofs = self.db.get_aggregation_proofs().await?;
+                let new_proofs = self
+                    .db
+                    .get_aggregation_proofs()
+                    .await
+                    .context("Failed to get aggregation proofs")?;
                 // Fetch all groth16 proofs that are ready to be submitted from the DB.
-                let new_groth16_proofs = self.db.get_groth16_proofs().await?;
+                let new_groth16_proofs =
+                    self.db.get_groth16_proofs().await.context("Failed to get groth16 proofs")?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.

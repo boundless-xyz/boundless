@@ -25,6 +25,7 @@ use futures_util::StreamExt;
 
 use crate::{
     chain_monitor::ChainMonitorService,
+    db::DbError,
     errors::CodedError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, FulfillmentType, Order,

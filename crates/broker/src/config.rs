@@ -310,8 +310,8 @@ pub enum ConfigErr {
 impl CodedError for ConfigErr {
     fn code(&self) -> &str {
         match self {
-            ConfigErr::LockFailed => "[B-3012]",
-            ConfigErr::InvalidConfig => "[B-3013]",
+            ConfigErr::LockFailed => "[B-CON-3012]",
+            ConfigErr::InvalidConfig => "[B-CON-3013]",
         }
     }
 }
