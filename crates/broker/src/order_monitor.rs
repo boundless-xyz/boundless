@@ -447,7 +447,7 @@ where
                     .set_order_status(&order.id(), OrderStatus::Skipped)
                     .await
                     .context("Failed to set order status to skipped")?;
-            } else if order.request.expires_at() - now < min_deadline {
+            } else if order.request.expires_at().saturating_sub(now) < min_deadline {
                 tracing::debug!("Request {:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, order.request.expires_at(), min_deadline);
                 self.db
                     .set_order_status(&order.id(), OrderStatus::Skipped)
@@ -570,7 +570,7 @@ where
                 total_commited_cycles,
                 peak_prove_khz,
                 started_proving_at,
-                prover_available_at - now
+                prover_available_at.saturating_sub(now),
             );
 
             // For each order in consideration, check if it can be completed before its expiration.
