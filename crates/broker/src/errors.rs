@@ -1,6 +1,5 @@
-
 pub trait CodedError: std::error::Error {
-  fn code(&self) -> &str;
+    fn code(&self) -> &str;
 }
 
 // // each enum should print to a string with a code of form [B-XXXX]

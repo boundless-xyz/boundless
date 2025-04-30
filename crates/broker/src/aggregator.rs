@@ -15,7 +15,7 @@ use risc0_zkvm::{
 
 use crate::{
     config::ConfigLock,
-    db::{AggregationOrder, DbError, DbObj},
+    db::{AggregationOrder, DbObj},
     errors::CodedError,
     now_timestamp,
     provers::{self, ProverObj},
@@ -26,9 +26,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AggregatorErr {
-    #[error("DB Error: {0}")]
-    DbErr(#[from] DbError),
-
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -36,7 +33,6 @@ pub enum AggregatorErr {
 impl CodedError for AggregatorErr {
     fn code(&self) -> &str {
         match self {
-            AggregatorErr::DbErr(_) => "[B-AGG-001]",
             AggregatorErr::UnexpectedErr(_) => "[B-AGG-500]",
         }
     }
@@ -460,24 +456,15 @@ impl AggregatorService {
     async fn aggregate(&mut self) -> Result<(), AggregatorErr> {
         // Get the current batch. This aggregator service works on one batch at a time, including
         // any proofs ready for aggregation into the current batch.
-        let batch_id =
-            self.db.get_current_batch().await.context("Failed to get current batch ID")?;
-        let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
+        let batch_id = self.db.get_current_batch().await?;
+        let batch = self.db.get_batch(batch_id).await?;
 
         let (aggregation_proof_id, compress) = match batch.status {
             BatchStatus::Aggregating => {
                 // Fetch all proofs that are pending aggregation from the DB.
-                let new_proofs = self
-                    .db
-                    .get_aggregation_proofs()
-                    .await
-                    .context("Failed to get pending agg proofs from DB")?;
+                let new_proofs = self.db.get_aggregation_proofs().await?;
                 // Fetch all groth16 proofs that are ready to be submitted from the DB.
-                let new_groth16_proofs = self
-                    .db
-                    .get_groth16_proofs()
-                    .await
-                    .context("Failed to get groth16 proofs from DB")?;
+                let new_groth16_proofs = self.db.get_groth16_proofs().await?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.

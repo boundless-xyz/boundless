@@ -25,7 +25,6 @@ use futures_util::StreamExt;
 
 use crate::{
     chain_monitor::ChainMonitorService,
-    db::DbError,
     errors::CodedError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, FulfillmentType, Order,
@@ -36,9 +35,6 @@ const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
 
 #[derive(Error, Debug)]
 pub enum MarketMonitorErr {
-    #[error("{code} DB Error: {0}", code = self.code())]
-    DbErr(#[from] DbError),
-
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -46,7 +42,6 @@ pub enum MarketMonitorErr {
 impl CodedError for MarketMonitorErr {
     fn code(&self) -> &str {
         match self {
-            MarketMonitorErr::DbErr(_) => "[B-MM-001]",
             MarketMonitorErr::UnexpectedErr(_) => "[B-MM-500]",
         }
     }

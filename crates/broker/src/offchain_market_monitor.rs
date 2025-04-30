@@ -8,7 +8,6 @@ use boundless_market::order_stream_client::{order_stream, Client as OrderStreamC
 use futures_util::StreamExt;
 
 use crate::{
-    db::DbError,
     errors::CodedError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, FulfillmentType, Order,
@@ -17,9 +16,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum OffchainMarketMonitorErr {
-    #[error("{code} DB Error: {0}", code = self.code())]
-    DbErr(#[from] DbError),
-
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -27,7 +23,6 @@ pub enum OffchainMarketMonitorErr {
 impl CodedError for OffchainMarketMonitorErr {
     fn code(&self) -> &str {
         match self {
-            OffchainMarketMonitorErr::DbErr(_) => "[B-OMM-001]",
             OffchainMarketMonitorErr::UnexpectedErr(_) => "[B-OMM-500]",
         }
     }

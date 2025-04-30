@@ -27,8 +27,8 @@ use risc0_zkvm::{
 };
 
 use crate::{
-    config::{ConfigErr, ConfigLock},
-    db::{DbError, DbObj},
+    config::ConfigLock,
+    db::DbObj,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType,
@@ -39,9 +39,6 @@ use crate::errors::CodedError;
 
 #[derive(Error, Debug)]
 pub enum SubmitterErr {
-    #[error("{code} DB Error: {0}", code = self.code())]
-    DbErr(#[from] DbError),
-
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -49,7 +46,6 @@ pub enum SubmitterErr {
 impl CodedError for SubmitterErr {
     fn code(&self) -> &str {
         match self {
-            SubmitterErr::DbErr(_) => "[B-SUB-001]",
             SubmitterErr::UnexpectedErr(_) => "[B-SUB-500]",
         }
     }

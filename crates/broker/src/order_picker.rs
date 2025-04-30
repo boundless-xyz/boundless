@@ -55,9 +55,6 @@ pub enum OrderPickerErr {
     #[error("{code} invalid request: {0}", code = self.code())]
     RequestError(#[from] RequestError),
 
-    #[error("{code} DB Error: {0}", code = self.code())]
-    DbErr(#[from] crate::db::DbError),
-
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -69,7 +66,6 @@ impl CodedError for OrderPickerErr {
             OrderPickerErr::FetchImageErr(_) => "[B-OP-002]",
             OrderPickerErr::GuestPanic(_) => "[B-OP-003]",
             OrderPickerErr::RequestError(_) => "[B-OP-004]",
-            OrderPickerErr::DbErr(_) => "[B-OP-005]",
             OrderPickerErr::UnexpectedErr(_) => "[B-OP-500]",
         }
     }

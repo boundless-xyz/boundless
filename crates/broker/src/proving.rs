@@ -4,7 +4,7 @@
 
 use crate::{
     config::ConfigLock,
-    db::{DbError, DbObj},
+    db::DbObj,
     errors::CodedError,
     futures_retry::retry,
     provers::ProverObj,
@@ -16,9 +16,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ProvingErr {
-    #[error("{code} DB Error: {0}", code = self.code())]
-    DbErr(#[from] DbError),
-
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -26,7 +23,6 @@ pub enum ProvingErr {
 impl CodedError for ProvingErr {
     fn code(&self) -> &str {
         match self {
-            ProvingErr::DbErr(_) => "[B-PRO-001]",
             ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
         }
     }

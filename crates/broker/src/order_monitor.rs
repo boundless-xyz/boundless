@@ -5,7 +5,7 @@
 use crate::{
     chain_monitor::ChainMonitorService,
     config::ConfigLock,
-    db::{DbError, DbObj},
+    db::DbObj,
     errors::CodedError,
     now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
@@ -41,9 +41,6 @@ pub enum OrderMonitorErr {
     #[error("Order already locked")]
     AlreadyLocked,
 
-    #[error("DB Error: {0}")]
-    DbErr(#[from] DbError),
-
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -55,7 +52,6 @@ impl CodedError for OrderMonitorErr {
             OrderMonitorErr::InvalidStatus(_) => "[B-OM-008]",
             OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
             OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
-            OrderMonitorErr::DbErr(_) => "[B-OM-001]",
             OrderMonitorErr::UnexpectedError(_) => "[B-OM-500]",
         }
     }
@@ -292,8 +288,7 @@ where
                     if let Err(err) = self.db.set_order_failure(&order_id, format!("{err:?}")).await
                     {
                         tracing::error!(
-                            "Failed to set DB failure state for order: {order_id} - {} - {err:?}",
-                            err.code()
+                            "Failed to set DB failure state for order: {order_id} - {err:?}",
                         );
                     }
                 }
@@ -302,18 +297,14 @@ where
         }
 
         if !orders.is_empty() {
-            self.db
-                .set_last_block(current_block)
-                .await
-                .context("Failed to update db last block")?;
+            self.db.set_last_block(current_block).await?;
         }
 
         Ok(order_count)
     }
 
     async fn back_scan_locks(&self) -> Result<u64> {
-        let opt_last_block =
-            self.db.get_last_block().await.context("Failed to fetch last block from DB")?;
+        let opt_last_block = self.db.get_last_block().await?;
 
         // back scan if we have an existing block we last updated from
         // TODO: spawn a side thread to avoid missing new blocks while this is running:
