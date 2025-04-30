@@ -69,11 +69,11 @@ async fn main() -> Result<()> {
     let args = MainArgs::parse();
     // Take stdout is ensure no extra data is written to it.
     let mut stdout = take_stdout()?;
-    let set_builder_elf = fetch_url(&args.set_builder_url).await?;
-    let assessor_elf = fetch_url(&args.assessor_url).await?;
+    let set_builder_program = fetch_url(&args.set_builder_url).await?;
+    let assessor_program = fetch_url(&args.assessor_url).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
     let prover =
-        DefaultProver::new(set_builder_elf, assessor_elf, args.prover_address, domain.clone())?;
+        DefaultProver::new(set_builder_program, assessor_program, args.prover_address, domain.clone())?;
     let request =
         <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?, true)
             .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;

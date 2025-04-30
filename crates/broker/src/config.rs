@@ -214,12 +214,12 @@ pub struct ProverConf {
     pub proof_retry_count: u64,
     /// Number of milliseconds to sleep between proof retries.
     pub proof_retry_sleep_ms: u64,
-    /// Set builder guest ELF path
+    /// Set builder guest program binary path
     ///
-    /// When using a durable deploy, set this to the published current SOT guest ELF path on the
-    /// system
+    /// When using a durable deploy, set this to the published current SOT guest program binary
+    /// path on the system
     pub set_builder_guest_path: Option<PathBuf>,
-    /// Assessor ELF path
+    /// Assessor program path
     pub assessor_set_guest_path: Option<PathBuf>,
     /// Max critical task retries on recoverable failures.
     ///

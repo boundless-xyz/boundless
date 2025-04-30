@@ -64,7 +64,7 @@ We then use this proof as input to the Identity guest program:
 # use boundless_market::storage::StorageProvider;
 # async fn boundless_proof<P, S>(
 #     client: &Client<P, S>,
-#     elf: impl AsRef<[u8]>,
+#     program: impl AsRef<[u8]>,
 #     guest_env: GuestEnv,
 #     groth16: bool,
 # ) -> anyhow::Result<(Vec<u8>, Vec<u8>)>
@@ -80,7 +80,7 @@ We then use this proof as input to the Identity guest program:
 #     S: StorageProvider + Clone,
 # {
 # let ECHO_ID = [0u8; 32];
-# let IDENTITY_ELF = b"";
+# let IDENTITY_PROGRAM = b"";
 # let echo_receipt = b"";
 // Build the IDENTITY input from the ECHO receipt
 let identity_input = (Digest::from(ECHO_ID), echo_receipt);
@@ -89,7 +89,7 @@ let identity_guest_env =
 
 // Request a proof from the Boundless market using the IDENTITY guest
 let (identity_journal, identity_seal) =
-    boundless_proof(&boundless_client, IDENTITY_ELF, identity_guest_env, false)
+    boundless_proof(&boundless_client, IDENTITY_PROGRAM, identity_guest_env, false)
         .await
         .context("failed to prove IDENTITY")?;
 # anyhow::Ok(())

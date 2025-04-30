@@ -359,9 +359,9 @@ struct SubmitOfferArgs {
     #[clap(long)]
     inline_input: bool,
 
-    /// Elf file to use as the guest image, given as a path
+    /// Program binary file to use as the guest image, given as a path
     #[clap(long)]
-    elf: PathBuf,
+    program: PathBuf,
 
     #[command(flatten)]
     input: SubmitOfferInput,
@@ -795,7 +795,7 @@ where
             tracing::info!("Fulfilling proof requests {}", request_ids_string);
 
             let (_, market_url) = boundless_market.image_info().await?;
-            tracing::debug!("Fetching Assessor ELF from {}", market_url);
+            tracing::debug!("Fetching Assessor program from {}", market_url);
             let assessor_elf = fetch_url(&market_url).await?;
             let domain = boundless_market.eip712_domain().await?;
 
@@ -807,7 +807,7 @@ where
             }
 
             let (_, set_builder_url) = set_verifier.image_info().await?;
-            tracing::debug!("Fetching SetBuilder ELF from {}", set_builder_url);
+            tracing::debug!("Fetching SetBuilder program from {}", set_builder_url);
             let set_builder_elf = fetch_url(&set_builder_url).await?;
 
             let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
@@ -942,9 +942,9 @@ where
         offer = Offer { biddingStart: now_timestamp() + 30, ..offer };
     }
 
-    // Resolve the ELF and input from command line arguments.
-    let elf: Cow<'static, [u8]> = std::fs::read(&args.elf)
-        .context(format!("Failed to read ELF file at {:?}", args.elf))?
+    // Resolve the program and input from command line arguments.
+    let program: Cow<'static, [u8]> = std::fs::read(&args.program)
+        .context(format!("Failed to read program file at {:?}", args.program))?
         .into();
 
     // Process input based on provided arguments
@@ -982,10 +982,10 @@ where
         _ => Callback::default(),
     };
 
-    // Compute the image_id, then upload the ELF
+    // Compute the image_id, then upload the program
     tracing::info!("Uploading image...");
-    let elf_url = client.upload_image(&elf).await?;
-    let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&elf)?));
+    let elf_url = client.upload_image(&program).await?;
+    let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&program)?));
 
     // Upload the input or prepare inline input
     tracing::info!("Preparing input...");
@@ -1134,7 +1134,7 @@ where
         if let Some(claim) = session_info.receipt_claim {
             ensure!(
                 claim.pre.digest().as_bytes() == request_yaml.requirements.imageId.as_slice(),
-                "Image ID mismatch: requirements ({}) do not match the given ELF ({})",
+                "Image ID mismatch: requirements ({}) do not match the given program ({})",
                 hex::encode(request_yaml.requirements.imageId),
                 hex::encode(claim.pre.digest().as_bytes())
             );
@@ -1190,8 +1190,8 @@ where
 
 /// Execute a proof request using the RISC Zero zkVM executor
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
-    tracing::info!("Fetching ELF from {}", request.imageUrl);
-    let elf = fetch_url(&request.imageUrl).await?;
+    tracing::info!("Fetching program from {}", request.imageUrl);
+    let program = fetch_url(&request.imageUrl).await?;
 
     tracing::info!("Processing input");
     let input = match request.input.inputType {
@@ -1208,7 +1208,7 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     tracing::info!("Executing program in zkVM");
     r0vm_is_installed()?;
     let env = ExecutorEnv::builder().write_slice(&input).build()?;
-    default_executor().execute(env, &elf)
+    default_executor().execute(env, &program)
 }
 
 fn r0vm_is_installed() -> Result<()> {
@@ -1717,7 +1717,7 @@ mod tests {
                     input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),
                     input_file: None,
                 },
-                elf: PathBuf::from(ECHO_PATH),
+                program: PathBuf::from(ECHO_PATH),
                 reqs: SubmitOfferRequirements {
                     journal_digest: None,
                     journal_prefix: Some(String::default()),
