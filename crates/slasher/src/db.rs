@@ -29,7 +29,13 @@ pub enum DbError {
 
 #[async_trait]
 pub trait SlasherDb {
-    async fn add_order(&self, id: U256, expires_at: u64) -> Result<(), DbError>;
+    async fn add_order(
+        &self,
+        id: U256,
+        expires_at: u64,
+        lock_expires_at: u64,
+    ) -> Result<(), DbError>;
+    async fn get_order(&self, id: U256) -> Result<(u64, u64), DbError>; // (expires_at, lock_expires_at)
     async fn remove_order(&self, id: U256) -> Result<(), DbError>;
     async fn order_exists(&self, id: U256) -> Result<bool, DbError>;
     async fn get_expired_orders(&self, current_timestamp: u64) -> Result<Vec<U256>, DbError>;
@@ -84,17 +90,38 @@ struct DbOrder {
 
 #[async_trait]
 impl SlasherDb for SqliteDb {
-    async fn add_order(&self, id: U256, expires_at: u64) -> Result<(), DbError> {
+    async fn add_order(
+        &self,
+        id: U256,
+        expires_at: u64,
+        lock_expires_at: u64,
+    ) -> Result<(), DbError> {
         // Only store the order if it has a valid expiration time.
         // If the expires_at is 0, the request is already slashed or fulfilled (or even not locked).
-        if expires_at > 0 && !self.order_exists(id).await? {
-            sqlx::query("INSERT INTO orders (id, expires_at) VALUES ($1, $2)")
+        if expires_at > 0 && lock_expires_at > 0 && !self.order_exists(id).await? {
+            sqlx::query("INSERT INTO orders (id, expires_at, lock_expires_at) VALUES ($1, $2, $3)")
                 .bind(format!("{id:x}"))
                 .bind(expires_at as i64)
+                .bind(lock_expires_at as i64)
                 .execute(&self.pool)
                 .await?;
         }
         Ok(())
+    }
+
+    async fn get_order(&self, id: U256) -> Result<(u64, u64), DbError> {
+        let res = sqlx::query("SELECT expires_at, lock_expires_at FROM orders WHERE id = $1")
+            .bind(format!("{id:x}"))
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = res {
+            let expires_at: i64 = row.try_get("expires_at")?;
+            let lock_expires_at: i64 = row.try_get("lock_expires_at")?;
+            Ok((expires_at as u64, lock_expires_at as u64))
+        } else {
+            Err(DbError::SqlErr(sqlx::Error::RowNotFound))
+        }
     }
 
     async fn remove_order(&self, id: U256) -> Result<(), DbError> {
@@ -171,14 +198,14 @@ mod tests {
     async fn add_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
-        db.add_order(id, 10).await.unwrap();
+        db.add_order(id, 10, 5).await.unwrap();
 
         // Adding the same order should not fail
-        db.add_order(id, 10).await.unwrap();
+        db.add_order(id, 10, 5).await.unwrap();
 
         // Adding an order slashed or fulfilled should not store it
         let id = U256::from(1);
-        db.add_order(id, 0).await.unwrap();
+        db.add_order(id, 0, 0).await.unwrap();
         assert!(!db.order_exists(id).await.unwrap());
     }
 
@@ -186,7 +213,7 @@ mod tests {
     async fn drop_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
-        db.add_order(id, 10).await.unwrap();
+        db.add_order(id, 10, 5).await.unwrap();
         db.remove_order(id).await.unwrap();
         // Removing the same order should not fail
         db.remove_order(id).await.unwrap();
@@ -202,7 +229,7 @@ mod tests {
     async fn order_exists(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
-        db.add_order(id, 10).await.unwrap();
+        db.add_order(id, 10, 5).await.unwrap();
 
         assert!(db.order_exists(id).await.unwrap());
     }
@@ -212,7 +239,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
         let expires_at = 10;
-        db.add_order(id, expires_at).await.unwrap();
+        db.add_order(id, expires_at, 5).await.unwrap();
 
         // Order should expires AFTER the `expires_at` block
         let expired = db.get_expired_orders(expires_at).await.unwrap();

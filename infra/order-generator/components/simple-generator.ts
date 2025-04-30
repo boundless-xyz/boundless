@@ -186,7 +186,7 @@ export class SimpleGenerator extends pulumi.ComponentResource {
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
-              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr}`,
+              `/app/boundless-order-generator --auto-deposit 5 --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr}`,
             ],
             environment: [
               {
