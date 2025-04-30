@@ -79,7 +79,7 @@ impl<A, B, Input> Layer<Input> for (A, B)
 where
     A: Layer<Input>,
     B: Layer<A::Output>,
-    A::Error: Into<B::Error>
+    A::Error: Into<B::Error>,
 {
     type Output = B::Output;
     type Error = B::Error;
@@ -118,8 +118,9 @@ pub struct StorageLayer<S: StorageProvider> {
 }
 
 impl<In, S: StorageProvider> Layer<In> for StorageLayer<S>
-where S::Error: std::error::Error + Send + Sync + 'static,
-      In: Into<ProgramAndEnv>,
+where
+    S::Error: std::error::Error + Send + Sync + 'static,
+    In: Into<ProgramAndEnv>,
 {
     type Error = anyhow::Error;
     type Output = (Url, Input);
@@ -188,7 +189,7 @@ impl Layer<()> for RequestIdLayer {
 
 pub struct OfferLayer {}
 
-pub type OfferLayerInput = (Url, Input, PreflightInfo, RequestId); 
+pub type OfferLayerInput = (Url, Input, PreflightInfo, RequestId);
 
 impl Layer<OfferLayerInput> for OfferLayer {
     type Output = (Url, Input, PreflightInfo, Offer, RequestId);
