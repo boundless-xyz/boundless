@@ -1,7 +1,6 @@
 [market]
 mcycle_price = "0.00001"
 mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
-assumption_price = "0.1"
 peak_prove_khz = 1000
 min_deadline = 200
 lookback_blocks = 100

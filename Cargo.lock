@@ -2681,6 +2681,7 @@ dependencies = [
  "chrono",
  "clap",
  "dotenvy",
+ "futures",
  "guest-assessor",
  "guest-set-builder",
  "guest-util",
@@ -2696,6 +2697,34 @@ dependencies = [
  "serde_yaml 0.9.34+deprecated",
  "sqlx",
  "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "tracing-test",
+ "url",
+]
+
+[[package]]
+name = "boundless-indexer"
+version = "0.7.0"
+dependencies = [
+ "alloy 0.12.6",
+ "anyhow",
+ "async-trait",
+ "boundless-cli",
+ "boundless-market",
+ "boundless-market-test-utils",
+ "clap",
+ "dotenvy",
+ "futures-util",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "hex",
+ "risc0-zkvm",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.12",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.19",

@@ -40,6 +40,12 @@ use super::{
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
+/// Fraction of stake the protocol gives to the prover who fills an order that was locked by another prover but expired
+/// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
+/// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
+/// TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
+const FRACTION_STAKE_REWARD: u64 = 4;
+
 /// Boundless market errors.
 #[derive(Error, Debug)]
 pub enum MarketError {
@@ -376,20 +382,23 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         let pending_tx = call.send().await?;
 
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        let tx_hash = *pending_tx.tx_hash();
+        tracing::debug!("Broadcasting tx {}", tx_hash);
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = pending_tx.with_timeout(Some(self.timeout)).get_receipt().await.context(
+            format!("failed to confirm tx {:?} within timeout {:?}", tx_hash, self.timeout),
+        )?;
 
         if !receipt.status() {
             // TODO: Get + print revertReason
             return Err(MarketError::LockRevert(receipt.transaction_hash));
         }
 
-        tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
+        tracing::info!(
+            "Locked request {:x}, transaction hash: {}",
+            request.id,
+            receipt.transaction_hash
+        );
 
         self.check_stake_balance().await?;
 
@@ -448,7 +457,11 @@ impl<P: Provider> BoundlessMarketService<P> {
             )));
         }
 
-        tracing::info!("Registered request {:x}: {}", request.id, receipt.transaction_hash);
+        tracing::info!(
+            "Locked request {:x}, transaction hash: {}",
+            request.id,
+            receipt.transaction_hash
+        );
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -671,18 +684,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         assessor_fill: AssessorReceipt,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
-        for request in requests.iter() {
-            tracing::debug!("Calling requestIsLocked({:x})", request.id);
-            let is_locked_in: bool =
-                self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
-            if is_locked_in {
-                return Err(MarketError::Error(anyhow!(
-                    "request {:x} is already locked-in",
-                    request.id
-                )));
-            }
-        }
-
         tracing::debug!("Calling priceAndFulfillBatch({fulfillments:?}, {assessor_fill:?})");
 
         let mut call = self
@@ -729,18 +730,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         assessor_fill: AssessorReceipt,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
-        for request in requests.iter() {
-            tracing::debug!("Calling requestIsLocked({:x})", request.id);
-            let is_locked_in: bool =
-                self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
-            if is_locked_in {
-                return Err(MarketError::Error(anyhow!(
-                    "request {:x} is already locked-in",
-                    request.id
-                )));
-            }
-        }
-
         tracing::debug!(
             "Calling priceAndFulfillBatchAndWithdraw({fulfillments:?}, {assessor_fill:?})"
         );
@@ -902,7 +891,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                     .context("Failed to get transaction")?
                     .context("Transaction not found")?;
                 let inputs = tx_data.input();
-                let fills = decode_calldata(inputs).context("Failed to decode calldata")?;
+                let (fills, _) = decode_calldata(inputs).context("Failed to decode calldata")?;
                 for fill in fills {
                     if fill.id == request_id {
                         return Ok((fill.journal.clone(), fill.seal.clone()));
@@ -993,7 +982,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         }
     }
 
-    /// Returns journal and seal if the request is fulfilled.
+    /// Returns proof request and signature for a request submitted onchain.
     pub async fn get_submitted_request(
         &self,
         request_id: U256,
@@ -1325,41 +1314,48 @@ impl Offer {
     pub fn lock_deadline(&self) -> u64 {
         self.biddingStart + (self.lockTimeout as u64)
     }
+
+    /// Returns the amount of stake that the protocol awards to the prover who fills an order that
+    /// was locked by another prover but not fulfilled by lock expiry.
+    pub fn stake_reward_if_locked_and_not_fulfilled(&self) -> U256 {
+        self.lockStake / U256::from(FRACTION_STAKE_REWARD)
+    }
 }
 
-fn decode_calldata(data: &Bytes) -> Result<Vec<Fulfillment>> {
+/// Decodes the given calldata into a vector of Fulfillment objects.
+pub fn decode_calldata(data: &Bytes) -> Result<(Vec<Fulfillment>, AssessorReceipt)> {
     if let Ok(call) = IBoundlessMarket::submitRootAndFulfillBatchCall::abi_decode(data, true) {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) =
         IBoundlessMarket::submitRootAndFulfillBatchAndWithdrawCall::abi_decode(data, true)
     {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::fulfillCall::abi_decode(data, true) {
-        return Ok(vec![call.fill]);
+        return Ok((vec![call.fill], call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::fulfillBatchCall::abi_decode(data, true) {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::fulfillAndWithdrawCall::abi_decode(data, true) {
-        return Ok(vec![call.fill]);
+        return Ok((vec![call.fill], call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::fulfillBatchAndWithdrawCall::abi_decode(data, true) {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::priceAndFulfillCall::abi_decode(data, true) {
-        return Ok(vec![call.fill]);
+        return Ok((vec![call.fill], call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchCall::abi_decode(data, true) {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::priceAndFulfillAndWithdrawCall::abi_decode(data, true) {
-        return Ok(vec![call.fill]);
+        return Ok((vec![call.fill], call.assessorReceipt));
     }
     if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchAndWithdrawCall::abi_decode(data, true)
     {
-        return Ok(call.fills);
+        return Ok((call.fills, call.assessorReceipt));
     }
 
     Err(anyhow!(
