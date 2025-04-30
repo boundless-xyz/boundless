@@ -106,6 +106,21 @@ pub struct BoundlessMarketService<P> {
     timeout: Duration,
     event_query_config: EventQueryConfig,
     balance_alert_config: StakeBalanceAlertConfig,
+    receipt_query_config: ReceiptQueryConfig,
+}
+
+#[derive(Clone, Debug)]
+struct ReceiptQueryConfig {
+    /// Interval at which the transaction receipts are polled.
+    retry_interval: Duration,
+    /// Number of retries for querying receipt of lock transactions.
+    retry_count: usize,
+}
+
+impl Default for ReceiptQueryConfig {
+    fn default() -> Self {
+        Self { retry_count: 10, retry_interval: Duration::from_millis(500) }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -128,6 +143,7 @@ where
             timeout: self.timeout,
             event_query_config: self.event_query_config.clone(),
             balance_alert_config: self.balance_alert_config.clone(),
+            receipt_query_config: self.receipt_query_config.clone(),
         }
     }
 }
@@ -178,6 +194,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             timeout: TXN_CONFIRM_TIMEOUT,
             event_query_config: EventQueryConfig::default(),
             balance_alert_config: StakeBalanceAlertConfig::default(),
+            receipt_query_config: ReceiptQueryConfig::default(),
         }
     }
 
@@ -204,6 +221,18 @@ impl<P: Provider> BoundlessMarketService<P> {
             },
             ..self
         }
+    }
+
+    /// Retry count for confirmed transactions receipts.
+    pub fn with_receipt_retry_count(mut self, count: usize) -> Self {
+        self.receipt_query_config.retry_count = count;
+        self
+    }
+
+    /// Retry polling interval for confirmed transactions receipts.
+    pub fn with_receipt_retry_interval(mut self, interval: Duration) -> Self {
+        self.receipt_query_config.retry_interval = interval;
+        self
     }
 
     /// Returns the market contract instance.
@@ -470,23 +499,20 @@ impl<P: Provider> BoundlessMarketService<P> {
                 // There is a race condition with some providers where a transaction will be
                 // confirmed through the RPC, but querying the receipt returns null when requested
                 // immediately after.
-                const RECEIPT_POLL_INTERVAL: Duration = Duration::from_millis(500);
-                const RECEIPT_POLL_RETRY_COUNT: usize = 10;
-
-                for _ in 0..RECEIPT_POLL_RETRY_COUNT {
+                for _ in 0..self.receipt_query_config.retry_count {
                     if let Ok(Some(receipt)) =
                         self.instance.provider().get_transaction_receipt(tx_hash).await
                     {
                         return Ok(receipt);
                     }
 
-                    tokio::time::sleep(RECEIPT_POLL_INTERVAL).await;
+                    tokio::time::sleep(self.receipt_query_config.retry_interval).await;
                 }
 
                 Err(anyhow!(
                     "Transaction {:?} confirmed, but receipt was not found after {} retries.",
                     tx_hash,
-                    RECEIPT_POLL_RETRY_COUNT
+                    self.receipt_query_config.retry_count
                 )
                 .into())
             }
