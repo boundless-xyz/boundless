@@ -13,11 +13,11 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// Risc0 ZKVM elf file on disk
+    /// RISC Zero zkVM program file on disk
     #[clap(short = 'f', long)]
-    elf_file: Option<PathBuf>,
+    program_file: Option<PathBuf>,
 
-    /// ZKVM encoded input to be supplied to ExecEnv .write() method
+    /// zkVM encoded input to be supplied to ExecEnv .write() method
     ///
     /// Should be `risc0_zkvm::serde::to_vec` encoded binary data
     #[clap(short, long, conflicts_with = "iter_count")]
@@ -57,10 +57,10 @@ async fn main() -> Result<()> {
     let client =
         ProvingClient::from_parts(args.endpoint, String::new(), risc0_zkvm::VERSION).unwrap();
 
-    let (image, input) = if let Some(elf_file) = args.elf_file {
-        let image = std::fs::read(elf_file).context("Failed to read elf file from disk")?;
+    let (image, input) = if let Some(program_file) = args.program_file {
+        let image = std::fs::read(program_file).context("Failed to read elf file from disk")?;
         let input = std::fs::read(
-            args.input_file.expect("if --elf-file is supplied, supply a --input-file"),
+            args.input_file.expect("if --program-file is supplied, supply a --input-file"),
         )?;
         (image, input)
     } else if let Some(iter_count) = args.iter_count {
@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
         let input = bytemuck::cast_slice(&input).to_vec();
         (sample_guest_methods::METHOD_NAME_ELF.to_vec(), input)
     } else {
-        bail!("Invalid arg config, either elf_file or iter_count should be supplied");
+        bail!("Invalid arg config, either program_file or iter_count should be supplied");
     };
 
     // first round -- only iter
@@ -104,7 +104,6 @@ async fn stark_workflow(
     assumptions: Vec<String>,
     exec_only: bool,
 ) -> Result<(String, String)> {
-    // elf/image
     let image_id = compute_image_id(&image).unwrap().to_string();
     client.upload_img(&image_id, image).await.context("Failed to upload image")?;
 

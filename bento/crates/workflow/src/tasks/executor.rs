@@ -301,12 +301,13 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let input_key = format!("{INPUT_BUCKET_DIR}/{}", request.input);
     let input_data = agent.s3_client.read_buf_from_s3(&input_key).await?;
 
-    // validate elf
+    // Validate program magic number. Note that a zkVM v2 program file is not directly an ELF.
+    // It is instead a thin struct that wraps two ELFs, the kernel and the user program.
     if elf_data[0..V2_ELF_MAGIC.len()] != *V2_ELF_MAGIC {
         bail!("ELF MAGIC mismatch");
     };
 
-    // validate image id
+    // Validate image id
     let computed_id = compute_image_id(&elf_data)?;
     if image_id != computed_id {
         bail!("User supplied imageId does not match generated ID: {image_id} - {computed_id}");

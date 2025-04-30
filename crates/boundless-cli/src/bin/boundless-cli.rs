@@ -796,7 +796,7 @@ where
 
             let (_, market_url) = boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor program from {}", market_url);
-            let assessor_elf = fetch_url(&market_url).await?;
+            let assessor_program = fetch_url(&market_url).await?;
             let domain = boundless_market.eip712_domain().await?;
 
             let mut set_verifier =
@@ -808,9 +808,9 @@ where
 
             let (_, set_builder_url) = set_verifier.image_info().await?;
             tracing::debug!("Fetching SetBuilder program from {}", set_builder_url);
-            let set_builder_elf = fetch_url(&set_builder_url).await?;
+            let set_builder_program = fetch_url(&set_builder_url).await?;
 
-            let prover = DefaultProver::new(set_builder_elf, assessor_elf, caller, domain)?;
+            let prover = DefaultProver::new(set_builder_program, assessor_program, caller, domain)?;
 
             let client = ClientBuilder::new()
                 .with_private_key(args.config.private_key.clone())
@@ -984,7 +984,7 @@ where
 
     // Compute the image_id, then upload the program
     tracing::info!("Uploading image...");
-    let elf_url = client.upload_image(&program).await?;
+    let elf_url = client.upload_program(&program).await?;
     let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&program)?));
 
     // Upload the input or prepare inline input

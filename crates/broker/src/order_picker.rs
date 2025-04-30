@@ -879,7 +879,7 @@ mod tests {
         }
 
         async fn generate_next_order(&self, params: OrderParams) -> Order {
-            let image_url = self.storage_provider.upload_image(ECHO_ELF).await.unwrap();
+            let image_url = self.storage_provider.upload_program(ECHO_ELF).await.unwrap();
             let image_id = Digest::from(ECHO_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
