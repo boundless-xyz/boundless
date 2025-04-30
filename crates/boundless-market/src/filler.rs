@@ -56,8 +56,7 @@ pub trait RequestBuilder<Input> {
 
 impl<I, L> RequestBuilder<I> for L
 where
-    L: Layer<Output = ProofRequest>,
-    I: Into<L::Input>,
+    L: Layer<I, Output = ProofRequest>,
 {
     type Error = L::Error;
 
@@ -66,61 +65,28 @@ where
     }
 }
 
-pub trait Layer {
-    type Input;
+pub trait Layer<Input> {
     type Output;
-    /// Error type that may be returned by this filler.
+    /// Error type that may be returned by this layer.
     type Error;
 
-    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error>;
-}
-
-// DO NOT MERGE: Consider the alternative factoring of this that works by removing the passthrough
-// struct and instead giving a reference to preprocess that it uses to prepare the input, then
-// passing the input again to postprocess.
-pub trait Adapt<Input>: Layer {
-    type Postprocessed;
-    type Passthrough;
-
-    fn preprocess(&self, input: Input) -> (Self::Passthrough, Self::Input);
-
-    fn postprocess(&self, pass: Self::Passthrough, out: Self::Output) -> Self::Postprocessed;
-}
-
-impl<L> Adapt<L::Input> for L
-where
-    L: Layer + ?Sized,
-{
-    type Passthrough = ();
-    type Postprocessed = L::Output;
-
-    fn preprocess(&self, input: Self::Input) -> (Self::Passthrough, Self::Input) {
-        ((), input)
-    }
-
-    fn postprocess(&self, (): Self::Passthrough, out: Self::Output) -> Self::Postprocessed {
-        out
-    }
+    async fn process(&self, input: Input) -> Result<Self::Output, Self::Error>;
 }
 
 /// Define a layer as a stack of two layers. Output of layer A is piped into layer B, with pre and
 /// post-processing defined by the [Adapt] trait when required.
-impl<A, B> Layer for (A, B)
+impl<A, B, Input> Layer<Input> for (A, B)
 where
-    A: Layer,
-    B: Layer,
-    B: Adapt<A::Output>,
-    A::Error: Into<B::Error>,
+    A: Layer<Input>,
+    B: Layer<A::Output>,
+    A::Error: Into<B::Error>
 {
-    type Input = A::Input;
-    type Output = <B as Adapt<A::Output>>::Postprocessed;
+    type Output = B::Output;
     type Error = B::Error;
 
-    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
+    async fn process(&self, input: Input) -> Result<Self::Output, Self::Error> {
         let output_a = self.0.process(input).await.map_err(|e| e.into())?;
-        let (passthrough, input_b) = self.1.preprocess(output_a);
-        let output_b = self.1.process(input_b).await?;
-        Ok(self.1.postprocess(passthrough, output_b))
+        self.1.process(output_a).await
     }
 }
 
@@ -151,16 +117,17 @@ pub struct StorageLayer<S: StorageProvider> {
     pub storage_provider: S,
 }
 
-impl<S: StorageProvider> Layer for StorageLayer<S>
+impl<In, S: StorageProvider> Layer<In> for StorageLayer<S>
 where S::Error: std::error::Error + Send + Sync + 'static,
+      In: Into<ProgramAndEnv>,
 {
-    type Input = ProgramAndEnv;
     type Error = anyhow::Error;
     type Output = (Url, Input);
 
-    async fn process(&self, input: Self::Input) -> Result<Self::Output, Self::Error> {
-        let program_url = self.storage_provider.upload_program(&input.program).await?;
-        let input_data = input.env.encode().context("failed to encode guest environment")?;
+    async fn process(&self, input: In) -> Result<Self::Output, Self::Error> {
+        let ProgramAndEnv { program, env } = input.into();
+        let program_url = self.storage_provider.upload_program(&program).await?;
+        let input_data = env.encode().context("failed to encode guest environment")?;
         let request_input = match self.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
                 Input::url(self.storage_provider.upload_input(&input_data).await?)
@@ -197,69 +164,62 @@ pub struct PreflightInfo {
     pub receipt_claim: ReceiptClaim,
 }
 
-impl Layer for PreflightLayer {
-    // TODO: Defining the Layer::Input as a Url for the program codifies that fetching the program
-    // and input from the Internet is part of the preflight process. This is recommended because it
-    // ensure the data is actually available, but there are certainly cases where this is not
-    // desirable. In these cases, the caller could not use PreflightLayer as written. Should this
-    // be rewritten to take the program and environment and use an Adapt impl or simmilar to handle
-    // the fetch?
-    type Input = (Url, Input);
-    type Output = (Url, Input, PreflightInfo);
+pub type PreflightLayerOutput = (Url, Input, PreflightInfo);
+
+impl Layer<(Url, Input)> for PreflightLayer {
+    type Output = PreflightLayerOutput;
     type Error = anyhow::Error;
 
-    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
+    async fn process(&self, _input: (Url, Input)) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
 
 pub struct RequestIdLayer {}
 
-impl Layer for RequestIdLayer {
-    type Input = ();
+impl Layer<()> for RequestIdLayer {
     type Output = RequestId;
     type Error = anyhow::Error;
 
-    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
+    async fn process(&self, _input: ()) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
 
 pub struct OfferLayer {}
 
-impl Layer for OfferLayer {
-    type Input = (Url, Input, PreflightInfo, RequestId);
+pub type OfferLayerInput = (Url, Input, PreflightInfo, RequestId); 
+
+impl Layer<OfferLayerInput> for OfferLayer {
     type Output = (Url, Input, PreflightInfo, Offer, RequestId);
     type Error = anyhow::Error;
 
-    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
+    async fn process(&self, _input: OfferLayerInput) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
 
 pub struct Finalizer {}
 
-impl Layer for Finalizer {
-    type Input = (Url, Input, PreflightInfo, Offer, RequestId);
+pub type FinalizerInput = (Url, Input, PreflightInfo, Offer, RequestId);
+
+impl Layer<FinalizerInput> for Finalizer {
     type Output = ProofRequest;
     type Error = anyhow::Error;
 
-    async fn process(&self, _input: Self::Input) -> anyhow::Result<Self::Output> {
+    async fn process(&self, _input: FinalizerInput) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
 
-impl Adapt<<PreflightLayer as Layer>::Output> for RequestIdLayer {
-    type Postprocessed = <OfferLayer as Layer>::Input;
-    type Passthrough = <PreflightLayer as Layer>::Output;
+impl Layer<PreflightLayerOutput> for RequestIdLayer {
+    type Output = OfferLayerInput;
+    type Error = anyhow::Error;
 
-    fn preprocess(&self, input: <PreflightLayer as Layer>::Output) -> (Self::Passthrough, ()) {
-        (input, ())
-    }
-
-    fn postprocess(&self, pass: Self::Passthrough, id: RequestId) -> Self::Postprocessed {
-        let (url, input, preflight_info) = pass;
-        (url, input, preflight_info, id)
+    async fn process(&self, input: PreflightLayerOutput) -> Result<Self::Output, Self::Error> {
+        let request_id = self.process(()).await?;
+        let (url, input, preflight_info) = input;
+        Ok((url, input, preflight_info, request_id))
     }
 }
 
@@ -270,7 +230,7 @@ type Example = (
 );
 
 #[allow(dead_code)]
-trait AssertLayer<Input, Output>: Layer<Input = Input, Output = Output> {}
+trait AssertLayer<Input, Output>: Layer<Input, Output = Output> {}
 #[allow(dead_code)]
 trait AssertRequestBuilder<Input>: RequestBuilder<Input> {}
 
