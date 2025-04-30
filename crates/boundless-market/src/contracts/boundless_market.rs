@@ -23,7 +23,7 @@ use alloy::{
     eips::BlockNumberOrTag,
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
-    providers::Provider,
+    providers::{PendingTransactionBuilder, PendingTransactionError, Provider},
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
 };
@@ -385,9 +385,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let tx_hash = *pending_tx.tx_hash();
         tracing::debug!("Broadcasting tx {}", tx_hash);
 
-        let receipt = pending_tx.with_timeout(Some(self.timeout)).get_receipt().await.context(
-            format!("failed to confirm tx {:?} within timeout {:?}", tx_hash, self.timeout),
-        )?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         if !receipt.status() {
             // TODO: Get + print revertReason
@@ -443,12 +441,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
-
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
         if !receipt.status() {
             // TODO: Get + print revertReason
             return Err(MarketError::Error(anyhow!(
@@ -464,6 +457,47 @@ impl<P: Provider> BoundlessMarketService<P> {
         );
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
+    }
+
+    async fn get_receipt_with_retry(
+        &self,
+        pending_tx: PendingTransactionBuilder<Ethereum>,
+    ) -> Result<TransactionReceipt, MarketError> {
+        let tx_hash = *pending_tx.tx_hash();
+        match pending_tx.with_timeout(Some(self.timeout)).get_receipt().await {
+            Ok(receipt) => Ok(receipt),
+            Err(PendingTransactionError::TransportError(err)) if err.is_null_resp() => {
+                // There is a race condition with some providers where a transaction will be
+                // confirmed through the RPC, but querying the receipt returns null when requested
+                // immediately after.
+                const RECEIPT_POLL_INTERVAL: Duration = Duration::from_millis(500);
+                const RECEIPT_POLL_RETRY_COUNT: usize = 10;
+
+                for _ in 0..RECEIPT_POLL_RETRY_COUNT {
+                    if let Ok(Some(receipt)) =
+                        self.instance.provider().get_transaction_receipt(tx_hash).await
+                    {
+                        return Ok(receipt);
+                    }
+
+                    tokio::time::sleep(RECEIPT_POLL_INTERVAL).await;
+                }
+
+                Err(anyhow!(
+                    "Transaction {:?} confirmed, but receipt was not found after {} retries.",
+                    tx_hash,
+                    RECEIPT_POLL_RETRY_COUNT
+                )
+                .into())
+            }
+            Err(e) => Err(anyhow!(
+                "failed to confirm tx {:?} within timeout {:?}: {}",
+                tx_hash,
+                self.timeout,
+                e
+            )
+            .into()),
+        }
     }
 
     /// When a prover fails to fulfill a request by the deadline, this function can be used to burn
