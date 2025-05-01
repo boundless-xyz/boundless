@@ -23,7 +23,7 @@ use alloy::{
     eips::BlockNumberOrTag,
     network::Ethereum,
     primitives::{Address, Bytes, B256, U256},
-    providers::Provider,
+    providers::{PendingTransactionBuilder, PendingTransactionError, Provider},
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
 };
@@ -106,6 +106,21 @@ pub struct BoundlessMarketService<P> {
     timeout: Duration,
     event_query_config: EventQueryConfig,
     balance_alert_config: StakeBalanceAlertConfig,
+    receipt_query_config: ReceiptQueryConfig,
+}
+
+#[derive(Clone, Debug)]
+struct ReceiptQueryConfig {
+    /// Interval at which the transaction receipts are polled.
+    retry_interval: Duration,
+    /// Number of retries for querying receipt of lock transactions.
+    retry_count: usize,
+}
+
+impl Default for ReceiptQueryConfig {
+    fn default() -> Self {
+        Self { retry_count: 10, retry_interval: Duration::from_millis(500) }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -128,6 +143,7 @@ where
             timeout: self.timeout,
             event_query_config: self.event_query_config.clone(),
             balance_alert_config: self.balance_alert_config.clone(),
+            receipt_query_config: self.receipt_query_config.clone(),
         }
     }
 }
@@ -178,6 +194,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             timeout: TXN_CONFIRM_TIMEOUT,
             event_query_config: EventQueryConfig::default(),
             balance_alert_config: StakeBalanceAlertConfig::default(),
+            receipt_query_config: ReceiptQueryConfig::default(),
         }
     }
 
@@ -204,6 +221,18 @@ impl<P: Provider> BoundlessMarketService<P> {
             },
             ..self
         }
+    }
+
+    /// Retry count for confirmed transactions receipts.
+    pub fn with_receipt_retry_count(mut self, count: usize) -> Self {
+        self.receipt_query_config.retry_count = count;
+        self
+    }
+
+    /// Retry polling interval for confirmed transactions receipts.
+    pub fn with_receipt_retry_interval(mut self, interval: Duration) -> Self {
+        self.receipt_query_config.retry_interval = interval;
+        self
     }
 
     /// Returns the market contract instance.
@@ -289,11 +318,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         // Look for the logs for submitting the transaction.
         let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
@@ -313,11 +338,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         // Look for the logs for submitting the transaction.
         let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
@@ -385,9 +406,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let tx_hash = *pending_tx.tx_hash();
         tracing::debug!("Broadcasting tx {}", tx_hash);
 
-        let receipt = pending_tx.with_timeout(Some(self.timeout)).get_receipt().await.context(
-            format!("failed to confirm tx {:?} within timeout {:?}", tx_hash, self.timeout),
-        )?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         if !receipt.status() {
             // TODO: Get + print revertReason
@@ -443,12 +462,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
-
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
         if !receipt.status() {
             // TODO: Get + print revertReason
             return Err(MarketError::Error(anyhow!(
@@ -466,6 +480,45 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
 
+    async fn get_receipt_with_retry(
+        &self,
+        pending_tx: PendingTransactionBuilder<Ethereum>,
+    ) -> Result<TransactionReceipt, MarketError> {
+        let tx_hash = *pending_tx.tx_hash();
+        match pending_tx.with_timeout(Some(self.timeout)).get_receipt().await {
+            Ok(receipt) => Ok(receipt),
+            Err(PendingTransactionError::TransportError(err)) if err.is_null_resp() => {
+                tracing::debug!("failed to query receipt of confirmed transaction, retrying");
+                // There is a race condition with some providers where a transaction will be
+                // confirmed through the RPC, but querying the receipt returns null when requested
+                // immediately after.
+                for _ in 0..self.receipt_query_config.retry_count {
+                    if let Ok(Some(receipt)) =
+                        self.instance.provider().get_transaction_receipt(tx_hash).await
+                    {
+                        return Ok(receipt);
+                    }
+
+                    tokio::time::sleep(self.receipt_query_config.retry_interval).await;
+                }
+
+                Err(anyhow!(
+                    "Transaction {:?} confirmed, but receipt was not found after {} retries.",
+                    tx_hash,
+                    self.receipt_query_config.retry_count
+                )
+                .into())
+            }
+            Err(e) => Err(anyhow!(
+                "failed to confirm tx {:?} within timeout {:?}: {}",
+                tx_hash,
+                self.timeout,
+                e
+            )
+            .into()),
+        }
+    }
+
     /// When a prover fails to fulfill a request by the deadline, this function can be used to burn
     /// the associated prover stake.
     pub async fn slash(
@@ -477,11 +530,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         let log = extract_tx_log::<IBoundlessMarket::ProverSlashed>(&receipt)?;
         Ok(log.inner.data)
@@ -506,11 +555,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!(
             "Submitted proof for request {:x}: {:x}",
@@ -541,11 +586,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!(
             "Submitted proof for request {:x}: {:x}",
@@ -571,11 +612,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
 
@@ -598,11 +635,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
 
@@ -627,11 +660,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-        let tx_receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
@@ -662,11 +691,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::debug!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-        let tx_receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
@@ -708,11 +733,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let tx_receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Fulfilled proof for batch {}", tx_receipt.transaction_hash);
 
@@ -756,11 +777,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
-        let tx_receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Fulfilled proof for batch {}", tx_receipt.transaction_hash);
 
