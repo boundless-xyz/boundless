@@ -17,14 +17,14 @@
 
 use std::{borrow::Cow, rc::Rc};
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use risc0_zkvm::{Executor, Journal, ReceiptClaim};
 use url::Url;
 
 use crate::{
-    contracts::{Input, Offer, ProofRequest, RequestId},
+    contracts::{Input, InputType, Offer, ProofRequest, RequestId},
     input::GuestEnv,
-    storage::{BuiltinStorageProvider, StorageProvider},
+    storage::{BuiltinStorageProvider, StorageProvider, fetch_url},
 };
 
 // Idea: A pipeline like construction where each output must be (convertable to) the input to the
@@ -165,13 +165,37 @@ pub struct PreflightInfo {
     pub receipt_claim: ReceiptClaim,
 }
 
+impl PreflightLayer {
+    async fn fetch_env(&self, input: Input) -> anyhow::Result<GuestEnv> {
+        let env = match input.inputType {
+            InputType::Inline => GuestEnv::decode(&input.data)?,
+            InputType::Url => {
+                let input_url =
+                    std::str::from_utf8(&input.data).context("Input URL is not valid UTF-8")?;
+                tracing::info!("Fetching input from {}", input_url);
+                GuestEnv::decode(&fetch_url(&input_url).await?)?
+            }
+            _ => bail!("Unsupported input type"),
+        };
+        Ok(env)
+    }
+
+    async fn execute(&self, program: &[u8], env: GuestEnv) -> anyhow::Result<PreflightInfo> {
+        let _session_info = self.executor.execute(env.try_into()?, program)?;
+        todo!("create a PreflightInfo from session_info")
+    }
+}
+
 pub type PreflightLayerOutput = (Url, Input, PreflightInfo);
 
 impl Layer<(Url, Input)> for PreflightLayer {
     type Output = PreflightLayerOutput;
     type Error = anyhow::Error;
 
-    async fn process(&self, _input: (Url, Input)) -> anyhow::Result<Self::Output> {
+    async fn process(&self, (program_url, input): (Url, Input)) -> anyhow::Result<Self::Output> {
+        let program = fetch_url(program_url).await?;
+        let env = self.fetch_env(input).await?;
+        let _info = self.execute(&program, env);
         todo!()
     }
 }
