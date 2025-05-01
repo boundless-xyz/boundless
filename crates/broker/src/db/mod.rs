@@ -41,7 +41,7 @@ pub enum DbError {
     MissingElm(&'static str),
 
     #[error("{code} SQL error {0}", code = self.code())]
-    SqlErr(#[from] sqlx::Error),
+    SqlErr(sqlx::Error),
 
     #[error("{code} SQL Pool timed out {0}", code = self.code())]
     SqlPoolTimedOut(sqlx::Error),
@@ -80,24 +80,19 @@ impl CodedError for DbError {
         }
     }
 }
-trait SqlxResultMapper<T> {
-    fn map_sqlx_err(self) -> Result<T, DbError>;
-}
 
-impl<T> SqlxResultMapper<T> for Result<T, sqlx::Error> {
-    fn map_sqlx_err(self) -> Result<T, DbError> {
-        self.map_err(|e| {
-            if let sqlx::Error::Database(ref db_err) = e {
-                let msg = db_err.message().to_string();
-                if msg.contains("database is locked") {
-                    return DbError::SqlDatabaseLocked(anyhow::anyhow!(msg));
-                }
+impl From<sqlx::Error> for DbError {
+    fn from(e: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(ref db_err) = e {
+            let msg = db_err.message().to_string();
+            if msg.contains("database is locked") {
+                return DbError::SqlDatabaseLocked(anyhow::anyhow!(msg));
             }
-            match e {
-                sqlx::Error::PoolTimedOut => DbError::SqlPoolTimedOut(e),
-                _ => DbError::SqlErr(e),
-            }
-        })
+        }
+        match e {
+            sqlx::Error::PoolTimedOut => DbError::SqlPoolTimedOut(e),
+            _ => DbError::SqlErr(e),
+        }
     }
 }
 
@@ -299,8 +294,7 @@ impl BrokerDb for SqliteDb {
             .bind(order.id())
             .bind(sqlx::types::Json(&order))
             .execute(&self.pool)
-            .await
-            .map_sqlx_err()?;
+            .await?;
         Ok(Some(order))
     }
 
@@ -309,8 +303,7 @@ impl BrokerDb for SqliteDb {
         let res: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM orders WHERE id LIKE $1")
             .bind(format!("0x{request_id:x}%"))
             .fetch_one(&self.pool)
-            .await
-            .map_sqlx_err()?;
+            .await?;
         Ok(res > 0)
     }
 
@@ -319,8 +312,7 @@ impl BrokerDb for SqliteDb {
         let order: Option<DbOrder> = sqlx::query_as("SELECT * FROM orders WHERE id = $1 LIMIT 1")
             .bind(id)
             .fetch_optional(&self.pool)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
         Ok(order.map(|x| x.data))
     }
@@ -381,8 +373,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::Pricing)
         .bind(Utc::now().timestamp())
         .fetch_all(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         let result: Result<Vec<_>, _> = orders.into_iter().map(|order| Ok(order.data)).collect();
 
@@ -395,8 +386,7 @@ impl BrokerDb for SqliteDb {
             sqlx::query_as("SELECT * FROM orders WHERE data->>'status' = $1")
                 .bind(OrderStatus::Pricing)
                 .fetch_all(&self.pool)
-                .await
-                .map_sqlx_err()?;
+                .await?;
 
         let orders: Result<Vec<_>, _> = orders.into_iter().map(|elm| Ok(elm.data)).collect();
 
@@ -446,8 +436,7 @@ impl BrokerDb for SqliteDb {
         )
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -534,8 +523,7 @@ impl BrokerDb for SqliteDb {
         .bind(now)
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -617,8 +605,7 @@ impl BrokerDb for SqliteDb {
         .bind(failure_str)
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -643,8 +630,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -669,8 +655,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -695,8 +680,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -711,8 +695,7 @@ impl BrokerDb for SqliteDb {
         let res = sqlx::query("SELECT block FROM last_block WHERE id = $1")
             .bind(SQL_BLOCK_KEY)
             .fetch_optional(&self.pool)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
         let Some(row) = res else {
             return Ok(None);
@@ -729,8 +712,7 @@ impl BrokerDb for SqliteDb {
             .bind(SQL_BLOCK_KEY)
             .bind(block_numb.to_string())
             .execute(&self.pool)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::SetBlockFail);
@@ -747,8 +729,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::WaitingToLock)
         .bind(end_timestamp as i64)
         .fetch_all(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         // Break if any order-id's are invalid and raise
         orders.into_iter().map(|elm| Ok(elm.data)).collect()
@@ -769,8 +750,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::PendingSubmission)
         .bind(end_timestamp as i64)
         .fetch_all(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         // Break if any order-id's are invalid and raise
         orders.into_iter().map(|elm| Ok(elm.data)).collect()
@@ -788,8 +768,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::SkipAggregation)
         .bind(OrderStatus::PendingSubmission)
         .fetch_all(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         // Break if any order-id's are invalid and raise
         orders.into_iter().map(|elm| Ok(elm.data)).collect()
@@ -813,8 +792,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::PendingProving)
         .fetch_optional(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         let Some(order) = elm else {
             return Ok(None);
@@ -829,8 +807,7 @@ impl BrokerDb for SqliteDb {
             sqlx::query_as("SELECT * FROM orders WHERE data->>'status' = $1")
                 .bind(OrderStatus::Proving)
                 .fetch_all(&self.pool)
-                .await
-                .map_sqlx_err()?;
+                .await?;
 
         orders.into_iter().map(|elm| Ok(elm.data)).collect()
     }
@@ -851,8 +828,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -881,8 +857,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -915,8 +890,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -941,8 +915,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -970,8 +943,7 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::PendingAgg)
         .bind(OrderStatus::Aggregating)
         .fetch_all(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         let mut agg_orders = vec![];
         for order in orders.into_iter() {
@@ -1014,8 +986,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::SkipAggregation)
         .fetch_all(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         let mut agg_orders = vec![];
         for order in orders.into_iter() {
@@ -1058,8 +1029,7 @@ impl BrokerDb for SqliteDb {
         .bind(g16_proof_id)
         .bind(batch_id as i64)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -1086,8 +1056,7 @@ impl BrokerDb for SqliteDb {
         .bind(BatchStatus::PendingSubmission)
         .bind(BatchStatus::Complete)
         .fetch_optional(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         let Some(db_batch) = elm else {
             return Ok(None);
@@ -1109,8 +1078,7 @@ impl BrokerDb for SqliteDb {
         .bind(BatchStatus::Submitted)
         .bind(batch_id as i64)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -1136,8 +1104,7 @@ impl BrokerDb for SqliteDb {
         .bind(err)
         .bind(batch_id as i64)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -1159,8 +1126,7 @@ impl BrokerDb for SqliteDb {
                     .bind(BatchStatus::Aggregating)
                     .bind(BatchStatus::PendingCompression)
                     .fetch_optional(&self.pool)
-                    .await
-                    .map_sqlx_err()?;
+                    .await?;
 
             if let Some(batch) = cur_batch {
                 Ok(batch.id as usize)
@@ -1183,8 +1149,7 @@ impl BrokerDb for SqliteDb {
         let rows = sqlx::query(r#"SELECT data->>'fees' as fees, data->>'deadline' as deadline FROM batches WHERE id = $1"#)
             .bind(batch_id as i64)
             .fetch_optional(&mut *txn)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
         let Some(rows) = rows else {
             return Err(DbError::BatchNotFound(batch_id));
@@ -1222,8 +1187,7 @@ impl BrokerDb for SqliteDb {
         .bind(sqlx::types::Json(aggreagtion_state))
         .bind(batch_id as i64)
         .execute(&mut *txn)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -1242,8 +1206,7 @@ impl BrokerDb for SqliteDb {
             .bind(order.order_id.clone())
             .bind(batch_id as i64)
             .execute(&mut *txn)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
             if res.rows_affected() == 0 {
                 return Err(DbError::BatchNotFound(batch_id));
@@ -1263,8 +1226,7 @@ impl BrokerDb for SqliteDb {
             .bind(Utc::now().timestamp())
             .bind(order.order_id.clone())
             .execute(&mut *txn)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
             if res.rows_affected() == 0 {
                 return Err(DbError::OrderNotFound(order.order_id.clone()));
@@ -1287,8 +1249,7 @@ impl BrokerDb for SqliteDb {
             .bind(sqlx::types::Json(assessor_proof_id))
             .bind(batch_id as i64)
             .execute(&mut *txn)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
             if res.rows_affected() == 0 {
                 return Err(DbError::BatchNotFound(batch_id));
@@ -1305,8 +1266,7 @@ impl BrokerDb for SqliteDb {
         let batch: Option<DbBatch> = sqlx::query_as("SELECT * FROM batches WHERE id = $1")
             .bind(batch_id as i64)
             .fetch_optional(&self.pool)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
         if let Some(batch) = batch {
             Ok(batch.data)
@@ -1389,8 +1349,7 @@ impl BrokerDb for SqliteDb {
             .bind(batch_id as i64)
             .bind(sqlx::types::Json(batch))
             .execute(&self.pool)
-            .await
-            .map_sqlx_err()?;
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchInsertFailure(batch_id));
@@ -1413,8 +1372,7 @@ impl BrokerDb for SqliteDb {
         .bind(status)
         .bind(batch_id as i64)
         .execute(&self.pool)
-        .await
-        .map_sqlx_err()?;
+        .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));

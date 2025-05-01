@@ -209,10 +209,6 @@ where
             }
         }
 
-        if !request_id.is_zero() {
-            return Err(OrderPickerErr::UnexpectedErr(anyhow::anyhow!("test")));
-        }
-
         if !self.supported_selectors.is_supported(order.request.requirements.selector) {
             tracing::info!(
                 "Removing order with request id {request_id:x} because it has an unsupported selector requirement"
@@ -782,11 +778,12 @@ where
     }
 }
 
-impl<P> RetryTask<OrderPickerErr> for OrderPicker<P>
+impl<P> RetryTask for OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
-    fn spawn(&self) -> RetryRes<OrderPickerErr> {
+    type Error = OrderPickerErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let picker_copy = self.clone();
 
         Box::pin(async move {

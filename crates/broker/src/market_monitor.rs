@@ -509,11 +509,12 @@ where
     }
 }
 
-impl<P> RetryTask<MarketMonitorErr> for MarketMonitor<P>
+impl<P> RetryTask for MarketMonitor<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes<MarketMonitorErr> {
+    type Error = MarketMonitorErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let lookback_blocks = self.lookback_blocks;
         let market_addr = self.market_addr;
         let provider = self.provider.clone();

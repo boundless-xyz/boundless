@@ -102,11 +102,12 @@ impl<P: Provider> ChainMonitorService<P> {
     }
 }
 
-impl<P> RetryTask<ChainMonitorErr> for ChainMonitorService<P>
+impl<P> RetryTask for ChainMonitorService<P>
 where
     P: Provider + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes<ChainMonitorErr> {
+    type Error = ChainMonitorErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let self_clone = self.clone();
 
         Box::pin(async move {

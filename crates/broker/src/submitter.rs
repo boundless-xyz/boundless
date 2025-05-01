@@ -492,11 +492,12 @@ where
     }
 }
 
-impl<P> RetryTask<SubmitterErr> for Submitter<P>
+impl<P> RetryTask for Submitter<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes<SubmitterErr> {
+    type Error = SubmitterErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let obj_clone = self.clone();
 
         Box::pin(async move {

@@ -493,9 +493,7 @@ impl AggregatorService {
                 (aggregation_proof_id, finalize)
             }
             BatchStatus::PendingCompression => {
-                let Some(aggregation_state) = batch.aggregation_state else {
-                    return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None")));
-                };
+                let aggregation_state = batch.aggregation_state.with_context(|| format!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None"))?;
                 (aggregation_state.proof_id, true)
             }
             status => {
@@ -524,8 +522,9 @@ impl AggregatorService {
     }
 }
 
-impl RetryTask<AggregatorErr> for AggregatorService {
-    fn spawn(&self) -> RetryRes<AggregatorErr> {
+impl RetryTask for AggregatorService {
+    type Error = AggregatorErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let mut self_clone = self.clone();
 
         Box::pin(async move {

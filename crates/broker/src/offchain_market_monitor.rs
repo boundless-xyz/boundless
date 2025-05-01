@@ -88,8 +88,9 @@ impl OffchainMarketMonitor {
     }
 }
 
-impl RetryTask<OffchainMarketMonitorErr> for OffchainMarketMonitor {
-    fn spawn(&self) -> RetryRes<OffchainMarketMonitorErr> {
+impl RetryTask for OffchainMarketMonitor {
+    type Error = OffchainMarketMonitorErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let db = self.db.clone();
         let client = self.client.clone();
         let signer = self.signer.clone();

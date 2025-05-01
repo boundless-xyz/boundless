@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result as AnyhowRes};
 use thiserror::Error;
@@ -33,9 +33,10 @@ impl<E: CodedError> CodedError for SupervisorErr<E> {
 pub type RetryRes<E: CodedError> =
     Pin<Box<dyn Future<Output = Result<(), SupervisorErr<E>>> + Send + 'static>>;
 
-pub trait RetryTask<E: CodedError> {
+pub trait RetryTask {
+    type Error: CodedError;
     /// Defines how to spawn a task to be monitored for restarts
-    fn spawn(&self) -> RetryRes<E>;
+    fn spawn(&self) -> RetryRes<Self::Error>;
 }
 
 /// Configuration for retry behavior in the supervisor
@@ -76,23 +77,22 @@ impl RetryPolicy {
 }
 
 /// Supervisor for managing and monitoring tasks with retry capabilities
-pub(crate) struct Supervisor<T: RetryTask<E>, E: CodedError> {
+pub(crate) struct Supervisor<T: RetryTask> {
     /// The task to be supervised
     task: Arc<T>,
     /// Configuration for retry behavior
     retry_policy: RetryPolicy,
     config: ConfigLock,
-    _error: PhantomData<E>,
 }
 
-impl<T: RetryTask<E>, E: CodedError> Supervisor<T, E>
+impl<T: RetryTask> Supervisor<T>
 where
     T: Send,
-    E: Send + Sync + 'static,
+    T::Error: Send + Sync + 'static,
 {
     /// Create a new supervisor with a single task
     pub fn new(task: Arc<T>, config: ConfigLock) -> Self {
-        Self { task, retry_policy: RetryPolicy::default(), config, _error: PhantomData }
+        Self { task, retry_policy: RetryPolicy::default(), config }
     }
 
     /// Configure the retry policy
@@ -277,8 +277,9 @@ mod tests {
         }
     }
 
-    impl RetryTask<TestErr> for TestTask {
-        fn spawn(&self) -> RetryRes<TestErr> {
+    impl RetryTask for TestTask {
+        type Error = TestErr;
+        fn spawn(&self) -> RetryRes<Self::Error> {
             let rx_copy = self.rx.clone();
             Box::pin(Self::process_item(rx_copy))
         }

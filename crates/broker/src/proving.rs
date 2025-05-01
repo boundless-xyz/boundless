@@ -172,8 +172,9 @@ impl ProvingService {
     }
 }
 
-impl RetryTask<ProvingErr> for ProvingService {
-    fn spawn(&self) -> RetryRes<ProvingErr> {
+impl RetryTask for ProvingService {
+    type Error = ProvingErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let proving_service_copy = self.clone();
         Box::pin(async move {
             tracing::info!("Starting proving service");

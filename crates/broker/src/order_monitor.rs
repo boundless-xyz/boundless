@@ -760,11 +760,12 @@ where
     }
 }
 
-impl<P> RetryTask<OrderMonitorErr> for OrderMonitor<P>
+impl<P> RetryTask for OrderMonitor<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes<OrderMonitorErr> {
+    type Error = OrderMonitorErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let monitor_clone = self.clone();
         Box::pin(async move {
             tracing::info!("Starting order monitor");
