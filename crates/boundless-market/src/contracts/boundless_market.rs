@@ -567,7 +567,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
         tracing::trace!("Calling fulfillBatch({fulfillments:?}, {assessor_fill:?})");
         let call = self.instance.fulfillBatch(fulfillments, assessor_fill).from(self.caller);
-        tracing::debug!("Calldata: {:x}", call.calldata());
+        tracing::trace!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
@@ -624,7 +624,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .instance
             .submitRootAndFulfillBatch(verifier_address, root, seal, fulfillments, assessor_fill)
             .from(self.caller);
-        tracing::debug!("Calldata: {}", call.calldata());
+        tracing::trace!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
         let tx_receipt = pending_tx
@@ -659,7 +659,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                 assessor_fill,
             )
             .from(self.caller);
-        tracing::debug!("Calldata: {}", call.calldata());
+        tracing::trace!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
         let tx_receipt = pending_tx
@@ -690,7 +690,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .instance
             .priceAndFulfillBatch(requests, client_sigs, fulfillments, assessor_fill)
             .from(self.caller);
-        tracing::debug!("Calldata: {}", call.calldata());
+        tracing::trace!("Calldata: {}", call.calldata());
 
         if let Some(gas) = priority_gas {
             let priority_fee = self
@@ -738,7 +738,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .instance
             .priceAndFulfillBatchAndWithdraw(requests, client_sigs, fulfillments, assessor_fill)
             .from(self.caller);
-        tracing::debug!("Calldata: {}", call.calldata());
+        tracing::trace!("Calldata: {}", call.calldata());
 
         if let Some(gas) = priority_gas {
             let priority_fee = self
