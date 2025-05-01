@@ -424,7 +424,7 @@ impl Monitor {
         let fulfilled = self.fetch_fulfillments_number_by_prover(from, to, prover).await?;
         let locked: i64 = self.fetch_locked_number_by_prover(from, to, prover).await?;
 
-        if fulfilled == 0 {
+        if locked == 0 {
             return Ok(0.0);
         }
 
@@ -439,7 +439,7 @@ impl Monitor {
         let fulfilled = self.total_fulfillments_by_prover(prover).await?;
         let locked: i64 = self.total_locked_by_prover(prover).await?;
 
-        if fulfilled == 0 {
+        if locked == 0 {
             return Ok(0.0);
         }
 
@@ -461,7 +461,7 @@ impl Monitor {
         let fulfilled = self.fetch_fulfillments_number_from_client(from, to, address).await?;
         let submitted: i64 = self.fetch_requests_number_from_client(from, to, address).await?;
 
-        if fulfilled == 0 {
+        if submitted == 0 {
             return Ok(0.0);
         }
 
@@ -476,7 +476,7 @@ impl Monitor {
         let fulfilled = self.total_fulfillments_from_client(address).await?;
         let submitted: i64 = self.total_requests_from_client(address).await?;
 
-        if fulfilled == 0 {
+        if submitted == 0 {
             return Ok(0.0);
         }
 
