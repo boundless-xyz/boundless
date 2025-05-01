@@ -228,9 +228,7 @@ impl StatusPoller {
 #[async_trait]
 impl Prover for Bonsai {
     async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
-        let status = retry::<bool, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
+        let status = self.retry(
             || async { Ok(self.client.has_img(image_id).await?) },
             "check image",
         )
