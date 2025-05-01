@@ -22,7 +22,7 @@ use risc0_zkvm::{Executor, Journal, ReceiptClaim};
 use url::Url;
 
 use crate::{
-    contracts::{Input, InputType, Offer, ProofRequest, RequestId},
+    contracts::{Input as RequestInput, InputType, Offer, ProofRequest, RequestId},
     input::GuestEnv,
     storage::{BuiltinStorageProvider, StorageProvider, fetch_url},
 };
@@ -47,22 +47,20 @@ use crate::{
 
 // TODO: Should the self-ref be mut?
 
-pub trait RequestBuilder<Input> {
+pub trait RequestBuilder {
+    type Params;
     /// Error type that may be returned by this filler.
     type Error;
 
-    async fn build(&self, input: Input) -> Result<ProofRequest, Self::Error>;
-}
-
-impl<I, L> RequestBuilder<I> for L
-where
-    L: Layer<I, Output = ProofRequest>,
-{
-    type Error = L::Error;
-
-    async fn build(&self, input: I) -> Result<ProofRequest, Self::Error> {
-        self.process(input.into()).await
+    // NOTE: Takes the self receiver so that the caller does not need to explicitly name the
+    // RequestBuilder type (e.g. `<MyRequestBuilder as RequestBuilder>::default_params()`)
+    fn default_params(&self) -> Self::Params
+        where Self::Params: Default
+    {
+        Default::default()
     }
+
+    async fn build(&self, params: impl Into<Self::Params>) -> Result<ProofRequest, Self::Error>;
 }
 
 pub trait Layer<Input> {
@@ -123,7 +121,7 @@ where
     In: Into<ProgramAndEnv>,
 {
     type Error = anyhow::Error;
-    type Output = (Url, Input);
+    type Output = (Url, RequestInput);
 
     async fn process(&self, input: In) -> Result<Self::Output, Self::Error> {
         let ProgramAndEnv { program, env } = input.into();
@@ -131,9 +129,9 @@ where
         let input_data = env.encode().context("failed to encode guest environment")?;
         let request_input = match self.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
-                Input::url(self.storage_provider.upload_input(&input_data).await?)
+                RequestInput::url(self.storage_provider.upload_input(&input_data).await?)
             }
-            _ => Input::inline(input_data),
+            _ => RequestInput::inline(input_data),
         };
         Ok((program_url, request_input))
     }
@@ -166,7 +164,7 @@ pub struct PreflightInfo {
 }
 
 impl PreflightLayer {
-    async fn fetch_env(&self, input: Input) -> anyhow::Result<GuestEnv> {
+    async fn fetch_env(&self, input: RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             InputType::Inline => GuestEnv::decode(&input.data)?,
             InputType::Url => {
@@ -186,13 +184,13 @@ impl PreflightLayer {
     }
 }
 
-pub type PreflightLayerOutput = (Url, Input, PreflightInfo);
+pub type PreflightLayerOutput = (Url, RequestInput, PreflightInfo);
 
-impl Layer<(Url, Input)> for PreflightLayer {
+impl Layer<(Url, RequestInput)> for PreflightLayer {
     type Output = PreflightLayerOutput;
     type Error = anyhow::Error;
 
-    async fn process(&self, (program_url, input): (Url, Input)) -> anyhow::Result<Self::Output> {
+    async fn process(&self, (program_url, input): (Url, RequestInput)) -> anyhow::Result<Self::Output> {
         let program = fetch_url(program_url).await?;
         let env = self.fetch_env(input).await?;
         let _info = self.execute(&program, env);
@@ -213,10 +211,10 @@ impl Layer<()> for RequestIdLayer {
 
 pub struct OfferLayer {}
 
-pub type OfferLayerInput = (Url, Input, PreflightInfo, RequestId);
+pub type OfferLayerInput = (Url, RequestInput, PreflightInfo, RequestId);
 
 impl Layer<OfferLayerInput> for OfferLayer {
-    type Output = (Url, Input, PreflightInfo, Offer, RequestId);
+    type Output = (Url, RequestInput, PreflightInfo, Offer, RequestId);
     type Error = anyhow::Error;
 
     async fn process(&self, _input: OfferLayerInput) -> anyhow::Result<Self::Output> {
@@ -226,7 +224,7 @@ impl Layer<OfferLayerInput> for OfferLayer {
 
 pub struct Finalizer {}
 
-pub type FinalizerInput = (Url, Input, PreflightInfo, Offer, RequestId);
+pub type FinalizerInput = (Url, RequestInput, PreflightInfo, Offer, RequestId);
 
 impl Layer<FinalizerInput> for Finalizer {
     type Output = ProofRequest;
@@ -256,9 +254,21 @@ type Example = (
 
 #[allow(dead_code)]
 trait AssertLayer<Input, Output>: Layer<Input, Output = Output> {}
-#[allow(dead_code)]
-trait AssertRequestBuilder<Input>: RequestBuilder<Input> {}
+
+impl RequestBuilder for Example {
+    type Params = ProgramAndEnv;
+    type Error = anyhow::Error;
+
+    async fn build(&self, params: impl Into<Self::Params>) -> Result<ProofRequest, Self::Error> {
+        self.process(params.into()).await 
+    }
+}
 
 impl AssertLayer<ProgramAndEnv, ProofRequest> for Example {}
-impl AssertRequestBuilder<ProgramAndEnv> for Example {}
-impl AssertRequestBuilder<(&'static [u8], Vec<u8>)> for Example {}
+
+#[allow(dead_code)]
+async fn example(example: Example, p: ProgramAndEnv) -> anyhow::Result<()> {
+    example.build(p).await?;
+    example.build((b"", vec![])).await?;
+    Ok(())
+}
