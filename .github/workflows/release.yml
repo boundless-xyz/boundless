@@ -36,6 +36,8 @@ jobs:
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: "v1.0.0"
 
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-2.0

@@ -71,6 +71,8 @@ jobs:
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: "v1.0.0"
         
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -266,6 +268,8 @@ jobs:
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: "v1.0.0"
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -359,6 +363,8 @@ jobs:
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: "v1.0.0"
 
       - name: forge fmt
         run: forge fmt --check
@@ -438,6 +444,8 @@ jobs:
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: "v1.0.0"
         
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
