@@ -231,7 +231,7 @@ impl Prover for Bonsai {
         let status = retry::<bool, ProverError, _, _>(
             self.req_retry_count,
             self.req_retry_sleep_ms,
-            || async { Ok(self.client.has_img(image_id.into()).await?) },
+            || async { Ok(self.client.has_img(image_id).await?) },
             "check image",
         )
         .await?;
