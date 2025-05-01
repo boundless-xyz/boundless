@@ -15,7 +15,7 @@
 #![allow(missing_docs)] // DO NOT MERGE: That would be too lazy
 #![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
 
-use std::{borrow::Cow, rc::Rc};
+use std::{borrow::Cow, convert::Infallible, rc::Rc};
 
 use alloy::{
     network::Ethereum,
@@ -264,10 +264,19 @@ pub type FinalizerInput = (Url, RequestInput, Requirements, Offer, RequestId);
 
 impl Layer<FinalizerInput> for Finalizer {
     type Output = ProofRequest;
-    type Error = anyhow::Error;
+    type Error = Infallible;
 
-    async fn process(&self, _input: FinalizerInput) -> anyhow::Result<Self::Output> {
-        todo!()
+    async fn process(
+        &self,
+        (program_url, input, requirements, offer, request_id): FinalizerInput,
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(ProofRequest {
+            requirements,
+            id: request_id.into(),
+            imageUrl: program_url.into(),
+            input,
+            offer,
+        })
     }
 }
 
@@ -403,7 +412,10 @@ impl Adapt<Finalizer> for ExampleRequestParams {
         let offer = self.offer.ok_or(MissingFieldError::new("offer"))?;
         let request_id = self.request_id.ok_or(MissingFieldError::new("request_id"))?;
 
-        layer.process((program_url, input, requirements, offer, request_id)).await
+        layer
+            .process((program_url, input, requirements, offer, request_id))
+            .await
+            .map_err(Into::into)
     }
 }
 
