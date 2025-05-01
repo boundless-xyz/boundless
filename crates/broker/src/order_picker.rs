@@ -564,7 +564,7 @@ where
         let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
         let mcycle_price_in_stake_tokens = price / total_cycles * one_mill;
 
-        tracing::debug!(
+        tracing::info!(
             "Order price: {} (stake tokens) - cycles: {} - mcycle price: {} (stake tokens), config_min_mcycle_price_stake_tokens: {} (stake tokens)",
             format_ether(price),
             proof_res.stats.total_cycles,
