@@ -18,13 +18,13 @@
 use std::{borrow::Cow, rc::Rc};
 
 use anyhow::{bail, Context};
-use risc0_zkvm::{SessionInfo, Executor};
+use risc0_zkvm::{Executor, SessionInfo};
 use url::Url;
 
 use crate::{
     contracts::{Input as RequestInput, InputType, Offer, ProofRequest, RequestId},
     input::GuestEnv,
-    storage::{BuiltinStorageProvider, StorageProvider, fetch_url},
+    storage::{fetch_url, BuiltinStorageProvider, StorageProvider},
 };
 
 // Idea: A pipeline like construction where each output must be (convertable to) the input to the
@@ -55,7 +55,8 @@ pub trait RequestBuilder {
     // NOTE: Takes the self receiver so that the caller does not need to explicitly name the
     // RequestBuilder type (e.g. `<MyRequestBuilder as RequestBuilder>::default_params()`)
     fn default_params(&self) -> Self::Params
-        where Self::Params: Default
+    where
+        Self::Params: Default,
     {
         Default::default()
     }
@@ -71,20 +72,37 @@ pub trait Layer<Input> {
     async fn process(&self, input: Input) -> Result<Self::Output, Self::Error>;
 }
 
-/// Define a layer as a stack of two layers. Output of layer A is piped into layer B, with pre and
-/// post-processing defined by the [Adapt] trait when required.
+pub trait Adapt<L> {
+    type Output;
+    type Error;
+
+    async fn process_with(self, layer: &L) -> Result<Self::Output, Self::Error>;
+}
+
+impl<L, I> Adapt<L> for I
+where
+    L: Layer<I>,
+{
+    type Output = L::Output;
+    type Error = L::Error;
+
+    async fn process_with(self, layer: &L) -> Result<Self::Output, Self::Error> {
+        layer.process(self).await
+    }
+}
+
+/// Define a layer as a stack of two layers. Output of layer A is piped into layer B.
 impl<A, B, Input> Layer<Input> for (A, B)
 where
-    A: Layer<Input>,
-    B: Layer<A::Output>,
-    A::Error: Into<B::Error>,
+    Input: Adapt<A>,
+    <Input as Adapt<A>>::Output: Adapt<B>,
+    <Input as Adapt<A>>::Error: Into<<<Input as Adapt<A>>::Output as Adapt<B>>::Error>,
 {
-    type Output = B::Output;
-    type Error = B::Error;
+    type Output = <<Input as Adapt<A>>::Output as Adapt<B>>::Output;
+    type Error = <<Input as Adapt<A>>::Output as Adapt<B>>::Error;
 
     async fn process(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        let output_a = self.0.process(input).await.map_err(|e| e.into())?;
-        self.1.process(output_a).await
+        input.process_with(&self.0).await.map_err(Into::into)?.process_with(&self.1).await
     }
 }
 
@@ -178,7 +196,10 @@ impl Layer<(Url, RequestInput)> for PreflightLayer {
     type Output = PreflightLayerOutput;
     type Error = anyhow::Error;
 
-    async fn process(&self, (program_url, input): (Url, RequestInput)) -> anyhow::Result<Self::Output> {
+    async fn process(
+        &self,
+        (program_url, input): (Url, RequestInput),
+    ) -> anyhow::Result<Self::Output> {
         let program = fetch_url(&program_url).await?;
         let env = self.fetch_env(&input).await?;
         let session_info = self.executor.execute(env.try_into()?, &program)?;
@@ -248,7 +269,7 @@ impl RequestBuilder for Example {
     type Error = anyhow::Error;
 
     async fn build(&self, params: impl Into<Self::Params>) -> Result<ProofRequest, Self::Error> {
-        self.process(params.into()).await 
+        self.process(params.into()).await
     }
 }
 
