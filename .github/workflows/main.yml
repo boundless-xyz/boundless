@@ -86,7 +86,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: install cargo-sort
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-sort
           version: "=1.0.9"
@@ -163,7 +163,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: install cargo-sort
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-sort
           version: "=1.0.9"
@@ -186,7 +186,7 @@ jobs:
         run: cargo doc
 
       - name: Install sqlx-cli
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: sqlx-cli
           version: '=0.8.2'
@@ -309,7 +309,7 @@ jobs:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       - name: install cargo-binstall
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-binstall
           version: '=1.10.8'
@@ -341,7 +341,7 @@ jobs:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       - name: install cargo-binstall
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-binstall
           version: '=1.10.8'
@@ -462,7 +462,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: install cargo-sort
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-sort
           version: "=1.0.9"
