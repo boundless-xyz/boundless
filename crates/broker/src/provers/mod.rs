@@ -73,6 +73,7 @@ pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Er
 
 #[async_trait]
 pub trait Prover {
+    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError>;
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError>;
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError>;
     async fn preflight(

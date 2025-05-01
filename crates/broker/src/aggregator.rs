@@ -40,23 +40,12 @@ impl AggregatorService {
         db: DbObj,
         chain_id: u64,
         set_builder_guest_id: Digest,
-        set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
-        assessor_guest: Vec<u8>,
         market_addr: Address,
         prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
     ) -> Result<Self> {
-        prover
-            .upload_image(&set_builder_guest_id.to_string(), set_builder_guest)
-            .await
-            .context("Failed to upload set-builder guest")?;
-
-        prover
-            .upload_image(&assessor_guest_id.to_string(), assessor_guest)
-            .await
-            .context("Failed to upload assessor guest")?;
 
         Ok(Self {
             db,
