@@ -1,0 +1,132 @@
+---
+title: Sensitive Inputs
+description: This tutorial shows how to upload program inputs to Amazon S3 and how a Boundless prover can access them.
+---
+
+import { StripRustCodeComments } from "../../../components/strip-rust-code-comments";
+
+# Sensitive Inputs
+
+
+When [requesting a proof](/developers/tutorials/build), requestors need to upload both their program binary (ELF) and the associated inputs to a compatible storage provider.
+This allows the prover to download the required program and inputs to begin proving.
+
+For most use cases, storing these both publicly is acceptable.
+However, in situations where the program inputs are sensitive and requestors can not store these publicly, Boundless allows requestors to work with *trusted provers* when using Amazon S3 for storage.
+With an appropriate [bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-policies.html) (and optional [KMS key policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html) for server-side encryption), only provers with the necessary IAM role can download the input file and begin proving.
+
+This guide walks through the setup necessary, for both the requestor and prover, to enable secure s3 inputs for a given proof request.
+
+## Prerequisites
+
+- An AWS account with S3 and KMS enabled on the requestor side.
+- An AWS account for the prover
+- `aws` CLI configured as **the requestor**
+
+## 1. Requestor: Upload the Input file to S3 via the `aws` CLI
+
+```bash
+# As the requestor
+aws s3 cp ./input.json s3://<YOUR_BUCKET>/<PATH>/input.json \
+  --sse aws:kms \
+  --sse-kms-key-id <KMS_KEY_ID>   # optional: leave off to skip SSE-KMS
+```
+
+> ⚠️ Replace `<YOUR_BUCKET>`, `<PATH>`, and `<KMS_KEY_ID>`.
+
+---
+
+## 2. Requestor: Set Bucket Policy
+
+:::note
+AWS Documentation: [Bucket Policies for AWS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-policies.html)
+:::
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "<PROVER_ROLE_ARN>" },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::<YOUR_BUCKET>/*"
+    }
+  ]
+}
+```
+
+*Why?* S3 won’t return the object unless the caller’s temporary credentials map to `<PROVER_ROLE_ARN>`.
+
+---
+
+## 3 — (Optional) KMS key policy
+
+Only if you enabled `--sse-kms`.
+
+```jsonc
+{
+  "Effect": "Allow",
+  "Principal": { "AWS": "<PROVER_ROLE_ARN>" },
+  "Action": "kms:Decrypt",
+  "Resource": "*"
+}
+```
+
+---
+
+## 4 — Prover broker setup
+
+```toml title="broker.toml"
+[market]
+aws_assume_role_arn = "<PROVER_ROLE_ARN>"
+```
+
+```bash
+# Environment required by the AWS SDK default chain
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_REGION=<REGION>
+```
+
+---
+
+## 5 — Submit a request
+
+### CLI
+
+```bash
+boundless-cli request \
+  --exec  ipfs://<PROGRAM_ELF> \
+  --input s3://<YOUR_BUCKET>/<PATH>/input.json \
+  --cost  10e18
+```
+
+For details on requesting a proof programmatically, please see [Creating a Proof Request](/developers/tutorials/request#5-create-a-proof-request).
+
+---
+
+## 6 — Verify
+
+1. Prover logs should show
+   `INFO download s3://<YOUR_BUCKET>/<PATH>/input.json`
+2. If you see `AccessDenied`, revisit the bucket policy.
+3. If you see `KMS.AccessDeniedException`, revisit the key policy.
+
+---
+
+## Troubleshooting checklist
+
+| Symptom | Likely miss |
+|---------|-------------|
+| `UnsupportedScheme` in broker | Broker lacks base AWS creds |
+| `403 AccessDenied` | Bucket policy missing role |
+| KMS decrypt error | Key policy missing role |
+| Works for all provers | Bucket policy still `Principal: "*"` |
+
+---
+
+## Next
+
+- Rotate to a new IAM role when you add or remove a prover.
+- Add S3 access logs + KMS key usage logs for auditing.
