@@ -98,18 +98,28 @@ In order to pick the right segment po2 for your GPU VRAM see [the performance op
 
 ## Sending a Test Proof to Bento
 
+### Bento CLI installation
+
+To install the latest CLI version:
+
+```sh [Terminal]
+cargo install --git https://github.com/risc0/risc0 bento-client --bin bento_cli
+```
+
+### Using the Bento CLI
+
 Once everything is up, you can send a test proof to Bento to see if everything works. There are two options for test proofs:
 
 1. The Bento CLI allows for a simple test vector with a specified cycle count via the `-c` flag:
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -c 32
+RUST_LOG=info bento_cli -c 32
 ```
 
 2. The Bento CLI also accepts existing ELF / input files for [Boundless programs](/developers/tutorials/build):
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin
+RUST_LOG=info bento_cli -f ./crates/bento-client/method_name -i /tmp/input.bin
 ```
 
 ## Depositing Funds to the Market

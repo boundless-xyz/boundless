@@ -3,7 +3,7 @@ import * as aws from "@pulumi/aws";
 
 const BOUNDLESS_DEV_ADMIN_ROLE_ARN = "arn:aws:iam::751442549745:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_AWSAdministratorAccess_05b42ccedab0fe1d";
 
-// Pulumi state bucket and secret key just used for the builder. 
+// Pulumi state bucket and secret key just used for the builder.
 // Builder is just deployed to dev, so does not use the state bucket that we use for staging/prod.
 export const createPulumiState = (): {
   bucket: aws.s3.BucketV2,

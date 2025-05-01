@@ -138,7 +138,7 @@ Checks the current in-market ETH balance for a given address (defaults to your a
 account balance [address]
 ```
 
-- `[address]` (optional) — The address to check. If omitted, uses the caller’s address.
+- `[address]` (optional) — The address to check. If omitted, uses the caller's address.
 
 **Example**:
 ```
@@ -198,7 +198,7 @@ The `request` subcommand is used to manage proof requests on the Boundless Marke
 
 #### 1. submit-offer
 
-Constructs and submits a proof request by reading a YAML offer definition, plus specifying guest ELF, input data, and additional requirements on the command line. This is effectively a “shortcut” for quickly submitting a structured request.
+Constructs and submits a proof request by reading a YAML offer definition, plus specifying guest ELF, input data, and additional requirements on the command line. This is effectively a "shortcut" for quickly submitting a structured request.
 
 **Syntax** (excerpt of key options):
 ```
@@ -217,12 +217,12 @@ request submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-pre
 - `--input <STRING>` or `--input-file <PATH>`: data to feed the guest image.
 - `--encode-input`: if used, the input is encoded with `risc0_zkvm::serde`.
 - `--inline-input`: if used, the input is pushed onchain rather than stored offchain.
-- `--journal-digest <HEX>`: require the guest’s journal to match this digest.
-- `--journal-prefix <STRING>`: require the guest’s journal to start with these bytes.
+- `--journal-digest <HEX>`: require the guest's journal to match this digest.
+- `--journal-prefix <STRING>`: require the guest's journal to start with these bytes.
 - `--callback-address <ADDRESS> --callback-gas-limit <NUM>`: optional callback triggered upon proof success.
 - `--wait`: block until the proof request is fulfilled (or expires).
 - `--offchain`: submit the request offchain to an order-stream server (requires `--order-stream-url`).
-- `--no-preflight`: skip local “dry-run” execution of the guest.
+- `--no-preflight`: skip local "dry-run" execution of the guest.
 - `--proof-type <PROOF_TYPE>`: specify the proof type to request. This is a string that indicates the type of proof you want to generate for the request.
   - `any`: Any proof type
   - `groth16`: Groth16 proof type
@@ -233,7 +233,7 @@ request submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-pre
 boundless-cli request submit-offer offer.yaml --elf guest.wasm \
   --input-file data.bin --journal-prefix "ABCDEF" --wait
 ```
-Submits a request reading the YAML from `offer.yaml`, providing `guest.wasm` as the ELF, `data.bin` as input, and requiring the journal to start with “ABCDEF”. It waits for fulfillment.
+Submits a request reading the YAML from `offer.yaml`, providing `guest.wasm` as the ELF, `data.bin` as input, and requiring the journal to start with "ABCDEF". It waits for fulfillment.
 
 
 ### 2. submit
@@ -249,7 +249,7 @@ request submit [OPTIONS] <YAML_REQUEST> [ID] [--wait] [--offchain] [--no-preflig
 - `id`: optional integer ID for the request (otherwise generated or from the YAML itself).
 - `--wait`: wait for fulfillment.
 - `--offchain`: submit to an order-stream server (requires `--order-stream-url`).
-- `--no-preflight`: skip local “dry-run” execution.
+- `--no-preflight`: skip local "dry-run" execution.
 - `--callback-address <ADDRESS> --callback-gas-limit <NUM>`: optional callback triggered upon proof success.
 - `--proof-type <PROOF_TYPE>`: specify the proof type to request. This is a string that indicates the type of proof you want to generate for the request.
   - `any`: Any proof type
@@ -263,14 +263,14 @@ boundless-cli request submit ./request.yaml --wait
 
 #### 3. status
 
-Shows the request status and whether it’s open, locked, fulfilled, or expired.
+Shows the request status and whether it's open, locked, fulfilled, or expired.
 
 **Syntax**:
 ```
 request status <REQUEST_ID> [expires_at]
 ```
 
-- `expires_at`: optional expiration timestamp (UNIX time). If omitted, uses the request’s known end time.
+- `expires_at`: optional expiration timestamp (UNIX time). If omitted, uses the request's known end time.
 
 **Example**:
 ```
@@ -313,7 +313,7 @@ The `proving` subcommand is used to execute guest code locally, lock and generat
 
 #### 1. execute
 
-Locally executes (without proving) the given request’s guest code, either from a YAML file or fetching from chain/offchain. Allows checking correctness prior to submission.
+Locally executes (without proving) the given request's guest code, either from a YAML file or fetching from chain/offchain. Allows checking correctness prior to submission.
 
 **Syntax**:
 ```
@@ -322,7 +322,7 @@ proving execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] 
 ```
 - `--request-path`: path to a YAML file containing the request.
 - `--request-id`: the proof request identifier.
-- `--request-digest`: request’s EIP712 digest (optional).
+- `--request-digest`: request's EIP712 digest (optional).
 - `--tx-hash`: transaction hash (optional, to find the request).
 - `--order-stream-url`: fetch request data from an offchain server.
 
@@ -341,21 +341,30 @@ proving execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] 
 
 #### 2. fulfill
 
-Generates a valid proof locally, then publishes the fulfillment onchain. This subcommand uses the RISC Zero default prover.
+Generates valid proofs locally for one or more requests, then publishes the fulfillments onchain. This subcommand uses the RISC Zero default prover and can process multiple requests in a single batch, which is more efficient than fulfilling requests individually.
 
 **Syntax**:
 ```
-proving fulfill --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
+proving fulfill --request-ids <U256,...> [--request-digests <B256,...>] [--tx-hashes <B256,...>]
         [--order-stream-url <URL>]
 ```
-- `--request-id`: the proof request identifier.
-- `--request-digest`: request’s EIP712 digest (optional).
-- `--tx-hash`: transaction hash (optional, to find the request).
-- `--order-stream-url`: fetch request data from an offchain server.
+- `--request-ids`: comma-separated list of proof request identifiers (hex values)
+- `--request-digests`: comma-separated list of request EIP712 digests (optional, must match request_ids length and order)
+- `--tx-hashes`: comma-separated list of transaction hashes (optional, must match request_ids length and order)
+- `--order-stream-url`: fetch request data from an offchain server
 
-**Example**:
+**Examples**:
 ```
-boundless-cli proving fulfill --request-id 0x5...
+# Fulfill a single request
+boundless-cli proving fulfill --request-ids 0x5...
+
+# Fulfill multiple requests
+boundless-cli proving fulfill --request-ids 0x123,0x456,0x789
+
+# Fulfill multiple requests with digests and tx hashes
+boundless-cli proving fulfill --request-ids 0x123,0x456,0x789 \
+    --request-digests 0xabc,0xdef,0x012 \
+    --tx-hashes 0x111,0x222,0x333
 ```
 
 #### 3. lock
@@ -367,7 +376,7 @@ proving lock --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
         [--order-stream-url <URL>]
 ```
 - `--request-id`: the proof request identifier.
-- `--request-digest`: request’s EIP712 digest (optional).
+- `--request-digest`: request's EIP712 digest (optional).
 - `--tx-hash`: transaction hash (optional, to find the request).
 - `--order-stream-url`: fetch request data from an offchain server.
 
@@ -383,7 +392,7 @@ The `ops` subcommand is used to manage operations on the Boundless Market. Curre
 
 #### 1. slash
 
-Slashes a prover for failing to meet obligations for a given request ID. Only the request’s buyer can slash.
+Slashes a prover for failing to meet obligations for a given request ID. Only the request's buyer can slash.
 
 **Syntax**:
 ```

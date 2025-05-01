@@ -4,6 +4,8 @@
 
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
+use crate::config::ConfigLock;
+use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, U256},
@@ -18,7 +20,7 @@ use boundless_market::{
     selector::is_groth16_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
-use clap::{ArgAction, Parser};
+use clap::Parser;
 pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
@@ -27,7 +29,6 @@ use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};
-use storage::UriHandlerBuilder;
 use task::{RetryPolicy, Supervisor};
 use tokio::task::JoinSet;
 use url::Url;
@@ -121,16 +122,6 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
-
-    /// Set to skip caching of images
-    ///
-    /// By default images are cached locally in cache_dir. Set this flag to redownload them every time
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub nocache: bool,
-
-    /// Cache directory for storing downloaded images and inputs
-    #[clap(long, default_value = "/tmp/broker_cache", conflicts_with = "nocache")]
-    pub cache_dir: Option<PathBuf>,
 }
 
 /// Status of a order as it moves through the lifecycle
@@ -140,8 +131,10 @@ enum OrderStatus {
     New,
     /// Order is in the process of being priced
     Pricing,
-    /// Order is ready to lock at target_timestamp
-    Locking,
+    /// Order is ready to lock at target_timestamp and then be fulfilled
+    WaitingToLock,
+    /// Order is ready to be fulfilled when its lock expires at target_timestamp
+    WaitingForLockToExpire,
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
     /// Order is actively ready for proving
@@ -160,12 +153,37 @@ enum OrderStatus {
     Failed,
     /// Order was analyzed and marked as skipable
     Skipped,
-    /// Order was observed to be locked by another prover
-    LockedByOther,
 }
 
+#[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
+enum FulfillmentType {
+    LockAndFulfill,
+    FulfillAfterLockExpire,
+    // Currently not supported
+    FulfillWithoutLocking,
+}
+
+/// An Order represents a proof request and a specific method of fulfillment.
+///
+/// Requests can be fulfilled in multiple ways, for example by locking then fulfilling them,
+/// by waiting for an existing lock to expire then fulfilling for slashed stake, or by fulfilling
+/// without locking at all.
+///
+/// For a given request, each type of fulfillment results in a separate Order being created, with different
+/// FulfillmentType values.
+///
+/// Additionally, there may be multiple requests with the same request_id, but different ProofRequest
+/// details. Those also result in separate Order objects being created.
+///
+/// See the id() method for more details on how Orders are identified.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Order {
+    /// Address of the boundless market contract. Stored as it is required to compute the order id.
+    boundless_market_address: Address,
+    /// Chain ID of the boundless market contract. Stored as it is required to compute the order id.
+    chain_id: u64,
+    /// Fulfillment type
+    fulfillment_type: FulfillmentType,
     /// Proof request object
     request: ProofRequest,
     /// status of the order
@@ -173,8 +191,13 @@ struct Order {
     /// Last update time
     #[serde(with = "ts_seconds")]
     updated_at: DateTime<Utc>,
+    /// Total cycles
+    /// Populated after initial pricing in order picker
+    total_cycles: Option<u64>,
     /// Locking status target UNIX timestamp
     target_timestamp: Option<u64>,
+    /// When proving was commenced at
+    proving_started_at: Option<u64>,
     /// Prover image Id
     ///
     /// Populated after preflight
@@ -204,8 +227,16 @@ struct Order {
 }
 
 impl Order {
-    pub fn new(request: ProofRequest, client_sig: Bytes) -> Self {
+    pub fn new(
+        request: ProofRequest,
+        client_sig: Bytes,
+        fulfillment_type: FulfillmentType,
+        boundless_market_address: Address,
+        chain_id: u64,
+    ) -> Self {
         Self {
+            boundless_market_address,
+            chain_id,
             request,
             status: OrderStatus::New,
             updated_at: Utc::now(),
@@ -217,11 +248,33 @@ impl Order {
             expire_timestamp: None,
             client_sig,
             lock_price: None,
+            fulfillment_type,
             error_msg: None,
+            total_cycles: None,
+            proving_started_at: None,
         }
     }
+
+    // An Order is identified by the request_id, the fulfillment type, and the hash of the proof request.
+    // This structure supports multiple different ProofRequests with the same request_id, and different
+    // fulfillment types.
+    pub fn id(&self) -> String {
+        format!(
+            "0x{:x}-{}-{:?}",
+            self.request.id,
+            self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap(),
+            self.fulfillment_type
+        )
+    }
+
     pub fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
+    }
+}
+
+impl std::fmt::Display for Order {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
     }
 }
 
@@ -253,7 +306,7 @@ struct AggregationState {
 struct Batch {
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.
-    pub orders: Vec<U256>,
+    pub orders: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assessor_proof_id: Option<String>,
     /// Tuple of the current aggregation state, as committed by the set builder guest, and the
@@ -293,9 +346,9 @@ where
     }
 
     async fn get_assessor_image(&self) -> Result<(Digest, Vec<u8>)> {
-        let (assessor_path, max_file_size) = {
+        let assessor_path = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
-            (config.prover.assessor_set_guest_path.clone(), config.market.max_file_size)
+            config.prover.assessor_set_guest_path.clone()
         };
 
         if let Some(path) = assessor_path {
@@ -313,10 +366,8 @@ where
 
             let (image_id, image_url_str) =
                 boundless_market.image_info().await.context("Failed to get contract image_info")?;
-            let image_uri = UriHandlerBuilder::new(&image_url_str)
-                .set_cache_dir(&self.args.cache_dir)
-                .set_max_size(max_file_size)
-                .build()
+            let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
+                .await
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading assessor image from: {image_uri}");
             let image_data =
@@ -327,9 +378,9 @@ where
     }
 
     async fn get_set_builder_image(&self) -> Result<(Digest, Vec<u8>)> {
-        let (set_builder_path, max_file_size) = {
+        let set_builder_path = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
-            (config.prover.set_builder_guest_path.clone(), config.market.max_file_size)
+            config.prover.set_builder_guest_path.clone()
         };
 
         if let Some(path) = set_builder_path {
@@ -349,10 +400,8 @@ where
                 .image_info()
                 .await
                 .context("Failed to get contract image_info")?;
-            let image_uri = UriHandlerBuilder::new(&image_url_str)
-                .set_cache_dir(&self.args.cache_dir)
-                .set_max_size(max_file_size)
-                .build()
+            let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
+                .await
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading aggregation-set image from: {image_uri}");
             let image_data =
@@ -391,6 +440,12 @@ where
             Ok(())
         });
 
+        let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let client =
+            self.args.order_stream_url.clone().map(|url| {
+                OrderStreamClient::new(url, self.args.boundless_market_address, chain_id)
+            });
+
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
@@ -399,6 +454,7 @@ where
             self.db.clone(),
             chain_monitor.clone(),
             self.args.private_key.address(),
+            client.clone(),
         ));
 
         let block_times =
@@ -415,11 +471,6 @@ where
             Ok(())
         });
 
-        let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client =
-            self.args.order_stream_url.clone().map(|url| {
-                OrderStreamClient::new(url, self.args.boundless_market_address, chain_id)
-            });
         // spin up a supervisor for the offchain market monitor
         if let Some(client) = client {
             let offchain_market_monitor =
@@ -599,48 +650,36 @@ where
 async fn upload_image_uri(
     prover: &ProverObj,
     order: &Order,
-    max_size: usize,
-    retries: Option<u8>,
+    config: &ConfigLock,
 ) -> Result<String> {
-    let mut uri = UriHandlerBuilder::new(&order.request.imageUrl).set_max_size(max_size);
+    let uri =
+        create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
 
-    if let Some(retry) = retries {
-        uri = uri.set_retries(retry);
-    }
-    let uri = uri.build().context("Uri parse failure")?;
+    let image_data = uri
+        .fetch()
+        .await
+        .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
+    let image_id =
+        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
 
-    if !uri.exists() {
-        let image_data = uri
-            .fetch()
-            .await
-            .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
-        let image_id =
-            risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
+    let required_image_id = Digest::from(order.request.requirements.imageId.0);
+    ensure!(
+        image_id == required_image_id,
+        "image ID does not match requirements; expect {}, got {}",
+        required_image_id,
+        image_id
+    );
+    let image_id = image_id.to_string();
 
-        let required_image_id = Digest::from(order.request.requirements.imageId.0);
-        ensure!(
-            image_id == required_image_id,
-            "image ID does not match requirements; expect {}, got {}",
-            required_image_id,
-            image_id
-        );
-        let image_id = image_id.to_string();
+    prover.upload_image(&image_id, image_data).await.context("Failed to upload image to prover")?;
 
-        prover
-            .upload_image(&image_id, image_data)
-            .await
-            .context("Failed to upload image to prover")?;
-
-        Ok(image_id)
-    } else {
-        Ok(uri.id().context("Invalid image URI type")?)
-    }
+    Ok(image_id)
 }
+
 async fn upload_input_uri(
     prover: &ProverObj,
     order: &Order,
-    max_size: usize,
-    retries: Option<u8>,
+    config: &ConfigLock,
 ) -> Result<String> {
     Ok(match order.request.input.inputType {
         InputType::Inline => prover
@@ -656,27 +695,19 @@ async fn upload_input_uri(
             let input_uri_str =
                 std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");
-            let mut input_uri = UriHandlerBuilder::new(input_uri_str).set_max_size(max_size);
+            let input_uri =
+                create_uri_handler(input_uri_str, config).await.context("URL handling failed")?;
 
-            if let Some(retry) = retries {
-                input_uri = input_uri.set_retries(retry);
-            }
-            let input_uri = input_uri.build().context("Failed to parse input uri")?;
+            let input_data = GuestEnv::decode(
+                &input_uri
+                    .fetch()
+                    .await
+                    .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
+            )
+            .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
+            .stdin;
 
-            if !input_uri.exists() {
-                let input_data = GuestEnv::decode(
-                    &input_uri
-                        .fetch()
-                        .await
-                        .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
-                )
-                .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-                .stdin;
-
-                prover.upload_input(input_data).await.context("Failed to upload input")?
-            } else {
-                input_uri.id().context("invalid input URI type")?
-            }
+            prover.upload_input(input_data).await.context("Failed to upload input")?
         }
         //???
         _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
@@ -713,7 +744,7 @@ pub mod test_utils {
         P: Provider<Ethereum> + 'static + Clone + WalletProvider,
     {
         pub async fn new_test(ctx: &TestCtx<P>, rpc_url: Url) -> Self {
-            let config_file = NamedTempFile::new().unwrap();
+            let config_file: NamedTempFile = NamedTempFile::new().unwrap();
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
@@ -736,8 +767,6 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
-                nocache: true,
-                cache_dir: None,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }

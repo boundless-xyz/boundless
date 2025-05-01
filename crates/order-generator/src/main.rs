@@ -105,6 +105,11 @@ struct MainArgs {
     /// Balance threshold at which to log an error.
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
+    /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
+    ///
+    /// This parameter can only be set if order_stream_url is provided.
+    #[clap(long, value_parser = parse_ether, requires = "order_stream_url")]
+    auto_deposit: Option<U256>,
 }
 
 /// An estimated upper bound on the cost of locking an fulfilling a request.
@@ -221,7 +226,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         // Note that the auction will allow us to pay the lowest price a prover will accept.
         // Add a 10% buffer to the gas costs to account for flucuations after submission.
         let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
-        let gas_cost_estimate = gas_price + (gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
+        let gas_cost_estimate = (gas_price + (gas_price / 10)) * LOCK_FULFILL_GAS_UPPER_BOUND;
         let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
         tracing::info!(
             "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
@@ -258,6 +263,35 @@ async fn run(args: &MainArgs) -> Result<()> {
         tracing::info!("Request: {:?}", request);
 
         let submit_offchain = args.order_stream_url.is_some();
+
+        // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
+        // in the submitRequest call.
+        if submit_offchain {
+            if let Some(auto_deposit) = args.auto_deposit {
+                let market = boundless_client.boundless_market.clone();
+                let caller = boundless_client.caller();
+                let balance = market.balance_of(caller).await?;
+                tracing::info!(
+                    "Caller {} has balance {} ETH on market {}",
+                    caller,
+                    format_units(balance, "ether")?,
+                    args.boundless_market_address
+                );
+                if balance < auto_deposit {
+                    tracing::info!(
+                        "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
+                        format_units(balance, "ether")?,
+                        format_units(auto_deposit, "ether")?
+                    );
+                    market.deposit(auto_deposit).await?;
+                    tracing::info!(
+                        "Successfully deposited {} ETH",
+                        format_units(auto_deposit, "ether")?
+                    );
+                }
+            }
+        }
+
         let (request_id, _) = if submit_offchain {
             boundless_client.submit_request_offchain(&request).await?
         } else {
@@ -341,6 +375,7 @@ mod tests {
             encode_input: false,
             warn_balance_below: None,
             error_balance_below: None,
+            auto_deposit: None,
         };
 
         run(&args).await.unwrap();

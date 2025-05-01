@@ -5,6 +5,7 @@
 use std::{cmp::min, sync::Arc};
 
 use alloy::{
+    consensus::Transaction,
     network::{Ethereum, EthereumWallet, TransactionResponse},
     primitives::{Address, U256},
     providers::{
@@ -15,11 +16,15 @@ use alloy::{
         Identity, Provider, ProviderBuilder, RootProvider,
     },
     signers::local::PrivateKeySigner,
+    sol_types::SolCall,
     transports::{RpcError, TransportErrorKind},
 };
 use boundless_market::{
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider},
-    contracts::boundless_market::{BoundlessMarketService, MarketError},
+    contracts::{
+        boundless_market::{BoundlessMarketService, MarketError},
+        IBoundlessMarket::{self},
+    },
 };
 use db::{DbError, DbObj, SqliteDb};
 use thiserror::Error;
@@ -52,6 +57,12 @@ pub enum ServiceError {
 
     #[error("Event query error: {0}")]
     EventQueryError(#[from] alloy::contract::Error),
+
+    #[error("Transaction decoding error: {0}")]
+    TransactionDecodingError(#[from] alloy::sol_types::Error),
+
+    #[error("Block number not found")]
+    BlockNumberNotFound,
 
     #[error("Insufficient funds: {0}")]
     InsufficientFunds(String),
@@ -142,6 +153,8 @@ where
                             ServiceError::DatabaseError(_)
                             | ServiceError::InsufficientFunds(_)
                             | ServiceError::MaxRetries
+                            | ServiceError::TransactionDecodingError(_)
+                            | ServiceError::BlockNumberNotFound
                             | ServiceError::RequestNotExpired => {
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
@@ -261,7 +274,11 @@ where
                 log.requestId
             );
 
-            self.add_order(log.requestId).await?;
+            let request = IBoundlessMarket::lockRequestCall::abi_decode(tx.input(), true)?.request;
+            let expires_at = request.expires_at();
+            let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;
+
+            self.add_order(log.requestId, expires_at, lock_expires_at).await?;
         }
 
         Ok(())
@@ -316,23 +333,31 @@ where
             to_block
         );
 
-        for (log, _) in logs {
-            self.remove_order(log.requestId).await?;
+        for (log, data) in logs {
+            let current_ts = if let Some(current_ts) = data.block_timestamp {
+                current_ts
+            } else {
+                let bn = data.block_number.ok_or(ServiceError::BlockNumberNotFound)?;
+                self.block_timestamp(bn).await?
+            };
+            let (_, lock_expires_at) = self.db.get_order(log.requestId).await?;
+            if current_ts <= lock_expires_at {
+                self.remove_order(log.requestId).await?;
+            }
         }
 
         Ok(())
     }
 
     // Insert request into database
-    async fn add_order(&self, request_id: U256) -> Result<(), ServiceError> {
-        let expiration =
-            self.boundless_market.instance().requestDeadline(request_id).call().await?._0;
-        tracing::debug!(
-            "Adding new request: 0x{:x} expiring at block_no {}",
-            request_id,
-            expiration
-        );
-        Ok(self.db.add_order(request_id, expiration).await?)
+    async fn add_order(
+        &self,
+        request_id: U256,
+        expires_at: u64,
+        lock_expires_at: u64,
+    ) -> Result<(), ServiceError> {
+        tracing::debug!("Adding new request: 0x{:x} expiring at {}", request_id, expires_at);
+        Ok(self.db.add_order(request_id, expires_at, lock_expires_at).await?)
     }
 
     // Remove request from database
