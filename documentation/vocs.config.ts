@@ -65,20 +65,24 @@ const DEVELOPERS_ITEMS = [
         text: "Tutorials",
         items: [
           {
-            text: "Callbacks",
-            link: "/developers/tutorials/feature-callbacks",
-          },
-          {
-            text: "Smart Contract Requestors",
-            link: "/developers/tutorials/feature-smart-contract-requestor",
-          },
-          {
             text: "Proof Types",
-            link: "/developers/tutorials/feature-proof-types",
+            link: "/developers/tutorials/proof-types",
           },
           {
             text: "Proof Composition",
-            link: "/developers/tutorials/feature-proof-composition",
+            link: "/developers/tutorials/proof-composition",
+          },
+          {
+            text: "Sensitive Inputs",
+            link: "/developers/tutorials/sensitive-inputs",
+          },
+          {
+            text: "Smart Contract Requestors",
+            link: "/developers/tutorials/smart-contract-requestor",
+          },
+          {
+            text: "Callbacks",
+            link: "/developers/tutorials/callbacks",
           },
         ],
       },
