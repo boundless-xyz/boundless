@@ -278,7 +278,7 @@ services:
     network_mode: host
 
     environment:
-      RUST_LOG: ${RUST_LOG:-info},broker=debug,boundless_market=debug
+      RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
       # RUST_BACKTRACE: 1
       PRIVATE_KEY: ${PRIVATE_KEY}
       RPC_URL: ${RPC_URL}
