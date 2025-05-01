@@ -18,7 +18,7 @@
 use std::{borrow::Cow, rc::Rc};
 
 use anyhow::{bail, Context};
-use risc0_zkvm::{Executor, Journal, ReceiptClaim};
+use risc0_zkvm::{SessionInfo, Executor};
 use url::Url;
 
 use crate::{
@@ -156,15 +156,8 @@ pub struct PreflightLayer {
     executor: Rc<dyn Executor>,
 }
 
-#[non_exhaustive]
-pub struct PreflightInfo {
-    pub cycles: u64,
-    pub journal: Journal,
-    pub receipt_claim: ReceiptClaim,
-}
-
 impl PreflightLayer {
-    async fn fetch_env(&self, input: RequestInput) -> anyhow::Result<GuestEnv> {
+    async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             InputType::Inline => GuestEnv::decode(&input.data)?,
             InputType::Url => {
@@ -177,24 +170,19 @@ impl PreflightLayer {
         };
         Ok(env)
     }
-
-    async fn execute(&self, program: &[u8], env: GuestEnv) -> anyhow::Result<PreflightInfo> {
-        let _session_info = self.executor.execute(env.try_into()?, program)?;
-        todo!("create a PreflightInfo from session_info")
-    }
 }
 
-pub type PreflightLayerOutput = (Url, RequestInput, PreflightInfo);
+pub type PreflightLayerOutput = (Url, RequestInput, SessionInfo);
 
 impl Layer<(Url, RequestInput)> for PreflightLayer {
     type Output = PreflightLayerOutput;
     type Error = anyhow::Error;
 
     async fn process(&self, (program_url, input): (Url, RequestInput)) -> anyhow::Result<Self::Output> {
-        let program = fetch_url(program_url).await?;
-        let env = self.fetch_env(input).await?;
-        let _info = self.execute(&program, env);
-        todo!()
+        let program = fetch_url(&program_url).await?;
+        let env = self.fetch_env(&input).await?;
+        let session_info = self.executor.execute(env.try_into()?, &program)?;
+        Ok((program_url, input, session_info))
     }
 }
 
@@ -211,10 +199,10 @@ impl Layer<()> for RequestIdLayer {
 
 pub struct OfferLayer {}
 
-pub type OfferLayerInput = (Url, RequestInput, PreflightInfo, RequestId);
+pub type OfferLayerInput = (Url, RequestInput, SessionInfo, RequestId);
 
 impl Layer<OfferLayerInput> for OfferLayer {
-    type Output = (Url, RequestInput, PreflightInfo, Offer, RequestId);
+    type Output = (Url, RequestInput, SessionInfo, Offer, RequestId);
     type Error = anyhow::Error;
 
     async fn process(&self, _input: OfferLayerInput) -> anyhow::Result<Self::Output> {
@@ -224,7 +212,7 @@ impl Layer<OfferLayerInput> for OfferLayer {
 
 pub struct Finalizer {}
 
-pub type FinalizerInput = (Url, RequestInput, PreflightInfo, Offer, RequestId);
+pub type FinalizerInput = (Url, RequestInput, SessionInfo, Offer, RequestId);
 
 impl Layer<FinalizerInput> for Finalizer {
     type Output = ProofRequest;
