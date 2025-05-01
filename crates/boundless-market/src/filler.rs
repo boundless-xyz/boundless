@@ -18,11 +18,11 @@
 use std::{borrow::Cow, rc::Rc};
 
 use anyhow::{bail, Context};
-use risc0_zkvm::{Executor, SessionInfo};
+use risc0_zkvm::{Executor, Journal, SessionInfo, compute_image_id, sha::Digestible};
 use url::Url;
 
 use crate::{
-    contracts::{Input as RequestInput, InputType, Offer, ProofRequest, RequestId},
+    contracts::{Input as RequestInput, InputType, Offer, ProofRequest, RequestId, Requirements, Predicate},
     input::GuestEnv,
     storage::{fetch_url, BuiltinStorageProvider, StorageProvider},
 };
@@ -106,23 +106,6 @@ where
     }
 }
 
-// TODO: Either define this as an enum that can also take a URL that is pre-uploaded, or use the
-// Adapt trait to accept URL inputs such that it bypasses the StorageLayer.
-pub struct ProgramAndEnv {
-    pub program: Cow<'static, [u8]>,
-    pub env: GuestEnv,
-}
-
-impl<Program, Stdin> From<(Program, Stdin)> for ProgramAndEnv
-where
-    Program: Into<Cow<'static, [u8]>>,
-    Stdin: Into<Vec<u8>>,
-{
-    fn from(value: (Program, Stdin)) -> Self {
-        Self { program: value.0.into(), env: GuestEnv { stdin: value.1.into() } }
-    }
-}
-
 #[non_exhaustive]
 pub struct StorageLayer<S: StorageProvider> {
     /// Maximum number of bytes to send as an inline input.
@@ -133,17 +116,18 @@ pub struct StorageLayer<S: StorageProvider> {
     pub storage_provider: S,
 }
 
-impl<In, S: StorageProvider> Layer<In> for StorageLayer<S>
+impl<S: StorageProvider> Layer<(&[u8], &GuestEnv)> for StorageLayer<S>
 where
     S::Error: std::error::Error + Send + Sync + 'static,
-    In: Into<ProgramAndEnv>,
 {
     type Error = anyhow::Error;
     type Output = (Url, RequestInput);
 
-    async fn process(&self, input: In) -> Result<Self::Output, Self::Error> {
-        let ProgramAndEnv { program, env } = input.into();
-        let program_url = self.storage_provider.upload_program(&program).await?;
+    async fn process(
+        &self,
+        (program, env): (&[u8], &GuestEnv),
+    ) -> Result<Self::Output, Self::Error> {
+        let program_url = self.storage_provider.upload_program(program).await?;
         let input_data = env.encode().context("failed to encode guest environment")?;
         let request_input = match self.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
@@ -190,20 +174,33 @@ impl PreflightLayer {
     }
 }
 
-pub type PreflightLayerOutput = (Url, RequestInput, SessionInfo);
+pub type PreflightLayerOutput = SessionInfo;
 
-impl Layer<(Url, RequestInput)> for PreflightLayer {
+impl Layer<(&Url, &RequestInput)> for PreflightLayer {
     type Output = PreflightLayerOutput;
     type Error = anyhow::Error;
 
     async fn process(
         &self,
-        (program_url, input): (Url, RequestInput),
+        (program_url, input): (&Url, &RequestInput),
     ) -> anyhow::Result<Self::Output> {
-        let program = fetch_url(&program_url).await?;
-        let env = self.fetch_env(&input).await?;
+        let program = fetch_url(program_url).await?;
+        let env = self.fetch_env(input).await?;
         let session_info = self.executor.execute(env.try_into()?, &program)?;
-        Ok((program_url, input, session_info))
+        Ok(session_info)
+    }
+}
+
+#[non_exhaustive]
+pub struct RequirementsLayer {}
+
+impl Layer<(&[u8], &Journal)> for RequirementsLayer {
+    type Output = Requirements;
+    type Error = anyhow::Error;
+
+    async fn process(&self, (program, journal): (&[u8], &Journal)) -> Result<Self::Output, Self::Error> {
+        let image_id = compute_image_id(program).context("failed to compute image ID for program")?; 
+        Ok(Requirements::new(image_id, Predicate::digest_match(journal.digest())))
     }
 }
 
@@ -220,20 +217,21 @@ impl Layer<()> for RequestIdLayer {
 
 pub struct OfferLayer {}
 
-pub type OfferLayerInput = (Url, RequestInput, SessionInfo, RequestId);
-
-impl Layer<OfferLayerInput> for OfferLayer {
-    type Output = (Url, RequestInput, SessionInfo, Offer, RequestId);
+impl Layer<(&Url, &RequestInput, u64, &RequestId)> for OfferLayer {
+    type Output = Offer;
     type Error = anyhow::Error;
 
-    async fn process(&self, _input: OfferLayerInput) -> anyhow::Result<Self::Output> {
+    async fn process(
+        &self,
+        _input: (&Url, &RequestInput, u64, &RequestId),
+    ) -> anyhow::Result<Self::Output> {
         todo!()
     }
 }
 
 pub struct Finalizer {}
 
-pub type FinalizerInput = (Url, RequestInput, SessionInfo, Offer, RequestId);
+pub type FinalizerInput = (Url, RequestInput, Requirements, Offer, RequestId);
 
 impl Layer<FinalizerInput> for Finalizer {
     type Output = ProofRequest;
@@ -244,28 +242,138 @@ impl Layer<FinalizerInput> for Finalizer {
     }
 }
 
-impl Layer<PreflightLayerOutput> for RequestIdLayer {
-    type Output = OfferLayerInput;
-    type Error = anyhow::Error;
+#[allow(unused)]
+type Example = (
+    ((((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequirementsLayer), RequestIdLayer), OfferLayer),
+    Finalizer,
+);
 
-    async fn process(&self, input: PreflightLayerOutput) -> Result<Self::Output, Self::Error> {
-        let request_id = self.process(()).await?;
-        let (url, input, preflight_info) = input;
-        Ok((url, input, preflight_info, request_id))
+#[non_exhaustive]
+pub struct ExampleRequestParams {
+    pub program: Cow<'static, [u8]>,
+    pub env: GuestEnv,
+    pub program_url: Option<Url>,
+    pub input: Option<RequestInput>,
+    pub cycles: Option<u64>,
+    pub journal: Option<Journal>,
+    pub request_id: Option<RequestId>,
+    pub offer: Option<Offer>,
+    pub requirements: Option<Requirements>,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("field `{label}` is required but is uninitialized")]
+struct MissingFieldError {
+    pub label: Cow<'static, str>,
+}
+
+impl MissingFieldError {
+    pub fn new(label: impl Into<Cow<'static, str>>) -> Self {
+        Self { label: label.into() }
     }
 }
 
-#[allow(unused)]
-type Example = (
-    (((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequestIdLayer), OfferLayer),
-    Finalizer,
-);
+impl<Program: Into<Cow<'static, [u8]>>> From<(Program, Vec<u8>)> for ExampleRequestParams {
+    fn from(value: (Program, Vec<u8>)) -> Self {
+        Self {
+            program: value.0.into(),
+            env: GuestEnv { stdin: value.1 },
+            program_url: None,
+            input: None,
+            cycles: None,
+            journal: None,
+            request_id: None,
+            offer: None,
+            requirements: None,
+        }
+    }
+}
+
+impl<S: StorageProvider> Adapt<StorageLayer<S>> for ExampleRequestParams
+where
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Output = Self;
+    type Error = anyhow::Error;
+
+    async fn process_with(self, layer: &StorageLayer<S>) -> Result<Self::Output, Self::Error> {
+        let (program_url, input) = layer.process((&self.program, &self.env)).await?;
+        Ok(Self { program_url: Some(program_url), input: Some(input), ..self })
+    }
+}
+
+impl Adapt<PreflightLayer> for ExampleRequestParams {
+    type Output = Self;
+    type Error = anyhow::Error;
+
+    async fn process_with(self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
+        let program_url = self.program_url.as_ref().ok_or(MissingFieldError::new("program_url"))?;
+        let input = self.input.as_ref().ok_or(MissingFieldError::new("input"))?;
+
+        let session_info = layer.process((program_url, input)).await?;
+        let cycles = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
+        let journal = session_info.journal;
+        Ok(Self { cycles: Some(cycles), journal: Some(journal), ..self })
+    }
+}
+
+impl Adapt<RequirementsLayer> for ExampleRequestParams {
+    type Output = Self;
+    type Error = anyhow::Error;
+
+    async fn process_with(self, layer: &RequirementsLayer) -> Result<Self::Output, Self::Error> {
+        let journal = self.journal.as_ref().ok_or(MissingFieldError::new("journal"))?;
+
+        let requirements = layer.process((&self.program, journal)).await?;
+        Ok(Self { requirements: Some(requirements), ..self })
+    }
+}
+
+impl Adapt<RequestIdLayer> for ExampleRequestParams {
+    type Output = Self;
+    type Error = anyhow::Error;
+
+    async fn process_with(self, layer: &RequestIdLayer) -> Result<Self::Output, Self::Error> {
+        let request_id = layer.process(()).await?;
+        Ok(Self { request_id: Some(request_id), ..self })
+    }
+}
+
+impl Adapt<OfferLayer> for ExampleRequestParams {
+    type Output = Self;
+    type Error = anyhow::Error;
+
+    async fn process_with(self, layer: &OfferLayer) -> Result<Self::Output, Self::Error> {
+        let program_url = self.program_url.as_ref().ok_or(MissingFieldError::new("program_url"))?;
+        let input = self.input.as_ref().ok_or(MissingFieldError::new("input"))?;
+        let cycles = self.cycles.ok_or(MissingFieldError::new("cycles"))?;
+        let request_id = self.request_id.as_ref().ok_or(MissingFieldError::new("request_id"))?;
+
+        let offer = layer.process((program_url, input, cycles, request_id)).await?;
+        Ok(Self { offer: Some(offer), ..self })
+    }
+}
+
+impl Adapt<Finalizer> for ExampleRequestParams {
+    type Output = ProofRequest;
+    type Error = anyhow::Error;
+
+    async fn process_with(self, layer: &Finalizer) -> Result<Self::Output, Self::Error> {
+        let program_url = self.program_url.ok_or(MissingFieldError::new("program_url"))?;
+        let input = self.input.ok_or(MissingFieldError::new("input"))?;
+        let requirements = self.requirements.ok_or(MissingFieldError::new("requirements"))?;
+        let offer = self.offer.ok_or(MissingFieldError::new("offer"))?;
+        let request_id = self.request_id.ok_or(MissingFieldError::new("request_id"))?;
+
+        layer.process((program_url, input, requirements, offer, request_id)).await
+    }
+}
 
 #[allow(dead_code)]
 trait AssertLayer<Input, Output>: Layer<Input, Output = Output> {}
 
 impl RequestBuilder for Example {
-    type Params = ProgramAndEnv;
+    type Params = ExampleRequestParams;
     type Error = anyhow::Error;
 
     async fn build(&self, params: impl Into<Self::Params>) -> Result<ProofRequest, Self::Error> {
@@ -273,11 +381,10 @@ impl RequestBuilder for Example {
     }
 }
 
-impl AssertLayer<ProgramAndEnv, ProofRequest> for Example {}
+//impl AssertLayer<(&[u8], &GuestEnv), ProofRequest> for Example {}
 
 #[allow(dead_code)]
-async fn example(example: Example, p: ProgramAndEnv) -> anyhow::Result<()> {
-    example.build(p).await?;
+async fn example(example: Example) -> anyhow::Result<()> {
     example.build((b"", vec![])).await?;
     Ok(())
 }
