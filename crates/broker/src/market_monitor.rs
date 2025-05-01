@@ -270,7 +270,7 @@ where
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, log)) => {
-                        tracing::info!(
+                        tracing::debug!(
                             "Detected request {:x} locked by {:x}",
                             event.requestId,
                             event.prover,
@@ -359,7 +359,7 @@ where
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, log)) => {
-                        tracing::info!("Detected request fulfilled {:x}", event.requestId);
+                        tracing::debug!("Detected request fulfilled {:x}", event.requestId);
                         if let Err(e) = db
                             .set_request_fulfilled(
                                 U256::from(event.requestId),

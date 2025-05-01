@@ -172,7 +172,7 @@ where
             .await
             .context("Failed to get request status")?;
         if order_status != RequestStatus::Unknown {
-            tracing::warn!("Request {} not open: {order_status:?}, skipping", request_id);
+            tracing::info!("Request {:x} not open: {order_status:?}, skipping", request_id);
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
             return Err(LockOrderErr::AlreadyLocked);
