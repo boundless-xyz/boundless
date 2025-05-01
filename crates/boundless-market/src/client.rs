@@ -225,6 +225,7 @@ impl<P: StorageProvider> ClientBuilder<P> {
 }
 
 #[derive(Clone)]
+#[non_exhaustive]
 /// Client for interacting with the boundless market.
 pub struct Client<P, S> {
     /// Boundless market service.

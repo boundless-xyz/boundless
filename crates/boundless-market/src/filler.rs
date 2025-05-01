@@ -17,12 +17,19 @@
 
 use std::{borrow::Cow, rc::Rc};
 
+use alloy::{
+    network::Ethereum,
+    providers::{DynProvider, Provider},
+};
 use anyhow::{bail, Context};
-use risc0_zkvm::{Executor, Journal, SessionInfo, compute_image_id, sha::Digestible};
+use risc0_zkvm::{compute_image_id, sha::Digestible, Executor, Journal, SessionInfo};
 use url::Url;
 
 use crate::{
-    contracts::{Input as RequestInput, InputType, Offer, ProofRequest, RequestId, Requirements, Predicate},
+    contracts::{
+        boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Offer,
+        Predicate, ProofRequest, RequestId, Requirements,
+    },
     input::GuestEnv,
     storage::{fetch_url, BuiltinStorageProvider, StorageProvider},
 };
@@ -198,20 +205,42 @@ impl Layer<(&[u8], &Journal)> for RequirementsLayer {
     type Output = Requirements;
     type Error = anyhow::Error;
 
-    async fn process(&self, (program, journal): (&[u8], &Journal)) -> Result<Self::Output, Self::Error> {
-        let image_id = compute_image_id(program).context("failed to compute image ID for program")?; 
+    async fn process(
+        &self,
+        (program, journal): (&[u8], &Journal),
+    ) -> Result<Self::Output, Self::Error> {
+        let image_id =
+            compute_image_id(program).context("failed to compute image ID for program")?;
         Ok(Requirements::new(image_id, Predicate::digest_match(journal.digest())))
     }
 }
 
-pub struct RequestIdLayer {}
+#[non_exhaustive]
+#[derive(Copy, Clone, Debug)]
+pub enum RequestIdLayerMode {
+    Rand,
+    Nonce,
+}
 
-impl Layer<()> for RequestIdLayer {
+#[non_exhaustive]
+pub struct RequestIdLayer<P> {
+    pub boundless_market: BoundlessMarketService<P>,
+    pub mode: RequestIdLayerMode,
+}
+
+impl<P> Layer<()> for RequestIdLayer<P>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
     type Output = RequestId;
     type Error = anyhow::Error;
 
-    async fn process(&self, _input: ()) -> anyhow::Result<Self::Output> {
-        todo!()
+    async fn process(&self, (): ()) -> anyhow::Result<Self::Output> {
+        let id_u256 = match self.mode {
+            RequestIdLayerMode::Nonce => self.boundless_market.request_id_from_nonce().await?,
+            RequestIdLayerMode::Rand => self.boundless_market.request_id_from_rand().await?,
+        };
+        Ok(id_u256.try_into().expect("generated request ID should always be valid"))
     }
 }
 
@@ -244,7 +273,13 @@ impl Layer<FinalizerInput> for Finalizer {
 
 #[allow(unused)]
 type Example = (
-    ((((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequirementsLayer), RequestIdLayer), OfferLayer),
+    (
+        (
+            ((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequirementsLayer),
+            RequestIdLayer<DynProvider>,
+        ),
+        OfferLayer,
+    ),
     Finalizer,
 );
 
@@ -329,11 +364,14 @@ impl Adapt<RequirementsLayer> for ExampleRequestParams {
     }
 }
 
-impl Adapt<RequestIdLayer> for ExampleRequestParams {
+impl<P> Adapt<RequestIdLayer<P>> for ExampleRequestParams
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
     type Output = Self;
     type Error = anyhow::Error;
 
-    async fn process_with(self, layer: &RequestIdLayer) -> Result<Self::Output, Self::Error> {
+    async fn process_with(self, layer: &RequestIdLayer<P>) -> Result<Self::Output, Self::Error> {
         let request_id = layer.process(()).await?;
         Ok(Self { request_id: Some(request_id), ..self })
     }
