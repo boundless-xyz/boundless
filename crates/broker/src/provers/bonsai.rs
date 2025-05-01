@@ -222,6 +222,16 @@ impl Prover for Bonsai {
     }
 
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
+        if retry::<bool, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { Ok(self.client.has_img(image_id).await?) },
+            "has image",
+        )
+        .await?
+        {
+            return Ok(());
+        }
         retry::<(), ProverError, _, _>(
             self.req_retry_count,
             self.req_retry_sleep_ms,
