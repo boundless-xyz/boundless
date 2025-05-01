@@ -46,7 +46,6 @@ impl AggregatorService {
         config: ConfigLock,
         prover: ProverObj,
     ) -> Result<Self> {
-
         Ok(Self {
             db,
             config,
@@ -585,13 +584,15 @@ mod tests {
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn());
         let chain_id = provider.get_chain_id().await.unwrap();
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             chain_id,
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -744,13 +745,15 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn());
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -916,13 +919,15 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -1028,13 +1033,15 @@ mod tests {
 
         let _handle = tokio::spawn(chain_monitor.spawn());
 
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             signer.address(),
             config.clone(),
@@ -1148,13 +1155,15 @@ mod tests {
 
         let _handle = tokio::spawn(chain_monitor.spawn());
 
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             signer.address(),
             config.clone(),
