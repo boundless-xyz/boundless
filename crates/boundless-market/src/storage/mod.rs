@@ -21,11 +21,11 @@ use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
 use reqwest::Url;
 
+mod fetch;
 mod file;
 mod mock;
 mod pinata;
 mod s3;
-mod fetch;
 
 pub use fetch::fetch_url;
 pub use file::{TempFileStorageProvider, TempFileStorageProviderError};

@@ -14,8 +14,8 @@
 
 //! An implementation of URL fetching that supports the common URL types seen on Boundless.
 
-use url::Url;
 use anyhow::bail;
+use url::Url;
 
 /// Fetches the content of a URL.
 /// Supported URL schemes are `http`, `https`, and `file`.
@@ -46,4 +46,3 @@ async fn fetch_file(url: &Url) -> anyhow::Result<Vec<u8>> {
     let data = tokio::fs::read(path).await?;
     Ok(data)
 }
-
