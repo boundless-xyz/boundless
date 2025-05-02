@@ -578,6 +578,9 @@ export = () => {
   // Typically this is due to proving/aggregating/submitting taking longer than expected.
   createErrorCodeAlarm('"[B-SUB-001]"', 'submitter-request-expired-before-submission', Severity.SEV2);
 
+  // Any 1 request expired before submission triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2);
+
   // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV2);
 
