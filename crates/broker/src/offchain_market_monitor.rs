@@ -3,14 +3,30 @@
 // All rights reserved.
 
 use alloy::signers::{local::PrivateKeySigner, Signer};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use boundless_market::order_stream_client::{order_stream, Client as OrderStreamClient};
 use futures_util::StreamExt;
 
 use crate::{
+    errors::CodedError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, FulfillmentType, Order,
 };
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum OffchainMarketMonitorErr {
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
+}
+
+impl CodedError for OffchainMarketMonitorErr {
+    fn code(&self) -> &str {
+        match self {
+            OffchainMarketMonitorErr::UnexpectedErr(_) => "[B-OMM-500]",
+        }
+    }
+}
 
 pub struct OffchainMarketMonitor {
     db: DbObj,
@@ -27,10 +43,10 @@ impl OffchainMarketMonitor {
         client: OrderStreamClient,
         signer: &impl Signer,
         db: DbObj,
-    ) -> Result<(), SupervisorErr> {
-        // TODO: retry until it can reestablish a connection.
+    ) -> Result<(), OffchainMarketMonitorErr> {
         tracing::debug!("Connecting to off-chain market: {}", client.base_url);
-        let socket = client.connect_async(signer).await.map_err(SupervisorErr::Recover)?;
+        let socket =
+            client.connect_async(signer).await.context("Failed to connect to offchain market")?;
 
         let stream = order_stream(socket);
         tracing::info!("Subscribed to offchain Order stream");
@@ -53,7 +69,10 @@ impl OffchainMarketMonitor {
                             ))
                             .await
                         {
-                            tracing::error!("Failed to add new order into DB: {err:?}");
+                            tracing::error!(
+                                "{} Failed to add new order into DB: {err:?}",
+                                err.code()
+                            );
                         }
                     }
                     Err(err) => {
@@ -63,21 +82,22 @@ impl OffchainMarketMonitor {
             })
             .await;
 
-        Err(SupervisorErr::Recover(anyhow::anyhow!(
+        Err(OffchainMarketMonitorErr::UnexpectedErr(anyhow::anyhow!(
             "offchain Order stream polling exited, polling failed"
         )))
     }
 }
 
 impl RetryTask for OffchainMarketMonitor {
-    fn spawn(&self) -> RetryRes {
+    type Error = OffchainMarketMonitorErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let db = self.db.clone();
         let client = self.client.clone();
         let signer = self.signer.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up offchain market monitor");
-            Self::monitor_orders(client, &signer, db).await?;
+            Self::monitor_orders(client, &signer, db).await.map_err(SupervisorErr::Recover)?;
             Ok(())
         })
     }
