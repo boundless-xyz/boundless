@@ -22,6 +22,7 @@ use clap::Parser;
 pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
+use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
@@ -420,10 +421,8 @@ where
                 .await
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading assessor image from: {image_uri}");
-            let image_data =
-                image_uri.fetch().await.context("Failed to download assessor image")?;
 
-            image_data
+            image_uri.fetch().await.context("Failed to download assessor image")?
         };
 
         prover
