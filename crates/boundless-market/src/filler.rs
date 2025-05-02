@@ -20,6 +20,7 @@ use std::{borrow::Cow, convert::Infallible, rc::Rc};
 use alloy::{
     network::Ethereum,
     providers::{DynProvider, Provider},
+    primitives::U256,
 };
 use anyhow::{bail, Context};
 use risc0_zkvm::{compute_image_id, sha::Digestible, Executor, Journal, SessionInfo};
@@ -244,16 +245,39 @@ where
     }
 }
 
-pub struct OfferLayer {}
+#[non_exhaustive]
+pub struct OfferLayer<P> {
+    pub provider: P,
+    // default: 0 ETH
+    pub min_price_per_mcycle: U256,
+    // default: 0.0001 ETH
+    pub max_price_per_mcycle: U256,
+    // default: 15 seconds
+    pub bidding_start_delay: u64,
+    // default: 120 seconds
+    pub ramp_up_period: u64,
+    // default: 600 seconds
+    pub lock_timeout: u64,
+    // default: 200_000
+    pub lock_gas_estimate: u64,
+    // default: 750_000
+    pub fulfill_gas_estimate: u64,
+    // default: 250_000
+    pub groth16_verify_gas_estimate: u64,
+}
 
-impl Layer<(&Url, &RequestInput, u64, &RequestId)> for OfferLayer {
+impl<P> Layer<(&Requirements, &RequestId, u64)> for OfferLayer<P>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
     type Output = Offer;
     type Error = anyhow::Error;
 
     async fn process(
         &self,
-        _input: (&Url, &RequestInput, u64, &RequestId),
+        (_requirements, _request_id, cycle_count): (&Requirements, &RequestId, u64),
     ) -> anyhow::Result<Self::Output> {
+        let _min_price = self.min_price_per_mcycle * U256::from(cycle_count);
         todo!()
     }
 }
@@ -287,7 +311,7 @@ type Example = (
             ((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequirementsLayer),
             RequestIdLayer<DynProvider>,
         ),
-        OfferLayer,
+        OfferLayer<DynProvider>,
     ),
     Finalizer,
 );
@@ -341,6 +365,12 @@ where
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &StorageLayer<S>) -> Result<Self::Output, Self::Error> {
+        // If program_url and input fields are already set, do nothing.
+        // DO NOT MERGE: What if only one is set?
+        if self.program_url.is_some() && self.input.is_some() {
+            return Ok(self);
+        }
+
         let (program_url, input) = layer.process((&self.program, &self.env)).await?;
         Ok(Self { program_url: Some(program_url), input: Some(input), ..self })
     }
@@ -351,6 +381,12 @@ impl Adapt<PreflightLayer> for ExampleRequestParams {
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
+        // If cycles and journal are already set, do nothing.
+        // DO NOT MERGE: What if only one is set?
+        if self.cycles.is_some() && self.journal.is_some() {
+            return Ok(self);
+        }
+
         let program_url = self.program_url.as_ref().ok_or(MissingFieldError::new("program_url"))?;
         let input = self.input.as_ref().ok_or(MissingFieldError::new("input"))?;
 
@@ -366,6 +402,11 @@ impl Adapt<RequirementsLayer> for ExampleRequestParams {
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &RequirementsLayer) -> Result<Self::Output, Self::Error> {
+        // If the requirements field is already set, do nothing.
+        if self.requirements.is_some() {
+            return Ok(self);
+        }
+
         let journal = self.journal.as_ref().ok_or(MissingFieldError::new("journal"))?;
 
         let requirements = layer.process((&self.program, journal)).await?;
@@ -381,22 +422,34 @@ where
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &RequestIdLayer<P>) -> Result<Self::Output, Self::Error> {
+        // If the request_id field is already populated, do nothing.
+        if self.request_id.is_some() {
+            return Ok(self);
+        }
+
         let request_id = layer.process(()).await?;
         Ok(Self { request_id: Some(request_id), ..self })
     }
 }
 
-impl Adapt<OfferLayer> for ExampleRequestParams {
+impl<P> Adapt<OfferLayer<P>> for ExampleRequestParams
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    {
     type Output = Self;
     type Error = anyhow::Error;
 
-    async fn process_with(self, layer: &OfferLayer) -> Result<Self::Output, Self::Error> {
-        let program_url = self.program_url.as_ref().ok_or(MissingFieldError::new("program_url"))?;
-        let input = self.input.as_ref().ok_or(MissingFieldError::new("input"))?;
-        let cycles = self.cycles.ok_or(MissingFieldError::new("cycles"))?;
-        let request_id = self.request_id.as_ref().ok_or(MissingFieldError::new("request_id"))?;
+    async fn process_with(self, layer: &OfferLayer<P>) -> Result<Self::Output, Self::Error> {
+        // If the offer field is already populated, do nothing.
+        if self.offer.is_some() {
+            return Ok(self);
+        }
 
-        let offer = layer.process((program_url, input, cycles, request_id)).await?;
+        let requirements = self.requirements.as_ref().ok_or(MissingFieldError::new("requirements"))?;
+        let request_id = self.request_id.as_ref().ok_or(MissingFieldError::new("request_id"))?;
+        let cycles = self.cycles.ok_or(MissingFieldError::new("cycles"))?;
+
+        let offer = layer.process((requirements, request_id, cycles)).await?;
         Ok(Self { offer: Some(offer), ..self })
     }
 }
