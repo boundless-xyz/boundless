@@ -40,9 +40,17 @@ export class Vpc extends pulumi.ComponentResource {
     const cidrLayers = args.cidrBlock.split('.');
     const baseCidr = `${cidrLayers[0]}.${cidrLayers[1]}`;
 
+    let publicSubnetCidrBlocks: string[] = [`${baseCidr}.0.0/19`, `${baseCidr}.64.0/19`, `${baseCidr}.128.0/19`, `${baseCidr}.192.0/19`];
+    let privateSubnetCidrBlocks: string[] = [`${baseCidr}.32.0/19`, `${baseCidr}.96.0/19`, `${baseCidr}.160.0/19`, `${baseCidr}.224.0/19`];
+    if (args.availabilityZones.length === 1) {
+      // For single AZ, which we use in dev mode, use larger blocks that cover the entire VPC range
+      publicSubnetCidrBlocks = [`${baseCidr}.0.0/17`];
+      privateSubnetCidrBlocks = [`${baseCidr}.128.0/17`];
+    }
+
     /// Build the VPC
     this.vpcx = new awsx.ec2.Vpc(
-      'base-vpc',
+      name,
       {
         cidrBlock: args.cidrBlock,
         availabilityZoneNames: args.availabilityZones,
@@ -52,7 +60,7 @@ export class Vpc extends pulumi.ComponentResource {
         enableDnsHostnames: true,
         subnetStrategy: 'Exact',
         tags: {
-          Name: 'base-vpc',
+          Name: name,
         },
         // The index in every column represents a single subnet
         // this is because cidrBlocks must follow this order:
@@ -61,11 +69,11 @@ export class Vpc extends pulumi.ComponentResource {
         subnetSpecs: [
           {
             type: 'Public',
-            cidrBlocks: [`${baseCidr}.0.0/19`, `${baseCidr}.64.0/19`, `${baseCidr}.128.0/19`, `${baseCidr}.192.0/19`],
+            cidrBlocks: publicSubnetCidrBlocks,
           },
           {
             type: 'Private',
-            cidrBlocks: [`${baseCidr}.32.0/19`, `${baseCidr}.96.0/19`, `${baseCidr}.160.0/19`, `${baseCidr}.224.0/19`],
+            cidrBlocks: privateSubnetCidrBlocks,
           },
         ],
       },

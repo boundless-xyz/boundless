@@ -1,13 +1,21 @@
 # Onboarding for development deployments
 
-This is a one time setup that enables you to deploy applications to a development AWS accout for testing.
-This bootstraps the account with your personal VPC.
+This is a one time setup that enables you to deploy applications to a development AWS account for testing.
+
+This bootstraps the development account with your personal VPC. Then when you deploy other services, they will use this VPC.
 
 1. `cd infra/bootstrap`
 2. `export DEV_NAME="<your name>"`
 3. `pulumi login --local`
 4. `pulumi stack init services-dev`
-5. `pulumi up`
+5. `pulumi install`
+6. `pulumi up`
+
+Now deploy the sample project to check everything is working:
+
+1. `cd infra/sample`
+2. `pulumi login --local && pulumi stack init dev`
+3. `pulumi up`
 
 # Creating a new project
 
