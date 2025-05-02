@@ -10,6 +10,7 @@ It is only deployed to the dev account, so there is only one stack: `Pulumi.dev.
 2. Add the key to your ssh agent: `ssh-add ~/.ssh/id_ed25519_dev_docker_builder`
 
 ### On each use
+1. Login as developer admin using aws-vault or similar
 1. Run `./configure_builder.sh`
 2. Now when you run `pulumi up` the docker builds will run remotely.
 

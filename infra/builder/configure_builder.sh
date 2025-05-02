@@ -1,6 +1,27 @@
 #!/bin/bash
 set -euo pipefail
 
+INSTANCE_ID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=builder-local" \
+  --query "Reservations[*].Instances[*].InstanceId" \
+  --output text)
+
+if [ -n "$INSTANCE_ID" ]; then
+    INSTANCE_STATE=$(aws ec2 describe-instances \
+      --instance-ids $INSTANCE_ID \
+      --query "Reservations[*].Instances[*].State.Name" \
+      --output text)
+
+    if [ "$INSTANCE_STATE" != "running" ]; then
+        aws ec2 start-instances --instance-ids $INSTANCE_ID
+        echo "Instance $INSTANCE_ID has been started."
+    else
+        echo "Instance $INSTANCE_ID is already running."
+    fi
+else
+    echo "No instance found with the tag name 'builder-local'."
+fi
+
 # Step 1: Get the EC2 instance DNS name
 echo "Fetching EC2 instance DNS..."
 INSTANCE_DNS=$(aws ec2 describe-instances \
