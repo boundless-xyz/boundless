@@ -59,7 +59,7 @@ pub enum ProverError {
     StatusFailure,
 
     #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    UnexpectedError(#[from] anyhow::Error),
 }
 
 impl_coded_debug!(ProverError);
@@ -67,14 +67,14 @@ impl_coded_debug!(ProverError);
 impl CodedError for ProverError {
     fn code(&self) -> &str {
         match self {
-            ProverError::BonsaiErr(_) => "[B-PROV-001]",
-            ProverError::ConfigReadErr(_) => "[B-PROV-002]",
-            ProverError::NotFound(_) => "[B-PROV-003]",
-            ProverError::MissingStatus => "[B-PROV-004]",
-            ProverError::ProvingFailed(_) => "[B-PROV-005]",
-            ProverError::BincodeErr(_) => "[B-PROV-006]",
-            ProverError::StatusFailure => "[B-PROV-007]",
-            ProverError::Other(_) => "[B-PROV-500]",
+            ProverError::BonsaiErr(_) => "[B-BON-001]",
+            ProverError::ConfigReadErr(_) => "[B-BON-002]",
+            ProverError::NotFound(_) => "[B-BON-003]",
+            ProverError::MissingStatus => "[B-BON-004]",
+            ProverError::ProvingFailed(_) => "[B-BON-005]",
+            ProverError::BincodeErr(_) => "[B-BON-006]",
+            ProverError::StatusFailure => "[B-BON-007]",
+            ProverError::UnexpectedError(_) => "[B-BON-500]",
         }
     }
 }
