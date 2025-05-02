@@ -9,16 +9,19 @@ use futures_util::StreamExt;
 
 use crate::{
     errors::CodedError,
+    impl_coded_debug,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, FulfillmentType, Order,
 };
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum OffchainMarketMonitorErr {
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
+
+impl_coded_debug!(OffchainMarketMonitorErr);
 
 impl CodedError for OffchainMarketMonitorErr {
     fn code(&self) -> &str {

@@ -30,9 +30,12 @@ pub struct ExecutorResp {
     pub assumption_count: u64,
 }
 
-use crate::config::ConfigErr;
+use crate::{
+    config::ConfigErr,
+    errors::{impl_coded_debug, CodedError},
+};
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ProverError {
     #[error("Bonsai proving error")]
     BonsaiErr(#[from] SdkErr),
@@ -56,7 +59,24 @@ pub enum ProverError {
     StatusFailure,
 
     #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl_coded_debug!(ProverError);
+
+impl CodedError for ProverError {
+    fn code(&self) -> &str {
+        match self {
+            ProverError::BonsaiErr(_) => "[B-BON-001]",
+            ProverError::ConfigReadErr(_) => "[B-BON-002]",
+            ProverError::NotFound(_) => "[B-BON-003]",
+            ProverError::MissingStatus => "[B-BON-004]",
+            ProverError::ProvingFailed(_) => "[B-BON-005]",
+            ProverError::BincodeErr(_) => "[B-BON-006]",
+            ProverError::StatusFailure => "[B-BON-007]",
+            ProverError::UnexpectedError(_) => "[B-BON-500]",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]

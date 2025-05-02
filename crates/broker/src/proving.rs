@@ -7,6 +7,7 @@ use crate::{
     db::DbObj,
     errors::CodedError,
     futures_retry::retry,
+    impl_coded_debug,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Order, OrderStatus,
@@ -14,11 +15,13 @@ use crate::{
 use anyhow::{Context, Result};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ProvingErr {
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
+
+impl_coded_debug!(ProvingErr);
 
 impl CodedError for ProvingErr {
     fn code(&self) -> &str {

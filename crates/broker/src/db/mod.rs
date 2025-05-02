@@ -14,15 +14,15 @@ use sqlx::{
 use thiserror::Error;
 
 use crate::{
-    errors::CodedError, AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderStatus,
-    ProofRequest,
+    errors::{impl_coded_debug, CodedError},
+    AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderStatus, ProofRequest,
 };
 use tracing::instrument;
 
 #[cfg(test)]
 mod fuzz_db;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum DbError {
     #[error("{code} Order key {0} not found in DB", code = self.code())]
     OrderNotFound(String),
@@ -70,6 +70,8 @@ pub enum DbError {
     #[error("{code} Invalid max connection env var value", code = self.code())]
     MaxConnEnvVar(#[from] std::num::ParseIntError),
 }
+
+impl_coded_debug!(DbError);
 
 impl CodedError for DbError {
     fn code(&self) -> &str {
@@ -1580,7 +1582,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[should_panic(expected = "OrderNotFound(\"10\")")]
+    #[should_panic(expected = "Order key 10 not found")]
     async fn set_order_lock_fail(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let order = create_order();
@@ -1606,7 +1608,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[should_panic(expected = "OrderNotFound(\"10\")")]
+    #[should_panic(expected = "Order key 10 not found")]
     async fn set_order_fulfill_after_lock_expire_fail(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let order = create_order();

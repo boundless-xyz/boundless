@@ -7,7 +7,7 @@ use crate::{
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
-    now_timestamp,
+    impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
     FulfillmentType, Order, OrderStatus,
 };
@@ -27,7 +27,7 @@ use thiserror::Error;
 /// Hard limit on the number of orders to concurrently kick off proving work for.
 const MAX_PROVING_BATCH_SIZE: u32 = 10;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum OrderMonitorErr {
     #[error("{code} Failed to lock order: {0}", code = self.code())]
     LockTxFailed(String),
@@ -44,6 +44,8 @@ pub enum OrderMonitorErr {
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
+
+impl_coded_debug!(OrderMonitorErr);
 
 impl CodedError for OrderMonitorErr {
     fn code(&self) -> &str {
