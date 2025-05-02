@@ -615,8 +615,8 @@ impl Adapt<PreflightLayer> for ExampleRequestParams {
             return Ok(self);
         }
 
-        let program_url = self.program_url.as_ref().ok_or(MissingFieldError::new("program_url"))?;
-        let input = self.input.as_ref().ok_or(MissingFieldError::new("input"))?;
+        let program_url = self.require_program_url()?;
+        let input = self.require_input()?;
 
         let session_info = layer.process((program_url, input)).await?;
         let cycles = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
@@ -635,7 +635,7 @@ impl Adapt<RequirementsLayer> for ExampleRequestParams {
             return Ok(self);
         }
 
-        let journal = self.journal.as_ref().ok_or(MissingFieldError::new("journal"))?;
+        let journal = self.require_journal()?;
 
         let requirements = layer.process((&self.program, journal)).await?;
         Ok(Self { requirements: Some(requirements), ..self })
@@ -673,10 +673,9 @@ where
             return Ok(self);
         }
 
-        let requirements =
-            self.requirements.as_ref().ok_or(MissingFieldError::new("requirements"))?;
-        let request_id = self.request_id.as_ref().ok_or(MissingFieldError::new("request_id"))?;
-        let cycles = self.cycles.ok_or(MissingFieldError::new("cycles"))?;
+        let requirements = self.require_requirements()?;
+        let request_id = self.require_request_id()?;
+        let cycles = self.require_cycles()?;
 
         let offer = layer.process((requirements, request_id, cycles)).await?;
         Ok(Self { offer: Some(offer), ..self })
@@ -688,11 +687,12 @@ impl Adapt<Finalizer> for ExampleRequestParams {
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &Finalizer) -> Result<Self::Output, Self::Error> {
-        let program_url = self.program_url.ok_or(MissingFieldError::new("program_url"))?;
-        let input = self.input.ok_or(MissingFieldError::new("input"))?;
-        let requirements = self.requirements.ok_or(MissingFieldError::new("requirements"))?;
-        let offer = self.offer.ok_or(MissingFieldError::new("offer"))?;
-        let request_id = self.request_id.ok_or(MissingFieldError::new("request_id"))?;
+        // We create local variables to hold owned values
+        let program_url = self.require_program_url()?.clone();
+        let input = self.require_input()?.clone();
+        let requirements = self.require_requirements()?.clone();
+        let offer = self.require_offer()?.clone();
+        let request_id = self.require_request_id()?.clone();
 
         layer
             .process((program_url, input, requirements, offer, request_id))
