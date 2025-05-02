@@ -6,7 +6,7 @@ This bootstraps the account with your personal VPC.
 1. `cd infra/bootstrap`
 2. `export DEV_NAME="<your name>"`
 3. `pulumi login --local`
-4. `pulumi stack select staging-dev`
+4. `pulumi stack init services-dev`
 5. `pulumi up`
 
 # Creating a new project
