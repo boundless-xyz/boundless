@@ -1582,7 +1582,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[should_panic(expected = "OrderNotFound(\"10\")")]
+    #[should_panic(expected = "Order key 10 not found")]
     async fn set_order_lock_fail(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let order = create_order();
@@ -1608,7 +1608,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[should_panic(expected = "OrderNotFound(\"10\")")]
+    #[should_panic(expected = "Order key 10 not found")]
     async fn set_order_fulfill_after_lock_expire_fail(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let order = create_order();
