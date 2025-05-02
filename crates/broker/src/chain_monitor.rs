@@ -14,7 +14,9 @@ use anyhow::{Context, Result};
 use thiserror::Error;
 
 use crate::{
-    errors::CodedError, impl_coded_debug, task::{RetryRes, RetryTask, SupervisorErr}
+    errors::CodedError,
+    impl_coded_debug,
+    task::{RetryRes, RetryTask, SupervisorErr},
 };
 
 #[derive(Error)]

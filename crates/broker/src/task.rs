@@ -145,8 +145,8 @@ where
                                 // Check if we've exceeded max retries
                                 if let Some(max) = max_retries {
                                     if retry_count >= max {
-                                        // We manually log the fault code rather than rendering the recover supervisor_err
-                                        // so that we indicate we are now in a hard fault state after exhausting retries.
+                                        // We manually log the fault code rather than rendering the SupervisorErr::Recover
+                                        // code so that we indicate we are now in a hard fault state after exhausting retries.
                                         tracing::error!(
                                             "{} Exceeded maximum retries ({max}) for task",
                                             FAULT_CODE
