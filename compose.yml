@@ -106,6 +106,7 @@ services:
     cpus: 4
 
     environment:
+      <<: *base-environment
       RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
       # JOIN_STREAM: 1
       # COPROC_STREAM: 1
