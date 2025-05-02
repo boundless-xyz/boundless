@@ -485,9 +485,79 @@ impl ExampleRequestParams {
         }
     }
 
+    pub fn require_program_url(&self) -> Result<&Url, MissingFieldError> {
+        self.program_url.as_ref().ok_or(MissingFieldError::new("program_url"))
+    }
+
     pub fn with_program_url(self, value: impl Into<Url>) -> Self {
         Self {
             program_url: Some(value.into()),
+            ..self
+        }
+    }
+
+    pub fn require_input(&self) -> Result<&RequestInput, MissingFieldError> {
+        self.input.as_ref().ok_or(MissingFieldError::new("input"))
+    }
+
+    pub fn with_input(self, value: impl Into<RequestInput>) -> Self {
+        Self {
+            input: Some(value.into()),
+            ..self
+        }
+    }
+
+    pub fn require_cycles(&self) -> Result<u64, MissingFieldError> {
+        self.cycles.ok_or(MissingFieldError::new("cycles"))
+    }
+
+    pub fn with_cycles(self, value: u64) -> Self {
+        Self {
+            cycles: Some(value),
+            ..self
+        }
+    }
+
+    pub fn require_journal(&self) -> Result<&Journal, MissingFieldError> {
+        self.journal.as_ref().ok_or(MissingFieldError::new("journal"))
+    }
+
+    pub fn with_journal(self, value: impl Into<Journal>) -> Self {
+        Self {
+            journal: Some(value.into()),
+            ..self
+        }
+    }
+
+    pub fn require_request_id(&self) -> Result<&RequestId, MissingFieldError> {
+        self.request_id.as_ref().ok_or(MissingFieldError::new("request_id"))
+    }
+
+    pub fn with_request_id(self, value: impl Into<RequestId>) -> Self {
+        Self {
+            request_id: Some(value.into()),
+            ..self
+        }
+    }
+
+    pub fn require_offer(&self) -> Result<&Offer, MissingFieldError> {
+        self.offer.as_ref().ok_or(MissingFieldError::new("offer"))
+    }
+
+    pub fn with_offer(self, value: impl Into<Offer>) -> Self {
+        Self {
+            offer: Some(value.into()),
+            ..self
+        }
+    }
+
+    pub fn require_requirements(&self) -> Result<&Requirements, MissingFieldError> {
+        self.requirements.as_ref().ok_or(MissingFieldError::new("requirements"))
+    }
+
+    pub fn with_requirements(self, value: impl Into<Requirements>) -> Self {
+        Self {
+            requirements: Some(value.into()),
             ..self
         }
     }
@@ -505,7 +575,7 @@ where
 
 #[derive(thiserror::Error, Debug)]
 #[error("field `{label}` is required but is uninitialized")]
-struct MissingFieldError {
+pub struct MissingFieldError {
     pub label: Cow<'static, str>,
 }
 
