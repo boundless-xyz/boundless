@@ -2,8 +2,9 @@
 //
 // All rights reserved.
 
-use crate::config::ConfigLock;
+use crate::{config::ConfigLock, errors::CodedError};
 use alloy::primitives::bytes::Buf;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use aws_config::retry::RetryConfig;
 use aws_sdk_s3::{
@@ -28,26 +29,35 @@ const ENV_VAR_ROLE_ARN: &str = "AWS_ROLE_ARN";
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum StorageErr {
-    #[error("unsupported URI scheme: {0}")]
+    #[error("{code} unsupported URI scheme: {0}", code = self.code())]
     UnsupportedScheme(String),
 
-    #[error("failed to parse URL")]
+    #[error("{code} failed to parse URL", code = self.code())]
     UriParse(#[from] url::ParseError),
 
-    #[error("invalid URL: {0}")]
+    #[error("{code} invalid URL: {0}", code = self.code())]
     InvalidURL(&'static str),
 
-    #[error("resource size exceeds maximum allowed size ({0} bytes)")]
+    #[error("{code} resource size exceeds maximum allowed size ({0} bytes)", code = self.code())]
     SizeLimitExceeded(usize),
 
-    #[error("file error")]
+    #[error("{code} file error", code = self.code())]
     File(#[from] std::io::Error),
 
-    #[error("HTTP error")]
+    #[error("{code} HTTP error", code = self.code())]
     Http(#[source] Box<dyn StdError + Send + Sync + 'static>),
 
-    #[error("AWS S3 error")]
+    #[error("{code} AWS S3 error", code = self.code())]
     S3(#[source] Box<dyn StdError + Send + Sync + 'static>),
+}
+
+impl CodedError for StorageErr {
+    fn code(&self) -> &str {
+        match self {
+            StorageErr::Http(_) => "[B-STR-002]",
+            _ => "[B-STR-500]",
+        }
+    }
 }
 
 pub(crate) async fn create_uri_handler(
@@ -314,6 +324,73 @@ impl Handler for S3Handler {
 
         Ok(buffer)
     }
+}
+
+pub async fn upload_image_uri(
+    prover: &crate::provers::ProverObj,
+    order: &crate::Order,
+    config: &crate::config::ConfigLock,
+) -> Result<String> {
+    let uri =
+        create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
+
+    let image_data = uri
+        .fetch()
+        .await
+        .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
+    let image_id =
+        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
+
+    let required_image_id = risc0_zkvm::sha::Digest::from(order.request.requirements.imageId.0);
+    anyhow::ensure!(
+        image_id == required_image_id,
+        "image ID does not match requirements; expect {}, got {}",
+        required_image_id,
+        image_id
+    );
+    let image_id = image_id.to_string();
+
+    prover.upload_image(&image_id, image_data).await.context("Failed to upload image to prover")?;
+
+    Ok(image_id)
+}
+
+pub async fn upload_input_uri(
+    prover: &crate::provers::ProverObj,
+    order: &crate::Order,
+    config: &crate::config::ConfigLock,
+) -> Result<String> {
+    Ok(match order.request.input.inputType {
+        boundless_market::contracts::InputType::Inline => prover
+            .upload_input(
+                boundless_market::input::GuestEnv::decode(&order.request.input.data)
+                    .with_context(|| "Failed to decode input")?
+                    .stdin,
+            )
+            .await
+            .context("Failed to upload input data")?,
+
+        boundless_market::contracts::InputType::Url => {
+            let input_uri_str =
+                std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
+            tracing::debug!("Input URI string: {input_uri_str}");
+            let input_uri =
+                create_uri_handler(input_uri_str, config).await.context("URL handling failed")?;
+
+            let input_data = boundless_market::input::GuestEnv::decode(
+                &input_uri
+                    .fetch()
+                    .await
+                    .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
+            )
+            .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
+            .stdin;
+
+            prover.upload_input(input_data).await.context("Failed to upload input")?
+        }
+        //???
+        _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
+    })
 }
 
 #[cfg(test)]

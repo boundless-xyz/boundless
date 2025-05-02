@@ -26,3 +26,10 @@ export const getServiceNameV1 = (stackName: string, name: string, chainId?: Chai
   }
   return serviceName;
 };
+
+// Severity levels for alarms. The strings here are detected in PageDuty and used to
+// create the severity of the PagerDuty incident.
+export enum Severity {
+  SEV1 = 'SEV1',
+  SEV2 = 'SEV2',
+}
