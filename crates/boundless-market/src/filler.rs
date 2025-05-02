@@ -684,9 +684,6 @@ impl Adapt<Finalizer> for ExampleRequestParams {
     }
 }
 
-#[allow(dead_code)]
-trait AssertLayer<Input, Output>: Layer<Input, Output = Output> {}
-
 impl RequestBuilder for Example {
     type Params = ExampleRequestParams;
     type Error = anyhow::Error;
@@ -695,8 +692,6 @@ impl RequestBuilder for Example {
         self.process(params.into()).await
     }
 }
-
-//impl AssertLayer<(&[u8], &GuestEnv), ProofRequest> for Example {}
 
 #[allow(dead_code)]
 async fn example(example: Example) -> anyhow::Result<()> {
