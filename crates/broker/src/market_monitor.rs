@@ -26,11 +26,27 @@ use futures_util::StreamExt;
 use crate::{
     chain_monitor::ChainMonitorService,
     db::DbError,
+    errors::CodedError,
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, FulfillmentType, Order,
 };
+use thiserror::Error;
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
+
+#[derive(Error, Debug)]
+pub enum MarketMonitorErr {
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
+}
+
+impl CodedError for MarketMonitorErr {
+    fn code(&self) -> &str {
+        match self {
+            MarketMonitorErr::UnexpectedErr(_) => "[B-MM-500]",
+        }
+    }
+}
 
 pub struct MarketMonitor<P> {
     lookback_blocks: u64,
@@ -105,9 +121,9 @@ where
         provider: Arc<P>,
         db: DbObj,
         chain_monitor: Arc<ChainMonitorService<P>>,
-    ) -> Result<u64> {
+    ) -> Result<u64, MarketMonitorErr> {
         let current_block = chain_monitor.current_block_number().await?;
-        let chain_id = provider.get_chain_id().await?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
 
         let start_block = current_block.saturating_sub(lookback_blocks);
 
@@ -129,7 +145,7 @@ where
         // TODO: This could probably be cleaned up but the alloy examples
         // don't have a lot of clean log decoding samples, and the Event::query()
         // interface would randomly fail for me?
-        let logs = provider.get_logs(&filter).await?;
+        let logs = provider.get_logs(&filter).await.context("Failed to get logs")?;
         let decoded_logs = logs.iter().filter_map(|log| {
             match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {
                 Ok(res) => Some(res),
@@ -148,7 +164,8 @@ where
             let tx_hash = log.transaction_hash.context("Missing transaction hash")?;
             let tx_data = provider
                 .get_transaction_by_hash(tx_hash)
-                .await?
+                .await
+                .context("Failed to get transaction by hash")?
                 .context("Missing transaction data")?;
             let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
                 .context("Failed to decode calldata")?;
@@ -214,15 +231,24 @@ where
         Ok(order_count)
     }
 
-    async fn monitor_orders(market_addr: Address, provider: Arc<P>, db: DbObj) -> Result<()> {
-        let chain_id = provider.get_chain_id().await?;
+    async fn monitor_orders(
+        market_addr: Address,
+        provider: Arc<P>,
+        db: DbObj,
+    ) -> Result<(), MarketMonitorErr> {
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
 
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
         // TODO: RPC providers can drop filters over time or flush them
         // we should try and move this to a subscription filter if we have issue with the RPC
         // dropping filters
 
-        let event = market.instance().RequestSubmitted_filter().watch().await?;
+        let event = market
+            .instance()
+            .RequestSubmitted_filter()
+            .watch()
+            .await
+            .context("Failed to subscribe to RequestSubmitted event")?;
         tracing::info!("Subscribed to RequestSubmitted event");
         event
             .into_stream()
@@ -249,7 +275,9 @@ where
             })
             .await;
 
-        anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
+        Err(MarketMonitorErr::UnexpectedErr(anyhow::anyhow!(
+            "Event polling exited, polling failed (possible RPC error)"
+        )))
     }
 
     /// Monitors the RequestLocked events and updates the database accordingly.
@@ -259,10 +287,15 @@ where
         provider: Arc<P>,
         db: DbObj,
         order_stream: Option<OrderStreamClient>,
-    ) -> Result<()> {
+    ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
-        let chain_id = provider.get_chain_id().await?;
-        let event = market.instance().RequestLocked_filter().watch().await?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
+        let event = market
+            .instance()
+            .RequestLocked_filter()
+            .watch()
+            .await
+            .context("Failed to subscribe to RequestLocked event")?;
         tracing::info!("Subscribed to RequestLocked event");
 
         event
@@ -270,7 +303,7 @@ where
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, log)) => {
-                        tracing::info!(
+                        tracing::debug!(
                             "Detected request {:x} locked by {:x}",
                             event.requestId,
                             event.prover,
@@ -341,7 +374,9 @@ where
             })
             .await;
 
-        anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
+        Err(MarketMonitorErr::UnexpectedErr(anyhow::anyhow!(
+            "Event polling exited, polling failed (possible RPC error)"
+        )))
     }
 
     /// Monitors the RequestFulfilled events and updates the database accordingly.
@@ -349,9 +384,14 @@ where
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
-    ) -> Result<()> {
+    ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
-        let event = market.instance().RequestFulfilled_filter().watch().await?;
+        let event = market
+            .instance()
+            .RequestFulfilled_filter()
+            .watch()
+            .await
+            .context("Failed to subscribe to RequestFulfilled event")?;
         tracing::info!("Subscribed to RequestFulfilled event");
 
         event
@@ -359,7 +399,7 @@ where
             .for_each(|log_res| async {
                 match log_res {
                     Ok((event, log)) => {
-                        tracing::info!("Detected request fulfilled {:x}", event.requestId);
+                        tracing::debug!("Detected request fulfilled {:x}", event.requestId);
                         if let Err(e) = db
                             .set_request_fulfilled(
                                 U256::from(event.requestId),
@@ -380,7 +420,9 @@ where
             })
             .await;
 
-        anyhow::bail!("Event polling exited, polling failed (possible RPC error)");
+        Err(MarketMonitorErr::UnexpectedErr(anyhow::anyhow!(
+            "Event polling exited, polling failed (possible RPC error)"
+        )))
     }
 
     async fn process_log(
@@ -471,7 +513,8 @@ impl<P> RetryTask for MarketMonitor<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes {
+    type Error = MarketMonitorErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let lookback_blocks = self.lookback_blocks;
         let market_addr = self.market_addr;
         let provider = self.provider.clone();

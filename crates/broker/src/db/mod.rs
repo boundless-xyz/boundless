@@ -14,7 +14,8 @@ use sqlx::{
 use thiserror::Error;
 
 use crate::{
-    AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderStatus, ProofRequest,
+    errors::CodedError, AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderStatus,
+    ProofRequest,
 };
 use tracing::instrument;
 
@@ -23,45 +24,76 @@ mod fuzz_db;
 
 #[derive(Error, Debug)]
 pub enum DbError {
-    #[error("Order key {0} not found in DB")]
+    #[error("{code} Order key {0} not found in DB", code = self.code())]
     OrderNotFound(String),
 
-    #[error("Batch key {0} not found in DB")]
+    #[error("{code} Batch key {0} not found in DB", code = self.code())]
     BatchNotFound(usize),
 
-    #[error("Batch key {0} has no aggreagtion state")]
+    #[error("{code} Batch key {0} has no aggreagtion state", code = self.code())]
     BatchAggregationStateIsNone(usize),
 
     #[cfg(test)]
-    #[error("Batch insert failed {0}")]
+    #[error("{code} Batch insert failed {0}", code = self.code())]
     BatchInsertFailure(usize),
 
-    #[error("DB Missing column value: {0}")]
+    #[error("{code} DB Missing column value: {0}", code = self.code())]
     MissingElm(&'static str),
 
-    #[error("SQL error")]
-    SqlErr(#[from] sqlx::Error),
+    #[error("{code} SQL error {0}", code = self.code())]
+    SqlErr(sqlx::Error),
 
-    #[error("SQL Migration error")]
+    #[error("{code} SQL Pool timed out {0}", code = self.code())]
+    SqlPoolTimedOut(sqlx::Error),
+
+    #[error("{code} SQL Database locked {0}", code = self.code())]
+    SqlDatabaseLocked(anyhow::Error),
+
+    #[error("{code} SQL Migration error", code = self.code())]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
-    #[error("JSON serialization err")]
+    #[error("{code} JSON serialization error", code = self.code())]
     JsonErr(#[from] serde_json::Error),
 
-    #[error("Invalid order id")]
+    #[error("{code} Invalid order id", code = self.code())]
     InvalidOrderId(#[from] RuintParseErr),
 
-    #[error("Invalid block number: {0}")]
+    #[error("{code} Invalid block number: {0}", code = self.code())]
     BadBlockNumb(String),
 
-    #[error("Failed to set last block")]
+    #[error("{code} Failed to set last block", code = self.code())]
     SetBlockFail,
 
-    #[error("Invalid order id: {0} missing field: {1}")]
+    #[error("{code} Invalid order id: {0} missing field: {1}", code = self.code())]
     InvalidOrder(String, &'static str),
 
-    #[error("Invalid max connection env var value")]
+    #[error("{code} Invalid max connection env var value", code = self.code())]
     MaxConnEnvVar(#[from] std::num::ParseIntError),
+}
+
+impl CodedError for DbError {
+    fn code(&self) -> &str {
+        match self {
+            DbError::SqlDatabaseLocked(_) => "[B-DB-001]",
+            DbError::SqlPoolTimedOut(_) => "[B-DB-002]",
+            _ => "[B-DB-500]",
+        }
+    }
+}
+
+impl From<sqlx::Error> for DbError {
+    fn from(e: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(ref db_err) = e {
+            let msg = db_err.message().to_string();
+            if msg.contains("database is locked") {
+                return DbError::SqlDatabaseLocked(anyhow::anyhow!(msg));
+            }
+        }
+        match e {
+            sqlx::Error::PoolTimedOut => DbError::SqlPoolTimedOut(e),
+            _ => DbError::SqlErr(e),
+        }
+    }
 }
 
 /// Struct containing the information about an order used by the aggregation worker.

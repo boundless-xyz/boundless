@@ -33,6 +33,23 @@ use crate::{
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType,
 };
+use thiserror::Error;
+
+use crate::errors::CodedError;
+
+#[derive(Error, Debug)]
+pub enum SubmitterErr {
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
+}
+
+impl CodedError for SubmitterErr {
+    fn code(&self) -> &str {
+        match self {
+            SubmitterErr::UnexpectedErr(_) => "[B-SUB-500]",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Submitter<P> {
@@ -425,13 +442,9 @@ where
         bail!("transaction to fulfill batch failed");
     }
 
-    pub async fn process_next_batch(&self) -> Result<bool, SupervisorErr> {
-        let batch_res = self
-            .db
-            .get_complete_batch()
-            .await
-            .context("Failed to check db for complete batch")
-            .map_err(SupervisorErr::Recover)?;
+    pub async fn process_next_batch(&self) -> Result<bool, SubmitterErr> {
+        let batch_res =
+            self.db.get_complete_batch().await.context("Failed to get complete batch")?;
 
         let Some((batch_id, batch)) = batch_res else {
             return Ok(false);
@@ -440,7 +453,7 @@ where
         let max_batch_submission_attempts = self
             .config
             .lock_all()
-            .map_err(|e| SupervisorErr::Recover(e.into()))?
+            .context("Failed to read config")?
             .batcher
             .max_submission_attempts;
 
@@ -448,10 +461,10 @@ where
         for attempt in 0..max_batch_submission_attempts {
             match self.submit_batch(batch_id, &batch).await {
                 Ok(_) => {
-                    if let Err(db_err) = self.db.set_batch_submitted(batch_id).await {
-                        tracing::error!("Failed to set batch submitted status: {db_err:?}");
-                        return Err(SupervisorErr::Fault(db_err.into()));
-                    }
+                    self.db
+                        .set_batch_submitted(batch_id)
+                        .await
+                        .context("Failed to set batch submitted")?;
                     tracing::info!(
                         "Completed batch: {batch_id} total_fees: {}",
                         format_ether(batch.fees)
@@ -471,7 +484,9 @@ where
         tracing::error!("Batch {batch_id} has reached max submission attempts. Errors: {errors:?}");
         if let Err(err) = self.db.set_batch_failure(batch_id, format!("{errors:?}")).await {
             tracing::error!("Failed to set batch failure in db: {batch_id} - {err:?}");
-            return Err(SupervisorErr::Recover(err.into()));
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Failed to set batch failure in db: {batch_id} - {err:?}"
+            )));
         }
         Ok(false)
     }
@@ -481,13 +496,14 @@ impl<P> RetryTask for Submitter<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes {
+    type Error = SubmitterErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let obj_clone = self.clone();
 
         Box::pin(async move {
             tracing::info!("Starting Submitter service");
             loop {
-                obj_clone.process_next_batch().await?;
+                obj_clone.process_next_batch().await.map_err(SupervisorErr::Recover)?;
 
                 // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
