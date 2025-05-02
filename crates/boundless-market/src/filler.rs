@@ -15,18 +15,22 @@
 #![allow(missing_docs)] // DO NOT MERGE: That would be too lazy
 #![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
 
+// TODO: Add debug and trace logging to the layers.
+// TODO: Create a test and an example of adding a layer.
+
 use std::{borrow::Cow, convert::Infallible, rc::Rc};
 
 use alloy::{
     network::Ethereum,
+    primitives::{utils::format_units, U256},
     providers::{DynProvider, Provider},
-    primitives::U256,
 };
 use anyhow::{bail, Context};
 use risc0_zkvm::{compute_image_id, sha::Digestible, Executor, Journal, SessionInfo};
 use url::Url;
 
 use crate::{
+    now_timestamp,
     contracts::{
         boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Offer,
         Predicate, ProofRequest, RequestId, Requirements,
@@ -255,15 +259,21 @@ pub struct OfferLayer<P> {
     // default: 15 seconds
     pub bidding_start_delay: u64,
     // default: 120 seconds
-    pub ramp_up_period: u64,
+    pub ramp_up_period: u32,
     // default: 600 seconds
-    pub lock_timeout: u64,
+    pub lock_timeout: u32,
+    // default: 1200 seconds
+    pub timeout: u32,
+    // default: 0.1 HP
+    pub lock_stake: U256,
     // default: 200_000
     pub lock_gas_estimate: u64,
     // default: 750_000
     pub fulfill_gas_estimate: u64,
     // default: 250_000
     pub groth16_verify_gas_estimate: u64,
+    // default: 100_000
+    pub smart_contract_sig_verify_gas_estimate: u64,
 }
 
 impl<P> Layer<(&Requirements, &RequestId, u64)> for OfferLayer<P>
@@ -275,10 +285,57 @@ where
 
     async fn process(
         &self,
-        (_requirements, _request_id, cycle_count): (&Requirements, &RequestId, u64),
+        (requirements, request_id, cycle_count): (&Requirements, &RequestId, u64),
     ) -> anyhow::Result<Self::Output> {
-        let _min_price = self.min_price_per_mcycle * U256::from(cycle_count);
-        todo!()
+        let mcycle_count = cycle_count >> 20;
+        let min_price = self.min_price_per_mcycle * U256::from(mcycle_count);
+        let max_price_mcycle = self.max_price_per_mcycle * U256::from(mcycle_count);
+
+        let mut gas_usage_estimate = self.lock_gas_estimate + self.fulfill_gas_estimate;
+        if request_id.smart_contract_signed {
+            gas_usage_estimate += self.smart_contract_sig_verify_gas_estimate;
+        }
+        // Add gas for orders that make use of the callbacks feature.
+        if let Some(ref callback) = requirements.callback {
+            gas_usage_estimate += callback.gasLimit;
+        }
+        /*
+        estimate += match self
+            .supported_selectors
+            .proof_type(order.request.requirements.selector)
+            .context("unsupported selector")?
+        {
+            ProofType::Any | ProofType::Inclusion => 0,
+            ProofType::Groth16 => groth16,
+            proof_type => {
+                tracing::warn!("Unknown proof type in gas cost estimation: {proof_type:?}");
+                0
+            }
+        };
+        */
+
+        // Add to the max price an estimated upper bound on the gas costs.
+        // Add a 10% buffer to the gas costs to account for flucuations after submission.
+        // TODO: User EIP-1559 parameters to select a better max price.
+        let gas_price: u128 = self.provider.get_gas_price().await?;
+        let gas_cost_estimate = (gas_price + (gas_price / 10)) * (gas_usage_estimate as u128);
+        let max_price = max_price_mcycle + U256::from(gas_cost_estimate);
+        tracing::debug!(
+            "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
+            format_units(max_price, "ether")?,
+            format_units(max_price_mcycle, "ether")?,
+            format_units(gas_cost_estimate, "ether")?,
+        );
+
+        Ok(Offer {
+            minPrice: min_price,
+            maxPrice: max_price,
+            biddingStart: now_timestamp() + self.bidding_start_delay,
+            rampUpPeriod: self.ramp_up_period,
+            lockTimeout: self.lock_timeout,
+            timeout: self.timeout,
+            lockStake: self.lock_stake,
+        })
     }
 }
 
@@ -435,7 +492,7 @@ where
 impl<P> Adapt<OfferLayer<P>> for ExampleRequestParams
 where
     P: Provider<Ethereum> + 'static + Clone,
-    {
+{
     type Output = Self;
     type Error = anyhow::Error;
 
@@ -445,7 +502,8 @@ where
             return Ok(self);
         }
 
-        let requirements = self.requirements.as_ref().ok_or(MissingFieldError::new("requirements"))?;
+        let requirements =
+            self.requirements.as_ref().ok_or(MissingFieldError::new("requirements"))?;
         let request_id = self.request_id.as_ref().ok_or(MissingFieldError::new("request_id"))?;
         let cycles = self.cycles.ok_or(MissingFieldError::new("cycles"))?;
 
