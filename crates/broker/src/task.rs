@@ -20,11 +20,13 @@ pub enum SupervisorErr<E: CodedError> {
     Fault(E),
 }
 
+const FAULT_CODE: &str = "[B-SUP-FAULT]";
+
 impl<E: CodedError> CodedError for SupervisorErr<E> {
     fn code(&self) -> &str {
         match self {
             SupervisorErr::Recover(_) => "[B-SUP-RECOVER]",
-            SupervisorErr::Fault(_) => "[B-SUP-FAULT]",
+            SupervisorErr::Fault(_) => FAULT_CODE,
         }
     }
 }
@@ -131,8 +133,8 @@ where
                     Ok(()) => {
                         tracing::debug!("Task exited cleanly");
                     }
-                    Err(err) => match err {
-                        SupervisorErr::Recover(err) => {
+                    Err(ref supervisor_err) => match supervisor_err {
+                        SupervisorErr::Recover(ref _err) => {
                             if self.retry_policy.critical {
                                 let max_retries = {
                                     let config =
@@ -143,8 +145,11 @@ where
                                 // Check if we've exceeded max retries
                                 if let Some(max) = max_retries {
                                     if retry_count >= max {
+                                        // We manually log the fault code rather than rendering the recover supervisor_err
+                                        // so that we indicate we are now in a hard fault state after exhausting retries.
                                         tracing::error!(
-                                            "Exceeded maximum retries ({max}) for task"
+                                            "{} Exceeded maximum retries ({max}) for task",
+                                            FAULT_CODE
                                         );
                                         anyhow::bail!("Exceeded maximum retries for task");
                                     }
@@ -152,7 +157,8 @@ where
                             }
 
                             tracing::warn!(
-                                "Recoverable failure detected: {err:?}, spawning replacement (retry {})",
+                                "{}, spawning replacement (retry {})",
+                                supervisor_err,
                                 retry_count + 1,
                             );
                             tracing::debug!("Waiting {:?} before retry", current_delay);
@@ -174,8 +180,8 @@ where
                                 .mul_f64(self.retry_policy.backoff_multiplier)
                                 .min(self.retry_policy.max_delay);
                         }
-                        SupervisorErr::Fault(err) => {
-                            tracing::error!("FAULT: Hard failure detected: {err:?}");
+                        SupervisorErr::Fault(_err) => {
+                            tracing::error!("{}", supervisor_err);
                             anyhow::bail!("Hard failure in supervisor task");
                         }
                     },

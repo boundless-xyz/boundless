@@ -14,15 +14,16 @@ use anyhow::{Context, Result};
 use thiserror::Error;
 
 use crate::{
-    errors::CodedError,
-    task::{RetryRes, RetryTask, SupervisorErr},
+    errors::CodedError, impl_coded_debug, task::{RetryRes, RetryTask, SupervisorErr}
 };
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ChainMonitorErr {
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
+
+impl_coded_debug!(ChainMonitorErr);
 
 impl CodedError for ChainMonitorErr {
     fn code(&self) -> &str {

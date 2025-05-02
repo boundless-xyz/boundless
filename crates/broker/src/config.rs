@@ -18,7 +18,7 @@ use tokio::{
     time::{timeout, Duration},
 };
 
-use crate::errors::CodedError;
+use crate::{errors::CodedError, impl_coded_debug};
 
 mod defaults {
     pub const fn max_journal_bytes() -> usize {
@@ -326,7 +326,7 @@ impl Config {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ConfigErr {
     #[error("Failed to lock internal config structure")]
     LockFailed,
@@ -334,6 +334,8 @@ pub enum ConfigErr {
     #[error("Invalid configuration")]
     InvalidConfig,
 }
+
+impl_coded_debug!(ConfigErr);
 
 impl CodedError for ConfigErr {
     fn code(&self) -> &str {

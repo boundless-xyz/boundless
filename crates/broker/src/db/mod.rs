@@ -14,15 +14,15 @@ use sqlx::{
 use thiserror::Error;
 
 use crate::{
-    errors::CodedError, AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderStatus,
-    ProofRequest,
+    errors::{impl_coded_debug, CodedError},
+    AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderStatus, ProofRequest,
 };
 use tracing::instrument;
 
 #[cfg(test)]
 mod fuzz_db;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum DbError {
     #[error("{code} Order key {0} not found in DB", code = self.code())]
     OrderNotFound(String),
@@ -70,6 +70,8 @@ pub enum DbError {
     #[error("{code} Invalid max connection env var value", code = self.code())]
     MaxConnEnvVar(#[from] std::num::ParseIntError),
 }
+
+impl_coded_debug!(DbError);
 
 impl CodedError for DbError {
     fn code(&self) -> &str {

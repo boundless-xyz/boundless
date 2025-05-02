@@ -17,18 +17,20 @@ use crate::{
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     errors::CodedError,
-    now_timestamp,
+    impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     AggregationState, Batch, BatchStatus,
 };
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum AggregatorErr {
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
+
+impl_coded_debug!(AggregatorErr);
 
 impl CodedError for AggregatorErr {
     fn code(&self) -> &str {
