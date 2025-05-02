@@ -31,6 +31,7 @@ use url::Url;
 
 use crate::{
     now_timestamp,
+    selector::{SupportedSelectors, ProofType},
     contracts::{
         boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Offer,
         Predicate, ProofRequest, RequestId, Requirements,
@@ -274,6 +275,41 @@ pub struct OfferLayer<P> {
     pub groth16_verify_gas_estimate: u64,
     // default: 100_000
     pub smart_contract_sig_verify_gas_estimate: u64,
+    pub supported_selectors: SupportedSelectors,
+}
+
+impl<P> OfferLayer<P>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    fn estimate_gas_usage(&self, requirements: &Requirements, request_id: &RequestId) -> anyhow::Result<u64> {
+        let mut gas_usage_estimate = self.lock_gas_estimate + self.fulfill_gas_estimate;
+        if request_id.smart_contract_signed {
+            gas_usage_estimate += self.smart_contract_sig_verify_gas_estimate;
+        }
+        // Add gas for orders that make use of the callbacks feature.
+        if let Some(callback) = requirements.callback.as_option() {
+            gas_usage_estimate += u64::try_from(callback.gasLimit).context("callback gas limit too large for u64")?;
+        }
+
+        let proof_type = self
+            .supported_selectors
+            .proof_type(requirements.selector)
+            .context("cannot estimate gas usage for request with unsupported selector")?;
+        if let ProofType::Groth16 = proof_type {
+            gas_usage_estimate += self.groth16_verify_gas_estimate;
+        };
+        Ok(gas_usage_estimate)
+    }
+
+    fn estimate_gas_cost(&self, requirements: &Requirements, request_id: &RequestId, gas_price: u128) -> anyhow::Result<U256> {
+        let gas_usage_estimate = self.estimate_gas_usage(requirements, request_id)?;
+
+        // Add to the max price an estimated upper bound on the gas costs.
+        // Add a 10% buffer to the gas costs to account for flucuations after submission.
+        let gas_cost_estimate = (gas_price + (gas_price / 10)) * (gas_usage_estimate as u128);
+        Ok(U256::from(gas_cost_estimate))
+    }
 }
 
 impl<P> Layer<(&Requirements, &RequestId, u64)> for OfferLayer<P>
@@ -291,35 +327,10 @@ where
         let min_price = self.min_price_per_mcycle * U256::from(mcycle_count);
         let max_price_mcycle = self.max_price_per_mcycle * U256::from(mcycle_count);
 
-        let mut gas_usage_estimate = self.lock_gas_estimate + self.fulfill_gas_estimate;
-        if request_id.smart_contract_signed {
-            gas_usage_estimate += self.smart_contract_sig_verify_gas_estimate;
-        }
-        // Add gas for orders that make use of the callbacks feature.
-        if let Some(ref callback) = requirements.callback {
-            gas_usage_estimate += callback.gasLimit;
-        }
-        /*
-        estimate += match self
-            .supported_selectors
-            .proof_type(order.request.requirements.selector)
-            .context("unsupported selector")?
-        {
-            ProofType::Any | ProofType::Inclusion => 0,
-            ProofType::Groth16 => groth16,
-            proof_type => {
-                tracing::warn!("Unknown proof type in gas cost estimation: {proof_type:?}");
-                0
-            }
-        };
-        */
-
-        // Add to the max price an estimated upper bound on the gas costs.
-        // Add a 10% buffer to the gas costs to account for flucuations after submission.
         // TODO: User EIP-1559 parameters to select a better max price.
         let gas_price: u128 = self.provider.get_gas_price().await?;
-        let gas_cost_estimate = (gas_price + (gas_price / 10)) * (gas_usage_estimate as u128);
-        let max_price = max_price_mcycle + U256::from(gas_cost_estimate);
+        let gas_cost_estimate = self.estimate_gas_cost(requirements, request_id, gas_price)?;
+        let max_price = max_price_mcycle + gas_cost_estimate;
         tracing::debug!(
             "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
             format_units(max_price, "ether")?,
