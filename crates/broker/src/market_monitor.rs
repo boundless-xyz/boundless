@@ -400,12 +400,6 @@ where
             .context("Failed to subscribe to RequestFulfilled event")?;
         tracing::info!("Subscribed to RequestFulfilled event");
 
-        if market_addr != Address::ZERO {
-            return Err(MarketMonitorErr::EventPollingErr(anyhow::anyhow!(
-                "Event polling order fulfillments exited, polling failed (possible RPC error)",
-            )));
-        }
-
         event
             .into_stream()
             .for_each(|log_res| async {
