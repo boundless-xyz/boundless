@@ -412,7 +412,7 @@ export = () => {
   // Note: AWS has a limit of 5 filter patterns containing regex for each log group
   // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPattern.html
 
-  // [Regex]3 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
+  // [Regex] 3 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('%\[B-[A-Z]+-500\]%', 'unexpected-errors', Severity.SEV2, {
     threshold: 5,
   }, { period: 300 });
@@ -424,6 +424,12 @@ export = () => {
 
   // Matches on any ERROR log that does NOT contain an error code. Ensures we don't miss any errors.
   createErrorCodeAlarm('ERROR -"[B-"', 'error-without-code', Severity.SEV2);
+
+  // Alarms for low balances
+  createErrorCodeAlarm('WARN "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV2);
+  createErrorCodeAlarm('WARN "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV2);
+  createErrorCodeAlarm('ERROR "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV1);
+  createErrorCodeAlarm('ERROR "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV1);
   
   // Alarms at the supervisor level
   //
@@ -441,7 +447,6 @@ export = () => {
   // Alarms for specific services and error codes.
   // Matching without using regex to avoid the AWS limit.
   //
-  //
 
   //
   // DB
@@ -454,6 +459,17 @@ export = () => {
 
   // 1 db unexpected error triggers a SEV2 alarm
   createErrorCodeAlarm('"[B-DB-500]"', 'db-unexpected-error', Severity.SEV2);
+
+  //
+  // Storage
+  //
+  // 3 http errors (e.g. rate limiting, etc.) within 5 minutes triggers a SEV2 alarm
+  createErrorCodeAlarm('"[B-STR-002]"', 'storage-http-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 300 });
+
+  // 1 unexpected storage error triggers a SEV2 alarm
+  createErrorCodeAlarm('"[B-STR-500]"', 'storage-unexpected-error', Severity.SEV2);
 
   //
   // On-chain Market Monitor

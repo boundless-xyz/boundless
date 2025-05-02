@@ -1253,13 +1253,13 @@ impl<P: Provider> BoundlessMarketService<P> {
         let stake_balance = self.balance_of_stake(self.caller()).await?;
         if stake_balance < self.balance_alert_config.error_threshold.unwrap_or(U256::ZERO) {
             tracing::error!(
-                "stake balance {} for {} < error threshold",
+                "[B-BAL-STK] stake balance {} for {} < error threshold",
                 stake_balance,
                 self.caller(),
             );
         } else if stake_balance < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO) {
             tracing::warn!(
-                "stake balance {} for {} < warning threshold",
+                "[B-BAL-STK] stake balance {} for {} < warning threshold",
                 stake_balance,
                 self.caller(),
             );

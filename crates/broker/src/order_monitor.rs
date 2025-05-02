@@ -499,7 +499,8 @@ where
             final_orders.len()
         );
         tracing::debug!(
-            "Final orders ready for locking and/or proving after filtering: {final_orders:?}"
+            "Final orders ready for locking and/or proving after filtering: {}",
+            final_orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(", ")
         );
 
         Ok(final_orders)
