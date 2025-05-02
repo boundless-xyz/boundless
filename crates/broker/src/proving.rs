@@ -5,13 +5,28 @@
 use crate::{
     config::ConfigLock,
     db::DbObj,
+    errors::CodedError,
     futures_retry::retry,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Order, OrderStatus,
 };
-use alloy::primitives::U256;
 use anyhow::{Context, Result};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ProvingErr {
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl CodedError for ProvingErr {
+    fn code(&self) -> &str {
+        match self {
+            ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ProvingService {
@@ -27,7 +42,7 @@ impl ProvingService {
 
     pub async fn monitor_proof(
         &self,
-        order_id: U256,
+        order_id: &str,
         stark_proof_id: &str,
         is_groth16: bool,
         snark_proof_id: Option<String>,
@@ -46,7 +61,7 @@ impl ProvingService {
                 .await
                 .with_context(|| {
                     format!(
-                        "Failed to set order {order_id:x} compressed proof id: {compressed_proof_id}"
+                        "Failed to set order {order_id} compressed proof id: {compressed_proof_id}"
                     )
                 })?;
         };
@@ -59,10 +74,10 @@ impl ProvingService {
         self.db
             .set_aggregation_status(order_id, status)
             .await
-            .with_context(|| format!("Failed to set the DB record to aggregation {order_id:x}"))?;
+            .with_context(|| format!("Failed to set the DB record to aggregation {order_id}"))?;
 
         tracing::info!(
-            "Customer Proof complete, order_id: {order_id:x} cycles: {} time: {}",
+            "Customer Proof complete, order_id: {order_id} cycles: {} time: {}",
             proof_res.stats.total_cycles,
             proof_res.elapsed_time,
         );
@@ -70,23 +85,26 @@ impl ProvingService {
         Ok(())
     }
 
-    pub async fn prove_order(&self, order_id: U256, order: Order) -> Result<()> {
+    pub async fn prove_order(&self, order: Order) -> Result<()> {
+        let order_id = order.id();
+
         // If the ID's are not present then upload them now
         // Mostly hit by skipping pre-flight
         let image_id = match order.image_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::upload_image_uri(&self.prover, &order, &self.config)
+            None => crate::storage::upload_image_uri(&self.prover, &order, &self.config)
                 .await
                 .context("Failed to upload image")?,
         };
+
         let input_id = match order.input_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::upload_input_uri(&self.prover, &order, &self.config)
+            None => crate::storage::upload_input_uri(&self.prover, &order, &self.config)
                 .await
                 .context("Failed to upload input")?,
         };
 
-        tracing::info!("Proving order {order_id:x}");
+        tracing::info!("Proving order {order_id}");
 
         let proof_id = self
             .prover
@@ -94,37 +112,34 @@ impl ProvingService {
             .await
             .context("Failed to prove customer proof STARK order")?;
 
-        tracing::debug!("Order {order_id:x} proof id: {proof_id}");
+        tracing::debug!("Order {order_id} proof id: {proof_id}");
 
         self.db
-            .set_order_proof_id(order_id, &proof_id)
+            .set_order_proof_id(&order_id, &proof_id)
             .await
-            .with_context(|| format!("Failed to set order {order_id:x} proof id: {}", proof_id))?;
+            .with_context(|| format!("Failed to set order {order_id} proof id: {}", proof_id))?;
 
-        self.monitor_proof(order_id, &proof_id, order.is_groth16(), None).await?;
+        self.monitor_proof(&order_id, &proof_id, order.is_groth16(), None).await?;
 
         Ok(())
     }
 
-    pub async fn find_and_monitor_proofs(&self) -> Result<()> {
-        let current_proofs = self
-            .db
-            .get_active_proofs()
-            .await
-            .context("Failed to get active proofs from the DB")
-            .map_err(SupervisorErr::Fault)?;
+    pub async fn find_and_monitor_proofs(&self) -> Result<(), ProvingErr> {
+        let current_proofs =
+            self.db.get_active_proofs().await.context("Failed to get active proofs")?;
 
         tracing::info!("Found {} proofs currently proving", current_proofs.len());
-        for (order_id, order) in current_proofs {
+        for order in current_proofs {
+            let order_id = order.id();
             let prove_serv = self.clone();
             let Some(proof_id) = order.proof_id.clone() else {
-                tracing::error!("Order in status Proving missing proof_id: {order_id:x}");
+                tracing::error!("Order in status Proving missing proof_id: {order_id}");
                 if let Err(inner_err) = prove_serv
                     .db
-                    .set_order_failure(order_id, "Proving status missing proof_id".into())
+                    .set_order_failure(&order_id, "Proving status missing proof_id".into())
                     .await
                 {
-                    tracing::error!("Failed to set order {order_id:x} failure: {inner_err:?}");
+                    tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
                 }
                 continue;
             };
@@ -135,17 +150,17 @@ impl ProvingService {
             // fine.
             tokio::spawn(async move {
                 match prove_serv
-                    .monitor_proof(order_id, &proof_id, is_groth16, compressed_proof_id)
+                    .monitor_proof(&order_id, &proof_id, is_groth16, compressed_proof_id)
                     .await
                 {
-                    Ok(_) => tracing::info!("Successfully complete order proof {order_id:x}"),
+                    Ok(_) => tracing::info!("Successfully complete order proof {order_id}"),
                     Err(err) => {
                         tracing::error!("FATAL: Order failed to prove: {err:?}");
                         if let Err(inner_err) =
-                            prove_serv.db.set_order_failure(order_id, format!("{err:?}")).await
+                            prove_serv.db.set_order_failure(&order_id, format!("{err:?}")).await
                         {
                             tracing::error!(
-                                "Failed to set order {order_id:x} failure: {inner_err:?}"
+                                "Failed to set order {order_id} failure: {inner_err:?}"
                             );
                         }
                     }
@@ -158,7 +173,8 @@ impl ProvingService {
 }
 
 impl RetryTask for ProvingService {
-    fn spawn(&self) -> RetryRes {
+    type Error = ProvingErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let proving_service_copy = self.clone();
         Box::pin(async move {
             tracing::info!("Starting proving service");
@@ -179,9 +195,12 @@ impl RetryTask for ProvingService {
                     .db
                     .get_proving_order()
                     .await
-                    .map_err(|err| SupervisorErr::Recover(err.into()))?;
+                    .context("Failed to get proving order")
+                    .map_err(ProvingErr::UnexpectedError)
+                    .map_err(SupervisorErr::Recover)?;
 
-                if let Some((order_id, order)) = order_res {
+                if let Some(order) = order_res {
+                    let order_id = order.id();
                     let prov_serv = proving_service_copy.clone();
                     tokio::spawn(async move {
                         let (proof_retry_count, proof_retry_sleep_ms) = {
@@ -192,13 +211,13 @@ impl RetryTask for ProvingService {
                         match retry(
                             proof_retry_count,
                             proof_retry_sleep_ms,
-                            || async { prov_serv.prove_order(order_id, order.clone()).await },
+                            || async { prov_serv.prove_order(order.clone()).await },
                             "prove_order",
                         )
                         .await
                         {
                             Ok(_) => {
-                                tracing::info!("Successfully complete order proof {order_id:x}");
+                                tracing::info!("Successfully complete order proof {order_id}");
                             }
                             Err(err) => {
                                 tracing::error!(
@@ -208,7 +227,7 @@ impl RetryTask for ProvingService {
                                 );
                                 if let Err(inner_err) = prov_serv
                                     .db
-                                    .set_order_failure(order_id, format!("{err:?}"))
+                                    .set_order_failure(&order_id, format!("{err:?}"))
                                     .await
                                 {
                                     tracing::error!(
@@ -235,9 +254,9 @@ mod tests {
         db::SqliteDb,
         now_timestamp,
         provers::{encode_input, DefaultProver},
-        OrderStatus,
+        FulfillmentType, OrderStatus,
     };
-    use alloy::primitives::{Bytes, U256};
+    use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
@@ -264,12 +283,11 @@ mod tests {
         let proving_service =
             ProvingService::new(db.clone(), prover, config.clone()).await.unwrap();
 
-        let order_id = U256::ZERO;
         let min_price = 2;
         let max_price = 4;
 
         let order = Order {
-            status: OrderStatus::Locking,
+            status: OrderStatus::WaitingToLock,
             updated_at: Utc::now(),
             target_timestamp: Some(0),
             request: ProofRequest {
@@ -300,14 +318,19 @@ mod tests {
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            total_cycles: None,
+            proving_started_at: None,
         };
 
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
-        proving_service.prove_order(order_id, order).await.unwrap();
+        proving_service.prove_order(order.clone()).await.unwrap();
 
-        let order = db.get_order(order_id).await.unwrap().unwrap();
+        let order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingAgg);
     }
 
@@ -368,23 +391,27 @@ mod tests {
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order_id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(order.clone()).await.unwrap();
 
         proving_service.find_and_monitor_proofs().await.unwrap();
 
         // Sleep long enough for the tokio tasks to pickup and complete the order in the DB
         loop {
-            let db_order = db.get_order(order_id).await.unwrap().unwrap();
+            let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
             if db_order.status != OrderStatus::Proving {
                 break;
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
 
-        let order = db.get_order(order_id).await.unwrap().unwrap();
+        let order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingAgg);
         assert_eq!(order.proof_id, Some(proof_id));
 

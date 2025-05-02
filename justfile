@@ -27,15 +27,11 @@ test-foundry:
     forge test -vvv --isolate
 
 # Run all Cargo tests
-test-cargo: test-cargo-root test-cargo-bento test-cargo-example test-cargo-db
+test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
     RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli -- --include-ignored
-
-# Run Cargo tests for bento
-test-cargo-bento:
-    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -46,8 +42,6 @@ test-cargo-example:
 # Run database tests
 test-cargo-db: 
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
-    cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
@@ -64,6 +58,7 @@ test-db action="setup":
             postgres:latest
         # Wait for PostgreSQL to be ready
         sleep 3
+        docker exec -u postgres postgres-test psql -U postgres -c "CREATE DATABASE test_db;"
     elif [ "{{action}}" = "clean" ]; then
         docker stop postgres-test
         docker rm postgres-test
@@ -101,8 +96,6 @@ check-format:
     cd crates/guest/assessor && cargo fmt --all --check
     cd crates/guest/util && cargo sort --workspace --check
     cd crates/guest/util && cargo fmt --all --check
-    cd bento && cargo sort --workspace --check
-    cd bento && cargo fmt --all --check
     cd documentation && bun run check
     dprint check
     forge fmt --check
@@ -111,15 +104,13 @@ check-format:
 check-clippy:
     RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets -F boundless-order-generator/zeth
-    cd examples/counter && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/counter && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/composition && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/composition && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/counter-with-callback && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/counter-with-callback && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/smart-contract-requestor && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cargo clippy --workspace --all-targets
-    cd bento && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    cd examples/smart-contract-requestor && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
 
 # Format all code
@@ -138,9 +129,7 @@ format:
     cd crates/guest/assessor && cargo fmt --all
     cd crates/guest/util && cargo sort --workspace
     cd crates/guest/util && cargo fmt --all
-    cd bento && cargo sort --workspace
-    cd bento && cargo fmt --all
-    cd documentation && bun run format-markdown
+    cd documentation && bun install && bun run format-markdown
     dprint fmt
     forge fmt
 

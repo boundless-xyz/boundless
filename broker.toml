@@ -1,34 +1,159 @@
 [market]
+# Mega-cycle price, denominated in the native token (e.g. ETH).
+#
+# This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
+# execution took, as calculated by running the request in preflight. This is one of the inputs to
+# decide the minimum price to accept for a request.
 mcycle_price = "0.00001"
-mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
-assumption_price = "0.1"
-# peak_prove_khz = 500
+# Mega-cycle price, denominated in the Boundless staking token.
+#
+# Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
+# order when paid in staking tokens, as is the case for orders with an expired lock.
+mcycle_price_stake_token = "0.0001"
+# Estimated peak performance of the proving cluster, in kHz.
+#
+# Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
+# can be derived from benchmarking using Bento CLI or from data based on fulfilling market orders.
+peak_prove_khz = 100
+# Optional max cycles (in mcycles)
+#
+# Orders over this max_cycles will be skipped after preflight
+#max_mcycle_limit = 1000
+# Max journal size in bytes
+#
+# Orders that produce a journal larger than this size in preflight will be skipped. Since journals
+# must be posted onchain to complete an order, an excessively large journal may prevent completion
+# of a request.
+max_journal_bytes = 10000
+# Min seconds left before the deadline to consider bidding on a request.
+# 
+# If there is not enough time left before the deadline, the prover may not be able to complete
+# proving of the request and finalize the batch for publishing before expiration.
 min_deadline = 300
-lookback_blocks = 100
+# On startup, the number of blocks to look back for possible open orders.
+lookback_blocks = 300 # 300 blocks ~ 1 hour @ 12s block times
+# Max stake amount, denominated in the Boundless staking token.
+#
+# Requests that require a higher stake than this will not be considered.
 max_stake = "5" # HP
-skip_preflight_ids = []
+# Max input / image file size allowed for downloading from request URLs.
 max_file_size = 50_000_000
-max_concurrent_locks = 2
+# Max retries for fetching input / image contents from URLs
+#max_fetch_retries = 2
+# Max concurrent locks
+#
+# Maximum number of concurrent proofs that can be processed at once
+max_concurrent_proofs = 2
+# Max critical task retries on recoverable failures.
+#
+# The broker service has a number of subtasks. Some are considered critical. If a task fails, it
+# will be retried, but after this number of retries, the process will exit.
 max_critical_task_retries = 10
-# max_fetch_retries = 2
-# allow_client_addresses = []
-# lockin_priority_gas = 100
+# Optional list of image IDs for which preflight should be skipped.
+#skip_preflight_ids = []
+# Optional allow list for customer address.
+#
+# If enabled, all requests from clients not in the allow list are skipped.
+#allow_client_addresses = []
+# lockRequest priority gas
+#
+# Optional additional gas to add to the transaction for lockinRequest, good
+# for increasing the priority if competing with multiple provers during the
+# same block
+#lockin_priority_gas = 100
+# Optional balance warning threshold (in native token)
+#
+# If the submitter balance drops below this the broker will issue warning logs
+balance_warn_threshold = "0.1"
+# Optional balance error threshold (in native token)
+#
+# If the submitter balance drops below this the broker will issue error logs
+balance_error_threshold = "0.05"
+# Optional stake balance warning threshold (in stake tokens)
+#
+# If the stake balance drops below this the broker will issue warning logs
+stake_balance_warn_threshold = "10"
+# Optional stake balance error threshold (in stake tokens)
+#
+# If the stake balance drops below this the broker will issue error logs
+stake_balance_error_threshold = "5"
+# Optional cache directory for storing downloaded images and inputs
+#
+# If not set, files will be re-downloaded every time
+#cache_dir = "./cache"
+# Gas estimate for lockin call
+#
+# Used for estimating the gas costs associated with an order during pricing. If not set a
+# conservative default will be used.
+#lockin_gas_estimate = 200000
+# Gas estimate for fulfill call
+#
+# Used for estimating the gas costs associated with an order during pricing. If not set a
+# conservative default will be used.
+#fulfill_gas_estimate = 750000
+# Gas estimate for proof verification using the RiscZeroGroth16Verifier
+#
+# Used for estimating the gas costs associated with an order during pricing. If not set a
+# conservative default will be used.
+#groth16_verify_gas_estimate = 250000
 
 [prover]
+# Optional config, if using bonsai set the zkVM version here
 bonsai_r0_zkvm_ver = "2.0.0"
+# Number of retries to poll for proving status.
+#
+# Provides a little durability for transient failures.
 status_poll_retry_count = 3
+# Polling interval to monitor proving status (in millisecs)
 status_poll_ms = 1000
+# Number of retries to query a prover backend for on failures.
+#
+# Used for API requests to a prover backend, creating sessions, preflighting, uploading images, etc.
+# Provides a little durability for transient failures.
 req_retry_count = 3
+# Number of milliseconds to sleep between retries.
 req_retry_sleep_ms = 500
+# Number of retries to for running the entire proof generation process
+#
+# This is separate from the request retry count, as the proving process
+# is a multi-step process involving multiple API calls to create a proof
+# job and then polling for the proof job to complete.
 proof_retry_count = 1
+# Number of milliseconds to sleep between proof retries.
 proof_retry_sleep_ms = 500
-# set_builder_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
-# assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
+# Set builder guest ELF path
+#
+# When using a durable deploy, set this to the published current SOT guest ELF path on the
+# system
+#set_builder_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
+# Assessor ELF path
+#assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
 
 [batcher]
+# Max batch duration before publishing (in seconds)
 batch_max_time = 1000
+# Batch size (in proofs) before publishing
 min_batch_size = 1
+# Batch blocktime buffer
+#
+# Number of seconds before the lowest block deadline in the order batch
+# to flush the batch. This should be approximately snark_proving_time * 2
 block_deadline_buffer_secs = 120
+# Timeout, in seconds for transaction confirmations
 txn_timeout = 45
+# Use the single TXN submission that batches submit_merkle / fulfill_batch into
+#
+# A single transaction. Requires the `submitRootAndFulfillBatch` method
+# be present on the deployed contract
 single_txn_fulfill = true
-# batch_poll_time_ms = 500
+# Polling time, in milliseconds
+#
+# The time between polls for new orders to aggregate and how often to check for batch finalize
+# conditions
+#batch_poll_time_ms = 500
+# Max combined journal size (in bytes) that once exceeded will trigger a publish
+#batch_max_journal_bytes = 10000
+# max batch fees (in ETH) before publishing
+#batch_max_fees = "0.1"
+# Number of attempts to make to submit a batch before abandoning
+#max_submission_attempts = 3

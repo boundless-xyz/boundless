@@ -4,7 +4,6 @@
 
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
-use crate::config::ConfigLock;
 use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
@@ -12,10 +11,9 @@ use alloy::{
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
-    input::GuestEnv,
+    contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::Client as OrderStreamClient,
     selector::is_groth16_selector,
 };
@@ -24,7 +22,6 @@ use clap::Parser;
 pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
-use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
@@ -37,6 +34,7 @@ pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
+pub(crate) mod errors;
 pub mod futures_retry;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
@@ -131,8 +129,10 @@ enum OrderStatus {
     New,
     /// Order is in the process of being priced
     Pricing,
-    /// Order is ready to lock at target_timestamp
-    Locking,
+    /// Order is ready to lock at target_timestamp and then be fulfilled
+    WaitingToLock,
+    /// Order is ready to be fulfilled when its lock expires at target_timestamp
+    WaitingForLockToExpire,
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
     /// Order is actively ready for proving
@@ -151,12 +151,37 @@ enum OrderStatus {
     Failed,
     /// Order was analyzed and marked as skipable
     Skipped,
-    /// Order was observed to be locked by another prover
-    LockedByOther,
 }
 
+#[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
+enum FulfillmentType {
+    LockAndFulfill,
+    FulfillAfterLockExpire,
+    // Currently not supported
+    FulfillWithoutLocking,
+}
+
+/// An Order represents a proof request and a specific method of fulfillment.
+///
+/// Requests can be fulfilled in multiple ways, for example by locking then fulfilling them,
+/// by waiting for an existing lock to expire then fulfilling for slashed stake, or by fulfilling
+/// without locking at all.
+///
+/// For a given request, each type of fulfillment results in a separate Order being created, with different
+/// FulfillmentType values.
+///
+/// Additionally, there may be multiple requests with the same request_id, but different ProofRequest
+/// details. Those also result in separate Order objects being created.
+///
+/// See the id() method for more details on how Orders are identified.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Order {
+    /// Address of the boundless market contract. Stored as it is required to compute the order id.
+    boundless_market_address: Address,
+    /// Chain ID of the boundless market contract. Stored as it is required to compute the order id.
+    chain_id: u64,
+    /// Fulfillment type
+    fulfillment_type: FulfillmentType,
     /// Proof request object
     request: ProofRequest,
     /// status of the order
@@ -164,8 +189,13 @@ struct Order {
     /// Last update time
     #[serde(with = "ts_seconds")]
     updated_at: DateTime<Utc>,
+    /// Total cycles
+    /// Populated after initial pricing in order picker
+    total_cycles: Option<u64>,
     /// Locking status target UNIX timestamp
     target_timestamp: Option<u64>,
+    /// When proving was commenced at
+    proving_started_at: Option<u64>,
     /// Prover image Id
     ///
     /// Populated after preflight
@@ -195,8 +225,16 @@ struct Order {
 }
 
 impl Order {
-    pub fn new(request: ProofRequest, client_sig: Bytes) -> Self {
+    pub fn new(
+        request: ProofRequest,
+        client_sig: Bytes,
+        fulfillment_type: FulfillmentType,
+        boundless_market_address: Address,
+        chain_id: u64,
+    ) -> Self {
         Self {
+            boundless_market_address,
+            chain_id,
             request,
             status: OrderStatus::New,
             updated_at: Utc::now(),
@@ -208,11 +246,33 @@ impl Order {
             expire_timestamp: None,
             client_sig,
             lock_price: None,
+            fulfillment_type,
             error_msg: None,
+            total_cycles: None,
+            proving_started_at: None,
         }
     }
+
+    // An Order is identified by the request_id, the fulfillment type, and the hash of the proof request.
+    // This structure supports multiple different ProofRequests with the same request_id, and different
+    // fulfillment types.
+    pub fn id(&self) -> String {
+        format!(
+            "0x{:x}-{}-{:?}",
+            self.request.id,
+            self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap(),
+            self.fulfillment_type
+        )
+    }
+
     pub fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
+    }
+}
+
+impl std::fmt::Display for Order {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
     }
 }
 
@@ -244,7 +304,7 @@ struct AggregationState {
 struct Batch {
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.
-    pub orders: Vec<U256>,
+    pub orders: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assessor_proof_id: Option<String>,
     /// Tuple of the current aggregation state, as committed by the set builder guest, and the
@@ -378,6 +438,12 @@ where
             Ok(())
         });
 
+        let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let client =
+            self.args.order_stream_url.clone().map(|url| {
+                OrderStreamClient::new(url, self.args.boundless_market_address, chain_id)
+            });
+
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
@@ -386,6 +452,7 @@ where
             self.db.clone(),
             chain_monitor.clone(),
             self.args.private_key.address(),
+            client.clone(),
         ));
 
         let block_times =
@@ -402,11 +469,6 @@ where
             Ok(())
         });
 
-        let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client =
-            self.args.order_stream_url.clone().map(|url| {
-                OrderStreamClient::new(url, self.args.boundless_market_address, chain_id)
-            });
         // spin up a supervisor for the offchain market monitor
         if let Some(client) = client {
             let offchain_market_monitor =
@@ -583,73 +645,6 @@ where
     }
 }
 
-async fn upload_image_uri(
-    prover: &ProverObj,
-    order: &Order,
-    config: &ConfigLock,
-) -> Result<String> {
-    let uri =
-        create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
-
-    let image_data = uri
-        .fetch()
-        .await
-        .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
-    let image_id =
-        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
-
-    let required_image_id = Digest::from(order.request.requirements.imageId.0);
-    ensure!(
-        image_id == required_image_id,
-        "image ID does not match requirements; expect {}, got {}",
-        required_image_id,
-        image_id
-    );
-    let image_id = image_id.to_string();
-
-    prover.upload_image(&image_id, image_data).await.context("Failed to upload image to prover")?;
-
-    Ok(image_id)
-}
-
-async fn upload_input_uri(
-    prover: &ProverObj,
-    order: &Order,
-    config: &ConfigLock,
-) -> Result<String> {
-    Ok(match order.request.input.inputType {
-        InputType::Inline => prover
-            .upload_input(
-                GuestEnv::decode(&order.request.input.data)
-                    .with_context(|| "Failed to decode input")?
-                    .stdin,
-            )
-            .await
-            .context("Failed to upload input data")?,
-
-        InputType::Url => {
-            let input_uri_str =
-                std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
-            tracing::debug!("Input URI string: {input_uri_str}");
-            let input_uri =
-                create_uri_handler(input_uri_str, config).await.context("URL handling failed")?;
-
-            let input_data = GuestEnv::decode(
-                &input_uri
-                    .fetch()
-                    .await
-                    .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
-            )
-            .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-            .stdin;
-
-            prover.upload_input(input_data).await.context("Failed to upload input")?
-        }
-        //???
-        _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
-    })
-}
-
 /// A very small utility function to get the current unix timestamp in seconds.
 // TODO(#379): Avoid drift relative to the chain's timestamps.
 pub(crate) fn now_timestamp() -> u64 {
@@ -680,7 +675,7 @@ pub mod test_utils {
         P: Provider<Ethereum> + 'static + Clone + WalletProvider,
     {
         pub async fn new_test(ctx: &TestCtx<P>, rpc_url: Url) -> Self {
-            let config_file = NamedTempFile::new().unwrap();
+            let config_file: NamedTempFile = NamedTempFile::new().unwrap();
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
