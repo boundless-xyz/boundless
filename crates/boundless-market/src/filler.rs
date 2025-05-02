@@ -46,26 +46,6 @@ use crate::{
     storage::{fetch_url, BuiltinStorageProvider, StorageProvider},
 };
 
-// Idea: A pipeline like construction where each output must be (convertable to) the input to the
-// next stage.
-// E.g. (program, input_data) -> StorageLayer -> (program_url, input) -> PreflightLayer ->
-// (program_url, input, journal, cycles) -> OfferLayer ->
-// (program_url, input, journal, cycles, offer) -> RequestIdLayer ->
-// (program_url, input, journal, cycles, offer, id) -> Finalizer -> request
-//
-// In many ways, this is just how software is built: one component passing to the next. This
-// modular structure is only justified if
-// A) The consuming devloper will need to change out the implementation, and
-// B) The layer itself is something they need to be able to define (i.e. skip or remove a layer,
-// combine two layers, or break two layers apart) and we do not feel that we can dictate the
-// interfaces.
-//
-// NOTE: There is an issue with this model in there and a lot of input types and they tend to grow
-// larger as you go further down the pipeline. In some layers, they may be forced to accept a more
-// complicated input because otherwise the _next_ layer won't have the data it needs.
-
-// TODO: Should the self-ref be mut?
-
 pub trait RequestBuilder {
     type Params;
     /// Error type that may be returned by this filler.
@@ -174,6 +154,7 @@ where
     }
 }
 
+// TODO: If using the preflight layer, how to avoid a second preflight on submit request?
 #[non_exhaustive]
 #[derive(Clone, Builder)]
 pub struct PreflightLayer {
@@ -456,11 +437,13 @@ type Example = (
     Finalizer,
 );
 
+// NOTE: We don't use derive_builder here because we need to be able to access the values on the
+// incrementally built parameters.
 #[non_exhaustive]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ExampleRequestParams {
-    pub program: Cow<'static, [u8]>,
-    pub env: GuestEnv,
+    pub program: Option<Cow<'static, [u8]>>,
+    pub env: Option<GuestEnv>,
     pub program_url: Option<Url>,
     pub input: Option<RequestInput>,
     pub cycles: Option<u64>,
@@ -471,17 +454,25 @@ pub struct ExampleRequestParams {
 }
 
 impl ExampleRequestParams {
-    pub fn new(program: impl Into<Cow<'static, [u8]>>, env: impl Into<GuestEnv>) -> Self {
+    pub fn require_program(&self) -> Result<&[u8], MissingFieldError> {
+        self.program.as_deref().ok_or(MissingFieldError::new("program"))
+    }
+
+    pub fn with_program(self, value: impl Into<Cow<'static, [u8]>>) -> Self {
         Self {
-            program: program.into(),
-            env: env.into(),
-            program_url: None,
-            input: None,
-            cycles: None,
-            journal: None,
-            request_id: None,
-            offer: None,
-            requirements: None,
+            program: Some(value.into()),
+            ..self
+        }
+    }
+
+    pub fn require_env(&self) -> Result<&GuestEnv, MissingFieldError> {
+        self.env.as_ref().ok_or(MissingFieldError::new("env"))
+    }
+
+    pub fn with_env(self, value: impl Into<GuestEnv>) -> Self {
+        Self {
+            env: Some(value.into()),
+            ..self
         }
     }
 
@@ -569,7 +560,7 @@ where
     Env: Into<GuestEnv>,
 {
     fn from(value: (Program, Env)) -> Self {
-        Self::new(value.0, value.1)
+        Self::default().with_program(value.0).with_env(value.1)
     }
 }
 
@@ -599,8 +590,11 @@ where
             return Ok(self);
         }
 
-        let (program_url, input) = layer.process((&self.program, &self.env)).await?;
-        Ok(Self { program_url: Some(program_url), input: Some(input), ..self })
+        let program = self.require_program()?;
+        let env = self.require_env()?;
+
+        let (program_url, input) = layer.process((program, env)).await?;
+        Ok(self.with_program_url(program_url).with_input(input))
     }
 }
 
@@ -621,7 +615,7 @@ impl Adapt<PreflightLayer> for ExampleRequestParams {
         let session_info = layer.process((program_url, input)).await?;
         let cycles = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
         let journal = session_info.journal;
-        Ok(Self { cycles: Some(cycles), journal: Some(journal), ..self })
+        Ok(self.with_cycles(cycles).with_journal(journal))
     }
 }
 
@@ -635,10 +629,11 @@ impl Adapt<RequirementsLayer> for ExampleRequestParams {
             return Ok(self);
         }
 
+        let program = self.require_program()?;
         let journal = self.require_journal()?;
 
-        let requirements = layer.process((&self.program, journal)).await?;
-        Ok(Self { requirements: Some(requirements), ..self })
+        let requirements = layer.process((program, journal)).await?;
+        Ok(self.with_requirements(requirements))
     }
 }
 
@@ -656,7 +651,7 @@ where
         }
 
         let request_id = layer.process(()).await?;
-        Ok(Self { request_id: Some(request_id), ..self })
+        Ok(self.with_request_id(request_id))
     }
 }
 
@@ -678,7 +673,7 @@ where
         let cycles = self.require_cycles()?;
 
         let offer = layer.process((requirements, request_id, cycles)).await?;
-        Ok(Self { offer: Some(offer), ..self })
+        Ok(self.with_offer(offer))
     }
 }
 
