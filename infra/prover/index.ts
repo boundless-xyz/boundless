@@ -456,7 +456,28 @@ export = () => {
   createErrorCodeAlarm('"[B-DB-500]"', 'db-unexpected-error', Severity.SEV2);
 
   //
-  // On-chain Market Monitor
+  // Market Monitor
+  //
+  // 3 event polling errors within 5 minutes in the market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-MM-501]"', 'market-monitor-event-polling-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 300 });
+
+  // 10 event polling errors within 30 minutes in the market monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('"[B-MM-501]"', 'market-monitor-event-polling-error', Severity.SEV1, {
+    threshold: 10,
+  }, { period: 1800 });
+
+  // Any 1 unexpected error in the market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2);
+
+  // 3 unexpected errors within 5 minutes in the market monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+
+  //
+  // Chain Monitor
   //
   // Any 1 unexpected error in the on-chain market monitor triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-CHM-500]"', 'chain-monitor-unexpected-error', Severity.SEV2);
