@@ -510,8 +510,6 @@ contract BoundlessMarket is
         uint96 price = context.price;
 
         Account storage clientAccount = accounts[client];
-        clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id);
 
         // Deduct the funds from client account.
         if (clientAccount.balance < price) {
@@ -525,6 +523,9 @@ contract BoundlessMarket is
             price = _applyMarketFee(price);
         }
         accounts[assessorProver].balance += price;
+
+        clientAccount.setRequestFulfilled(idx);
+        emit RequestFulfilled(id);
     }
 
     function _applyMarketFee(uint96 proverPayment) internal returns (uint96) {

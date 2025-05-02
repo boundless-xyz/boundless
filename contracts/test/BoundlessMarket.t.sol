@@ -2264,6 +2264,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
+    // Fulfillment tests when a client does not have funds to cover for a never locked fulfillment.
+    // When the client has no funds, the request is not fulfilled but only delivered.
+    // When the client has enough funds, the prover should be able to fulfill the request.
+    // The payment should be transferred to the prover only once.
     function testFulfillNeverLockedClientWithdrawsBalance() public {
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
@@ -2274,12 +2278,15 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         clientSignatures[0] = clientSignature;
 
         address clientAddress = client.addr();
+        client.snapshotBalance();
+        testProver.snapshotBalance();
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
         Fulfillment[] memory fills = new Fulfillment[](1);
         fills[0] = fill;
 
+        // Withdraw the funds from the market
         uint256 balance = boundlessMarket.balanceOf(clientAddress);
         vm.prank(clientAddress);
         boundlessMarket.withdraw(balance);
@@ -2289,9 +2296,39 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, clientAddress)
         );
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id);
+        bytes[] memory paymentError =
+            boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        assert(
+            keccak256(paymentError[0])
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, clientAddress))
+        );
+        require(!boundlessMarket.requestIsFulfilled(request.id), "Request should not be fulfilled");
+
+        // Deposit the funds to the market
         vm.prank(clientAddress);
+        boundlessMarket.deposit{value: DEFAULT_BALANCE}();
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id);
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+
+        // Check that the proof was fulfilled
         expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
+        expectMarketBalanceUnchanged();
+
+        // Attempt to fulfill the request again
+        paymentError = boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        assert(
+            keccak256(paymentError[0])
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id))
+        );
     }
 
     function testFulfillNeverLockedRequestMultipleRequestsSameIndex() public {
