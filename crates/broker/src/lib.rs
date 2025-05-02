@@ -4,7 +4,6 @@
 
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
-use crate::config::ConfigLock;
 use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
@@ -12,10 +11,9 @@ use alloy::{
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
-    input::GuestEnv,
+    contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::Client as OrderStreamClient,
     selector::is_groth16_selector,
 };
@@ -24,7 +22,6 @@ use clap::Parser;
 pub use config::Config;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
-use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
@@ -37,6 +34,7 @@ pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
+pub(crate) mod errors;
 pub mod futures_retry;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
@@ -667,73 +665,6 @@ where
 
         Ok(())
     }
-}
-
-async fn upload_image_uri(
-    prover: &ProverObj,
-    order: &Order,
-    config: &ConfigLock,
-) -> Result<String> {
-    let uri =
-        create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
-
-    let image_data = uri
-        .fetch()
-        .await
-        .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
-    let image_id =
-        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
-
-    let required_image_id = Digest::from(order.request.requirements.imageId.0);
-    ensure!(
-        image_id == required_image_id,
-        "image ID does not match requirements; expect {}, got {}",
-        required_image_id,
-        image_id
-    );
-    let image_id = image_id.to_string();
-
-    prover.upload_image(&image_id, image_data).await.context("Failed to upload image to prover")?;
-
-    Ok(image_id)
-}
-
-async fn upload_input_uri(
-    prover: &ProverObj,
-    order: &Order,
-    config: &ConfigLock,
-) -> Result<String> {
-    Ok(match order.request.input.inputType {
-        InputType::Inline => prover
-            .upload_input(
-                GuestEnv::decode(&order.request.input.data)
-                    .with_context(|| "Failed to decode input")?
-                    .stdin,
-            )
-            .await
-            .context("Failed to upload input data")?,
-
-        InputType::Url => {
-            let input_uri_str =
-                std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
-            tracing::debug!("Input URI string: {input_uri_str}");
-            let input_uri =
-                create_uri_handler(input_uri_str, config).await.context("URL handling failed")?;
-
-            let input_data = GuestEnv::decode(
-                &input_uri
-                    .fetch()
-                    .await
-                    .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
-            )
-            .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-            .stdin;
-
-            prover.upload_input(input_data).await.context("Failed to upload input")?
-        }
-        //???
-        _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
-    })
 }
 
 /// A very small utility function to get the current unix timestamp in seconds.

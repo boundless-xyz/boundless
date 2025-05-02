@@ -8,7 +8,9 @@ use crate::{
     chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::DbObj,
+    errors::CodedError,
     provers::{ProverError, ProverObj},
+    storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     FulfillmentType, Order,
 };
@@ -40,21 +42,33 @@ const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
-pub enum PriceOrderErr {
-    #[error("failed to fetch / push input: {0}")]
+pub enum OrderPickerErr {
+    #[error("{code} failed to fetch / push input: {0}", code = self.code())]
     FetchInputErr(#[source] anyhow::Error),
 
-    #[error("failed to fetch / push image: {0}")]
+    #[error("{code} failed to fetch / push image: {0}", code = self.code())]
     FetchImageErr(#[source] anyhow::Error),
 
-    #[error("guest panicked: {0}")]
+    #[error("{code} guest panicked: {0}", code = self.code())]
     GuestPanic(String),
 
-    #[error("invalid request")]
+    #[error("{code} invalid request: {0}", code = self.code())]
     RequestError(#[from] RequestError),
 
-    #[error(transparent)]
-    OtherErr(#[from] anyhow::Error),
+    #[error("{code} Unexpected error: {0}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
+}
+
+impl CodedError for OrderPickerErr {
+    fn code(&self) -> &str {
+        match self {
+            OrderPickerErr::FetchInputErr(_) => "[B-OP-001]",
+            OrderPickerErr::FetchImageErr(_) => "[B-OP-002]",
+            OrderPickerErr::GuestPanic(_) => "[B-OP-003]",
+            OrderPickerErr::RequestError(_) => "[B-OP-004]",
+            OrderPickerErr::UnexpectedErr(_) => "[B-OP-500]",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -131,7 +145,7 @@ where
                         )
                         .await
                         .context("Failed to set_order_lock")?;
-                    Ok::<_, PriceOrderErr>(true)
+                    Ok::<_, OrderPickerErr>(true)
                 }
                 Ok(ProveAfterLockExpire {
                     total_cycles,
@@ -176,7 +190,7 @@ where
         }
     }
 
-    async fn price_order(&self, order: &Order) -> Result<OrderPricingOutcome, PriceOrderErr> {
+    async fn price_order(&self, order: &Order) -> Result<OrderPricingOutcome, OrderPickerErr> {
         let order_id = order.id();
         let request_id = order.request.id;
         tracing::debug!("Pricing order {order_id} with request id {request_id:x}");
@@ -326,13 +340,13 @@ where
         }
 
         // TODO: Move URI handling like this into the prover impls
-        let image_id = crate::upload_image_uri(&self.prover, order, &self.config)
+        let image_id = upload_image_uri(&self.prover, order, &self.config)
             .await
-            .map_err(PriceOrderErr::FetchImageErr)?;
+            .map_err(OrderPickerErr::FetchImageErr)?;
 
-        let input_id = crate::upload_input_uri(&self.prover, order, &self.config)
+        let input_id = upload_input_uri(&self.prover, order, &self.config)
             .await
-            .map_err(PriceOrderErr::FetchInputErr)?;
+            .map_err(OrderPickerErr::FetchInputErr)?;
 
         // Record the image/input IDs for proving stage
         self.db
@@ -418,9 +432,9 @@ where
                     return Ok(Skip);
                 }
                 ProverError::ProvingFailed(ref err_msg) if err_msg.contains("GuestPanic") => {
-                    return Err(PriceOrderErr::GuestPanic(err_msg.clone()));
+                    return Err(OrderPickerErr::GuestPanic(err_msg.clone()));
                 }
-                _ => return Err(PriceOrderErr::OtherErr(err.into())),
+                _ => return Err(OrderPickerErr::UnexpectedErr(err.into())),
             },
         };
 
@@ -467,7 +481,7 @@ where
         proof_res: &ProofResult,
         order_gas_cost: U256,
         lock_expired: bool,
-    ) -> Result<OrderPricingOutcome, PriceOrderErr> {
+    ) -> Result<OrderPricingOutcome, OrderPickerErr> {
         if lock_expired {
             return self.evaluate_lock_expired_order(order, proof_res).await;
         } else {
@@ -481,7 +495,7 @@ where
         order: &Order,
         proof_res: &ProofResult,
         order_gas_cost: U256,
-    ) -> Result<OrderPricingOutcome, PriceOrderErr> {
+    ) -> Result<OrderPricingOutcome, OrderPickerErr> {
         let config_min_mcycle_price = {
             let config = self.config.lock_all().context("Failed to read config")?;
             parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?
@@ -550,7 +564,7 @@ where
         &self,
         order: &Order,
         proof_res: &ProofResult,
-    ) -> Result<OrderPricingOutcome, PriceOrderErr> {
+    ) -> Result<OrderPricingOutcome, OrderPickerErr> {
         let config_min_mcycle_price_stake_tokens = {
             let config = self.config.lock_all().context("Failed to read config")?;
             parse_ether(&config.market.mcycle_price_stake_token)
@@ -589,7 +603,7 @@ where
         })
     }
 
-    async fn find_existing_orders(&self) -> Result<()> {
+    async fn find_existing_orders(&self) -> Result<(), OrderPickerErr> {
         let pricing_orders = self
             .db
             .get_active_pricing_orders()
@@ -740,8 +754,16 @@ where
         Ok(balance.saturating_sub(pending_balance))
     }
 
-    async fn spawn_pricing_tasks(&self, tasks: &mut JoinSet<bool>, capacity: u32) -> Result<()> {
-        let order_res = self.db.update_orders_for_pricing(capacity).await?;
+    async fn spawn_pricing_tasks(
+        &self,
+        tasks: &mut JoinSet<bool>,
+        capacity: u32,
+    ) -> Result<(), OrderPickerErr> {
+        let order_res = self
+            .db
+            .update_orders_for_pricing(capacity)
+            .await
+            .context("Failed to update orders for pricing")?;
         tracing::trace!(
             "Found {} orders to price, with order ids: {:?}",
             order_res.len(),
@@ -760,7 +782,8 @@ impl<P> RetryTask for OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
-    fn spawn(&self) -> RetryRes {
+    type Error = OrderPickerErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let picker_copy = self.clone();
 
         Box::pin(async move {
@@ -804,7 +827,7 @@ where
                                 // Order was not priced successfully and will be skipped.
                             }
                             Err(e) => {
-                                return Err(SupervisorErr::Recover(anyhow::anyhow!("Pricing task failed: {e}")));
+                                return Err(SupervisorErr::Recover(OrderPickerErr::UnexpectedErr(anyhow::anyhow!("Pricing task failed: {e}"))));
                             }
                         }
                     }
