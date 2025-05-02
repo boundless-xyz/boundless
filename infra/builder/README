@@ -11,10 +11,13 @@ It is only deployed to the dev account, so there is only one stack: `Pulumi.dev.
 
 ### On each use
 1. Login as developer admin using aws-vault or similar
-1. Run `./configure_builder.sh`
-2. Now when you run `pulumi up` the docker builds will run remotely.
+2. Run `./configure_builder.sh`
+3. Now when you run `pulumi up` the docker builds will run remotely.
+4. When done using the builder, you can stop the instance to save costs: `./stop_builder.sh`
 
 ## Development
+
+Only needed if you are modifying the builder's Pulumi and want to redeploy it from scratch.
 
 As developer admin:
 ```
