@@ -627,7 +627,7 @@ where
                     _ => panic!("Unsupported fulfillment type: {:?}", order.fulfillment_type),
                 };
 
-                tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {}. It expires at {}", order.id(), proof_time_seconds, completion_time, expiration);
+                tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
 
                 if completion_time > expiration {
                     tracing::info!("Order {:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 

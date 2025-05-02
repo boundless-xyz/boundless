@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     chain_monitor::ChainMonitorService,
@@ -135,7 +135,7 @@ where
             let request_id = order.request.id;
             match self.price_order(order).await {
                 Ok(Lock { total_cycles, target_timestamp_secs, expiry_secs }) => {
-                    tracing::info!("Setting order with request id {request_id:x} to lock at {target_timestamp_secs}");
+                    tracing::info!("Setting order with request id {request_id:x} to lock at {}, {} seconds from now", target_timestamp_secs, target_timestamp_secs.saturating_sub(now_timestamp()));
                     self.db
                         .set_order_lock(
                             &order.id(),
@@ -693,10 +693,14 @@ where
     async fn estimate_gas_to_lock_pending(&self) -> Result<u64> {
         let mut gas = 0;
         // NOTE: i64::max is the largest timestamp value possible in the DB.
+        let mut gas_estimates = HashMap::new();
         for order in self.db.get_pending_lock_orders(i64::MAX as u64).await?.iter() {
-            tracing::debug!("Estimating gas to lock order with id {}", order.id());
-            gas += self.estimate_gas_to_lock(order).await?;
+            let gas_estimate = self.estimate_gas_to_lock(order).await?;
+            gas += gas_estimate;
+            gas_estimates.insert(order.id(), gas_estimate);
         }
+        tracing::debug!("Total gas estimate to lock pending orders: {}. Gas estimates for each pending lock order: {:?}", gas, gas_estimates);
+
         Ok(gas)
     }
 
@@ -706,10 +710,14 @@ where
     // may not matter.
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64> {
         let mut gas = 0;
+        let mut gas_estimates = HashMap::new();
         for order in self.db.get_pending_fulfill_orders(i64::MAX as u64).await? {
-            tracing::trace!("Estimating gas to fulfill order with id {}", order.id());
-            gas += self.estimate_gas_to_fulfill(&order).await?;
+            let gas_estimate = self.estimate_gas_to_fulfill(&order).await?;
+            gas += gas_estimate;
+            gas_estimates.insert(order.id(), gas_estimate);
         }
+        tracing::debug!("Total gas estimate to fulfill pending orders: {}. Gas estimates for each pending fulfill order: {:?}", gas, gas_estimates);
+
         Ok(gas)
     }
 

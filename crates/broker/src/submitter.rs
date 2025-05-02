@@ -39,6 +39,12 @@ use crate::errors::CodedError;
 
 #[derive(Error, Debug)]
 pub enum SubmitterErr {
+    #[error("Request expired before submission: {0}")]
+    RequestExpiredBeforeSubmission(MarketError),
+
+    #[error("Market error: {0}")]
+    MarketError(#[from] MarketError),
+
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -47,6 +53,8 @@ impl CodedError for SubmitterErr {
     fn code(&self) -> &str {
         match self {
             SubmitterErr::UnexpectedErr(_) => "[B-SUB-500]",
+            SubmitterErr::RequestExpiredBeforeSubmission(_) => "[B-SUB-001]",
+            SubmitterErr::MarketError(_) => "[B-SUB-002]",
         }
     }
 }
@@ -133,34 +141,45 @@ where
         Ok(encoded_seal)
     }
 
-    pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<()> {
+    pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<(), SubmitterErr> {
         tracing::info!("Submitting batch {batch_id}");
 
         let Some(ref aggregation_state) = batch.aggregation_state else {
-            bail!("Cannot submit batch with no recorded aggregation state");
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Cannot submit batch with no recorded aggregation state"
+            )));
         };
         let Some(ref groth16_proof_id) = aggregation_state.groth16_proof_id else {
-            bail!("Cannot submit batch with no recorded Groth16 proof ID");
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Cannot submit batch with no recorded Groth16 proof ID"
+            )));
         };
-        ensure!(
-            !aggregation_state.claim_digests.is_empty(),
-            "Cannot submit batch with no claim digests"
-        );
-        ensure!(batch.assessor_proof_id.is_some(), "Cannot submit batch with no assessor receipt");
-        ensure!(
-            aggregation_state.guest_state.mmr.is_finalized(),
-            "Cannot submit guest state that is not finalized"
-        );
+        if aggregation_state.claim_digests.is_empty() {
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Cannot submit batch with no claim digests"
+            )));
+        }
+        if batch.assessor_proof_id.is_none() {
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Cannot submit batch with no assessor receipt"
+            )));
+        }
+        if !aggregation_state.guest_state.mmr.is_finalized() {
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Cannot submit guest state that is not finalized"
+            )));
+        }
 
         // Collect the needed parts for the new merkle root:
         let batch_seal = self.fetch_encode_g16(groth16_proof_id).await?;
         let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
-        ensure!(
-            aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
-            "Guest state finalized root is inconsistent with claim digests"
-        );
+        if aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() != batch_root {
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Guest state finalized root is inconsistent with claim digests"
+            )));
+        }
 
         // Collect the needed parts for the fulfillBatch:
         let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
@@ -341,6 +360,7 @@ where
                     .iter()
                     .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                     .collect();
+                tracing::error!("Failed to submit merkle and fulfill for orders: {order_ids:?}");
                 self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
             }
         } else {
@@ -384,6 +404,7 @@ where
                         .iter()
                         .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                         .collect();
+                    tracing::error!("Failed to price and fulfill batch for orders: {order_ids:?}");
                     self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
                 }
             } else {
@@ -395,6 +416,7 @@ where
                         .iter()
                         .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                         .collect();
+                    tracing::error!("Failed to fulfill batch for orders: {order_ids:?}");
                     self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
                 }
             }
@@ -429,7 +451,7 @@ where
         batch_id: usize,
         fulfillments: &[Fulfillment],
         order_ids: &[&str],
-    ) -> Result<()> {
+    ) -> Result<(), SubmitterErr> {
         tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
         for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
             if let Err(db_err) = self.db.set_order_failure(order_id, format!("{err:?}")).await {
@@ -439,7 +461,11 @@ where
                 );
             }
         }
-        bail!("transaction to fulfill batch failed");
+
+        if err.to_string().contains("RequestIsExpiredOrNotPriced") {
+            return Err(SubmitterErr::RequestExpiredBeforeSubmission(err));
+        }
+        return Err(SubmitterErr::MarketError(err));
     }
 
     pub async fn process_next_batch(&self) -> Result<bool, SubmitterErr> {

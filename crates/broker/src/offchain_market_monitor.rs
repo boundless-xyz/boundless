@@ -17,6 +17,9 @@ use thiserror::Error;
 
 #[derive(Error)]
 pub enum OffchainMarketMonitorErr {
+    #[error("WebSocket error: {0}")]
+    WebSocketErr(anyhow::Error),
+
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -26,6 +29,7 @@ impl_coded_debug!(OffchainMarketMonitorErr);
 impl CodedError for OffchainMarketMonitorErr {
     fn code(&self) -> &str {
         match self {
+            OffchainMarketMonitorErr::WebSocketErr(_) => "[B-OMM-001]",
             OffchainMarketMonitorErr::UnexpectedErr(_) => "[B-OMM-500]",
         }
     }
@@ -85,8 +89,8 @@ impl OffchainMarketMonitor {
             })
             .await;
 
-        Err(OffchainMarketMonitorErr::UnexpectedErr(anyhow::anyhow!(
-            "offchain Order stream polling exited, polling failed"
+        Err(OffchainMarketMonitorErr::WebSocketErr(anyhow::anyhow!(
+            "Offchain order stream websocket exited, polling failed"
         )))
     }
 }

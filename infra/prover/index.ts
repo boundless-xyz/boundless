@@ -4,6 +4,7 @@ import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { getEnvVar, ChainId, getServiceNameV1, Severity } from "../util";
+import { create } from 'domain';
 
 require('dotenv').config();
 
@@ -490,6 +491,17 @@ export = () => {
   //
   // Off-chain Market Monitor
   //
+  
+  // 10 websocket errors within 1 hour in the off-chain market monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV1, {
+    threshold: 10,
+  }, { period: 3600 });
+
+  // 3 websocket errors within 15 minutes in the off-chain market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 900 });
+
   // Any 1 unexpected error in the off-chain market monitor triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error', Severity.SEV2);
 
@@ -562,6 +574,10 @@ export = () => {
   //
   // Submitter
   //
+  // Any 1 request expired before submission triggers a SEV2 alarm.
+  // Typically this is due to proving/aggregating/submitting taking longer than expected.
+  createErrorCodeAlarm('"[B-SUB-001]"', 'submitter-request-expired-before-submission', Severity.SEV2);
+
   // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV2);
 

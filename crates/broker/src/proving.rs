@@ -80,7 +80,7 @@ impl ProvingService {
             .with_context(|| format!("Failed to set the DB record to aggregation {order_id}"))?;
 
         tracing::info!(
-            "Customer Proof complete, order_id: {order_id} cycles: {} time: {}",
+            "Customer Proof complete for proof_id: {stark_proof_id}, order_id: {order_id} cycles: {} time: {}",
             proof_res.stats.total_cycles,
             proof_res.elapsed_time,
         );
