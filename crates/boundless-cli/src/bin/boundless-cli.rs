@@ -1140,10 +1140,10 @@ async fn benchmark(
     tracing::info!("  Cycles: {}", worst_cycles);
 
     println!("It is recommended to update this entry in broker.toml:");
-    println!("peak_prove_khz = {:.0}", worst_khz.round());
-    println!("setting a lower value does not limit the proving speed, but will reduce the total\
-              throughput of the orders locked by the broker. It is recommended to set a value lower\
-              than this recommmendation, and increase it over time to increase capacity.");
+    println!("peak_prove_khz = {:.0}\n", worst_khz.round());
+    println!("Note: setting a lower value does not limit the proving speed, but will reduce the \
+              total throughput of the orders locked by the broker. It is recommended to set a value \
+              lower than this recommmendation, and increase it over time to increase capacity.");
 
     Ok(())
 }
