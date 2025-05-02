@@ -118,6 +118,27 @@ pub struct StorageLayer<S: StorageProvider> {
     pub storage_provider: S,
 }
 
+impl<S: StorageProvider> StorageLayer<S>
+where
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    pub async fn process_program(&self, program: &[u8]) -> anyhow::Result<Url> {
+        let program_url = self.storage_provider.upload_program(program).await?;
+        Ok(program_url)
+    }
+
+    pub async fn process_env(&self, env: &GuestEnv) -> anyhow::Result<RequestInput> {
+        let input_data = env.encode().context("failed to encode guest environment")?;
+        let request_input = match self.inline_input_max_bytes {
+            Some(limit) if input_data.len() > limit => {
+                RequestInput::url(self.storage_provider.upload_input(&input_data).await?)
+            }
+            _ => RequestInput::inline(input_data),
+        };
+        Ok(request_input)
+    }
+}
+
 impl<S: StorageProvider> Layer<(&[u8], &GuestEnv)> for StorageLayer<S>
 where
     S::Error: std::error::Error + Send + Sync + 'static,
@@ -129,14 +150,8 @@ where
         &self,
         (program, env): (&[u8], &GuestEnv),
     ) -> Result<Self::Output, Self::Error> {
-        let program_url = self.storage_provider.upload_program(program).await?;
-        let input_data = env.encode().context("failed to encode guest environment")?;
-        let request_input = match self.inline_input_max_bytes {
-            Some(limit) if input_data.len() > limit => {
-                RequestInput::url(self.storage_provider.upload_input(&input_data).await?)
-            }
-            _ => RequestInput::inline(input_data),
-        };
+        let program_url = self.process_program(program).await?;
+        let request_input = self.process_env(env).await?;
         Ok((program_url, request_input))
     }
 }
@@ -155,6 +170,7 @@ where
 }
 
 // TODO: If using the preflight layer, how to avoid a second preflight on submit request?
+// TODO: Provide a layer impl that works without downloading the program and input.
 #[non_exhaustive]
 #[derive(Clone, Builder)]
 pub struct PreflightLayer {
@@ -459,10 +475,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_program(self, value: impl Into<Cow<'static, [u8]>>) -> Self {
-        Self {
-            program: Some(value.into()),
-            ..self
-        }
+        Self { program: Some(value.into()), ..self }
     }
 
     pub fn require_env(&self) -> Result<&GuestEnv, MissingFieldError> {
@@ -470,10 +483,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_env(self, value: impl Into<GuestEnv>) -> Self {
-        Self {
-            env: Some(value.into()),
-            ..self
-        }
+        Self { env: Some(value.into()), ..self }
     }
 
     pub fn require_program_url(&self) -> Result<&Url, MissingFieldError> {
@@ -481,10 +491,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_program_url(self, value: impl Into<Url>) -> Self {
-        Self {
-            program_url: Some(value.into()),
-            ..self
-        }
+        Self { program_url: Some(value.into()), ..self }
     }
 
     pub fn require_input(&self) -> Result<&RequestInput, MissingFieldError> {
@@ -492,10 +499,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_input(self, value: impl Into<RequestInput>) -> Self {
-        Self {
-            input: Some(value.into()),
-            ..self
-        }
+        Self { input: Some(value.into()), ..self }
     }
 
     pub fn require_cycles(&self) -> Result<u64, MissingFieldError> {
@@ -503,10 +507,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_cycles(self, value: u64) -> Self {
-        Self {
-            cycles: Some(value),
-            ..self
-        }
+        Self { cycles: Some(value), ..self }
     }
 
     pub fn require_journal(&self) -> Result<&Journal, MissingFieldError> {
@@ -514,10 +515,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_journal(self, value: impl Into<Journal>) -> Self {
-        Self {
-            journal: Some(value.into()),
-            ..self
-        }
+        Self { journal: Some(value.into()), ..self }
     }
 
     pub fn require_request_id(&self) -> Result<&RequestId, MissingFieldError> {
@@ -525,10 +523,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_request_id(self, value: impl Into<RequestId>) -> Self {
-        Self {
-            request_id: Some(value.into()),
-            ..self
-        }
+        Self { request_id: Some(value.into()), ..self }
     }
 
     pub fn require_offer(&self) -> Result<&Offer, MissingFieldError> {
@@ -536,10 +531,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_offer(self, value: impl Into<Offer>) -> Self {
-        Self {
-            offer: Some(value.into()),
-            ..self
-        }
+        Self { offer: Some(value.into()), ..self }
     }
 
     pub fn require_requirements(&self) -> Result<&Requirements, MissingFieldError> {
@@ -547,10 +539,7 @@ impl ExampleRequestParams {
     }
 
     pub fn with_requirements(self, value: impl Into<Requirements>) -> Self {
-        Self {
-            requirements: Some(value.into()),
-            ..self
-        }
+        Self { requirements: Some(value.into()), ..self }
     }
 }
 
@@ -584,17 +573,16 @@ where
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &StorageLayer<S>) -> Result<Self::Output, Self::Error> {
-        // If program_url and input fields are already set, do nothing.
-        // DO NOT MERGE: What if only one is set?
-        if self.program_url.is_some() && self.input.is_some() {
-            return Ok(self);
+        let mut params = self;
+        if params.program_url.is_none() {
+            let program_url = layer.process_program(params.require_program()?).await?;
+            params = params.with_program_url(program_url);
         }
-
-        let program = self.require_program()?;
-        let env = self.require_env()?;
-
-        let (program_url, input) = layer.process((program, env)).await?;
-        Ok(self.with_program_url(program_url).with_input(input))
+        if params.input.is_none() {
+            let input = layer.process_env(params.require_env()?).await?;
+            params = params.with_input(input);
+        }
+        Ok(params)
     }
 }
 
