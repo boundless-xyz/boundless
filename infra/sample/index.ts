@@ -14,6 +14,7 @@ const sampleSecret = isDev ? getEnvVar("SAMPLE_SECRET") : config.requireSecret("
 
 // Create an AWS resource (S3 Bucket)
 const bucket = new aws.s3.BucketV2(`${serviceName}-bucket`);
+const bucket2 = new aws.s3.BucketV2(`${serviceName}-bucket-2`);
 
 // Export the name of the bucket
 export const bucketName = bucket.id;

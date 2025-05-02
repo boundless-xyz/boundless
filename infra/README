@@ -9,7 +9,8 @@ This bootstraps the development account with your personal VPC. Then when you de
 3. `pulumi login --local`
 4. `pulumi stack init services-dev`
 5. `pulumi install`
-6. `pulumi up`
+6. Login in development account using `aws-vault`
+7. `pulumi up`
 
 Now deploy the sample project to check everything is working:
 
@@ -37,3 +38,4 @@ Requires Ops Admin permissions. Create staging and prod stacks requires accessin
 7. `pulumi login "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"` 
 8. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" staging`
 9. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" prod`
+10. Set your secrets using `pulumi config set --secret <NAME> <VALUE>`
