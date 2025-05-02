@@ -33,43 +33,21 @@ const securityGroup = new aws.ec2.SecurityGroup("builder-sec", {
     ],
 });
 
-// create an ebs volume and attach it to the instance
-const volume = new aws.ebs.Volume("builder-volume", {
-    availabilityZone: "us-west-2a",
-    size: 200,
-    type: "gp3",
-});
-
-// Create a new EC2 instance
-const server = new aws.ec2.Instance("builder", {
-    instanceType: "m7i.xlarge",
+// Create a new EC2 instance with instance store
+const serverLocal = new aws.ec2.Instance("builder-local", {
+    instanceType: "c6id.2xlarge", // Using c6id.2xlarge which has 16GB RAM and 237GB NVMe SSD
     keyName: sshKey.keyName,
     ami: "ami-087f352c165340ea1", // Amazon Linux 2 AMI
     vpcSecurityGroupIds: [securityGroup.id],
     tags: {
-        Name: "builder",
+        Name: "builder-local",
     },
-    instanceMarketOptions: {
-        marketType: "spot",
-        spotOptions: {
-            spotInstanceType: "one-time",
-            instanceInterruptionBehavior: "terminate",
-        },
-    },
-    rootBlockDevice: {
-      volumeSize: 20,
-      volumeType: "gp3",
-    },
-    ebsBlockDevices: [{
-        deviceName: "/dev/sdh",
-        volumeId: volume.id,
-    }],
-    userDataReplaceOnChange: false,
+    userDataReplaceOnChange: true,
     userData: 
     `#!/bin/bash
 set -e -v
 
-# Update and install dependenciess
+# Update and install dependencies
 yum update -y
 yum install -y docker git
 
@@ -80,41 +58,33 @@ systemctl enable docker
 # Add ec2-user to the docker group
 usermod -aG docker ec2-user
 
-# Increase the size of the /tmp partition, used by docker
-mount -o remount,size=12G /tmp
+# Format and mount the instance store volume
+mkfs -t xfs /dev/nvme1n1
 
-# Reduce size of /dev/shm, not important for a docker builder
-mount -o remount,size=4G /dev/shm
+# Create mount point
+mkdir -p /mnt/docker-local
 
-# Wait for attached EBS volume to show up
-DEVICE=/dev/xvdf
-while [ ! -b "$DEVICE" ]; do
-  echo "Waiting for EBS volume..."
-  sleep 2
-done
+# Mount the volume
+mount /dev/nvme1n1 /mnt/docker-local
 
-# Format if needed
-if ! file -sL "$DEVICE" | grep -q ext4; then
-  mkfs.ext4 "$DEVICE"
-fi
+# Configure Docker to use the instance store
+mkdir -p /mnt/docker-local/docker
 
-# Mount volume to /mnt/docker-cache
-mkdir -p /mnt/docker-cache
-mount "$DEVICE" /mnt/docker-cache
+# Update Docker daemon configuration to use the instance store
+cat > /etc/docker/daemon.json << EOF
+{
+  "data-root": "/mnt/docker-local/docker",
+  "storage-driver": "overlay2"
+}
+EOF
 
-# Add to fstab for auto-mount
-echo "$DEVICE /mnt/docker-cache ext4 defaults,nofail 0 2" >> /etc/fstab
-
-# Set up Docker BuildKit cache dir (experimental)
-mkdir -p /etc/docker
-echo '{ "data-root": "/mnt/docker-cache/docker" }' > /etc/docker/daemon.json
-
-# Restart Docker with new config
+# Restart Docker to apply changes
 systemctl restart docker
+
     `,
 });
 
 export const stateBucket = bucket.id;
 export const secretKey = keyAlias.arn;
-export const publicIp = server.publicIp;
-export const publicHostName = server.publicDns;
+export const publicIpLocal = serverLocal.publicIp;
+export const publicHostNameLocal = serverLocal.publicDns;
