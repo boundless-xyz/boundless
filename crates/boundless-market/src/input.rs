@@ -123,6 +123,13 @@ impl TryFrom<GuestEnv> for ExecutorEnv<'_> {
     }
 }
 
+impl From<Vec<u8>> for GuestEnv {
+    /// Create a [GuestEnv] with `stdin` set to the contents of the given [Vec<u8>].
+    fn from(stdin: Vec<u8>) -> Self {
+        GuestEnv { stdin }
+    }
+}
+
 /// Input builder, used to build the structured input (i.e. env) for execution and proving.
 ///
 /// Boundless provers decode the input provided in a proving request as a [GuestEnv]. This

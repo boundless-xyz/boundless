@@ -22,21 +22,27 @@ use std::{borrow::Cow, convert::Infallible, rc::Rc};
 
 use alloy::{
     network::Ethereum,
-    primitives::{utils::format_units, U256},
+    primitives::{
+        utils::{format_units, Unit},
+        U256,
+    },
     providers::{DynProvider, Provider},
 };
 use anyhow::{bail, Context};
-use risc0_zkvm::{compute_image_id, sha::Digestible, Executor, Journal, SessionInfo};
+use derive_builder::Builder;
+use risc0_zkvm::{
+    compute_image_id, default_executor, sha::Digestible, Executor, Journal, SessionInfo,
+};
 use url::Url;
 
 use crate::{
-    now_timestamp,
-    selector::{SupportedSelectors, ProofType},
     contracts::{
         boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Offer,
         Predicate, ProofRequest, RequestId, Requirements,
     },
     input::GuestEnv,
+    now_timestamp,
+    selector::{ProofType, SupportedSelectors},
     storage::{fetch_url, BuiltinStorageProvider, StorageProvider},
 };
 
@@ -120,12 +126,15 @@ where
 }
 
 #[non_exhaustive]
+#[derive(Clone, Builder)]
 pub struct StorageLayer<S: StorageProvider> {
     /// Maximum number of bytes to send as an inline input.
     ///
     /// Inputs larger than this size will be uploaded using the given storage provider. Set to none
     /// to indicate that inputs should always be sent inline.
+    #[builder(setter(into), default = "Some(2048)")]
     pub inline_input_max_bytes: Option<usize>,
+    #[builder(setter(into))]
     pub storage_provider: S,
 }
 
@@ -152,7 +161,6 @@ where
     }
 }
 
-// TODO: Add non-default ways to build a StorageLayer.
 impl<S> Default for StorageLayer<S>
 where
     S: StorageProvider + Default,
@@ -160,18 +168,24 @@ where
     fn default() -> Self {
         Self {
             // Default max inline input size is 2 kB.
-            inline_input_max_bytes: Some(2 * 1024),
+            inline_input_max_bytes: Some(2048),
             storage_provider: S::default(),
         }
     }
 }
 
 #[non_exhaustive]
+#[derive(Clone, Builder)]
 pub struct PreflightLayer {
+    #[builder(setter(into), default = "default_executor()")]
     executor: Rc<dyn Executor>,
 }
 
 impl PreflightLayer {
+    pub fn builder() -> PreflightLayerBuilder {
+        Default::default()
+    }
+
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             InputType::Inline => GuestEnv::decode(&input.data)?,
@@ -187,10 +201,14 @@ impl PreflightLayer {
     }
 }
 
-pub type PreflightLayerOutput = SessionInfo;
+impl Default for PreflightLayer {
+    fn default() -> Self {
+        Self { executor: default_executor() }
+    }
+}
 
 impl Layer<(&Url, &RequestInput)> for PreflightLayer {
-    type Output = PreflightLayerOutput;
+    type Output = SessionInfo;
     type Error = anyhow::Error;
 
     async fn process(
@@ -205,7 +223,14 @@ impl Layer<(&Url, &RequestInput)> for PreflightLayer {
 }
 
 #[non_exhaustive]
+#[derive(Clone, Builder, Default)]
 pub struct RequirementsLayer {}
+
+impl RequirementsLayer {
+    pub fn builder() -> RequirementsLayerBuilder {
+        Default::default()
+    }
+}
 
 impl Layer<(&[u8], &Journal)> for RequirementsLayer {
     type Output = Requirements;
@@ -222,16 +247,28 @@ impl Layer<(&[u8], &Journal)> for RequirementsLayer {
 }
 
 #[non_exhaustive]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub enum RequestIdLayerMode {
+    #[default]
     Rand,
     Nonce,
 }
 
 #[non_exhaustive]
+#[derive(Clone, Builder)]
 pub struct RequestIdLayer<P> {
     pub boundless_market: BoundlessMarketService<P>,
+    #[builder(default)]
     pub mode: RequestIdLayerMode,
+}
+
+impl<P> RequestIdLayer<P>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    pub fn builder() -> RequestIdLayerBuilder<P> {
+        Default::default()
+    }
 }
 
 impl<P> Layer<()> for RequestIdLayer<P>
@@ -251,30 +288,43 @@ where
 }
 
 #[non_exhaustive]
+#[derive(Builder)]
 pub struct OfferLayer<P> {
     pub provider: P,
     // default: 0 ETH
+    #[builder(setter(into), default = "U256::ZERO")]
     pub min_price_per_mcycle: U256,
     // default: 0.0001 ETH
+    #[builder(setter(into), default = "U256::from(100) * Unit::TWEI.wei_const()")]
     pub max_price_per_mcycle: U256,
     // default: 15 seconds
+    #[builder(default = "15")]
     pub bidding_start_delay: u64,
     // default: 120 seconds
+    #[builder(default = "120")]
     pub ramp_up_period: u32,
     // default: 600 seconds
+    #[builder(default = "600")]
     pub lock_timeout: u32,
     // default: 1200 seconds
+    #[builder(default = "1200")]
     pub timeout: u32,
     // default: 0.1 HP
+    #[builder(setter(into), default = "U256::from(100) * Unit::PWEI.wei_const()")]
     pub lock_stake: U256,
     // default: 200_000
+    #[builder(default = "200_000")]
     pub lock_gas_estimate: u64,
     // default: 750_000
+    #[builder(default = "750_000")]
     pub fulfill_gas_estimate: u64,
     // default: 250_000
+    #[builder(default = "250_000")]
     pub groth16_verify_gas_estimate: u64,
     // default: 100_000
+    #[builder(default = "100_000")]
     pub smart_contract_sig_verify_gas_estimate: u64,
+    #[builder(setter(into), default)]
     pub supported_selectors: SupportedSelectors,
 }
 
@@ -282,14 +332,23 @@ impl<P> OfferLayer<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    fn estimate_gas_usage(&self, requirements: &Requirements, request_id: &RequestId) -> anyhow::Result<u64> {
+    pub fn builder() -> OfferLayerBuilder<P> {
+        Default::default()
+    }
+
+    fn estimate_gas_usage(
+        &self,
+        requirements: &Requirements,
+        request_id: &RequestId,
+    ) -> anyhow::Result<u64> {
         let mut gas_usage_estimate = self.lock_gas_estimate + self.fulfill_gas_estimate;
         if request_id.smart_contract_signed {
             gas_usage_estimate += self.smart_contract_sig_verify_gas_estimate;
         }
         // Add gas for orders that make use of the callbacks feature.
         if let Some(callback) = requirements.callback.as_option() {
-            gas_usage_estimate += u64::try_from(callback.gasLimit).context("callback gas limit too large for u64")?;
+            gas_usage_estimate +=
+                u64::try_from(callback.gasLimit).context("callback gas limit too large for u64")?;
         }
 
         let proof_type = self
@@ -302,7 +361,12 @@ where
         Ok(gas_usage_estimate)
     }
 
-    fn estimate_gas_cost(&self, requirements: &Requirements, request_id: &RequestId, gas_price: u128) -> anyhow::Result<U256> {
+    fn estimate_gas_cost(
+        &self,
+        requirements: &Requirements,
+        request_id: &RequestId,
+        gas_price: u128,
+    ) -> anyhow::Result<U256> {
         let gas_usage_estimate = self.estimate_gas_usage(requirements, request_id)?;
 
         // Add to the max price an estimated upper bound on the gas costs.
@@ -327,7 +391,7 @@ where
         let min_price = self.min_price_per_mcycle * U256::from(mcycle_count);
         let max_price_mcycle = self.max_price_per_mcycle * U256::from(mcycle_count);
 
-        // TODO: User EIP-1559 parameters to select a better max price.
+        // TODO: Use EIP-1559 parameters to select a better max price.
         let gas_price: u128 = self.provider.get_gas_price().await?;
         let gas_cost_estimate = self.estimate_gas_cost(requirements, request_id, gas_price)?;
         let max_price = max_price_mcycle + gas_cost_estimate;
@@ -350,7 +414,15 @@ where
     }
 }
 
+#[non_exhaustive]
+#[derive(Clone, Builder, Default)]
 pub struct Finalizer {}
+
+impl Finalizer {
+    pub fn builder() -> FinalizerBuilder {
+        Default::default()
+    }
+}
 
 pub type FinalizerInput = (Url, RequestInput, Requirements, Offer, RequestId);
 
@@ -385,6 +457,7 @@ type Example = (
 );
 
 #[non_exhaustive]
+#[derive(Debug, Clone)]
 pub struct ExampleRequestParams {
     pub program: Cow<'static, [u8]>,
     pub env: GuestEnv,
@@ -397,6 +470,39 @@ pub struct ExampleRequestParams {
     pub requirements: Option<Requirements>,
 }
 
+impl ExampleRequestParams {
+    pub fn new(program: impl Into<Cow<'static, [u8]>>, env: impl Into<GuestEnv>) -> Self {
+        Self {
+            program: program.into(),
+            env: env.into(),
+            program_url: None,
+            input: None,
+            cycles: None,
+            journal: None,
+            request_id: None,
+            offer: None,
+            requirements: None,
+        }
+    }
+
+    pub fn with_program_url(self, value: impl Into<Url>) -> Self {
+        Self {
+            program_url: Some(value.into()),
+            ..self
+        }
+    }
+}
+
+impl<Program, Env> From<(Program, Env)> for ExampleRequestParams
+where
+    Program: Into<Cow<'static, [u8]>>,
+    Env: Into<GuestEnv>,
+{
+    fn from(value: (Program, Env)) -> Self {
+        Self::new(value.0, value.1)
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 #[error("field `{label}` is required but is uninitialized")]
 struct MissingFieldError {
@@ -406,22 +512,6 @@ struct MissingFieldError {
 impl MissingFieldError {
     pub fn new(label: impl Into<Cow<'static, str>>) -> Self {
         Self { label: label.into() }
-    }
-}
-
-impl<Program: Into<Cow<'static, [u8]>>> From<(Program, Vec<u8>)> for ExampleRequestParams {
-    fn from(value: (Program, Vec<u8>)) -> Self {
-        Self {
-            program: value.0.into(),
-            env: GuestEnv { stdin: value.1 },
-            program_url: None,
-            input: None,
-            cycles: None,
-            journal: None,
-            request_id: None,
-            offer: None,
-            requirements: None,
-        }
     }
 }
 

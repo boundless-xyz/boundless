@@ -2893,6 +2893,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "derive_builder",
  "futures-util",
  "guest-assessor",
  "guest-set-builder",
