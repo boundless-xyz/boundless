@@ -10,7 +10,7 @@ use alloy::{
     providers::{Provider, WalletProvider},
     sol_types::{SolStruct, SolValue},
 };
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
@@ -465,7 +465,7 @@ where
         if err.to_string().contains("RequestIsExpiredOrNotPriced") {
             return Err(SubmitterErr::RequestExpiredBeforeSubmission(err));
         }
-        return Err(SubmitterErr::MarketError(err));
+        Err(SubmitterErr::MarketError(err))
     }
 
     pub async fn process_next_batch(&self) -> Result<bool, SubmitterErr> {
