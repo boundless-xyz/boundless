@@ -10,7 +10,7 @@ config:
   slasher:DOCKER_DIR: ../../
   slasher:DOCKER_TAG: latest
   slasher:INTERVAL: "60"
-  slasher:LOG_LEVEL: info
+  slasher:LOG_LEVEL: debug
   slasher:RETRIES: "5"
   slasher:SKIP_ADDRESSES: ""
   slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
