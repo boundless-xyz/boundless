@@ -547,15 +547,15 @@ where
 
             tokio::select! {
                 Err(err) = Self::monitor_orders(market_addr, provider.clone(), db.clone()) => {
-                    tracing::error!("Monitor for new orders failed, restarting.");
+                    tracing::warn!("Monitor for new orders failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
                 Err(err) = Self::monitor_order_fulfillments(market_addr, provider.clone(), db.clone()) => {
-                    tracing::error!("Monitor for order fulfillments failed, restarting.");
+                    tracing::warn!("Monitor for order fulfillments failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
                 Err(err) = Self::monitor_order_locks(market_addr, prover_addr, provider.clone(), db.clone(), order_stream.clone()) => {
-                    tracing::error!("Monitor for order locks failed, restarting.");
+                    tracing::warn!("Monitor for order locks failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
             }
