@@ -14,7 +14,7 @@ config:
   order-generator-base:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
-  order-generator-base:LOG_LEVEL: debug
+  order-generator-base:LOG_LEVEL: info
   order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-simple:PRIVATE_KEY:
