@@ -16,7 +16,7 @@ Steps are:
 
 1. Log into the development account as an Admin (e.g. via aws-vault)
 2. `pulumi login --local && pulumi stack init dev`
-3. `pulumi stack select dev`
+3. `pulumi stack init dev`
 4. `pulumi up`
 
 ## Secrets

@@ -35,10 +35,10 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct MainArgs {
-    /// URL of the SetBuilder ELF
+    /// URL of the SetBuilder program
     #[clap(long)]
     set_builder_url: String,
-    /// URL of the Assessor ELF
+    /// URL of the Assessor program
     #[clap(long)]
     assessor_url: String,
     /// Address of the prover
@@ -56,10 +56,6 @@ struct MainArgs {
     /// Hex encoded request' signature
     #[clap(long)]
     signature: String,
-    /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
-    /// request is locked to another prover).
-    #[clap(long, default_value = "false")]
-    require_payment: bool,
 }
 
 /// Print the result of fulfilling a proof request using the RISC Zero zkVM default prover.
@@ -69,11 +65,15 @@ async fn main() -> Result<()> {
     let args = MainArgs::parse();
     // Take stdout is ensure no extra data is written to it.
     let mut stdout = take_stdout()?;
-    let set_builder_elf = fetch_url(&args.set_builder_url).await?;
-    let assessor_elf = fetch_url(&args.assessor_url).await?;
+    let set_builder_program = fetch_url(&args.set_builder_url).await?;
+    let assessor_program = fetch_url(&args.assessor_url).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
-    let prover =
-        DefaultProver::new(set_builder_elf, assessor_elf, args.prover_address, domain.clone())?;
+    let prover = DefaultProver::new(
+        set_builder_program,
+        assessor_program,
+        args.prover_address,
+        domain.clone(),
+    )?;
     let request =
         <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?, true)
             .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;

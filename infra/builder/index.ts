@@ -33,25 +33,21 @@ const securityGroup = new aws.ec2.SecurityGroup("builder-sec", {
     ],
 });
 
-// Create a new EC2 instance
-const server = new aws.ec2.Instance("builder", {
-    instanceType: "c5a.2xlarge",
+// Create a new EC2 instance with instance store
+const serverLocal = new aws.ec2.Instance("builder-local", {
+    instanceType: "c6id.2xlarge", // Using c6id.2xlarge which has 16GB RAM and 237GB NVMe SSD
     keyName: sshKey.keyName,
     ami: "ami-087f352c165340ea1", // Amazon Linux 2 AMI
     vpcSecurityGroupIds: [securityGroup.id],
     tags: {
-        Name: "builder",
+        Name: "builder-local",
     },
-    rootBlockDevice: {
-      volumeSize: 200,
-      volumeType: "gp3",
-    },
-    userDataReplaceOnChange: false,
+    userDataReplaceOnChange: true,
     userData: 
     `#!/bin/bash
 set -e -v
 
-# Update and install dependenciess
+# Update and install dependencies
 yum update -y
 yum install -y docker git
 
@@ -62,15 +58,33 @@ systemctl enable docker
 # Add ec2-user to the docker group
 usermod -aG docker ec2-user
 
-# Increase the size of the /tmp partition, used by docker
-mount -o remount,size=12G /tmp
+# Format and mount the instance store volume
+mkfs -t xfs /dev/nvme1n1
 
-# Reduce size of /dev/shm, not important for a docker builder
-mount -o remount,size=4G /dev/shm
+# Create mount point
+mkdir -p /mnt/docker-local
+
+# Mount the volume
+mount /dev/nvme1n1 /mnt/docker-local
+
+# Configure Docker to use the instance store
+mkdir -p /mnt/docker-local/docker
+
+# Update Docker daemon configuration to use the instance store
+cat > /etc/docker/daemon.json << EOF
+{
+  "data-root": "/mnt/docker-local/docker",
+  "storage-driver": "overlay2"
+}
+EOF
+
+# Restart Docker to apply changes
+systemctl restart docker
+
     `,
 });
 
 export const stateBucket = bucket.id;
 export const secretKey = keyAlias.arn;
-export const publicIp = server.publicIp;
-export const publicHostName = server.publicDns;
+export const publicIpLocal = serverLocal.publicIp;
+export const publicHostNameLocal = serverLocal.publicDns;

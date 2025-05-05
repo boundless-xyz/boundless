@@ -69,7 +69,7 @@ struct StressTestArgs {
 async fn request_spawner<P: Provider>(
     shutdown: Arc<AtomicBool>,
     ctx: Arc<TestCtx<P>>,
-    elf_url: &str,
+    program_url: &str,
     args: StressTestArgs,
     spawner_id: u32,
 ) -> Result<()> {
@@ -85,7 +85,7 @@ async fn request_spawner<P: Provider>(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
-            elf_url,
+            program_url,
             Input {
                 inputType: InputType::Inline,
                 data: InputBuilder::new()
@@ -137,7 +137,7 @@ async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider>(
 }
 
 /// Basic handler that responds with a static string.
-async fn serve_elf() -> &'static [u8] {
+async fn serve_program() -> &'static [u8] {
     ECHO_ELF
 }
 
@@ -148,7 +148,7 @@ async fn main() -> Result<()> {
 
     let args = StressTestArgs::parse();
 
-    let app = Router::new().route("/", get(serve_elf));
+    let app = Router::new().route("/", get(serve_program));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
     let elf_url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move {
@@ -187,9 +187,9 @@ async fn main() -> Result<()> {
         let ctx_copy = ctx.clone();
         let args_copy = args.clone();
         let shutdown_copy = shutdown.clone();
-        let elf_url = elf_url.clone();
+        let program_url = elf_url.clone();
         tasks.spawn(async move {
-            request_spawner(shutdown_copy, ctx_copy, &elf_url, args_copy, i).await
+            request_spawner(shutdown_copy, ctx_copy, &program_url, args_copy, i).await
         });
     }
 

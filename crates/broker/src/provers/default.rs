@@ -53,7 +53,7 @@ impl DefaultProver {
     }
 
     async fn execute(
-        elf: Vec<u8>,
+        program: Vec<u8>,
         input: Vec<u8>,
         assumptions: Vec<Receipt>,
         executor_limit: Option<u64>,
@@ -67,14 +67,14 @@ impl DefaultProver {
             });
             let env = env_builder.build()?;
 
-            default_executor().execute(env, &elf)
+            default_executor().execute(env, &program)
         })
         .await
         .unwrap()
     }
 
     async fn prove(
-        elf: Vec<u8>,
+        program: Vec<u8>,
         input: Vec<u8>,
         assumptions: Vec<Receipt>,
         opts: ProverOpts,
@@ -87,7 +87,7 @@ impl DefaultProver {
             });
             let env = env_builder.build()?;
 
-            default_prover().prove_with_opts(env, &elf, &opts)
+            default_prover().prove_with_opts(env, &program, &opts)
         })
         .await
         .unwrap()

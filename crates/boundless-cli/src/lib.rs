@@ -135,9 +135,9 @@ async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
 /// * LocalProver if the `prove` feature flag is enabled.
 /// * [ExternalProver] otherwise.
 pub struct DefaultProver {
-    set_builder_elf: Vec<u8>,
+    set_builder_program: Vec<u8>,
     set_builder_image_id: Digest,
-    assessor_elf: Vec<u8>,
+    assessor_program: Vec<u8>,
     address: Address,
     domain: EIP712DomainSaltless,
     supported_selectors: SupportedSelectors,
@@ -146,29 +146,29 @@ pub struct DefaultProver {
 impl DefaultProver {
     /// Creates a new [DefaultProver].
     pub fn new(
-        set_builder_elf: Vec<u8>,
-        assessor_elf: Vec<u8>,
+        set_builder_program: Vec<u8>,
+        assessor_program: Vec<u8>,
         address: Address,
         domain: EIP712DomainSaltless,
     ) -> Result<Self> {
-        let set_builder_image_id = compute_image_id(&set_builder_elf)?;
+        let set_builder_image_id = compute_image_id(&set_builder_program)?;
         let supported_selectors =
             SupportedSelectors::default().with_set_builder_image_id(set_builder_image_id);
         Ok(Self {
-            set_builder_elf,
+            set_builder_program,
             set_builder_image_id,
-            assessor_elf,
+            assessor_program,
             address,
             domain,
             supported_selectors,
         })
     }
 
-    // Proves the given [elf] with the given [input] and [assumptions].
+    // Proves the given [program] with the given [input] and [assumptions].
     // The [opts] parameter specifies the prover options.
     pub(crate) async fn prove(
         &self,
-        elf: Vec<u8>,
+        program: Vec<u8>,
         input: Vec<u8>,
         assumptions: Vec<Receipt>,
         opts: ProverOpts,
@@ -181,7 +181,7 @@ impl DefaultProver {
             }
             let env = env.build()?;
 
-            default_prover().prove_with_opts(env, &elf, &opts)
+            default_prover().prove_with_opts(env, &program, &opts)
         })
         .await??
         .receipt;
@@ -215,8 +215,13 @@ impl DefaultProver {
             .context("Failed to build set builder input")?;
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
 
-        self.prove(self.set_builder_elf.clone(), encoded_input, assumptions, ProverOpts::groth16())
-            .await
+        self.prove(
+            self.set_builder_program.clone(),
+            encoded_input,
+            assumptions,
+            ProverOpts::groth16(),
+        )
+        .await
     }
 
     // Proves the assessor.
@@ -230,7 +235,7 @@ impl DefaultProver {
 
         let stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
 
-        self.prove(self.assessor_elf.clone(), stdin, receipts, ProverOpts::succinct()).await
+        self.prove(self.assessor_program.clone(), stdin, receipts, ProverOpts::succinct()).await
     }
 
     /// Fulfills a list of orders, returning the relevant data:
@@ -243,7 +248,7 @@ impl DefaultProver {
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
         let orders_jobs = orders.iter().map(|order| async {
             let request = order.request.clone();
-            let order_elf = fetch_url(&request.imageUrl).await?;
+            let order_program = fetch_url(&request.imageUrl).await?;
             let order_input: Vec<u8> = match request.input.inputType {
                 InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
                 InputType::Url => {
@@ -265,11 +270,11 @@ impl DefaultProver {
             };
 
             let order_receipt = self
-                .prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::succinct())
+                .prove(order_program.clone(), order_input.clone(), vec![], ProverOpts::succinct())
                 .await?;
 
             let order_journal = order_receipt.journal.bytes.clone();
-            let order_image_id = compute_image_id(&order_elf)?;
+            let order_image_id = compute_image_id(&order_program)?;
             let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
             let order_claim_digest = order_claim.digest();
 
@@ -302,7 +307,7 @@ impl DefaultProver {
 
         let assessor_receipt = self.assessor(fills.clone(), receipts.clone()).await?;
         let assessor_journal = assessor_receipt.journal.bytes.clone();
-        let assessor_image_id = compute_image_id(&self.assessor_elf)?;
+        let assessor_image_id = compute_image_id(&self.assessor_program)?;
         let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal.clone());
         let assessor_receipt_journal: AssessorJournal =
             AssessorJournal::abi_decode(&assessor_journal, true)?;

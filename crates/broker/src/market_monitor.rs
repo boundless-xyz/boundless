@@ -26,7 +26,7 @@ use futures_util::StreamExt;
 use crate::{
     chain_monitor::ChainMonitorService,
     db::DbError,
-    errors::CodedError,
+    errors::{impl_coded_debug, CodedError},
     task::{RetryRes, RetryTask, SupervisorErr},
     DbObj, FulfillmentType, Order,
 };
@@ -34,8 +34,11 @@ use thiserror::Error;
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum MarketMonitorErr {
+    #[error("{code} Event polling failed: {0}", code = self.code())]
+    EventPollingErr(anyhow::Error),
+
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -43,10 +46,13 @@ pub enum MarketMonitorErr {
 impl CodedError for MarketMonitorErr {
     fn code(&self) -> &str {
         match self {
+            MarketMonitorErr::EventPollingErr(_) => "[B-MM-501]",
             MarketMonitorErr::UnexpectedErr(_) => "[B-MM-500]",
         }
     }
 }
+
+impl_coded_debug!(MarketMonitorErr);
 
 pub struct MarketMonitor<P> {
     lookback_blocks: u64,
@@ -275,7 +281,7 @@ where
             })
             .await;
 
-        Err(MarketMonitorErr::UnexpectedErr(anyhow::anyhow!(
+        Err(MarketMonitorErr::EventPollingErr(anyhow::anyhow!(
             "Event polling exited, polling failed (possible RPC error)"
         )))
     }
@@ -374,8 +380,8 @@ where
             })
             .await;
 
-        Err(MarketMonitorErr::UnexpectedErr(anyhow::anyhow!(
-            "Event polling exited, polling failed (possible RPC error)"
+        Err(MarketMonitorErr::EventPollingErr(anyhow::anyhow!(
+            "Event polling exited, polling failed (possible RPC error)",
         )))
     }
 
@@ -420,8 +426,8 @@ where
             })
             .await;
 
-        Err(MarketMonitorErr::UnexpectedErr(anyhow::anyhow!(
-            "Event polling exited, polling failed (possible RPC error)"
+        Err(MarketMonitorErr::EventPollingErr(anyhow::anyhow!(
+            "Event polling order fulfillments exited, polling failed (possible RPC error)",
         )))
     }
 
@@ -535,21 +541,21 @@ where
             )
             .await
             .map_err(|err| {
-                tracing::error!("Monitor failed to find open orders on startup: {err:?}");
+                tracing::error!("Monitor failed to find open orders on startup.");
                 SupervisorErr::Recover(err)
             })?;
 
             tokio::select! {
                 Err(err) = Self::monitor_orders(market_addr, provider.clone(), db.clone()) => {
-                    tracing::error!("Monitor for new orders failed, restarting: {err:?}");
+                    tracing::warn!("Monitor for new orders failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
                 Err(err) = Self::monitor_order_fulfillments(market_addr, provider.clone(), db.clone()) => {
-                    tracing::error!("Monitor for order fulfillments failed, restarting: {err:?}");
+                    tracing::warn!("Monitor for order fulfillments failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
                 Err(err) = Self::monitor_order_locks(market_addr, prover_addr, provider.clone(), db.clone(), order_stream.clone()) => {
-                    tracing::error!("Monitor for order locks failed, restarting: {err:?}");
+                    tracing::warn!("Monitor for order locks failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
             }

@@ -120,13 +120,13 @@ where
 
         if balance < self.config.error_threshold.unwrap_or(U256::ZERO) {
             tracing::error!(
-                "balance of {} < error threshold: {}",
+                "[B-BAL-ETH] balance of {} < error threshold: {}",
                 self.config.watch_address,
                 balance
             );
         } else if balance < self.config.warn_threshold.unwrap_or(U256::ZERO) {
             tracing::warn!(
-                "balance of {} < warning threshold: {}",
+                "[B-BAL-ETH] balance of {} < warning threshold: {}",
                 self.config.watch_address,
                 balance
             );

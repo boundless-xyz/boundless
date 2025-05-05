@@ -231,7 +231,7 @@ pub struct Client<P, S> {
     pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
     pub set_verifier: SetVerifierService<P>,
-    /// Storage provider to upload ELFs and inputs.
+    /// Storage provider to upload programs and inputs.
     pub storage_provider: Option<S>,
     /// Order stream client to submit requests off-chain.
     pub offchain_client: Option<OrderStreamClient>,
@@ -312,15 +312,15 @@ where
         Self { bidding_start_delay, ..self }
     }
 
-    /// Upload an image to the storage provider
-    pub async fn upload_image(&self, elf: &[u8]) -> Result<Url, ClientError> {
+    /// Upload a program binary to the storage provider
+    pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError> {
         Ok(self
             .storage_provider
             .as_ref()
             .context("Storage provider not set")?
-            .upload_image(elf)
+            .upload_program(program)
             .await
-            .map_err(|_| anyhow!("Failed to upload image"))?)
+            .map_err(|_| anyhow!("Failed to upload program"))?)
     }
 
     /// Upload input to the storage provider
