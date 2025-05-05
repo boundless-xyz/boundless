@@ -223,7 +223,7 @@ where
             .map_err(|e| -> OrderMonitorErr {
                 match e {
                     MarketError::LockRevert(e) => {
-                        OrderMonitorErr::LockTxFailed(format!("0x{:x}", e))
+                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
                     }
                     MarketError::Error(e) => {
                         if e.to_string().contains("InsufficientBalance") {
@@ -1373,8 +1373,8 @@ mod tests {
                 maxPrice: U256::from(max_price),
                 biddingStart: now_timestamp(),
                 rampUpPeriod: 1,
-                timeout: 500,
-                lockTimeout: 500,
+                timeout: 1000,
+                lockTimeout: 1000,
                 lockStake: U256::from(0),
             },
         );
