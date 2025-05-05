@@ -175,9 +175,9 @@ async fn simple_e2e() {
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -254,9 +254,9 @@ async fn simple_e2e_with_callback() {
     );
     let broker = Broker::new(args, ctx.prover_provider.clone()).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order with callback
     let request = generate_request(
@@ -338,9 +338,9 @@ async fn e2e_fulfill_after_lock_expiry() {
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -414,9 +414,9 @@ async fn e2e_with_selector() {
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -484,9 +484,9 @@ async fn e2e_with_multiple_requests() {
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap().to_string();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap().to_string();
 
     // Submit the first order
     let request = generate_request(

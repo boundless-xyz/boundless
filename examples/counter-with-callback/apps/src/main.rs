@@ -108,8 +108,8 @@ async fn run<P: StorageProvider>(
         .await
         .context("failed to build boundless client")?;
 
-    let image_url = client.upload_image(ECHO_ELF).await.context("failed to upload image")?;
-    tracing::info!("Uploaded image to {}", image_url);
+    let program_url = client.upload_program(ECHO_ELF).await.context("failed to upload program")?;
+    tracing::info!("Uploaded program to {}", program_url);
 
     let echo_message = format! {"{:?}", SystemTime::now()};
     let echo_input = Input::builder().write_slice(echo_message.as_bytes()).build_env()?;
@@ -130,7 +130,7 @@ async fn run<P: StorageProvider>(
     let journal = session_info.journal;
 
     let request = ProofRequest::builder()
-        .with_image_url(image_url)
+        .with_image_url(program_url)
         .with_input(input_url)
         .with_requirements(
             Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()))
