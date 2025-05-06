@@ -283,10 +283,18 @@ where
                             )
                             .await
                         {
-                            tracing::error!(
-                                "Failed to store request locked for request {:x} in db: {e:?}",
-                                event.requestId
-                            );
+                            match e {
+                                DbError::SqlErr(sqlx::Error::Database(db_err)) => {
+                                    if db_err.is_unique_violation() {
+                                        tracing::warn!("Duplicate lock event detected: {db_err:?}");
+                                    } else {
+                                        tracing::error!("Failed to add new lock event into DB: {db_err:?}");
+                                    }
+                                }
+                                _ => {
+                                    tracing::error!("Failed to store request locked for request {:x} in db: {e:?}", event.requestId);
+                                }
+                            }
                         }
 
                         // If the request was not locked by the prover, we create an order to evaluate the request
@@ -367,10 +375,21 @@ where
                             )
                             .await
                         {
-                            tracing::error!(
-                                "Failed to store fulfillment for request id {:x}: {e:?}",
-                                event.requestId
-                            );
+                            match e {
+                                DbError::SqlErr(sqlx::Error::Database(db_err)) => {
+                                    if db_err.is_unique_violation() {
+                                        tracing::warn!("Duplicate fulfillment event detected: {db_err:?}");
+                                    } else {
+                                        tracing::error!("Failed to add new fulfillment event into DB: {db_err:?}");
+                                    }
+                                }
+                                _ => {
+                                    tracing::error!(
+                                        "Failed to store fulfillment for request id {:x}: {e:?}",
+                                        event.requestId
+                                    );
+                                }
+                            }
                         }
                     }
                     Err(err) => {
@@ -442,8 +461,8 @@ where
 
         if let Err(err) = db
             .add_order(Order::new(
-                calldata.request,
-                calldata.clientSignature,
+                calldata.request.clone(),
+                calldata.clientSignature.clone(),
                 FulfillmentType::LockAndFulfill,
                 market_addr,
                 chain_id,
@@ -459,7 +478,10 @@ where
                     }
                 }
                 _ => {
-                    tracing::error!("Failed to add new order into DB: {err:?}");
+                    tracing::error!(
+                        "Failed to add new order into DB {:x}: {err:?}",
+                        calldata.request.id
+                    );
                 }
             }
         }
