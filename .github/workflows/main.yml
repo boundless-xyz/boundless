@@ -46,7 +46,7 @@ jobs:
   rust:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
     needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
+    if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.ci == 'true'
     services:
       postgres:
         image: postgres:latest
@@ -132,7 +132,7 @@ jobs:
   rust-pkg-check:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
     needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
+    if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.ci == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -227,7 +227,7 @@ jobs:
   foundry:
     runs-on: [ self-hosted, Linux, X64, prod, cpu]
     needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
+    if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.ci == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -428,6 +428,7 @@ jobs:
       main:      ${{ steps.changes.outputs.main }}
       examples:  ${{ steps.changes.outputs.examples }}
       docs:      ${{ steps.changes.outputs.docs }}
+      ci:       ${{ steps.changes.outputs.ci }}
 
     steps:
       - name: checkout code
@@ -458,4 +459,5 @@ jobs:
               - 'crates/**'
               - 'contracts/**'
               - 'documentation/**'
-
+            ci:
+              - '.github/**'
