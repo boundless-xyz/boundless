@@ -556,14 +556,6 @@ export = () => {
     threshold: 3,
   }, { period: 300 });
 
-  // If we fail to lock an order because the tx fails for some reason, SEV2.
-  createErrorCodeAlarm('"[B-OM-007]"', 'order-monitor-lock-tx-failed', Severity.SEV2);
-
-  // If we fail to lock an order 3 times because another prover locked before us, SEV2.
-  createErrorCodeAlarm('"[B-OM-009]"', 'order-monitor-already-locked', Severity.SEV2, {
-    threshold: 3,
-  }, { period: 3600 });
-
   // If we fail to lock an order because we don't have enough stake balance, SEV2.
   createErrorCodeAlarm('"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2);
 
