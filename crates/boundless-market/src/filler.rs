@@ -698,3 +698,22 @@ async fn example(example: Example) -> anyhow::Result<()> {
     example.build((b"", vec![])).await?;
     Ok(())
 }
+
+/*
+TODO: Write a test using the code from above!
+#[cfg(test)]
+mod tests {
+    use boundless_market_test_utils::create_test_ctx;
+    use alloy::node_bindings::Anvil;
+
+    #[tokio::test]
+    async fn basic() {
+        let anvil = Anvil::new().spawn();
+        let test_ctx = create_test_ctx(&anvil).await.unwrap();
+        let storage = MockStorageProvider::start();
+
+        //let offer_layer = OfferLayer::builder().provider(
+        test_
+    }
+}
+*/
