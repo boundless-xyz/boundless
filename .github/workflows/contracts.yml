@@ -55,7 +55,7 @@ jobs:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: "v1.1.0"
 
       - name: print forge version
         run: forge --version
@@ -79,7 +79,7 @@ jobs:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: "v1.1.0"
 
       - name: checkout main code
         uses: actions/checkout@v4

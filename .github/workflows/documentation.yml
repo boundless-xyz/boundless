@@ -39,7 +39,7 @@ jobs:
       - name: Install foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: "v1.1.0"
 
       - name: Run CI checks & build
         env:
