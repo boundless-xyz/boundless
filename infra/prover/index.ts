@@ -349,7 +349,7 @@ export = () => {
         ],
         environment: [
           { name: 'NO_COLOR', value: '1' },
-          { name: 'RUST_LOG', value: 'broker=debug,boundless_market=debug,broker::order_picker=trace' },
+          { name: 'RUST_LOG', value: 'broker=debug,boundless_market=debug' },
           { name: 'RUST_BACKTRACE', value: '1' },
           { name: 'BONSAI_API_URL', value: bonsaiApiUrl },
           { name: 'BUCKET', value: brokerS3BucketName }
