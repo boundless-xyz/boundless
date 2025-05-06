@@ -578,7 +578,7 @@ contract BoundlessMarket is
     }
 
     /// @notice For a request that has never been locked. Marks the request as fulfilled, and transfers payment if eligible.
-    /// @dev If a never locked request is fulfilled, but fails the requirements for payment, no
+    /// @dev If a never locked request is fulfilled, but client has not enough funds to cover the payment, no
     /// payment can ever be rendered for this order in the future.
     function _fulfillAndPayNeverLocked(
         RequestId id,
@@ -599,7 +599,7 @@ contract BoundlessMarket is
         // fulfillment contexts cannot be created for expired requests.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            return abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(id));
+            revert RequestIsExpiredOrNotPriced(id);
         }
         uint96 price = context.price;
 

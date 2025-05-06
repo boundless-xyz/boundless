@@ -1958,11 +1958,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
 
         // Attempt to fulfill a request without locking or pricing it.
-        bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
-        assert(
-            keccak256(paymentError)
-                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id));
+        boundlessMarket.fulfill(fill, assessorReceipt);
 
         expectMarketBalanceUnchanged();
     }
@@ -1989,11 +1986,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.priceAndFulfill(request, clientSignature, fill, assessorReceipt);
         expectRequestNotFulfilled(fill.id);
 
-        bytes memory paymentError = boundlessMarket.fulfill(fill, assessorReceipt);
-        assert(
-            keccak256(paymentError)
-                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id));
+        boundlessMarket.fulfill(fill, assessorReceipt);
 
         expectRequestNotFulfilled(fill.id);
         client.expectBalanceChange(0 ether);
@@ -2486,12 +2480,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             bytes[] memory clientSignatures = new bytes[](1);
             clientSignatures[0] = clientSignatureA;
 
-            bytes[] memory paymentError =
-                boundlessMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorReceipt);
-            assert(
-                keccak256(paymentError[0])
-                    == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, requestA.id))
-            );
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, requestA.id));
+            boundlessMarket.priceAndFulfillBatch(requests, clientSignatures, fills, assessorReceipt);
         } else {
             vm.expectRevert(
                 abi.encodeWithSelector(
