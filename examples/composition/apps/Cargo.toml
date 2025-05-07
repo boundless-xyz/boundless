@@ -23,8 +23,6 @@ url = { workspace = true }
 boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 broker = { workspace = true, features = ["test-utils"] }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
 test-log = "0.2"
 
 [features]

@@ -30,9 +30,6 @@ url = { workspace = true }
 boundless-cli = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 futures-util = { workspace = true }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
-guest-util = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 tracing-test = { workspace = true }
 

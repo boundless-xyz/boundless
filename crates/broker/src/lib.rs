@@ -401,10 +401,10 @@ where
         }
 
         let program_bytes = if let Some(path) = program_path {
-            let file_elf_buf =
+            let file_program_buf =
                 tokio::fs::read(&path).await.context("Failed to read program file")?;
-            let file_img_id =
-                risc0_zkvm::compute_image_id(&file_elf_buf).context("Failed to compute imageId")?;
+            let file_img_id = risc0_zkvm::compute_image_id(&file_program_buf)
+                .context("Failed to compute imageId")?;
 
             if image_id != file_img_id {
                 anyhow::bail!(
@@ -415,7 +415,7 @@ where
                 );
             }
 
-            file_elf_buf
+            file_program_buf
         } else {
             let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
                 .await
@@ -677,9 +677,7 @@ pub mod test_utils {
     use alloy::network::Ethereum;
     use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
-    use boundless_market_test_utils::TestCtx;
-    use guest_assessor::ASSESSOR_GUEST_PATH;
-    use guest_set_builder::SET_BUILDER_PATH;
+    use boundless_market_test_utils::{TestCtx, ASSESSOR_GUEST_PATH, SET_BUILDER_PATH};
     use tempfile::NamedTempFile;
     use url::Url;
 

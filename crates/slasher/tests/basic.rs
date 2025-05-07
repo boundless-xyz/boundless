@@ -17,10 +17,8 @@ use boundless_market::{
     order_stream_client::Order,
 };
 use boundless_market_test_utils::create_test_ctx;
+use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
 use futures_util::StreamExt;
-use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::{ECHO_ID, ECHO_PATH};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 
 async fn create_order(
@@ -59,15 +57,7 @@ async fn create_order(
 async fn test_basic_usage() {
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-slasher");
     let args = [
@@ -139,15 +129,7 @@ async fn test_basic_usage() {
 async fn test_slash_fulfilled() {
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-slasher");
     let args = [

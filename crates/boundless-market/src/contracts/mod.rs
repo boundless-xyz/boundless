@@ -307,21 +307,25 @@ pub enum RequestError {
     #[error("offer biddingStart must be greater than 0")]
     OfferBiddingStartIsZero,
 
-    /// The requirements are missing.
+    /// The requirements are missing from the request.
     #[error("missing requirements")]
     MissingRequirements,
 
-    /// The image URL is missing.
+    /// The image URL is missing from the request.
     #[error("missing image URL")]
     MissingImageUrl,
 
-    /// The input is missing.
+    /// The input is missing from the request.
     #[error("missing input")]
     MissingInput,
 
-    /// The offer is missing.
+    /// The offer is missing from the request.
     #[error("missing offer")]
     MissingOffer,
+
+    /// The request ID is missing from the request.
+    #[error("missing request ID")]
+    MissingRequestId,
 
     /// Request digest mismatch.
     #[error("request digest mismatch")]
@@ -362,8 +366,13 @@ impl ProofRequestBuilder {
         let image_url = self.image_url.ok_or(RequestError::MissingImageUrl)?;
         let input = self.input.ok_or(RequestError::MissingInput)?;
         let offer = self.offer.ok_or(RequestError::MissingOffer)?;
-        let request_id = self.request_id.unwrap_or_else(|| RequestId::new(Address::ZERO, 0));
-        Ok(ProofRequest::new(request_id, requirements, &image_url, input, offer))
+        // DO NOT MERGE: Previously allowed None, which would get populated when submitting the
+        // request. Need to decide how it would be best to handle this.
+        let request_id = self.request_id.ok_or(RequestError::MissingRequestId)?;
+
+        let req = ProofRequest::new(request_id, requirements, &image_url, input, offer);
+        req.validate()?;
+        Ok(req)
     }
 
     /// Sets the input data to be fetched from the given URL.

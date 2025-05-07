@@ -29,9 +29,6 @@ use boundless_market::contracts::{
     hit_points::{default_allowance, HitPointsService},
     AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
 };
-use guest_assessor::ASSESSOR_GUEST_ID;
-use guest_set_builder::SET_BUILDER_ID;
-use guest_util::ECHO_ID;
 use risc0_aggregation::{
     merkle_path, merkle_root, GuestState, SetInclusionReceipt,
     SetInclusionReceiptVerifierParameters,
@@ -45,6 +42,12 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 
+// Export image IDs and paths publicly to ensure all dependants use the same ones.
+pub use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+pub use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
+pub use guest_util::{ECHO_ELF, ECHO_ID, ECHO_PATH, IDENTITY_ELF, IDENTITY_ID, IDENTITY_PATH};
+
+#[non_exhaustive]
 pub struct TestCtx<P> {
     pub verifier_address: Address,
     pub set_verifier_address: Address,
@@ -265,36 +268,26 @@ pub async fn deploy_contracts(
 // with a RiscZeroGroth16Verifier otherwise.
 pub async fn create_test_ctx(
     anvil: &AnvilInstance,
-    set_builder_id: impl Into<Digest>,
-    set_builder_url: String,
-    assessor_guest_id: impl Into<Digest>,
-    assessor_guest_url: String,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-    create_test_ctx_with_rpc_url(
-        anvil,
-        &anvil.endpoint(),
-        set_builder_id,
-        set_builder_url,
-        assessor_guest_id,
-        assessor_guest_url,
-    )
-    .await
+    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint()).await
 }
 
 pub async fn create_test_ctx_with_rpc_url(
     anvil: &AnvilInstance,
     rpc_url: &str,
-    set_builder_id: impl Into<Digest>,
-    set_builder_url: String,
-    assessor_guest_id: impl Into<Digest>,
-    assessor_guest_url: String,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
+    // NOTE: There may be use cases for making these configurable, but its not obviously the case.
+    let set_builder_id = Digest::from(SET_BUILDER_ID);
+    let set_builder_url = format!("file://{SET_BUILDER_PATH}");
+    let assessor_guest_id = Digest::from(ASSESSOR_GUEST_ID);
+    let assessor_guest_url = format!("file://{ASSESSOR_GUEST_PATH}");
+
     let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
         deploy_contracts(
             anvil,
-            set_builder_id.into(),
+            set_builder_id,
             set_builder_url,
-            assessor_guest_id.into(),
+            assessor_guest_id,
             assessor_guest_url,
         )
         .await
