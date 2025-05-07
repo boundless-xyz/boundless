@@ -241,16 +241,13 @@ If the output looks something like:
 
 the role was assumed successfully and the broker will be able to download the sensitive inputs from S3 directly.
 
-1. Prover logs should show
-   `INFO download s3://<YOUR_BUCKET>/<PATH>/input.json`
-2. If you see `AccessDenied`, revisit the bucket policy.
-3. If you see `KMS.AccessDeniedException`, revisit the key policy.
+## Troubleshooting
 
-## Troubleshooting checklist
+| What you see | Root cause (most likely first) | Fix it fast |
+| --- | --- | --- |
+| `UnsupportedScheme` or “unsupported protocol scheme ""” before any request goes out | Broker tried to build an S3 URL from empty strings – usually the bucket name, region, or credentials are missing in `ENV` | Check that **all** four env-vars listed above are populated inside the container; an unset bucket var is the classic culprit. |
+| `AccessDenied` / HTTP 403 when the broker calls `GetObject` | Bucket policy doesn’t grant `s3:GetObject` to the **role** the broker assumed | In the bucket policy, set `"Principal": { "AWS": "<PROVER_ROLE_ARN>" }` and **remove any stray `"Principal":"*"`**. |
+| `AccessDenied (KMS.AccessDeniedException)` right after S3 authenticates | Object is encrypted with SSE-KMS, but the KMS **key policy** (or the IAM permissions of the role) is missing `kms:Decrypt` | Add the role ARN to the key policy, or attach a policy that grants `kms:Decrypt` on that key. |
+| `An error occurred (AccessDenied) when calling the AssumeRole operation` before any S3 call | The base creds can’t assume the role—either the role trust policy doesn’t list the prover’s account, or the creds lack `sts:AssumeRole` | Ask the requestor to Verify the **trust policy** on `ProverInputDownloadRole` and be sure the base IAM user/role has `sts:AssumeRole` permission. |
+| Everything works for every prover (even un-trusted ones) | Bucket policy still has `"Principal":"*"` or Block Public Access is disabled | Lock the policy down to the specific role and enable **BlockPublicPolicy** if you want S3 to reject future “*” policies. |
 
-| Symptom | Likely miss |
-|---------|-------------|
-| `UnsupportedScheme` in broker | Broker lacks base AWS creds |
-| `403 AccessDenied` | Bucket policy missing role |
-| KMS decrypt error | Key policy missing role |
-| Works for all provers | Bucket policy still `Principal: "*"` |
