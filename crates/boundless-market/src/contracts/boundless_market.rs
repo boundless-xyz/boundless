@@ -135,10 +135,7 @@ struct StakeBalanceAlertConfig {
     error_threshold: Option<U256>,
 }
 
-impl<P> Clone for BoundlessMarketService<P>
-where
-    IBoundlessMarketInstance<(), P, Ethereum>: Clone,
-{
+impl<P: Clone> Clone for BoundlessMarketService<P> {
     fn clone(&self) -> Self {
         Self {
             instance: self.instance.clone(),

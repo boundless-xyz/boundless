@@ -63,10 +63,9 @@ impl MockStorageProvider {
     /// Helper function to upload data and configure the mock server.
     fn upload_and_mock(
         &self,
-        data: impl Into<Vec<u8>>,
+        data: impl AsRef<[u8]>,
         path_prefix: &str,
     ) -> Result<Url, MockStorageError> {
-        let data = data.into();
         let path = format!("/{}/{}", path_prefix, self.get_next_id());
 
         // set up a mock route to respond to requests for this path
@@ -78,6 +77,8 @@ impl MockStorageProvider {
         // Create the URL that points to this resource
         let url = Url::parse(&self.server.base_url()).and_then(|url| url.join(&path))?;
 
+        tracing::debug!("Mock upload available at: {url}");
+
         Ok(url)
     }
 }
@@ -87,10 +88,12 @@ impl StorageProvider for MockStorageProvider {
     type Error = MockStorageError;
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
+        tracing::debug!("Mocking upload of program: {} bytes", program.len());
         self.upload_and_mock(program, "program")
     }
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
+        tracing::debug!("Mocking upload of input: {} bytes", input.len());
         self.upload_and_mock(input, "input")
     }
 }
