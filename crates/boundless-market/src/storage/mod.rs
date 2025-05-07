@@ -15,7 +15,7 @@
 //! Provider implementations for uploading image and input files such that they are publicly
 //! accessible to provers.
 
-use std::{fmt::Debug, path::PathBuf, result::Result::Ok, sync::Arc};
+use std::{fmt::Debug, ops::Deref, path::PathBuf, result::Result::Ok, sync::Arc};
 
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
@@ -57,11 +57,11 @@ impl<S: StorageProvider + Sync + ?Sized> StorageProvider for Box<S> {
     type Error = S::Error;
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_program(program).await
+        self.deref().upload_program(program).await
     }
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_input(input).await
+        self.deref().upload_input(input).await
     }
 }
 
@@ -70,11 +70,11 @@ impl<S: StorageProvider + Sync + Send + ?Sized> StorageProvider for Arc<S> {
     type Error = S::Error;
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_program(program).await
+        self.deref().upload_program(program).await
     }
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_input(input).await
+        self.deref().upload_input(input).await
     }
 }
 
