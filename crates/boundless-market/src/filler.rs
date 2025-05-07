@@ -18,7 +18,7 @@
 // TODO: Add debug and trace logging to the layers.
 // TODO: Create a test and an example of adding a layer.
 
-use std::{borrow::Cow, convert::Infallible, rc::Rc, fmt, fmt::Debug};
+use std::{borrow::Cow, convert::Infallible, fmt, fmt::Debug, rc::Rc};
 
 use alloy::{
     network::Ethereum,
@@ -129,6 +129,17 @@ impl<S> Debug for StorageLayer<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO
         f.debug_struct("StorageLayer").finish()
+    }
+}
+
+impl<S: Clone> From<S> for StorageLayer<S> {
+    /// Creates a [StorageLayer] from the given [StorageProvider], using default values for all
+    /// other fields.
+    fn from(value: S) -> Self {
+        StorageLayer::builder()
+            .storage_provider(value)
+            .build()
+            .expect("implementation error in From<S> for StorageLayer")
     }
 }
 
@@ -281,6 +292,17 @@ impl RequestIdLayer<()> {
     }
 }
 
+impl<P: Clone> From<BoundlessMarketService<P>> for RequestIdLayer<P> {
+    /// Creates a [RequestIdLayer] from the given [BoundlessMarketService],  using default values
+    /// for all other fields.
+    fn from(value: BoundlessMarketService<P>) -> Self {
+        RequestIdLayer::builder()
+            .boundless_market(value)
+            .build()
+            .expect("implementation error in From<BoundlessMarketService<P>> for RequestIdLayer")
+    }
+}
+
 impl<P> Layer<()> for RequestIdLayer<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
@@ -343,6 +365,17 @@ pub struct OfferLayer<P> {
 impl OfferLayer<()> {
     pub fn builder<P: Clone>() -> OfferLayerBuilder<P> {
         Default::default()
+    }
+}
+
+impl<P: Clone> From<P> for OfferLayer<P> {
+    /// Creates an [OfferLayer] from the given [Provider], using default values for all
+    /// other fields.
+    fn from(value: P) -> Self {
+        OfferLayer::builder()
+            .provider(value)
+            .build()
+            .expect("implementation error in From<P> for OfferLayer")
     }
 }
 
@@ -458,35 +491,85 @@ impl Layer<FinalizerInput> for Finalizer {
     }
 }
 
-#[allow(unused)]
-type Example = (
-    (
-        (
-            ((StorageLayer<BuiltinStorageProvider>, PreflightLayer), RequirementsLayer),
-            RequestIdLayer<DynProvider>,
-        ),
-        OfferLayer<DynProvider>,
-    ),
-    Finalizer,
-);
+/// A standard [RequestBuilder] provided as a default implementation.
+#[derive(Clone, Builder)]
+#[non_exhaustive]
+pub struct StandardRequestBuilder<S, P> {
+    #[builder(setter(into))]
+    pub storage_layer: StorageLayer<S>,
+    #[builder(setter(into), default)]
+    pub preflight_layer: PreflightLayer,
+    #[builder(setter(into), default)]
+    pub requirements_layer: RequirementsLayer,
+    #[builder(setter(into))]
+    pub request_id_layer: RequestIdLayer<P>,
+    #[builder(setter(into))]
+    pub offer_layer: OfferLayer<P>,
+    #[builder(setter(into), default)]
+    pub finalizer: Finalizer,
+}
+
+impl StandardRequestBuilder<(), ()> {
+    fn builder<S: Clone, P: Clone>() -> StandardRequestBuilderBuilder<S, P> {
+        Default::default()
+    }
+}
+
+impl<S, P> RequestBuilder for StandardRequestBuilder<S, P>
+where
+    S: StorageProvider,
+    S::Error: std::error::Error + Send + Sync + 'static,
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    type Params = RequestParams;
+    type Error = anyhow::Error;
+
+    async fn build(&self, params: impl Into<Self::Params>) -> Result<ProofRequest, Self::Error> {
+        params
+            .into()
+            .process_with(&self.storage_layer)
+            .await?
+            .process_with(&self.preflight_layer)
+            .await?
+            .process_with(&self.requirements_layer)
+            .await?
+            .process_with(&self.request_id_layer)
+            .await?
+            .process_with(&self.offer_layer)
+            .await?
+            .process_with(&self.finalizer)
+            .await
+    }
+}
 
 // NOTE: We don't use derive_builder here because we need to be able to access the values on the
 // incrementally built parameters.
 #[non_exhaustive]
 #[derive(Clone, Default)]
-pub struct ExampleRequestParams {
+pub struct RequestParams {
+    /// RISC-V guest program that will be run in the zkVM.
     pub program: Option<Cow<'static, [u8]>>,
+    /// Guest execution environment, providing the input for the guest.
+    /// See [GuestEnv].
     pub env: Option<GuestEnv>,
+    /// Uploaded program URL, from which provers will fetch the program.
     pub program_url: Option<Url>,
-    pub input: Option<RequestInput>,
+    /// Prepared input for the [ProofRequest], containing either a URL or inline input.
+    /// See [RequestInput].
+    pub request_input: Option<RequestInput>,
+    /// Count of the RISC Zero execution cycles. Used to estimate proving cost.
     pub cycles: Option<u64>,
+    /// Contents of the [Journal] that results from the execution.
     pub journal: Option<Journal>,
+    /// [RequestId] to use for the proof request.
     pub request_id: Option<RequestId>,
+    /// [Offer] to send along with the request.
     pub offer: Option<Offer>,
+    /// [Requirements] for the resulting proof.
     pub requirements: Option<Requirements>,
 }
 
-impl ExampleRequestParams {
+impl RequestParams {
     pub fn require_program(&self) -> Result<&[u8], MissingFieldError> {
         self.program.as_deref().ok_or(MissingFieldError::new("program"))
     }
@@ -511,12 +594,12 @@ impl ExampleRequestParams {
         Self { program_url: Some(value.into()), ..self }
     }
 
-    pub fn require_input(&self) -> Result<&RequestInput, MissingFieldError> {
-        self.input.as_ref().ok_or(MissingFieldError::new("input"))
+    pub fn require_request_input(&self) -> Result<&RequestInput, MissingFieldError> {
+        self.request_input.as_ref().ok_or(MissingFieldError::new("input"))
     }
 
-    pub fn with_input(self, value: impl Into<RequestInput>) -> Self {
-        Self { input: Some(value.into()), ..self }
+    pub fn with_request_input(self, value: impl Into<RequestInput>) -> Self {
+        Self { request_input: Some(value.into()), ..self }
     }
 
     pub fn require_cycles(&self) -> Result<u64, MissingFieldError> {
@@ -560,14 +643,14 @@ impl ExampleRequestParams {
     }
 }
 
-impl Debug for ExampleRequestParams {
+impl Debug for RequestParams {
     /// [Debug] implementation that does not print the contents of the program.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExampleRequestParams")
             .field("program", &self.program.as_ref().map(|x| format!("[{} bytes]", x.len())))
             .field("env", &self.env)
             .field("program_url", &self.program_url)
-            .field("input", &self.input)
+            .field("input", &self.request_input)
             .field("cycles", &self.cycles)
             .field("journal", &self.journal)
             .field("request_id", &self.request_id)
@@ -577,7 +660,7 @@ impl Debug for ExampleRequestParams {
     }
 }
 
-impl<Program, Env> From<(Program, Env)> for ExampleRequestParams
+impl<Program, Env> From<(Program, Env)> for RequestParams
 where
     Program: Into<Cow<'static, [u8]>>,
     Env: Into<GuestEnv>,
@@ -599,7 +682,7 @@ impl MissingFieldError {
     }
 }
 
-impl<S: StorageProvider> Adapt<StorageLayer<S>> for ExampleRequestParams
+impl<S: StorageProvider> Adapt<StorageLayer<S>> for RequestParams
 where
     S::Error: std::error::Error + Send + Sync + 'static,
 {
@@ -614,15 +697,15 @@ where
             let program_url = layer.process_program(params.require_program()?).await?;
             params = params.with_program_url(program_url);
         }
-        if params.input.is_none() {
+        if params.request_input.is_none() {
             let input = layer.process_env(params.require_env()?).await?;
-            params = params.with_input(input);
+            params = params.with_request_input(input);
         }
         Ok(params)
     }
 }
 
-impl Adapt<PreflightLayer> for ExampleRequestParams {
+impl Adapt<PreflightLayer> for RequestParams {
     type Output = Self;
     type Error = anyhow::Error;
 
@@ -636,7 +719,7 @@ impl Adapt<PreflightLayer> for ExampleRequestParams {
         }
 
         let program_url = self.require_program_url()?;
-        let input = self.require_input()?;
+        let input = self.require_request_input()?;
 
         let session_info = layer.process((program_url, input)).await?;
         let cycles = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
@@ -645,7 +728,7 @@ impl Adapt<PreflightLayer> for ExampleRequestParams {
     }
 }
 
-impl Adapt<RequirementsLayer> for ExampleRequestParams {
+impl Adapt<RequirementsLayer> for RequestParams {
     type Output = Self;
     type Error = anyhow::Error;
 
@@ -665,7 +748,7 @@ impl Adapt<RequirementsLayer> for ExampleRequestParams {
     }
 }
 
-impl<P> Adapt<RequestIdLayer<P>> for ExampleRequestParams
+impl<P> Adapt<RequestIdLayer<P>> for RequestParams
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -685,7 +768,7 @@ where
     }
 }
 
-impl<P> Adapt<OfferLayer<P>> for ExampleRequestParams
+impl<P> Adapt<OfferLayer<P>> for RequestParams
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -709,7 +792,7 @@ where
     }
 }
 
-impl Adapt<Finalizer> for ExampleRequestParams {
+impl Adapt<Finalizer> for RequestParams {
     type Output = ProofRequest;
     type Error = anyhow::Error;
 
@@ -718,7 +801,7 @@ impl Adapt<Finalizer> for ExampleRequestParams {
 
         // We create local variables to hold owned values
         let program_url = self.require_program_url()?.clone();
-        let input = self.require_input()?.clone();
+        let input = self.require_request_input()?.clone();
         let requirements = self.require_requirements()?.clone();
         let offer = self.require_offer()?.clone();
         let request_id = self.require_request_id()?.clone();
@@ -730,21 +813,6 @@ impl Adapt<Finalizer> for ExampleRequestParams {
     }
 }
 
-impl RequestBuilder for Example {
-    type Params = ExampleRequestParams;
-    type Error = anyhow::Error;
-
-    async fn build(&self, params: impl Into<Self::Params>) -> Result<ProofRequest, Self::Error> {
-        self.process(params.into()).await
-    }
-}
-
-#[allow(dead_code)]
-async fn example(example: Example) -> anyhow::Result<()> {
-    example.build((b"", vec![])).await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -754,8 +822,8 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::{
-        BoundlessMarketService, ExampleRequestParams, Finalizer, Layer, OfferLayer,
-        OfferLayerBuilder, PreflightLayer, RequestBuilder, RequestIdLayer, RequirementsLayer,
+        BoundlessMarketService, Finalizer, Layer, OfferLayer, OfferLayerBuilder, PreflightLayer,
+        RequestBuilder, RequestIdLayer, RequestParams, RequirementsLayer, StandardRequestBuilder,
         StorageLayer, StorageLayerBuilder,
     };
 
@@ -773,28 +841,14 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        // TODO: Provide a nice way to build this one.
-        let request_builder = (
-            (
-                (
-                    (
-                        (
-                            StorageLayer::builder().storage_provider(storage).build()?,
-                            PreflightLayer::default(),
-                        ),
-                        RequirementsLayer::default(),
-                    ),
-                    RequestIdLayer::builder().boundless_market(market).build()?,
-                ),
-                OfferLayer::builder().provider(test_ctx.customer_provider).build()?,
-            ),
-            Finalizer::default(),
-        );
+        let request_builder = StandardRequestBuilder::builder()
+            .storage_layer(storage)
+            .offer_layer(test_ctx.customer_provider.clone())
+            .request_id_layer(market)
+            .build()?;
 
-        // TODO: Use with input or simmilar instead of with_env
-        let params =
-            ExampleRequestParams::default().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
-        let request = request_builder.process(params).await?;
+        let params = RequestParams::default().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let request = request_builder.build(params).await?;
         println!("built request {request:#?}");
         Ok(())
     }
