@@ -24,6 +24,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       rdsPassword: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
       boundlessAlertsTopicArn?: string;
+      startBlock: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -39,6 +40,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       vpcId,
       rdsPassword,
       ethRpcUrl,
+      startBlock
     } = args;
 
     const stackName = pulumi.getStack();
@@ -291,7 +293,9 @@ export class IndexerInstance extends pulumi.ComponentResource {
             '--rpc-url',
             ethRpcUrl,
             '--boundless-market-address',
-            boundlessAddress
+            boundlessAddress,
+            '--start-block',
+            startBlock,
           ],
           secrets: [
             {

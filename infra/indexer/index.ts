@@ -20,6 +20,7 @@ export = () => {
   const boundlessAddress = config.require('BOUNDLESS_ADDRESS');
   const baseStackName = config.require('BASE_STACK');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+  const startBlock = config.require('START_BLOCK');
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -39,6 +40,7 @@ export = () => {
     rdsPassword,
     ethRpcUrl,
     boundlessAlertsTopicArn,
+    startBlock,
   });
 
 };
