@@ -39,10 +39,10 @@ use crate::errors::CodedError;
 
 #[derive(Error, Debug)]
 pub enum SubmitterErr {
-    #[error("Request expired before submission: {0}")]
+    #[error("{code} Request expired before submission: {0}", code = self.code())]
     RequestExpiredBeforeSubmission(MarketError),
 
-    #[error("Market error: {0}")]
+    #[error("{code} Market error: {0}", code = self.code())]
     MarketError(#[from] MarketError),
 
     #[error("{code} Unexpected error: {0}", code = self.code())]
@@ -360,14 +360,14 @@ where
                     .iter()
                     .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                     .collect();
-                tracing::error!("Failed to submit merkle and fulfill for orders: {order_ids:?}");
+                tracing::warn!("Failed to submit merkle and fulfill for orders: {order_ids:?}");
                 self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
             }
         } else {
             let contains_root = match self.set_verifier.contains_root(root).await {
                 Ok(res) => res,
                 Err(err) => {
-                    tracing::error!("Failed to query if set-verifier contains the new root, trying to submit anyway {err:?}");
+                    tracing::warn!("Failed to query if set-verifier contains the new root, trying to submit anyway {err:?}");
                     false
                 }
             };
@@ -404,7 +404,7 @@ where
                         .iter()
                         .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                         .collect();
-                    tracing::error!("Failed to price and fulfill batch for orders: {order_ids:?}");
+                    tracing::warn!("Failed to price and fulfill batch for orders: {order_ids:?}");
                     self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
                 }
             } else {
@@ -416,7 +416,7 @@ where
                         .iter()
                         .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                         .collect();
-                    tracing::error!("Failed to fulfill batch for orders: {order_ids:?}");
+                    tracing::warn!("Failed to fulfill batch for orders: {order_ids:?}");
                     self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
                 }
             }
@@ -452,7 +452,7 @@ where
         fulfillments: &[Fulfillment],
         order_ids: &[&str],
     ) -> Result<(), SubmitterErr> {
-        tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
+        tracing::warn!("Failed to submit proofs: {err:?} for batch {batch_id}");
         for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
             if let Err(db_err) = self.db.set_order_failure(order_id, format!("{err:?}")).await {
                 tracing::error!(
