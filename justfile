@@ -310,8 +310,6 @@ env NETWORK:
 		exit 1
 	fi
 
-# TODO add benchmark command to run boundless-cli with bento cluster, and load in default env?
-
 # Run the broker service with a bento cluster for proving.
 broker action="up" env_file="":
     just bento "{{action}}" "{{env_file}}" "--profile broker"
