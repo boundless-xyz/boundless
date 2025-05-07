@@ -2,10 +2,11 @@
 //
 // All rights reserved.
 
+use std::future::Future;
+
 use async_trait::async_trait;
 use bonsai_sdk::{
     non_blocking::{Client as BonsaiClient, SessionId, SnarkId},
-    responses::SnarkStatusRes,
     SdkErr,
 };
 use risc0_zkvm::Receipt;
@@ -102,6 +103,21 @@ impl Bonsai {
                 }
             }
         }
+    }
+
+    // New retry helper method
+    async fn retry<T, F, Fut>(&self, f: F, msg: &str) -> Result<T, ProverError>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<T, ProverError>>,
+    {
+        retry::<T, ProverError, _, _>(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { f().await },
+            msg,
+        )
+        .await
     }
 }
 
@@ -211,20 +227,20 @@ impl StatusPoller {
 
 #[async_trait]
 impl Prover for Bonsai {
+    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
+        let status = self
+            .retry(|| async { Ok(self.client.has_img(image_id).await?) }, "check image")
+            .await?;
+        Ok(status)
+    }
+
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
-        retry::<String, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
-            || async { Ok(self.client.upload_input(input.clone()).await?) },
-            "upload input",
-        )
-        .await
+        self.retry(|| async { Ok(self.client.upload_input(input.clone()).await?) }, "upload input")
+            .await
     }
 
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
-        retry::<(), ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
+        self.retry(
             || async { Ok(self.client.upload_img(image_id, image.clone()).await.map(|_| ())?) },
             "upload image",
         )
@@ -238,24 +254,23 @@ impl Prover for Bonsai {
         assumptions: Vec<String>,
         executor_limit: Option<u64>,
     ) -> Result<ProofResult, ProverError> {
-        let preflight_id: SessionId = retry::<SessionId, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
-            || async {
-                Ok(self
-                    .client
-                    .create_session_with_limit(
-                        image_id.into(),
-                        input_id.into(),
-                        assumptions.clone(),
-                        true,
-                        executor_limit,
-                    )
-                    .await?)
-            },
-            "create session for preflight",
-        )
-        .await?;
+        let preflight_id: SessionId = self
+            .retry(
+                || async {
+                    Ok(self
+                        .client
+                        .create_session_with_limit(
+                            image_id.into(),
+                            input_id.into(),
+                            assumptions.clone(),
+                            true,
+                            executor_limit,
+                        )
+                        .await?)
+                },
+                "create session for preflight",
+            )
+            .await?;
 
         let poller = StatusPoller {
             poll_sleep_ms: self.status_poll_ms,
@@ -270,9 +285,7 @@ impl Prover for Bonsai {
         input_id: &str,
         assumptions: Vec<String>,
     ) -> Result<String, ProverError> {
-        retry::<_, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
+        self.retry(
             || async {
                 Ok(self
                     .client
@@ -308,25 +321,20 @@ impl Prover for Bonsai {
 
     async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
         let session_id = SessionId { uuid: proof_id.into() };
-        let receipt = retry::<Vec<u8>, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
-            || async { Ok(self.client.receipt_download(&session_id).await?) },
-            "get receipt",
-        )
-        .await?;
+        let receipt = self
+            .retry(|| async { Ok(self.client.receipt_download(&session_id).await?) }, "get receipt")
+            .await?;
         Ok(Some(bincode::deserialize(&receipt)?))
     }
 
     async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
         let session_id = SessionId { uuid: proof_id.into() };
-        let journal = retry::<Vec<u8>, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
-            || async { Ok(session_id.exec_only_journal(&self.client).await?) },
-            "get preflight journal",
-        )
-        .await?;
+        let journal = self
+            .retry(
+                || async { Ok(session_id.exec_only_journal(&self.client).await?) },
+                "get preflight journal",
+            )
+            .await?;
         Ok(Some(journal))
     }
 
@@ -340,13 +348,12 @@ impl Prover for Bonsai {
     }
 
     async fn compress(&self, proof_id: &str) -> Result<String, ProverError> {
-        let proof_id = retry::<SnarkId, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
-            || async { Ok(self.client.create_snark(proof_id.into()).await?) },
-            "create snark",
-        )
-        .await?;
+        let proof_id = self
+            .retry(
+                || async { Ok(self.client.create_snark(proof_id.into()).await?) },
+                "create snark",
+            )
+            .await?;
 
         let poller = StatusPoller {
             poll_sleep_ms: self.status_poll_ms,
@@ -360,22 +367,14 @@ impl Prover for Bonsai {
 
     async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
         let snark_id = SnarkId { uuid: proof_id.into() };
-        let status = retry::<SnarkStatusRes, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
-            || async { Ok(snark_id.status(&self.client).await?) },
-            "get status of snark",
-        )
-        .await?;
+        let status = self
+            .retry(|| async { Ok(snark_id.status(&self.client).await?) }, "get status of snark")
+            .await?;
 
         let Some(output) = status.output else { return Ok(None) };
-        let receipt_buf = retry::<Vec<u8>, ProverError, _, _>(
-            self.req_retry_count,
-            self.req_retry_sleep_ms,
-            || async { Ok(self.client.download(&output).await?) },
-            "download snark output",
-        )
-        .await?;
+        let receipt_buf = self
+            .retry(|| async { Ok(self.client.download(&output).await?) }, "download snark output")
+            .await?;
 
         Ok(Some(receipt_buf))
     }

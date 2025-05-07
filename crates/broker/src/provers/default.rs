@@ -53,7 +53,7 @@ impl DefaultProver {
     }
 
     async fn execute(
-        elf: Vec<u8>,
+        program: Vec<u8>,
         input: Vec<u8>,
         assumptions: Vec<Receipt>,
         executor_limit: Option<u64>,
@@ -67,14 +67,14 @@ impl DefaultProver {
             });
             let env = env_builder.build()?;
 
-            default_executor().execute(env, &elf)
+            default_executor().execute(env, &program)
         })
         .await
         .unwrap()
     }
 
     async fn prove(
-        elf: Vec<u8>,
+        program: Vec<u8>,
         input: Vec<u8>,
         assumptions: Vec<Receipt>,
         opts: ProverOpts,
@@ -87,7 +87,7 @@ impl DefaultProver {
             });
             let env = env_builder.build()?;
 
-            default_prover().prove_with_opts(env, &elf, &opts)
+            default_prover().prove_with_opts(env, &program, &opts)
         })
         .await
         .unwrap()
@@ -122,6 +122,11 @@ impl DefaultProver {
 
 #[async_trait]
 impl Prover for DefaultProver {
+    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
+        let images = self.state.images.read().await;
+        Ok(images.contains_key(image_id))
+    }
+
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
         let input_id = format!("input_{}", Uuid::new_v4());
 

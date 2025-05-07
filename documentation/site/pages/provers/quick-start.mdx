@@ -33,7 +33,7 @@ sudo ./scripts/setup.sh
 
 ## Running Boundless
 
-The recommended place to start are the `just` commands. This script which will run everything you need to start proving.
+The recommended place to start are the `just` commands. This script will run everything you need to start proving.
 
 Boundless is comprised of two major components:
 1. **Bento** is the local proving infrastructure. Bento will take requests, prove them and return the result
@@ -116,7 +116,7 @@ Once everything is up, you can send a test proof to Bento to see if everything w
 RUST_LOG=info bento_cli -c 32
 ```
 
-2. The Bento CLI also accepts existing ELF / input files for [Boundless programs](/developers/tutorials/build):
+2. The Bento CLI also accepts [existing program and input files](/developers/tutorials/build):
 
 ```sh [Terminal]
 RUST_LOG=info bento_cli -f ./crates/bento-client/method_name -i /tmp/input.bin

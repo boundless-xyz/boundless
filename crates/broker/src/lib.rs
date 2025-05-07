@@ -4,7 +4,6 @@
 
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
-use crate::config::ConfigLock;
 use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
@@ -12,10 +11,9 @@ use alloy::{
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, InputType, ProofRequest},
-    input::GuestEnv,
+    contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::Client as OrderStreamClient,
     selector::is_groth16_selector,
 };
@@ -37,6 +35,7 @@ pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
 pub(crate) mod config;
 pub(crate) mod db;
+pub(crate) mod errors;
 pub mod futures_retry;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
@@ -345,70 +344,92 @@ where
         Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
     }
 
-    async fn get_assessor_image(&self) -> Result<(Digest, Vec<u8>)> {
-        let assessor_path = {
-            let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
-            config.prover.assessor_set_guest_path.clone()
-        };
+    async fn fetch_and_upload_set_builder_image(&self, prover: &ProverObj) -> Result<Digest> {
+        let set_verifier_contract = SetVerifierService::new(
+            self.args.set_verifier_address,
+            self.provider.clone(),
+            Address::ZERO,
+        );
 
-        if let Some(path) = assessor_path {
-            let elf_buf = std::fs::read(path).context("Failed to read assessor path")?;
-            let img_id = risc0_zkvm::compute_image_id(&elf_buf)
-                .context("Failed to compute assessor imageId")?;
-
-            Ok((img_id, elf_buf))
-        } else {
-            let boundless_market = BoundlessMarketService::new(
-                self.args.boundless_market_address,
-                self.provider.clone(),
-                Address::ZERO,
-            );
-
-            let (image_id, image_url_str) =
-                boundless_market.image_info().await.context("Failed to get contract image_info")?;
-            let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
-                .await
-                .context("Failed to parse image URI")?;
-            tracing::debug!("Downloading assessor image from: {image_uri}");
-            let image_data =
-                image_uri.fetch().await.context("Failed to download assessor image")?;
-
-            Ok((Digest::from_bytes(image_id.0), image_data))
-        }
-    }
-
-    async fn get_set_builder_image(&self) -> Result<(Digest, Vec<u8>)> {
-        let set_builder_path = {
+        let (image_id, image_url_str) = set_verifier_contract
+            .image_info()
+            .await
+            .context("Failed to get set builder image_info")?;
+        let image_id = Digest::from_bytes(image_id.0);
+        let path = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
             config.prover.set_builder_guest_path.clone()
         };
 
-        if let Some(path) = set_builder_path {
-            let elf_buf = std::fs::read(path).context("Failed to read set-builder path")?;
-            let img_id = risc0_zkvm::compute_image_id(&elf_buf)
-                .context("Failed to compute set-builder imageId")?;
+        self.fetch_and_upload_image(prover, image_id, image_url_str, path)
+            .await
+            .context("uploading set builder image")?;
+        Ok(image_id)
+    }
 
-            Ok((img_id, elf_buf))
+    async fn fetch_and_upload_assessor_image(&self, prover: &ProverObj) -> Result<Digest> {
+        let boundless_market = BoundlessMarketService::new(
+            self.args.boundless_market_address,
+            self.provider.clone(),
+            Address::ZERO,
+        );
+        let (image_id, image_url_str) =
+            boundless_market.image_info().await.context("Failed to get assessor image_info")?;
+        let image_id = Digest::from_bytes(image_id.0);
+
+        let path = {
+            let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
+            config.prover.assessor_set_guest_path.clone()
+        };
+
+        self.fetch_and_upload_image(prover, image_id, image_url_str, path)
+            .await
+            .context("uploading assessor image")?;
+        Ok(image_id)
+    }
+
+    async fn fetch_and_upload_image(
+        &self,
+        prover: &ProverObj,
+        image_id: Digest,
+        image_url_str: String,
+        program_path: Option<PathBuf>,
+    ) -> Result<()> {
+        if prover.has_image(&image_id.to_string()).await? {
+            tracing::debug!("Image for {} already uploaded, skipping pull", image_id);
+            return Ok(());
+        }
+
+        let program_bytes = if let Some(path) = program_path {
+            let file_elf_buf =
+                tokio::fs::read(&path).await.context("Failed to read program file")?;
+            let file_img_id =
+                risc0_zkvm::compute_image_id(&file_elf_buf).context("Failed to compute imageId")?;
+
+            if image_id != file_img_id {
+                anyhow::bail!(
+                    "Image ID mismatch for {}, expected {}, got {}",
+                    path.display(),
+                    image_id,
+                    file_img_id.to_string()
+                );
+            }
+
+            file_elf_buf
         } else {
-            let set_verifier_contract = SetVerifierService::new(
-                self.args.set_verifier_address,
-                self.provider.clone(),
-                Address::ZERO,
-            );
-
-            let (image_id, image_url_str) = set_verifier_contract
-                .image_info()
-                .await
-                .context("Failed to get contract image_info")?;
             let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
                 .await
                 .context("Failed to parse image URI")?;
-            tracing::debug!("Downloading aggregation-set image from: {image_uri}");
-            let image_data =
-                image_uri.fetch().await.context("Failed to download aggregation-set image")?;
+            tracing::debug!("Downloading assessor image from: {image_uri}");
 
-            Ok((Digest::from_bytes(image_id.0), image_data))
-        }
+            image_uri.fetch().await.context("Failed to download assessor image")?
+        };
+
+        prover
+            .upload_image(&image_id.to_string(), program_bytes)
+            .await
+            .context("Failed to upload image to prover")?;
+        Ok(())
     }
 
     pub async fn start_service(&self) -> Result<()> {
@@ -563,18 +584,16 @@ where
             Ok(())
         });
 
-        let set_builder_img_data = self.get_set_builder_image().await?;
-        let assessor_img_data = self.get_assessor_image().await?;
+        let set_builder_img_id = self.fetch_and_upload_set_builder_image(&prover).await?;
+        let assessor_img_id = self.fetch_and_upload_assessor_image(&prover).await?;
 
         let prover_addr = self.args.private_key.address();
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
                 self.db.clone(),
                 chain_id,
-                set_builder_img_data.0,
-                set_builder_img_data.1,
-                assessor_img_data.0,
-                assessor_img_data.1,
+                set_builder_img_id,
+                assessor_img_id,
                 self.args.boundless_market_address,
                 prover_addr,
                 config.clone(),
@@ -601,7 +620,7 @@ where
             self.provider.clone(),
             self.args.set_verifier_address,
             self.args.boundless_market_address,
-            set_builder_img_data.0,
+            set_builder_img_id,
         )?);
         let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
@@ -645,73 +664,6 @@ where
 
         Ok(())
     }
-}
-
-async fn upload_image_uri(
-    prover: &ProverObj,
-    order: &Order,
-    config: &ConfigLock,
-) -> Result<String> {
-    let uri =
-        create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
-
-    let image_data = uri
-        .fetch()
-        .await
-        .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
-    let image_id =
-        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
-
-    let required_image_id = Digest::from(order.request.requirements.imageId.0);
-    ensure!(
-        image_id == required_image_id,
-        "image ID does not match requirements; expect {}, got {}",
-        required_image_id,
-        image_id
-    );
-    let image_id = image_id.to_string();
-
-    prover.upload_image(&image_id, image_data).await.context("Failed to upload image to prover")?;
-
-    Ok(image_id)
-}
-
-async fn upload_input_uri(
-    prover: &ProverObj,
-    order: &Order,
-    config: &ConfigLock,
-) -> Result<String> {
-    Ok(match order.request.input.inputType {
-        InputType::Inline => prover
-            .upload_input(
-                GuestEnv::decode(&order.request.input.data)
-                    .with_context(|| "Failed to decode input")?
-                    .stdin,
-            )
-            .await
-            .context("Failed to upload input data")?,
-
-        InputType::Url => {
-            let input_uri_str =
-                std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
-            tracing::debug!("Input URI string: {input_uri_str}");
-            let input_uri =
-                create_uri_handler(input_uri_str, config).await.context("URL handling failed")?;
-
-            let input_data = GuestEnv::decode(
-                &input_uri
-                    .fetch()
-                    .await
-                    .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
-            )
-            .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-            .stdin;
-
-            prover.upload_input(input_data).await.context("Failed to upload input")?
-        }
-        //???
-        _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
-    })
 }
 
 /// A very small utility function to get the current unix timestamp in seconds.

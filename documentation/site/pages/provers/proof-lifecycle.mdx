@@ -140,7 +140,7 @@ Provers will calculate the minimum price at which they are willing to prove a re
 - Timeout length, determining how long they have to complete the proof.
 - Input and program size, determining bandwidth costs to download the request.
 
-It is also worth noting that the prover's software will download the ELF binary, from the request's image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.
+It is also worth noting that the prover's software will download the program, from the request's image URL, and execute it to determine the number of [cycles](https://dev.risczero.com/terminology#clock-cycles) and estimate the proving load.
 
 _If the program fails to execute (e.g., the guest panics) the prover will not bid._
 

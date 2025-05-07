@@ -316,6 +316,60 @@ env NETWORK:
 broker action="up" env_file="":
     just bento "{{action}}" "{{env_file}}" "--profile broker"
 
+    if ! command -v docker &> /dev/null; then
+        echo "Error: Docker command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if ! docker compose version &> /dev/null; then
+        echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if [ "{{action}}" = "up" ]; then
+        if [ -n "{{env_file}}" ] && [ ! -f "{{env_file}}" ]; then
+            echo "Error: Environment file {{env_file}} does not exist."
+            exit 1
+        fi
+
+        echo "Starting Docker Compose services"
+        if [ -n "{{env_file}}" ]; then
+            echo "Using environment file: {{env_file}}"
+        else
+            echo "Using default values from compose.yml"
+        fi
+        
+        docker compose {{compose_flags}} $ENV_FILE_ARG up --build -d
+        echo "Docker Compose services have been started."
+    elif [ "{{action}}" = "down" ]; then
+        echo "Stopping Docker Compose services"
+        if docker compose {{compose_flags}} $ENV_FILE_ARG down; then
+            echo "Docker Compose services have been stopped and removed."
+        else
+            echo "Error: Failed to stop Docker Compose services."
+            exit 1
+        fi
+    elif [ "{{action}}" = "clean" ]; then
+        echo "Stopping and cleaning Docker Compose services"
+        if docker compose {{compose_flags}} $ENV_FILE_ARG down -v; then
+            echo "Docker Compose services have been stopped and volumes have been removed."
+        else
+            echo "Error: Failed to clean Docker Compose services."
+            exit 1
+        fi
+    elif [ "{{action}}" = "logs" ]; then
+        echo "Docker logs"
+        docker compose {{compose_flags}} $ENV_FILE_ARG logs -f
+    else
+        echo "Unknown action: {{action}}"
+        echo "Available actions: up, down, clean, logs"
+        exit 1
+    fi
+
+# Run the broker service with a bento cluster for proving.
+broker action="up" env_file="":
+    just bento "{{action}}" "{{env_file}}" "--profile broker"
+
 # Run the setup script
 bento-setup:
     #!/usr/bin/env bash
