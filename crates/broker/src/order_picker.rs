@@ -864,10 +864,11 @@ mod tests {
         Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
-    use boundless_market_test_utils::{deploy_boundless_market, deploy_hit_points};
+    use boundless_market_test_utils::{
+        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
+        ECHO_ELF, ECHO_ID,
+    };
     use chrono::Utc;
-    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
