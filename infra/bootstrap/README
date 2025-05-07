@@ -2,6 +2,10 @@
 
 The stack is used to bootstrap a service accounts with resources that are needed for deployments. 
 
+If you are trying to onboard for development, see `./infra/README`
+
+## Staging / Prod
+
 This stack should only be needed to be deployed once, when a new service account is created.
 
 Must be deployed as an admin user in each service account.

@@ -18,7 +18,7 @@ use tokio::{
     time::{timeout, Duration},
 };
 
-use crate::errors::CodedError;
+use crate::{errors::CodedError, impl_coded_debug};
 
 mod defaults {
     pub const fn max_journal_bytes() -> usize {
@@ -216,12 +216,12 @@ pub struct ProverConf {
     pub proof_retry_count: u64,
     /// Number of milliseconds to sleep between proof retries.
     pub proof_retry_sleep_ms: u64,
-    /// Set builder guest ELF path
+    /// Set builder guest program binary path
     ///
-    /// When using a durable deploy, set this to the published current SOT guest ELF path on the
-    /// system
+    /// When using a durable deploy, set this to the published current SOT guest program binary
+    /// path on the system
     pub set_builder_guest_path: Option<PathBuf>,
-    /// Assessor ELF path
+    /// Assessor program path
     pub assessor_set_guest_path: Option<PathBuf>,
     /// Max critical task retries on recoverable failures.
     ///
@@ -326,7 +326,7 @@ impl Config {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ConfigErr {
     #[error("Failed to lock internal config structure")]
     LockFailed,
@@ -334,6 +334,8 @@ pub enum ConfigErr {
     #[error("Invalid configuration")]
     InvalidConfig,
 }
+
+impl_coded_debug!(ConfigErr);
 
 impl CodedError for ConfigErr {
     fn code(&self) -> &str {

@@ -185,11 +185,11 @@ async fn run<P: StorageProvider>(
 }
 
 /// Execute the Boundless market prove process.
-/// This function uploads the elf and input, runs the guest executor, builds the request,
+/// This function uploads the program and input, runs the guest executor, builds the request,
 /// submits it, and waits for the fulfillment.
 async fn boundless_proof<P, S>(
     client: &Client<P, S>,
-    elf: impl AsRef<[u8]>,
+    program: impl AsRef<[u8]>,
     guest_env: GuestEnv,
     groth16: bool,
 ) -> Result<(Journal, Bytes)>
@@ -197,13 +197,14 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider,
 {
-    // Compute the image ID of the ELF
-    let elf = elf.as_ref();
-    let image_id = compute_image_id(elf).context("failed to compute image ID from provided ELF")?;
+    // Compute the image ID of the program
+    let program = program.as_ref();
+    let image_id =
+        compute_image_id(program).context("failed to compute image ID from provided ELF")?;
 
     // Upload the ELF binary and input data
-    let image_url = client.upload_image(elf).await.context("failed to upload image")?;
-    tracing::info!("Uploaded image to {}", image_url);
+    let program_url = client.upload_program(program).await.context("failed to upload program")?;
+    tracing::info!("Uploaded program to {}", program_url);
 
     let input_encoded = guest_env.encode().context("failed to encode input")?;
     let input_url = client.upload_input(&input_encoded).await.context("failed to upload input")?;
@@ -213,8 +214,9 @@ where
     let mut env_builder = ExecutorEnv::builder();
     env_builder.write_slice(&guest_env.stdin);
 
-    let session_info =
-        default_executor().execute(env_builder.build()?, elf).context("failed to execute ELF")?;
+    let session_info = default_executor()
+        .execute(env_builder.build()?, program)
+        .context("failed to execute ELF")?;
     // Calculate the cycles (in millions) required.
     let mcycles_count = session_info
         .segments
@@ -242,7 +244,7 @@ where
 
     // Build and submit the request
     let request = ProofRequest::builder()
-        .with_image_url(image_url)
+        .with_image_url(program_url)
         .with_input(input_url)
         .with_requirements(requirements)
         .with_offer(offer)

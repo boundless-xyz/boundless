@@ -5,21 +5,19 @@ The builder is an EC2 instance with Docker installed for running remote Docker b
 It is only deployed to the dev account, so there is only one stack: `Pulumi.dev.yaml`. Unlike other "dev" stacks, this one uses a shared S3 state bucket and secret provider, since we share a single instance amongst the team.
 
 ## Using the builder
+### Prerequisite 
 1. Get the SSH key from the team vault under "Boundless Builder SSH"
 2. Add the key to your ssh agent: `ssh-add ~/.ssh/id_ed25519_dev_docker_builder`
-3. Get the ec2 instance dns name:
-  ```
-  aws ec2 describe-instances \
-    --filters "Name=tag:Name,Values=builder" "Name=instance-state-name,Values=running" \
-    --query 'Reservations[*].Instances[*].[PublicDnsName]'
-  ```
-4. Confirm you can ssh in: `ssh ec2-user@<INSTANCE DNS>`
-5. Remove any existing builder: `docker buildx rm aws-builder`
-6. Register the builder in docker, filling in the instance name: `docker buildx create --name aws-builder --driver docker-container --platform linux/amd64 ssh://ec2-user@<INSTANCE DNS>`
-7. Set env variable: `export DOCKER_REMOTE_BUILDER="aws-builder"` Our Pulumi stacks are configured to read this variable.
-8. Now when you run `pulumi up` the docker builds will run remotely.
+
+### On each use
+1. Login as developer admin using aws-vault or similar
+2. Run `./configure_builder.sh`
+3. Now when you run `pulumi up` the docker builds will run remotely.
+4. When done using the builder, you can stop the instance to save costs: `./stop_builder.sh`
 
 ## Development
+
+Only needed if you are modifying the builder's Pulumi and want to redeploy it from scratch.
 
 As developer admin:
 ```

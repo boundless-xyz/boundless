@@ -135,14 +135,14 @@ async fn run<P: StorageProvider>(
     // Here we are using the echo guest, which simply echoes the input back.
     // Since for each day we want the input to the guest to be "days since epoch", and since the program just echoes
     // the input back, we can guarantee the correct input was used by checking that the output matches "days since epoch".
-    let (mcycles_count, image_url, input_url, journal) =
+    let (mcycles_count, program_url, input_url, journal) =
         prepare_guest_input(&boundless_client, days_since_epoch).await?;
     let requirements = Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()));
 
     // Create the request, ensuring to set the request id and requirements that we prepared above.
     let request = ProofRequest::builder()
         .with_request_id(request_id)
-        .with_image_url(image_url)
+        .with_image_url(program_url)
         .with_input(input_url)
         .with_requirements(requirements)
         .with_offer(
@@ -191,9 +191,9 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider,
 {
-    // Prepare the image and input for the guest program.
-    let image_url =
-        boundless_client.upload_image(ECHO_ELF).await.context("failed to upload image")?;
+    // Prepare the program and input for the guest program.
+    let program_url =
+        boundless_client.upload_program(ECHO_ELF).await.context("failed to upload program")?;
 
     // We encode the input as Big Endian, as this is how Solidity represents values. This simplifies validating
     // the requirements of the request in the smart contract client.
@@ -213,7 +213,7 @@ where
         .div_ceil(1_000_000);
     let journal = session_info.journal;
 
-    Ok((mcycles_count, image_url, input_url, journal))
+    Ok((mcycles_count, program_url, input_url, journal))
 }
 
 #[cfg(test)]

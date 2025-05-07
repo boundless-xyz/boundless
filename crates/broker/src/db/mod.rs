@@ -14,15 +14,15 @@ use sqlx::{
 use thiserror::Error;
 
 use crate::{
-    errors::CodedError, AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderStatus,
-    ProofRequest,
+    errors::{impl_coded_debug, CodedError},
+    AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderStatus, ProofRequest,
 };
 use tracing::instrument;
 
 #[cfg(test)]
 mod fuzz_db;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum DbError {
     #[error("{code} Order key {0} not found in DB", code = self.code())]
     OrderNotFound(String),
@@ -49,6 +49,9 @@ pub enum DbError {
     #[error("{code} SQL Database locked {0}", code = self.code())]
     SqlDatabaseLocked(anyhow::Error),
 
+    #[error("{code} SQL Unique violation {0}", code = self.code())]
+    SqlUniqueViolation(sqlx::Error),
+
     #[error("{code} SQL Migration error", code = self.code())]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
@@ -71,11 +74,14 @@ pub enum DbError {
     MaxConnEnvVar(#[from] std::num::ParseIntError),
 }
 
+impl_coded_debug!(DbError);
+
 impl CodedError for DbError {
     fn code(&self) -> &str {
         match self {
             DbError::SqlDatabaseLocked(_) => "[B-DB-001]",
             DbError::SqlPoolTimedOut(_) => "[B-DB-002]",
+            DbError::SqlUniqueViolation(_) => "[B-DB-003]",
             _ => "[B-DB-500]",
         }
     }
@@ -87,6 +93,9 @@ impl From<sqlx::Error> for DbError {
             let msg = db_err.message().to_string();
             if msg.contains("database is locked") {
                 return DbError::SqlDatabaseLocked(anyhow::anyhow!(msg));
+            }
+            if db_err.is_unique_violation() {
+                return DbError::SqlUniqueViolation(e);
             }
         }
         match e {
@@ -1580,7 +1589,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[should_panic(expected = "OrderNotFound(\"10\")")]
+    #[should_panic(expected = "Order key 10 not found")]
     async fn set_order_lock_fail(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let order = create_order();
@@ -1606,7 +1615,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[should_panic(expected = "OrderNotFound(\"10\")")]
+    #[should_panic(expected = "Order key 10 not found")]
     async fn set_order_fulfill_after_lock_expire_fail(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let order = create_order();

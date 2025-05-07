@@ -17,18 +17,20 @@ use crate::{
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     errors::CodedError,
-    now_timestamp,
+    impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     AggregationState, Batch, BatchStatus,
 };
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum AggregatorErr {
     #[error("{code} Unexpected error: {0}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
+
+impl_coded_debug!(AggregatorErr);
 
 impl CodedError for AggregatorErr {
     fn code(&self) -> &str {
@@ -56,24 +58,12 @@ impl AggregatorService {
         db: DbObj,
         chain_id: u64,
         set_builder_guest_id: Digest,
-        set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
-        assessor_guest: Vec<u8>,
         market_addr: Address,
         prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
     ) -> Result<Self> {
-        prover
-            .upload_image(&set_builder_guest_id.to_string(), set_builder_guest)
-            .await
-            .context("Failed to upload set-builder guest")?;
-
-        prover
-            .upload_image(&assessor_guest_id.to_string(), assessor_guest)
-            .await
-            .context("Failed to upload assessor guest")?;
-
         Ok(Self {
             db,
             config,
@@ -612,13 +602,15 @@ mod tests {
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn());
         let chain_id = provider.get_chain_id().await.unwrap();
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             chain_id,
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -771,13 +763,15 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn());
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -943,13 +937,15 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -1055,13 +1051,15 @@ mod tests {
 
         let _handle = tokio::spawn(chain_monitor.spawn());
 
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             signer.address(),
             config.clone(),
@@ -1175,13 +1173,15 @@ mod tests {
 
         let _handle = tokio::spawn(chain_monitor.spawn());
 
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
         let mut aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             signer.address(),
             config.clone(),

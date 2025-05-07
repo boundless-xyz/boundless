@@ -198,12 +198,12 @@ The `request` subcommand is used to manage proof requests on the Boundless Marke
 
 #### 1. submit-offer
 
-Constructs and submits a proof request by reading a YAML offer definition, plus specifying guest ELF, input data, and additional requirements on the command line. This is effectively a "shortcut" for quickly submitting a structured request.
+Constructs and submits a proof request by reading a YAML offer definition, plus specifying guest program, input data, and additional requirements on the command line. This is effectively a "shortcut" for quickly submitting a structured request.
 
 **Syntax** (excerpt of key options):
 ```
 request submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-preflight]
-             --elf <PATH_TO_ELF>
+             --program <PATH_TO_PROGRAM>
              --input <STRING> OR --input-file <PATH>
              [--encode-input]
              [--inline-input]
@@ -213,7 +213,7 @@ request submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-pre
 
 - `yaml_offer`: path to a YAML file describing the `Offer`.
 - `id`: optional integer ID to assign to the request.
-- `--elf <PATH>`: path to the ELF guest image to run.
+- `--program <PATH>`: path to the guest program  to run.
 - `--input <STRING>` or `--input-file <PATH>`: data to feed the guest image.
 - `--encode-input`: if used, the input is encoded with `risc0_zkvm::serde`.
 - `--inline-input`: if used, the input is pushed onchain rather than stored offchain.
@@ -230,10 +230,10 @@ request submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-pre
 
 **Example**:
 ```
-boundless-cli request submit-offer offer.yaml --elf guest.wasm \
+boundless-cli request submit-offer offer.yaml --program guest.wasm \
   --input-file data.bin --journal-prefix "ABCDEF" --wait
 ```
-Submits a request reading the YAML from `offer.yaml`, providing `guest.wasm` as the ELF, `data.bin` as input, and requiring the journal to start with "ABCDEF". It waits for fulfillment.
+Submits a request reading the YAML from `offer.yaml`, providing `guest.wasm` as the program, `data.bin` as input, and requiring the journal to start with "ABCDEF". It waits for fulfillment.
 
 
 ### 2. submit

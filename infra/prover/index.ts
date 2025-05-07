@@ -4,6 +4,7 @@ import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { getEnvVar, ChainId, getServiceNameV1, Severity } from "../util";
+import { create } from 'domain';
 
 require('dotenv').config();
 
@@ -348,7 +349,7 @@ export = () => {
         ],
         environment: [
           { name: 'NO_COLOR', value: '1' },
-          { name: 'RUST_LOG', value: 'broker=debug,boundless_market=debug,broker::order_picker=trace' },
+          { name: 'RUST_LOG', value: 'broker=debug,boundless_market=debug' },
           { name: 'RUST_BACKTRACE', value: '1' },
           { name: 'BONSAI_API_URL', value: bonsaiApiUrl },
           { name: 'BUCKET', value: brokerS3BucketName }
@@ -412,7 +413,7 @@ export = () => {
   // Note: AWS has a limit of 5 filter patterns containing regex for each log group
   // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPattern.html
 
-  // [Regex]3 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
+  // [Regex] 3 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('%\[B-[A-Z]+-500\]%', 'unexpected-errors', Severity.SEV2, {
     threshold: 5,
   }, { period: 300 });
@@ -424,6 +425,12 @@ export = () => {
 
   // Matches on any ERROR log that does NOT contain an error code. Ensures we don't miss any errors.
   createErrorCodeAlarm('ERROR -"[B-"', 'error-without-code', Severity.SEV2);
+
+  // Alarms for low balances
+  createErrorCodeAlarm('WARN "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV2);
+  createErrorCodeAlarm('WARN "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV2);
+  createErrorCodeAlarm('ERROR "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV1);
+  createErrorCodeAlarm('ERROR "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV1);
   
   // Alarms at the supervisor level
   //
@@ -441,7 +448,6 @@ export = () => {
   // Alarms for specific services and error codes.
   // Matching without using regex to avoid the AWS limit.
   //
-  //
 
   //
   // DB
@@ -456,7 +462,39 @@ export = () => {
   createErrorCodeAlarm('"[B-DB-500]"', 'db-unexpected-error', Severity.SEV2);
 
   //
-  // On-chain Market Monitor
+  // Storage
+  //
+  // 3 http errors (e.g. rate limiting, etc.) within 5 minutes triggers a SEV2 alarm
+  createErrorCodeAlarm('"[B-STR-002]"', 'storage-http-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 300 });
+
+  // 1 unexpected storage error triggers a SEV2 alarm
+  createErrorCodeAlarm('"[B-STR-500]"', 'storage-unexpected-error', Severity.SEV2);
+
+  //
+  // Market Monitor
+  //
+  // 3 event polling errors within 5 minutes in the market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-MM-501]"', 'market-monitor-event-polling-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 300 });
+
+  // 10 event polling errors within 30 minutes in the market monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('"[B-MM-501]"', 'market-monitor-event-polling-error', Severity.SEV1, {
+    threshold: 10,
+  }, { period: 1800 });
+
+  // Any 1 unexpected error in the market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2);
+
+  // 3 unexpected errors within 5 minutes in the market monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV1, {
+    threshold: 3,
+  }, { period: 300 });
+
+  //
+  // Chain Monitor
   //
   // Any 1 unexpected error in the on-chain market monitor triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-CHM-500]"', 'chain-monitor-unexpected-error', Severity.SEV2);
@@ -469,6 +507,17 @@ export = () => {
   //
   // Off-chain Market Monitor
   //
+  
+  // 10 websocket errors within 1 hour in the off-chain market monitor triggers a SEV1 alarm.
+  createErrorCodeAlarm('"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV1, {
+    threshold: 10,
+  }, { period: 3600 });
+
+  // 3 websocket errors within 15 minutes in the off-chain market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 900 });
+
   // Any 1 unexpected error in the off-chain market monitor triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error', Severity.SEV2);
 
@@ -507,14 +556,6 @@ export = () => {
     threshold: 3,
   }, { period: 300 });
 
-  // If we fail to lock an order because the tx fails for some reason, SEV2.
-  createErrorCodeAlarm('"[B-OM-007]"', 'order-monitor-lock-tx-failed', Severity.SEV2);
-
-  // If we fail to lock an order 3 times because another prover locked before us, SEV2.
-  createErrorCodeAlarm('"[B-OM-009]"', 'order-monitor-already-locked', Severity.SEV2, {
-    threshold: 3,
-  }, { period: 3600 });
-
   // If we fail to lock an order because we don't have enough stake balance, SEV2.
   createErrorCodeAlarm('"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2);
 
@@ -541,6 +582,13 @@ export = () => {
   //
   // Submitter
   //
+  // Any 1 request expired before submission triggers a SEV2 alarm.
+  // Typically this is due to proving/aggregating/submitting taking longer than expected.
+  createErrorCodeAlarm('"[B-SUB-001]"', 'submitter-request-expired-before-submission', Severity.SEV2);
+
+  // Any 1 request expired before submission triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2);
+
   // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV2);
 

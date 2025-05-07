@@ -77,6 +77,10 @@ pub enum MarketError {
     #[error("Request not found in event logs 0x{0:x}")]
     RequestNotFound(U256),
 
+    /// Request already locked.
+    #[error("Request already locked: 0x{0:x}")]
+    RequestAlreadyLocked(U256),
+
     /// Lock request reverted, possibly outbid.
     #[error("Lock request reverted, possibly outbid: txn_hash: {0}")]
     LockRevert(B256),
@@ -378,7 +382,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let is_locked_in: bool =
             self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
         if is_locked_in {
-            return Err(MarketError::Error(anyhow!("request is already locked")));
+            return Err(MarketError::RequestAlreadyLocked(request.id));
         }
 
         tracing::trace!("Calling lockRequest({:x?}, {:x?})", request, client_sig);
@@ -443,7 +447,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let is_locked_in: bool =
             self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
         if is_locked_in {
-            return Err(MarketError::Error(anyhow!("request is already locked-in")));
+            return Err(MarketError::RequestAlreadyLocked(request.id));
         }
 
         tracing::trace!(
@@ -1253,13 +1257,13 @@ impl<P: Provider> BoundlessMarketService<P> {
         let stake_balance = self.balance_of_stake(self.caller()).await?;
         if stake_balance < self.balance_alert_config.error_threshold.unwrap_or(U256::ZERO) {
             tracing::error!(
-                "stake balance {} for {} < error threshold",
+                "[B-BAL-STK] stake balance {} for {} < error threshold",
                 stake_balance,
                 self.caller(),
             );
         } else if stake_balance < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO) {
             tracing::warn!(
-                "stake balance {} for {} < warning threshold",
+                "[B-BAL-STK] stake balance {} for {} < warning threshold",
                 stake_balance,
                 self.caller(),
             );

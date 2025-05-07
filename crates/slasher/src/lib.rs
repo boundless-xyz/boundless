@@ -64,6 +64,9 @@ pub enum ServiceError {
     #[error("Block number not found")]
     BlockNumberNotFound,
 
+    #[error("BlockTimestamp not found for block: {0}")]
+    BlockTimestampNotFound(u64),
+
     #[error("Insufficient funds: {0}")]
     InsufficientFunds(String),
 
@@ -167,7 +170,8 @@ where
                             // Recoverable errors
                             ServiceError::BoundlessMarketError(_)
                             | ServiceError::EventQueryError(_)
-                            | ServiceError::RpcError(_) => {
+                            | ServiceError::RpcError(_)
+                            | ServiceError::BlockTimestampNotFound(_) => {
                                 attempt += 1;
                                 tracing::warn!(
                                     "Failed to process blocks from {} to {}: {:?}, attempt number {}",
@@ -424,7 +428,7 @@ where
             .provider()
             .get_block_by_number(block_number.into())
             .await?
-            .unwrap()
+            .ok_or_else(|| ServiceError::BlockTimestampNotFound(block_number))?
             .header
             .timestamp)
     }
