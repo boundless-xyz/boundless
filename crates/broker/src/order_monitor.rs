@@ -222,6 +222,7 @@ where
             .await
             .map_err(|e| -> OrderMonitorErr {
                 match e {
+                    MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
                     MarketError::LockRevert(e) => {
                         OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
                     }
