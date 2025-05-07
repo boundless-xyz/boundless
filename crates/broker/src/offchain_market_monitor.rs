@@ -17,10 +17,10 @@ use thiserror::Error;
 
 #[derive(Error)]
 pub enum OffchainMarketMonitorErr {
-    #[error("WebSocket error: {0}")]
+    #[error("WebSocket error: {0:?}")]
     WebSocketErr(anyhow::Error),
 
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 

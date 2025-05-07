@@ -1367,11 +1367,8 @@ mod tests {
         selector::is_groth16_selector,
     };
     use boundless_market_test_utils::{
-        create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx,
+        create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx, ECHO_ID, ECHO_PATH,
     };
-    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-    use guest_util::{ECHO_ID, ECHO_PATH};
     use order_stream::{run_from_parts, AppState, ConfigBuilder};
     use sqlx::PgPool;
     use tempfile::tempdir;
@@ -1412,15 +1409,7 @@ mod tests {
     {
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(
-            &anvil,
-            SET_BUILDER_ID,
-            format!("file://{SET_BUILDER_PATH}"),
-            ASSESSOR_GUEST_ID,
-            format!("file://{ASSESSOR_GUEST_PATH}"),
-        )
-        .await
-        .unwrap();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
 
         let private_key = match owner {
             AccountOwner::Customer => {

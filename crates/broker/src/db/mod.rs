@@ -49,6 +49,9 @@ pub enum DbError {
     #[error("{code} SQL Database locked {0}", code = self.code())]
     SqlDatabaseLocked(anyhow::Error),
 
+    #[error("{code} SQL Unique violation {0}", code = self.code())]
+    SqlUniqueViolation(sqlx::Error),
+
     #[error("{code} SQL Migration error", code = self.code())]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
@@ -78,6 +81,7 @@ impl CodedError for DbError {
         match self {
             DbError::SqlDatabaseLocked(_) => "[B-DB-001]",
             DbError::SqlPoolTimedOut(_) => "[B-DB-002]",
+            DbError::SqlUniqueViolation(_) => "[B-DB-003]",
             _ => "[B-DB-500]",
         }
     }
@@ -89,6 +93,9 @@ impl From<sqlx::Error> for DbError {
             let msg = db_err.message().to_string();
             if msg.contains("database is locked") {
                 return DbError::SqlDatabaseLocked(anyhow::anyhow!(msg));
+            }
+            if db_err.is_unique_violation() {
+                return DbError::SqlUniqueViolation(e);
             }
         }
         match e {

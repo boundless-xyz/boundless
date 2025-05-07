@@ -18,7 +18,6 @@ use boundless_market::{
     },
     selector::is_groth16_selector,
 };
-use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
@@ -39,13 +38,13 @@ use crate::errors::CodedError;
 
 #[derive(Error, Debug)]
 pub enum SubmitterErr {
-    #[error("Request expired before submission: {0}")]
+    #[error("{code} Request expired before submission: {0}", code = self.code())]
     RequestExpiredBeforeSubmission(MarketError),
 
-    #[error("Market error: {0}")]
+    #[error("{code} Market error: {0}", code = self.code())]
     MarketError(#[from] MarketError),
 
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 
@@ -321,7 +320,7 @@ where
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
             // should make an explicit way to encode an inclusion proof without the claim.
-            ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
+            ReceiptClaim::ok(Digest::ZERO, MaybePruned::Pruned(Digest::ZERO)),
             assessor_path,
             inclusion_params.digest(),
         );
@@ -360,14 +359,14 @@ where
                     .iter()
                     .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                     .collect();
-                tracing::error!("Failed to submit merkle and fulfill for orders: {order_ids:?}");
+                tracing::warn!("Failed to submit merkle and fulfill for orders: {order_ids:?}");
                 self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
             }
         } else {
             let contains_root = match self.set_verifier.contains_root(root).await {
                 Ok(res) => res,
                 Err(err) => {
-                    tracing::error!("Failed to query if set-verifier contains the new root, trying to submit anyway {err:?}");
+                    tracing::warn!("Failed to query if set-verifier contains the new root, trying to submit anyway {err:?}");
                     false
                 }
             };
@@ -404,7 +403,7 @@ where
                         .iter()
                         .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                         .collect();
-                    tracing::error!("Failed to price and fulfill batch for orders: {order_ids:?}");
+                    tracing::warn!("Failed to price and fulfill batch for orders: {order_ids:?}");
                     self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
                 }
             } else {
@@ -416,7 +415,7 @@ where
                         .iter()
                         .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
                         .collect();
-                    tracing::error!("Failed to fulfill batch for orders: {order_ids:?}");
+                    tracing::warn!("Failed to fulfill batch for orders: {order_ids:?}");
                     self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
                 }
             }
@@ -452,7 +451,7 @@ where
         fulfillments: &[Fulfillment],
         order_ids: &[&str],
     ) -> Result<(), SubmitterErr> {
-        tracing::error!("Failed to submit proofs: {err:?} for batch {batch_id}");
+        tracing::warn!("Failed to submit proofs: {err:?} for batch {batch_id}");
         for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
             if let Err(db_err) = self.db.set_order_failure(order_id, format!("{err:?}")).await {
                 tracing::error!(
@@ -564,11 +563,10 @@ mod tests {
     };
     use boundless_market_test_utils::{
         deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
+        ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID,
+        SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH,
     };
     use chrono::Utc;
-    use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
-    use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;

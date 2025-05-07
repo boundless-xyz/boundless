@@ -19,10 +19,10 @@ use boundless_market::{
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
 };
-use boundless_market_test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count};
-use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::{ECHO_ELF, ECHO_ID};
+use boundless_market_test_utils::{
+    create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_GUEST_PATH, ECHO_ELF,
+    ECHO_ID, SET_BUILDER_PATH,
+};
 use risc0_zkvm::{is_dev_mode, sha::Digest};
 use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
@@ -147,15 +147,7 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -213,15 +205,7 @@ async fn simple_e2e_with_callback() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -307,15 +291,7 @@ async fn e2e_fulfill_after_lock_expiry() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let locker_market = ctx.customer_market.clone();
     let locker_signer = ctx.customer_signer.clone();
@@ -386,15 +362,7 @@ async fn e2e_with_selector() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -456,15 +424,7 @@ async fn e2e_with_multiple_requests() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market

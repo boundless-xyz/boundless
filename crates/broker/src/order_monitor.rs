@@ -41,7 +41,7 @@ pub enum OrderMonitorErr {
     #[error("{code} Order already locked", code = self.code())]
     AlreadyLocked,
 
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
 
@@ -222,6 +222,7 @@ where
             .await
             .map_err(|e| -> OrderMonitorErr {
                 match e {
+                    MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
                     MarketError::LockRevert(e) => {
                         OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
                     }
@@ -792,9 +793,10 @@ mod tests {
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
-    use boundless_market_test_utils::{deploy_boundless_market, deploy_hit_points};
+    use boundless_market_test_utils::{
+        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
+    };
     use chrono::Utc;
-    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use risc0_zkvm::Digest;
     use std::{future::Future, sync::Arc};
     use tokio::task::JoinSet;
