@@ -302,7 +302,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
           environment: [
             {
               name: 'RUST_LOG',
-              value: 'order_stream=debug,tower_http=debug,info',
+              value: 'boundless_indexer=debug,info',
             },
             {
               name: 'NO_COLOR',
