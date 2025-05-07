@@ -6,7 +6,7 @@ import { getEnvVar } from '../util';
 const OPS_ACCOUNT_PIPELINE_ROLE_ARN = "arn:aws:iam::968153779208:role/pipeline-role-3b97f1a";
 
 const stackName = pulumi.getStack();
-const isDev = stackName === "dev";
+const isDev = stackName.includes("dev");
 const prefix = isDev ? getEnvVar("DEV_NAME") : "";
 
 export = async () => {
@@ -30,7 +30,13 @@ export = async () => {
     ]
   });
 
-  const availabilityZones = (await aws.getAvailabilityZones()).names;
+  let availabilityZones = (await aws.getAvailabilityZones()).names;
+  
+  // For dev, we only use one AZ to limit the number of EIPs that are created.
+  if (isDev) {
+    availabilityZones = [availabilityZones[0]];
+  }
+
   const awsRegion = (await aws.getRegion({})).name;
   const services_vpc = new vpc.Vpc(`${prefix}vpc`, {
     region: awsRegion,

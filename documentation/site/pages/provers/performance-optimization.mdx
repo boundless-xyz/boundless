@@ -30,38 +30,28 @@ docker ps
 docker stop <BROKER_CONTAINER_ID>
 ```
 
-Alternatively you can modify your `scripts/boundless_service.sh` to remove `--profile broker`.
+Alternatively you can start Bento without running the broker service:
 
-```sh [scripts/boundless_service.sh]
-start_services() {
-    # Trap SIGINT (Ctrl-C) and SIGTERM to execute cleanup
-    trap cleanup SIGINT SIGTERM
-
-    log_info "Starting Docker Compose services using environment file: $ENV_FILE"
-
-    # Start Docker Compose in foreground mode
-    docker compose --profile broker --env-file "$ENV_FILE" up --build -d # [!code --]
-    docker compose --env-file "$ENV_FILE" up --build -d # [!code ++]
-
-    # After docker compose up exits normally (without interruption)
-    log_success "Docker Compose services have been started."
-}
+```sh [Terminal]
+just bento
 ```
 
 ### Defining a Test Harness
 
 It is recommended to benchmark using an example of your actual workload. Using a representative workload will provide more accurate turn around times, and validate your program and inputs file for the proofs you plan to generate.
 
+> Before running this, [install Bento CLI](/provers/quick-start#bento-cli-installation)
+
 To try a realistic example:
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -f /path/to/program -i /path/to/input`
+RUST_LOG=info bento_cli -f /path/to/program -i /path/to/input`
 ```
 
 If you intend to operate across a variety of different workloads (such as those that may be fed by the [Broker](/provers/broker)), you can also use the following command to generate a synthetic workload:
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -c <ITERATION_COUNT>
+RUST_LOG=info bento_cli -c <ITERATION_COUNT>
 ```
 
 where `<ITERATION_COUNT>` is the number of times the synthetic guest is executed. A value of 4096 is a good starting point, however on smaller or less performant hosts, you may want to reduce this to 2048 or 1024 while performing some of your experiments. For functional testing, 32 is sufficient.
@@ -75,7 +65,7 @@ The typical test process will be:
 #### Example test run of 1024 iterations:
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -c 1024
+RUST_LOG=info bento_cli -c 1024
 ```
 
 ```txt [Terminal]
@@ -161,7 +151,7 @@ Once you have selected a `MAXIMUM` segment size you should verify that the GPU d
 In the following test, an RTX 4060 with 16GB VRAM attempts to run with a `SEGMENT_SIZE` of 21, which is too large for the GPU to handle. In this test, it is necessary to monitor the `gpu-agent` Docker logs to determine the cause of the failure.
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -c 4096
+RUST_LOG=info bento_cli -c 4096
 ```
 
 ```txt [Terminal]
@@ -228,7 +218,7 @@ gpu_agent0: &gpu
 #### Execute the Test Harness
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -c 4096
+RUST_LOG=info bento_cli -c 4096
 ```
 
 #### Confirm Single GPU Utilization Using `nvtop`

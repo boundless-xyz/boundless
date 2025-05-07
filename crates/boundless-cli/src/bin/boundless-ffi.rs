@@ -57,10 +57,6 @@ struct MainArgs {
     /// Hex encoded request' signature
     #[clap(long)]
     signature: String,
-    /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
-    /// request is locked to another prover).
-    #[clap(long, default_value = "false")]
-    require_payment: bool,
 }
 
 /// Print the result of fulfilling a proof request using the RISC Zero zkVM default prover.

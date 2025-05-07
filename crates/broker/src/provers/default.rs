@@ -122,6 +122,11 @@ impl DefaultProver {
 
 #[async_trait]
 impl Prover for DefaultProver {
+    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
+        let images = self.state.images.read().await;
+        Ok(images.contains_key(image_id))
+    }
+
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
         let input_id = format!("input_{}", Uuid::new_v4());
 

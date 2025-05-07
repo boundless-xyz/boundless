@@ -66,6 +66,7 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ExecutorEnv, Journal, SessionInfo,
 };
+use shadow_rs::shadow;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
@@ -80,6 +81,8 @@ use boundless_market::{
     selector::ProofType,
     storage::{fetch_url, StorageProvider, StorageProviderConfig},
 };
+
+shadow!(build);
 
 #[derive(Subcommand, Clone, Debug)]
 enum Command {
@@ -434,7 +437,7 @@ struct GlobalConfig {
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about = "CLI for the Boundless market", long_about = None)]
+#[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for the Boundless market", long_about = None)]
 struct MainArgs {
     #[command(flatten)]
     config: GlobalConfig,
@@ -458,6 +461,11 @@ async fn main() -> Result<()> {
         Err(err) => {
             if err.kind() == clap::error::ErrorKind::DisplayHelp {
                 // If it's a help request, print the help and exit successfully
+                err.print()?;
+                return Ok(());
+            }
+            if err.kind() == clap::error::ErrorKind::DisplayVersion {
+                // If it's a version request, print the version and exit successfully
                 err.print()?;
                 return Ok(());
             }
