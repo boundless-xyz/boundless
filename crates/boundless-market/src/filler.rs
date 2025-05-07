@@ -18,7 +18,7 @@
 // TODO: Add debug and trace logging to the layers.
 // TODO: Create a test and an example of adding a layer.
 
-use std::{borrow::Cow, convert::Infallible, rc::Rc};
+use std::{borrow::Cow, convert::Infallible, rc::Rc, fmt, fmt::Debug};
 
 use alloy::{
     network::Ethereum,
@@ -107,15 +107,29 @@ where
 
 #[non_exhaustive]
 #[derive(Clone, Builder)]
-pub struct StorageLayer<S: StorageProvider> {
+pub struct StorageLayer<S> {
     /// Maximum number of bytes to send as an inline input.
     ///
     /// Inputs larger than this size will be uploaded using the given storage provider. Set to none
     /// to indicate that inputs should always be sent inline.
     #[builder(setter(into), default = "Some(2048)")]
     pub inline_input_max_bytes: Option<usize>,
-    #[builder(setter(into))]
     pub storage_provider: S,
+}
+
+// NOTE: builder method is attached to the StorageLayer<()> so that the type of storage_provider
+// can be inferred by the by system by what is provided to the builder.
+impl StorageLayer<()> {
+    pub fn builder<S: Clone>() -> StorageLayerBuilder<S> {
+        Default::default()
+    }
+}
+
+impl<S> Debug for StorageLayer<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // TODO
+        f.debug_struct("StorageLayer").finish()
+    }
 }
 
 impl<S: StorageProvider> StorageLayer<S>
@@ -259,11 +273,10 @@ pub struct RequestIdLayer<P> {
     pub mode: RequestIdLayerMode,
 }
 
-impl<P> RequestIdLayer<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
-    pub fn builder() -> RequestIdLayerBuilder<P> {
+// NOTE: builder method is attached to the RequestIdLayer<()> so that the type of provider can be
+// inferred by the by system by what is provided to the builder.
+impl RequestIdLayer<()> {
+    pub fn builder<P: Clone>() -> RequestIdLayerBuilder<P> {
         Default::default()
     }
 }
@@ -285,7 +298,7 @@ where
 }
 
 #[non_exhaustive]
-#[derive(Builder)]
+#[derive(Clone, Builder)]
 pub struct OfferLayer<P> {
     pub provider: P,
     // default: 0 ETH
@@ -325,14 +338,18 @@ pub struct OfferLayer<P> {
     pub supported_selectors: SupportedSelectors,
 }
 
+// NOTE: builder method is attached to the OfferLayer<()> so that the type of provider can be
+// inferred by the by system by what is provided to the builder.
+impl OfferLayer<()> {
+    pub fn builder<P: Clone>() -> OfferLayerBuilder<P> {
+        Default::default()
+    }
+}
+
 impl<P> OfferLayer<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    pub fn builder() -> OfferLayerBuilder<P> {
-        Default::default()
-    }
-
     fn estimate_gas_usage(
         &self,
         requirements: &Requirements,
@@ -412,7 +429,7 @@ where
 }
 
 #[non_exhaustive]
-#[derive(Clone, Builder, Default)]
+#[derive(Debug, Clone, Builder, Default)]
 pub struct Finalizer {}
 
 impl Finalizer {
@@ -456,7 +473,7 @@ type Example = (
 // NOTE: We don't use derive_builder here because we need to be able to access the values on the
 // incrementally built parameters.
 #[non_exhaustive]
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ExampleRequestParams {
     pub program: Option<Cow<'static, [u8]>>,
     pub env: Option<GuestEnv>,
@@ -543,6 +560,23 @@ impl ExampleRequestParams {
     }
 }
 
+impl Debug for ExampleRequestParams {
+    /// [Debug] implementation that does not print the contents of the program.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExampleRequestParams")
+            .field("program", &self.program.as_ref().map(|x| format!("[{} bytes]", x.len())))
+            .field("env", &self.env)
+            .field("program_url", &self.program_url)
+            .field("input", &self.input)
+            .field("cycles", &self.cycles)
+            .field("journal", &self.journal)
+            .field("request_id", &self.request_id)
+            .field("offer", &self.offer)
+            .field("requirements", &self.requirements)
+            .finish()
+    }
+}
+
 impl<Program, Env> From<(Program, Env)> for ExampleRequestParams
 where
     Program: Into<Cow<'static, [u8]>>,
@@ -573,6 +607,8 @@ where
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &StorageLayer<S>) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with StorageLayer");
+
         let mut params = self;
         if params.program_url.is_none() {
             let program_url = layer.process_program(params.require_program()?).await?;
@@ -591,6 +627,8 @@ impl Adapt<PreflightLayer> for ExampleRequestParams {
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with PreflightLayer");
+
         // If cycles and journal are already set, do nothing.
         // DO NOT MERGE: What if only one is set?
         if self.cycles.is_some() && self.journal.is_some() {
@@ -612,6 +650,8 @@ impl Adapt<RequirementsLayer> for ExampleRequestParams {
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &RequirementsLayer) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with RequirementsLayer");
+
         // If the requirements field is already set, do nothing.
         if self.requirements.is_some() {
             return Ok(self);
@@ -633,6 +673,8 @@ where
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &RequestIdLayer<P>) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with RequestIdLayer");
+
         // If the request_id field is already populated, do nothing.
         if self.request_id.is_some() {
             return Ok(self);
@@ -651,6 +693,8 @@ where
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &OfferLayer<P>) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with OfferLayer");
+
         // If the offer field is already populated, do nothing.
         if self.offer.is_some() {
             return Ok(self);
@@ -670,6 +714,8 @@ impl Adapt<Finalizer> for ExampleRequestParams {
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &Finalizer) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with Finalizer");
+
         // We create local variables to hold owned values
         let program_url = self.require_program_url()?.clone();
         let input = self.require_input()?.clone();
@@ -699,21 +745,57 @@ async fn example(example: Example) -> anyhow::Result<()> {
     Ok(())
 }
 
-/*
-TODO: Write a test using the code from above!
 #[cfg(test)]
 mod tests {
-    use boundless_market_test_utils::create_test_ctx;
+    use std::sync::Arc;
+
     use alloy::node_bindings::Anvil;
+    use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
+    use tracing_test::traced_test;
+
+    use super::{
+        BoundlessMarketService, ExampleRequestParams, Finalizer, Layer, OfferLayer,
+        OfferLayerBuilder, PreflightLayer, RequestBuilder, RequestIdLayer, RequirementsLayer,
+        StorageLayer, StorageLayerBuilder,
+    };
+
+    use crate::storage::MockStorageProvider;
 
     #[tokio::test]
-    async fn basic() {
+    #[traced_test]
+    async fn basic() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
-        let storage = MockStorageProvider::start();
+        let storage = Arc::new(MockStorageProvider::start());
+        let market = BoundlessMarketService::new(
+            test_ctx.boundless_market_address,
+            test_ctx.customer_provider.clone(),
+            test_ctx.customer_signer.address(),
+        );
 
-        //let offer_layer = OfferLayer::builder().provider(
-        test_
+        // TODO: Provide a nice way to build this one.
+        let request_builder = (
+            (
+                (
+                    (
+                        (
+                            StorageLayer::builder().storage_provider(storage).build()?,
+                            PreflightLayer::default(),
+                        ),
+                        RequirementsLayer::default(),
+                    ),
+                    RequestIdLayer::builder().boundless_market(market).build()?,
+                ),
+                OfferLayer::builder().provider(test_ctx.customer_provider).build()?,
+            ),
+            Finalizer::default(),
+        );
+
+        // TODO: Use with input or simmilar instead of with_env
+        let params =
+            ExampleRequestParams::default().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let request = request_builder.process(params).await?;
+        println!("built request {request:#?}");
+        Ok(())
     }
 }
-*/
