@@ -55,7 +55,7 @@ pub enum OrderPickerErr {
     #[error("{code} invalid request: {0}", code = self.code())]
     RequestError(#[from] RequestError),
 
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 

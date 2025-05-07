@@ -36,10 +36,10 @@ const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
 
 #[derive(Error)]
 pub enum MarketMonitorErr {
-    #[error("{code} Event polling failed: {0}", code = self.code())]
+    #[error("{code} Event polling failed: {0:?}", code = self.code())]
     EventPollingErr(anyhow::Error),
 
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 
