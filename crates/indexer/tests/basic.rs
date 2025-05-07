@@ -14,7 +14,10 @@ use alloy::{
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::test_utils::TestDb;
 use boundless_market::{
-    contracts::{Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements},
+    contracts::{
+        boundless_market::FulfillmentTx, Input, Offer, Predicate, PredicateType, ProofRequest,
+        RequestId, Requirements,
+    },
     order_stream_client::Order,
 };
 use boundless_market_test_utils::create_test_ctx;
@@ -135,12 +138,13 @@ async fn test_e2e() {
     let order_fulfilled =
         OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
     ctx.prover_market
-        .submit_merkle_and_fulfill(
-            ctx.set_verifier_address,
-            order_fulfilled.root,
-            order_fulfilled.seal,
-            order_fulfilled.fills,
-            order_fulfilled.assessorReceipt,
+        .fulfill(
+            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                .with_submit_root(
+                    ctx.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
         )
         .await
         .unwrap();

@@ -229,49 +229,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function verifyDelivery(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) public view {
-        // Verify the application guest proof. We need to verify it here, even though the assessor
-        // already verified that the prover has knowledge of a verifying receipt, because we need to
-        // make sure the _delivered_ seal is valid.
-        bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-        bytes32 root = AssessorCommitment(uint256(0), fill.id, fill.requestDigest, claimDigest).eip712Digest();
-
-        // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
-        // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
-        if (assessorReceipt.selectors.length > 0) {
-            VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigest));
-        } else {
-            VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
-        }
-
-        // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
-        // Recursive verification happens inside the assessor.
-        // NOTE: When signature checks are performed depends on whether the signature is a smart contract signature
-        // or a regular EOA signature. It also depends on whether the request is locked or not.
-        // Smart contract signatures are validated on-chain only, specifically when a request is locked, or when a request is priced.
-        // EOA signatures are validated in the assessor during fulfillment. This design removes the need for EOA signatures to be
-        // validated on-chain in any scenario at fulfillment time.
-        bytes32 assessorJournalDigest = sha256(
-            abi.encode(
-                AssessorJournal({
-                    selectors: assessorReceipt.selectors,
-                    callbacks: assessorReceipt.callbacks,
-                    root: root,
-                    prover: assessorReceipt.prover
-                })
-            )
-        );
-        // Verification that the provided seal matches the required selector.
-        // NOTE: Assessor guest ensures that the number of selectors <= the number of request digests in the journal.
-        if (assessorReceipt.selectors.length > 0 && assessorReceipt.selectors[0].value != bytes4(fill.seal[0:4])) {
-            revert SelectorMismatch(assessorReceipt.selectors[0].value, bytes4(fill.seal[0:4]));
-        }
-        // Verification of the assessor seal does not need to comply with DEFAULT_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public view {
+    function verifyDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public view {
         // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
         // We can't handle more than 65535 fills in a single batch.
         // This is a limitation of the current Selector implementation,
@@ -330,50 +288,23 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function priceAndFulfill(
-        ProofRequest calldata request,
-        bytes calldata clientSignature,
-        Fulfillment calldata fill,
-        AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes memory paymentError) {
-        priceRequest(request, clientSignature);
-        paymentError = fulfill(fill, assessorReceipt);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function priceAndFulfillBatch(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError) {
+    ) public returns (bytes[] memory paymentError) {
         for (uint256 i = 0; i < requests.length; i++) {
             priceRequest(requests[i], clientSignatures[i]);
         }
-        paymentError = fulfillBatch(fills, assessorReceipt);
+        paymentError = fulfill(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt)
-        public
-        returns (bytes memory paymentError)
-    {
-        verifyDelivery(fill, assessorReceipt);
-
-        paymentError = _fulfillAndPay(fill, assessorReceipt.prover);
-        emit ProofDelivered(fill.id);
-
-        if (assessorReceipt.callbacks.length > 0) {
-            AssessorCallback memory callback = assessorReceipt.callbacks[0];
-            _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
-        }
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
+    function fulfill(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
         public
         returns (bytes[] memory paymentError)
     {
-        verifyBatchDelivery(fills, assessorReceipt);
+        verifyDelivery(fills, assessorReceipt);
 
         paymentError = new bytes[](fills.length);
 
@@ -395,48 +326,23 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function priceAndFulfillAndWithdraw(
-        ProofRequest calldata request,
-        bytes calldata clientSignature,
-        Fulfillment calldata fill,
-        AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes memory paymentError) {
-        priceRequest(request, clientSignature);
-        paymentError = fulfillAndWithdraw(fill, assessorReceipt);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function priceAndFulfillBatchAndWithdraw(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError) {
+    ) public returns (bytes[] memory paymentError) {
         for (uint256 i = 0; i < requests.length; i++) {
             priceRequest(requests[i], clientSignatures[i]);
         }
-        paymentError = fulfillBatchAndWithdraw(fills, assessorReceipt);
+        paymentError = fulfillAndWithdraw(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfillAndWithdraw(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt)
-        public
-        returns (bytes memory paymentError)
-    {
-        paymentError = fulfill(fill, assessorReceipt);
-
-        // Withdraw any remaining balance from the prover account.
-        uint256 balance = accounts[assessorReceipt.prover].balance;
-        if (balance > 0) {
-            _withdraw(assessorReceipt.prover, balance);
-        }
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function fulfillBatchAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
+    function fulfillAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
         public
         returns (bytes[] memory paymentError)
     {
-        paymentError = fulfillBatch(fills, assessorReceipt);
+        paymentError = fulfill(fills, assessorReceipt);
 
         // Withdraw any remaining balance from the prover account.
         uint256 balance = accounts[assessorReceipt.prover].balance;
@@ -655,7 +561,7 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function submitRootAndFulfillBatch(
+    function submitRootAndFulfill(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
@@ -663,11 +569,11 @@ contract BoundlessMarket is
         AssessorReceipt calldata assessorReceipt
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = fulfillBatch(fills, assessorReceipt);
+        paymentError = fulfill(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function submitRootAndFulfillBatchAndWithdraw(
+    function submitRootAndFulfillAndWithdraw(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
@@ -675,7 +581,35 @@ contract BoundlessMarket is
         AssessorReceipt calldata assessorReceipt
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = fulfillBatchAndWithdraw(fills, assessorReceipt);
+        paymentError = fulfillAndWithdraw(fills, assessorReceipt);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function submitRootAndPriceAndFulfill(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        ProofRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
+        Fulfillment[] calldata fills,
+        AssessorReceipt calldata assessorReceipt
+    ) external returns (bytes[] memory paymentError) {
+        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        paymentError = priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function submitRootAndPriceAndFulfillAndWithdraw(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        ProofRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
+        Fulfillment[] calldata fills,
+        AssessorReceipt calldata assessorReceipt
+    ) external returns (bytes[] memory paymentError) {
+        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        paymentError = priceAndFulfillAndWithdraw(requests, clientSignatures, fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
