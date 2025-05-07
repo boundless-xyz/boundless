@@ -371,9 +371,7 @@ mod tests {
         eip712_domain, Input, Offer, Predicate, ProofRequest, RequestId, Requirements,
         UNSPECIFIED_SELECTOR,
     };
-    use guest_assessor::ASSESSOR_GUEST_ELF;
-    use guest_set_builder::SET_BUILDER_ELF;
-    use guest_util::{ECHO_ID, ECHO_PATH};
+    use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
     use risc0_ethereum_contracts::selector::Selector;
 
     async fn setup_proving_request_and_signature(
