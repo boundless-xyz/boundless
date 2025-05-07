@@ -37,8 +37,7 @@ interface IBoundlessMarket {
 
     /// @notice Event logged when a proof is delivered that satisfies the request's requirements.
     /// @dev It is possible for this event to be logged multiple times for a single request. The
-    /// first event logged will always coincide with the `RequestFulfilled` event, independently of
-    /// the payment outcome.
+    /// first event logged will always coincide with the `RequestFulfilled` event and the fulfilled flag on the request being set.
     /// @param requestId The ID of the request.
     event ProofDelivered(RequestId indexed requestId);
 
