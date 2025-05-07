@@ -403,8 +403,8 @@ where
         let program_bytes = if let Some(path) = program_path {
             let file_program_buf =
                 tokio::fs::read(&path).await.context("Failed to read program file")?;
-            let file_img_id =
-                risc0_zkvm::compute_image_id(&file_program_buf).context("Failed to compute imageId")?;
+            let file_img_id = risc0_zkvm::compute_image_id(&file_program_buf)
+                .context("Failed to compute imageId")?;
 
             if image_id != file_img_id {
                 anyhow::bail!(
