@@ -1140,6 +1140,11 @@ async fn benchmark(
         }
     }
 
+    if worst_cycles < 1_000_000.0 {
+        tracing::warn!("Worst case performance proof is one with less than 1M cycles, \
+            which might lead to a lower khz than expected. Benchmark using a larger proof if possible.");
+    }
+
     // Report worst-case performance
     tracing::info!("Worst-case performance:");
     tracing::info!("  Request ID: 0x{:x}", worst_request_id);
@@ -1162,7 +1167,6 @@ async fn create_pg_pool() -> Result<sqlx::PgPool> {
     let password = std::env::var("POSTGRES_PASSWORD").context("POSTGRES_PASSWORD not set")?;
     let db = std::env::var("POSTGRES_DB").context("POSTGRES_DB not set")?;
     let host = "127.0.0.1";
-    // let host = std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
 
     let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
