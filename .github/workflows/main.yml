@@ -106,6 +106,9 @@ jobs:
         run: cargo check --locked --all-targets
 
       - name: cargo doc
+        env:
+          RUSTFLAGS: "-Dwarnings"
+          RISC0_SKIP_BUILD: 1
         run: cargo doc --locked
 
         # NOTE: We set boundless-order-generator/zeth to ensure the Zeth order generator at least passes cargo clippy.
