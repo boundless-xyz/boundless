@@ -35,6 +35,4 @@ utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 
 [dev-dependencies]
 boundless-market-test-utils = { workspace = true }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
 risc0-zkvm = { workspace = true }

@@ -377,7 +377,7 @@ impl Prover for DefaultProver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use guest_util::{ECHO_ELF, ECHO_ID};
+    use boundless_market_test_utils::{ECHO_ELF, ECHO_ID};
     use risc0_zkvm::sha::Digest;
     use tokio::test;
 

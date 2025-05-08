@@ -49,9 +49,6 @@ name = "boundless-ffi"
 [dev-dependencies]
 boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
-guest-util = { workspace = true }
 order-stream = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tempfile = { workspace = true }
