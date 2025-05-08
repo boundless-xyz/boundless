@@ -33,9 +33,9 @@ guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
 
-alloy = { version = "0.12" }
-alloy-primitives = { version = "0.8" }
-alloy-sol-types = { version = "0.8", features = ["json"] }
+alloy = { version = "0.14" }
+alloy-primitives = { version = "1.0" }
+alloy-sol-types = { version = "1.0", features = ["json"] }
 anyhow = { version = "1.0" }
 async-trait = "0.1"
 aws-config = { version = "1.6", features = ["behavior-version-latest"] }

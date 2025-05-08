@@ -6,8 +6,8 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-alloy-primitives = { version = "0.8" }
-alloy-sol-types = { version = "0.8", features = ["eip712-serde"] }
+alloy-primitives = { version = "1.0" }
+alloy-sol-types = { version = "1.0", features = ["eip712-serde"] }
 boundless-assessor = { path = "../../../assessor" }
 boundless-market = { path = "../../../boundless-market", default-features = false }
 risc0-zkvm = { version = "2.0.1", default-features = false, features = ["std", "unstable"] }
