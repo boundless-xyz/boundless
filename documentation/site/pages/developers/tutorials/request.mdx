@@ -11,7 +11,7 @@ This can be done [programmatically](#programmatically) using the boundless-marke
 The recommended flow of requesting a proof is:
 
 1. [Create a boundless client.](#1-create-a-boundless-client)
-2. [Upload the program executable (ELF binary) to IPFS.](#2-upload-program-executable-to-ipfs)
+2. [Upload the program executable to IPFS.](#2-upload-program-executable-to-ipfs)
 3. [Upload the input of your program to IPFS.](#3-upload-the-input-of-your-program-to-ipfs)
 4. [Execute the program to estimate the total number of cycles, and to get the journal.](#4-execute-the-program-to-estimate-cycles-and-to-get-the-journal)
 5. [Create a proving request with URLs to the executable and inputs, the journal hash, the imageID, and the offer details (such as price range and timeout length).](#5-create-a-proof-request)
@@ -58,22 +58,22 @@ For the latest deployment address, please see [Deployments](/developers/smart-co
 
 ### 2. Upload Program Executable to IPFS
 
-The ELF binary, also known as the image, of the program should be accessible to provers.
-This is done by uploading the ELF to a public HTTP server.
+The program, also known as the image, of the program should be accessible to provers.
+This is done by uploading the program to a public HTTP server.
 The `boundless-market` provides `StorageProvider` implementations to help upload these binaries.
 Built-in providers are listed in the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html).
 
 The recommended storage provider is IPFS, specifically through [Pinata](https://pinata.cloud) (the free tier should be sufficient for most Boundless use cases).
 To use Pinata, [fetch the required JWT credential](https://docs.pinata.cloud/account-management/api-keys) and set it to the `PINATA_JWT` environment variable in the `.env` file.
 
-With the storage provider added to the `Client`, the executable can be uploaded with the `upload_image` method:
+With the storage provider added to the `Client`, the executable can be uploaded with the `upload_program` method:
 
 <StripRustCodeComments>
 ```rust
 # use boundless_market::client::ClientBuilder;
-# async fn upload_elf(ELF: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+# async fn upload_program(PROGRAM: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
 # let boundless_client = ClientBuilder::new().build().await?;
-let image_url = boundless_client.upload_image(ELF).await?;
+let program_url = boundless_client.upload_program(PROGRAM).await?;
 # Ok(())
 # }
 ```
@@ -87,7 +87,7 @@ Similar to the program executable, the program inputs are uploaded to a public H
 <StripRustCodeComments>
 ```rust
 # use boundless_market::client::ClientBuilder;
-# async fn upload_elf(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+# async fn upload_program(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
 # let boundless_client = ClientBuilder::new().build().await?;
 let input_url = boundless_client.upload_input(&input_bytes).await?;
 # Ok(())
@@ -99,7 +99,7 @@ Inputs can also be included directly into the request instead as in-line input.
 When submitting requests onchain, this will cost more gas if the inputs are large.
 The offchain order-stream service also places limits on the size of in-line input.
 
-> Relevant links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [Pinata](https://pinata.cloud), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload\_image for PinataStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/struct.PinataStorageProvider.html)
+> Relevant links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [Pinata](https://pinata.cloud), [Get JWT Credentials from Pinata](https://docs.pinata.cloud/account-management/api-keys), [upload\_program for PinataStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/struct.PinataStorageProvider.html)
 
 ### 4. Execute the Program to Estimate Cycles and to Get the Journal
 
@@ -114,9 +114,9 @@ To execute the program and retrieve the cycle count (in MCycles), and journal:
 <StripRustCodeComments>
 ```rust
 # use risc0_zkvm::{default_executor, ExecutorEnv};
-# fn execute_program(input_bytes: Vec<u8>, ELF: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+# fn execute_program(input_bytes: Vec<u8>, program: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
 let env = ExecutorEnv::builder().write_slice(&input_bytes).build()?;
-let session_info = default_executor().execute(env, ELF)?;
+let session_info = default_executor().execute(env, program)?;
 let mcycles_count = session_info
   .segments
   .iter()
@@ -143,12 +143,12 @@ A proof request consists of four essential components that specify which program
 # use risc0_zkvm::sha::{Digest, Digestible};
 # fn create_proof_request(
 # ECHO_ID: Digest,
-# image_url: url::Url,
+# program_url: url::Url,
 # input_url: url::Url,
 # mcycles_count: u64,
 # journal: Vec<u8>) -> Result<ProofRequest> {
 let request = ProofRequest::builder()
-  .with_image_url(image_url)
+  .with_image_url(program_url)
   .with_input(input_url)
   .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
   .with_offer(
@@ -182,14 +182,14 @@ The program image and program inputs are discussed in steps 2 and 3 respectively
 
 #### Proof Requirements
 
-The requirements ensure proof integrity and correctness by checking the [image ID](https://dev.risczero.com/terminology#image-id) (a unique identifier of each ELF binary run in the zkVM) and the hash of the journal.
+The requirements ensure proof integrity and correctness by checking the [image ID](https://dev.risczero.com/terminology#image-id) (a unique identifier of each program run in the zkVM) and the hash of the journal.
 By checking both the image ID and the journal hash, we can be sure that the provers are working with the correct program and that the outputs match the expected outputs (the ones generated by the execution in step 4).
 
 #### Offer Details
 
 The offer details are specified with `.with_offer()`. This allows the requestor to set the price range per million cycles (MCycles), and long the request remains valid (known as the timeout). The price mechanism helps match the request with provers.
 
-> Relevant links: [Cycles](https://dev.risczero.com/terminology#clock-cycles), [ELF Binary](https://dev.risczero.com/terminology#elf-binary)
+> Relevant links: [Cycles](https://dev.risczero.com/terminology#clock-cycles), [Guest Program](https://dev.risczero.com/terminology#guest-program)
 
 ### 6. Submit a Request
 
@@ -288,7 +288,7 @@ To submit a proof, a valid `request.yaml` is required, this config file will spe
   - The contents of the outputs of the program, the journal.
     This is to make sure the outputs are as expected (e.g., to ensure the right input was provided, by checking an input digest committed to the journal).
 - Image URL
-  - The link to the ELF binary stored on any public HTTP server.
+  - The link to the program stored on any public HTTP server.
     IPFS, used through a gateway, works well (Boundless will support IPFS URLs natively in the future).
 - Input:
   - The input bytes are passed to the program for execution.

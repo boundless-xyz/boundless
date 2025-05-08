@@ -43,7 +43,7 @@ let client = ClientBuilder::new()
 # }
 ```
 
-### 2. Upload ELF and Input
+### 2. Upload Program and Input
 
 <StripRustCodeComments>
 ```rust
@@ -51,7 +51,7 @@ let client = ClientBuilder::new()
 # use alloy::signers::local::LocalSigner;
 # use alloy::primitives::Address;
 # use url::Url;
-# async fn upload_elf_and_input(rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
+# async fn upload_program_and_input(rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
 # let client = ClientBuilder::new()
 #    .with_rpc_url(rpc_url)
 #    .with_boundless_market_address(market_address)
@@ -59,7 +59,7 @@ let client = ClientBuilder::new()
 #    .with_wallet(LocalSigner::random().into())
 #    .build()
 #    .await?;
-let elf_url = client.upload_image(&std::fs::read("guest.elf")?).await?;
+let program_url = client.upload_program(&std::fs::read("guest.bin")?).await?;
 let input_url = client.upload_input(&[0x41, 0x42, 0x43]).await?;
 # Ok(())
 # }
@@ -153,7 +153,7 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 - `OrderStreamClient`: Submit/fetch orders offchain via WebSocket.
 
 ### `storage`
-- Providers: `S3`, `Pinata`, and `TempFile` for uploading ELF/input data.
+- Providers: `S3`, `Pinata`, and `TempFile` for uploading program and input data.
 
 ### `selector`
 - Utilities for tracking/verifying proof types.
@@ -182,13 +182,13 @@ async fn proof_submission(signer: &PrivateKeySigner, rpc_url: Url, market_addres
         .build()
         .await?;
 
-    let elf_url = client.upload_image(&std::fs::read("guest.elf")?).await?;
+    let program_url = client.upload_program(&std::fs::read("guest.bin")?).await?;
     let input_url = client.upload_input(&InputBuilder::new().write(&42u32)?.build_vec()?).await?;
 
     let request = ProofRequest::new(
         RequestId::new(signer.address(), 0),
         Requirements::new([0u8; 32], Predicate::prefix_match([])),
-        elf_url,
+        program_url,
         input_url,
         Offer {
             minPrice: U256::from(1_000),

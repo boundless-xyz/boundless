@@ -30,9 +30,12 @@ pub struct ExecutorResp {
     pub assumption_count: u64,
 }
 
-use crate::config::ConfigErr;
+use crate::{
+    config::ConfigErr,
+    errors::{impl_coded_debug, CodedError},
+};
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ProverError {
     #[error("Bonsai proving error")]
     BonsaiErr(#[from] SdkErr),
@@ -56,7 +59,24 @@ pub enum ProverError {
     StatusFailure,
 
     #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl_coded_debug!(ProverError);
+
+impl CodedError for ProverError {
+    fn code(&self) -> &str {
+        match self {
+            ProverError::BonsaiErr(_) => "[B-BON-001]",
+            ProverError::ConfigReadErr(_) => "[B-BON-002]",
+            ProverError::NotFound(_) => "[B-BON-003]",
+            ProverError::MissingStatus => "[B-BON-004]",
+            ProverError::ProvingFailed(_) => "[B-BON-005]",
+            ProverError::BincodeErr(_) => "[B-BON-006]",
+            ProverError::StatusFailure => "[B-BON-007]",
+            ProverError::UnexpectedError(_) => "[B-BON-500]",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -73,6 +93,7 @@ pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Er
 
 #[async_trait]
 pub trait Prover {
+    async fn has_image(&self, image_id: &str) -> Result<bool, ProverError>;
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError>;
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError>;
     async fn preflight(

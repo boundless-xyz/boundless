@@ -17,10 +17,9 @@ use boundless_market::{
     contracts::{Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements},
     order_stream_client::Order,
 };
-use boundless_market_test_utils::create_test_ctx;
-use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::{ECHO_ID, ECHO_PATH};
+use boundless_market_test_utils::{
+    create_test_ctx, ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF,
+};
 use sqlx::Row;
 
 async fn create_order(
@@ -61,15 +60,7 @@ async fn test_e2e() {
     let test_db = TestDb::new().await.unwrap();
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-indexer");
     let args = [

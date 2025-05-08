@@ -6,7 +6,8 @@ use crate::{
     chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::DbObj,
-    now_timestamp,
+    errors::CodedError,
+    impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
     FulfillmentType, Order, OrderStatus,
 };
@@ -26,19 +27,36 @@ use thiserror::Error;
 /// Hard limit on the number of orders to concurrently kick off proving work for.
 const MAX_PROVING_BATCH_SIZE: u32 = 10;
 
-#[derive(Error, Debug)]
-pub enum LockOrderErr {
-    #[error("Failed to fetch / push image: {0}")]
-    OrderLockedInBlock(MarketError),
+#[derive(Error)]
+pub enum OrderMonitorErr {
+    #[error("{code} Failed to lock order: {0}", code = self.code())]
+    LockTxFailed(String),
 
-    #[error("Invalid order status for locking: {0:?}")]
+    #[error("{code} Invalid order status for locking: {0:?}", code = self.code())]
     InvalidStatus(OrderStatus),
 
-    #[error("Order already locked")]
+    #[error("{code} Insufficient balance for lock", code = self.code())]
+    InsufficientBalance,
+
+    #[error("{code} Order already locked", code = self.code())]
     AlreadyLocked,
 
-    #[error("Other: {0}")]
-    OtherErr(#[from] anyhow::Error),
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl_coded_debug!(OrderMonitorErr);
+
+impl CodedError for OrderMonitorErr {
+    fn code(&self) -> &str {
+        match self {
+            OrderMonitorErr::LockTxFailed(_) => "[B-OM-007]",
+            OrderMonitorErr::InvalidStatus(_) => "[B-OM-008]",
+            OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
+            OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
+            OrderMonitorErr::UnexpectedError(_) => "[B-OM-500]",
+        }
+    }
 }
 
 /// Represents the capacity for proving orders that we have available given our config.
@@ -131,7 +149,7 @@ where
             market = market.with_timeout(Duration::from_secs(txn_timeout));
         }
         {
-            let config = config.lock_all().context("Failed to lock config")?;
+            let config = config.lock_all()?;
             market = market.with_stake_balance_alert(
                 &config
                     .market
@@ -159,9 +177,9 @@ where
         })
     }
 
-    async fn lock_order(&self, order: &Order) -> Result<(), LockOrderErr> {
+    async fn lock_order(&self, order: &Order) -> Result<(), OrderMonitorErr> {
         if order.status != OrderStatus::WaitingToLock {
-            return Err(LockOrderErr::InvalidStatus(order.status));
+            return Err(OrderMonitorErr::InvalidStatus(order.status));
         }
 
         let request_id = order.request.id;
@@ -172,10 +190,10 @@ where
             .await
             .context("Failed to get request status")?;
         if order_status != RequestStatus::Unknown {
-            tracing::warn!("Request {} not open: {order_status:?}, skipping", request_id);
+            tracing::info!("Request {:x} not open: {order_status:?}, skipping", request_id);
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
-            return Err(LockOrderErr::AlreadyLocked);
+            return Err(OrderMonitorErr::AlreadyLocked);
         }
 
         let is_locked = self
@@ -185,7 +203,7 @@ where
             .context("Failed to check if request is locked")?;
         if is_locked {
             tracing::warn!("Request {} already locked: {order_status:?}, skipping", request_id);
-            return Err(LockOrderErr::AlreadyLocked);
+            return Err(OrderMonitorErr::AlreadyLocked);
         }
 
         let conf_priority_gas = {
@@ -202,7 +220,22 @@ where
             .market
             .lock_request(&order.request, &order.client_sig, conf_priority_gas)
             .await
-            .map_err(LockOrderErr::OrderLockedInBlock)?;
+            .map_err(|e| -> OrderMonitorErr {
+                match e {
+                    MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
+                    MarketError::LockRevert(e) => {
+                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
+                    }
+                    MarketError::Error(e) => {
+                        if e.to_string().contains("InsufficientBalance") {
+                            OrderMonitorErr::InsufficientBalance
+                        } else {
+                            OrderMonitorErr::UnexpectedError(e)
+                        }
+                    }
+                    _ => OrderMonitorErr::UnexpectedError(e.into()),
+                }
+            })?;
 
         let lock_timestamp = self
             .provider
@@ -241,18 +274,24 @@ where
                 Ok(_) => tracing::info!("Locked request: {request_id}"),
                 Err(ref err) => {
                     match err {
-                        LockOrderErr::OtherErr(err) => {
-                            tracing::error!("Failed to lock request: {request_id} {err:?}");
+                        OrderMonitorErr::UnexpectedError(inner) => {
+                            tracing::error!(
+                                "Failed to lock order: {order_id} - {} - {inner:?}",
+                                err.code()
+                            );
                         }
                         // Only warn on known / classified errors
                         _ => {
-                            tracing::warn!("Soft failed to lock request: {request_id} {err:?}");
+                            tracing::warn!(
+                                "Soft failed to lock request: {request_id} - {} - {err:?}",
+                                err.code()
+                            );
                         }
                     }
                     if let Err(err) = self.db.set_order_failure(&order_id, format!("{err:?}")).await
                     {
                         tracing::error!(
-                            "Failed to set DB failure state for order: {order_id}, {err:?}"
+                            "Failed to set DB failure state for order: {order_id} - {err:?}",
                         );
                     }
                 }
@@ -261,18 +300,14 @@ where
         }
 
         if !orders.is_empty() {
-            self.db
-                .set_last_block(current_block)
-                .await
-                .context("Failed to update db last block")?;
+            self.db.set_last_block(current_block).await?;
         }
 
         Ok(order_count)
     }
 
     async fn back_scan_locks(&self) -> Result<u64> {
-        let opt_last_block =
-            self.db.get_last_block().await.context("Failed to fetch last block from DB")?;
+        let opt_last_block = self.db.get_last_block().await?;
 
         // back scan if we have an existing block we last updated from
         // TODO: spawn a side thread to avoid missing new blocks while this is running:
@@ -302,13 +337,17 @@ where
     async fn get_proving_order_capacity(
         &mut self,
         max_concurrent_proofs: Option<u32>,
-    ) -> Result<Capacity> {
+    ) -> Result<Capacity, OrderMonitorErr> {
         if max_concurrent_proofs.is_none() {
             return Ok(Capacity::Unlimited);
         };
 
         let max = max_concurrent_proofs.unwrap();
-        let committed_orders = self.db.get_committed_orders().await?;
+        let committed_orders = self
+            .db
+            .get_committed_orders()
+            .await
+            .map_err(|e| OrderMonitorErr::UnexpectedError(e.into()))?;
         let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
 
         self.log_capacity(committed_orders, max).await;
@@ -463,7 +502,8 @@ where
             final_orders.len()
         );
         tracing::debug!(
-            "Final orders ready for locking and/or proving after filtering: {final_orders:?}"
+            "Final orders ready for locking and/or proving after filtering: {}",
+            final_orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(", ")
         );
 
         Ok(final_orders)
@@ -589,7 +629,7 @@ where
                     _ => panic!("Unsupported fulfillment type: {:?}", order.fulfillment_type),
                 };
 
-                tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {}. It expires at {}", order.id(), proof_time_seconds, completion_time, expiration);
+                tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
 
                 if completion_time > expiration {
                     tracing::info!("Order {:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
@@ -647,7 +687,7 @@ where
         }
     }
 
-    pub async fn start_monitor(mut self) -> Result<()> {
+    pub async fn start_monitor(mut self) -> Result<(), OrderMonitorErr> {
         self.back_scan_locks().await?;
 
         let mut last_block = 0;
@@ -728,7 +768,8 @@ impl<P> RetryTask for OrderMonitor<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
-    fn spawn(&self) -> RetryRes {
+    type Error = OrderMonitorErr;
+    fn spawn(&self) -> RetryRes<Self::Error> {
         let monitor_clone = self.clone();
         Box::pin(async move {
             tracing::info!("Starting order monitor");
@@ -752,9 +793,10 @@ mod tests {
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
     };
-    use boundless_market_test_utils::{deploy_boundless_market, deploy_hit_points};
+    use boundless_market_test_utils::{
+        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
+    };
     use chrono::Utc;
-    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
     use risc0_zkvm::Digest;
     use std::{future::Future, sync::Arc};
     use tokio::task::JoinSet;
@@ -1334,8 +1376,8 @@ mod tests {
                 maxPrice: U256::from(max_price),
                 biddingStart: now_timestamp(),
                 rampUpPeriod: 1,
-                timeout: 500,
-                lockTimeout: 500,
+                timeout: 1000,
+                lockTimeout: 1000,
                 lockStake: U256::from(0),
             },
         );

@@ -15,9 +15,6 @@ boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 broker = { path = "../broker", features = ["test-utils"] }
 clap = { workspace = true, features = ["derive"] }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
-guest-util = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 risc0-zkp = { workspace = true }

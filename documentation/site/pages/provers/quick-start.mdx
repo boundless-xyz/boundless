@@ -33,7 +33,7 @@ sudo ./scripts/setup.sh
 
 ## Running Boundless
 
-The recommended place to start is the `scripts/boundless_service.sh` script. This script which will run everything you need to start proving.
+The recommended place to start are the `just` commands. This script will run everything you need to start proving.
 
 Boundless is comprised of two major components:
 1. **Bento** is the local proving infrastructure. Bento will take requests, prove them and return the result
@@ -43,41 +43,27 @@ To get started, run:
 
 ```sh [Terminal]
 just broker
-
-# Or run the script directly
-
-scripts/boundless_service.sh start
 ```
 
 To stop all services, run:
 
 ```sh [Terminal]
 just broker down
+```
 
-# Or run the script directly
+Or remove all volumes and data from the service:
 
-scripts/boundless_service.sh stop
+```sh [Terminal]
+just broker clean
 ```
 
 ---
 
-```sh [boundless_service.sh --help]
-Usage: scripts/boundless_service.sh [command] [options]
+And to run with a custom environment file:
 
-Commands:
-  start   Start Docker Compose services
-  stop    Stop and remove Docker Compose services
-
-Options:
-  -e, --env-file FILE    Specify a custom environment file (default: ./.env.broker)
-  -h, --help             Display this help message
-
-Examples:
-  scripts/boundless_service.sh start
-  scripts/boundless_service.sh start --env-file ./.env.production
-  scripts/boundless_service.sh stop
-  scripts/boundless_service.sh stop --env-file ./.env.production
-
+```sh [Terminal]
+just broker up ./.env.broker
+just broker down ./.env.broker
 ```
 
 ## Configuration
@@ -111,18 +97,28 @@ In order to pick the right segment po2 for your GPU VRAM see [the performance op
 
 ## Sending a Test Proof to Bento
 
+### Bento CLI installation
+
+To install the latest CLI version:
+
+```sh [Terminal]
+cargo install --git https://github.com/risc0/risc0 bento-client --bin bento_cli
+```
+
+### Using the Bento CLI
+
 Once everything is up, you can send a test proof to Bento to see if everything works. There are two options for test proofs:
 
 1. The Bento CLI allows for a simple test vector with a specified cycle count via the `-c` flag:
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -c 32
+RUST_LOG=info bento_cli -c 32
 ```
 
-2. The Bento CLI also accepts existing ELF / input files for [Boundless programs](/developers/tutorials/build):
+2. The Bento CLI also accepts [existing program and input files](/developers/tutorials/build):
 
 ```sh [Terminal]
-RUST_LOG=info cargo run --bin bento_cli -- -f ./crates/bento-client/method_name -i /tmp/input.bin
+RUST_LOG=info bento_cli -f ./crates/bento-client/method_name -i /tmp/input.bin
 ```
 
 ## Depositing Funds to the Market

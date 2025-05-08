@@ -236,6 +236,7 @@ export class SimpleGenerator extends pulumi.ComponentResource {
 
     const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
 
+    // 2 errors within 1 hour in the order generator triggers a SEV2 alarm.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
       name: `${serviceName}-log-err`,
       metricQueries: [
@@ -250,7 +251,7 @@ export class SimpleGenerator extends pulumi.ComponentResource {
           returnData: true,
         },
       ],
-      threshold: 1,
+      threshold: 2,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
       evaluationPeriods: 60,
       datapointsToAlarm: 2,

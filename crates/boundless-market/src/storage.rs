@@ -47,17 +47,16 @@ use tempfile::TempDir;
 use url::ParseError;
 
 #[async_trait]
-/// A trait for uploading risc0-zkvm ELF binaries and input files to a storage provider.
+/// A trait for uploading risc0-zkvm programs and input files to a storage provider.
 pub trait StorageProvider {
     /// Error type for the storage provider.
     type Error: Debug;
 
-    // TODO(victor): Should this be upload_elf?
-    /// Upload a risc0-zkvm ELF binary.
+    /// Upload a risc0-zkvm program binary.
     ///
-    /// Returns the URL which can be used to publicly access the uploaded ELF. This URL can be
+    /// Returns the URL which can be used to publicly access the uploaded program. This URL can be
     /// included in a request sent to Boundless.
-    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error>;
+    async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error>;
 
     /// Upload the input for use in a proof request.
     ///
@@ -184,11 +183,11 @@ impl StorageProviderConfig {
 impl StorageProvider for BuiltinStorageProvider {
     type Error = BuiltinStorageProviderError;
 
-    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
+    async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
         Ok(match self {
-            Self::S3(provider) => provider.upload_image(elf).await?,
-            Self::Pinata(provider) => provider.upload_image(elf).await?,
-            Self::File(provider) => provider.upload_image(elf).await?,
+            Self::S3(provider) => provider.upload_program(program).await?,
+            Self::Pinata(provider) => provider.upload_program(program).await?,
+            Self::File(provider) => provider.upload_program(program).await?,
         })
     }
 
@@ -408,10 +407,10 @@ impl PinataStorageProvider {
 impl StorageProvider for PinataStorageProvider {
     type Error = PinataStorageProviderError;
 
-    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
-        let image_id = risc0_zkvm::compute_image_id(elf)?;
-        let filename = format!("{}.elf", image_id);
-        self.upload(elf, filename).await
+    async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
+        let image_id = risc0_zkvm::compute_image_id(program)?;
+        let filename = format!("{}.bin", image_id);
+        self.upload(program, filename).await
     }
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
@@ -422,7 +421,7 @@ impl StorageProvider for PinataStorageProvider {
 }
 
 #[derive(Clone, Debug)]
-/// Storage provider that uploads ELFs and inputs to S3.
+/// Storage provider that uploads programs and inputs to S3.
 pub struct S3StorageProvider {
     s3_bucket: String,
     client: aws_sdk_s3::Client,
@@ -591,10 +590,10 @@ impl S3StorageProvider {
 impl StorageProvider for S3StorageProvider {
     type Error = S3StorageProviderError;
 
-    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
-        let image_id = risc0_zkvm::compute_image_id(elf)?;
-        let key = format!("image/{}", image_id);
-        self.upload(elf, &key).await
+    async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
+        let image_id = risc0_zkvm::compute_image_id(program)?;
+        let key = format!("program/{}", image_id);
+        self.upload(program, &key).await
     }
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
@@ -665,10 +664,10 @@ impl TempFileStorageProvider {
 impl StorageProvider for TempFileStorageProvider {
     type Error = TempFileStorageProviderError;
 
-    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
-        let image_id = risc0_zkvm::compute_image_id(elf)?;
-        let filename = format!("{}.elf", image_id);
-        let file_url = self.save_file(elf, &filename).await?;
+    async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
+        let image_id = risc0_zkvm::compute_image_id(program)?;
+        let filename = format!("{}.bin", image_id);
+        let file_url = self.save_file(program, &filename).await?;
         Ok(file_url)
     }
 
@@ -739,8 +738,8 @@ impl MockStorageProvider {
 impl StorageProvider for MockStorageProvider {
     type Error = MockStorageError;
 
-    async fn upload_image(&self, elf: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_and_mock(elf, "image")
+    async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
+        self.upload_and_mock(program, "program")
     }
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
@@ -756,13 +755,13 @@ mod tests {
     async fn test_temp_file_storage_provider() {
         let provider = TempFileStorageProvider::new().unwrap();
 
-        let image_data = guest_util::ECHO_ELF;
+        let program_data = boundless_market_test_utils::ECHO_ELF;
         let input_data = b"test input data";
 
-        let image_url = provider.upload_image(image_data).await.unwrap();
+        let program_url = provider.upload_program(program_data).await.unwrap();
         let input_url = provider.upload_input(input_data).await.unwrap();
 
-        println!("Image URL: {}", image_url);
+        println!("Program URL: {}", program_url);
         println!("Input URL: {}", input_url);
     }
 
@@ -772,16 +771,16 @@ mod tests {
         let storage = MockStorageProvider::start();
 
         // Upload some test data
-        let image_data = guest_util::ECHO_ELF;
+        let program_data = boundless_market_test_utils::ECHO_ELF;
         let input_data = b"test input data";
 
-        let image_url = storage.upload_image(image_data).await.unwrap();
+        let program_url = storage.upload_program(program_data).await.unwrap();
         let input_url = storage.upload_input(input_data).await.unwrap();
 
-        let response = reqwest::get(image_url).await.unwrap();
+        let response = reqwest::get(program_url).await.unwrap();
         assert_eq!(response.status(), 200);
         let content = response.bytes().await.unwrap();
-        assert_eq!(&content[..], image_data);
+        assert_eq!(&content[..], program_data);
 
         let response = reqwest::get(input_url).await.unwrap();
         assert_eq!(response.status(), 200);
