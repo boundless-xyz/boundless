@@ -755,7 +755,7 @@ mod tests {
     async fn test_temp_file_storage_provider() {
         let provider = TempFileStorageProvider::new().unwrap();
 
-        let program_data = guest_util::ECHO_ELF;
+        let program_data = boundless_market_test_utils::ECHO_ELF;
         let input_data = b"test input data";
 
         let program_url = provider.upload_program(program_data).await.unwrap();
@@ -771,7 +771,7 @@ mod tests {
         let storage = MockStorageProvider::start();
 
         // Upload some test data
-        let program_data = guest_util::ECHO_ELF;
+        let program_data = boundless_market_test_utils::ECHO_ELF;
         let input_data = b"test input data";
 
         let program_url = storage.upload_program(program_data).await.unwrap();
