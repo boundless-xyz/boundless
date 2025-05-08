@@ -97,8 +97,6 @@ pub struct MarketConf {
     ///
     /// Requests that require a higher stake than this will not be considered.
     pub max_stake: String,
-    /// Optional list of image IDs for which preflight should be skipped.
-    pub skip_preflight_ids: Option<Vec<B256>>,
     /// Optional allow list for customer address.
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
@@ -172,7 +170,6 @@ impl Default for MarketConf {
             min_deadline: 300, // 5 mins
             lookback_blocks: 100,
             max_stake: "0.1".to_string(),
-            skip_preflight_ids: None,
             allow_client_addresses: None,
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
@@ -478,7 +475,6 @@ peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
 max_stake = "0.1"
-skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
 
 [prover]
@@ -505,7 +501,6 @@ peak_prove_khz = 10000
 min_deadline = 300
 lookback_blocks = 100
 max_stake = "0.1"
-skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
@@ -553,11 +548,6 @@ error = ?"#;
         assert_eq!(config.market.lookback_blocks, 100);
         assert_eq!(config.market.max_stake, "0.1");
         assert_eq!(config.market.max_file_size, 50_000_000);
-        assert_eq!(
-            config.market.skip_preflight_ids.unwrap()[0],
-            B256::from_hex("0x0000000000000000000000000000000000000000000000000000000000000001")
-                .unwrap()
-        );
         assert_eq!(config.market.lockin_priority_gas, None);
 
         assert_eq!(config.prover.status_poll_ms, 1000);
