@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use alloy::primitives::{Address, B256};
+use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use notify::{EventKind, Watcher};
 use serde::{Deserialize, Serialize};
@@ -459,7 +459,6 @@ impl ConfigWatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::hex::FromHex;
     use std::{
         fs::File,
         io::{Seek, Write},
