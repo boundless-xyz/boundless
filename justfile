@@ -27,15 +27,11 @@ test-foundry:
     forge test -vvv --isolate
 
 # Run all Cargo tests
-test-cargo: test-cargo-root test-cargo-bento test-cargo-example test-cargo-db
+test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
     RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli -- --include-ignored
-
-# Run Cargo tests for bento
-test-cargo-bento:
-    cd bento && RISC0_DEV_MODE=1 cargo test --workspace --exclude taskdb -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -46,8 +42,6 @@ test-cargo-example:
 # Run database tests
 test-cargo-db: 
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} sqlx migrate run --source ./bento/crates/taskdb/migrations/
-    cd bento && DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p taskdb
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
@@ -64,6 +58,7 @@ test-db action="setup":
             postgres:latest
         # Wait for PostgreSQL to be ready
         sleep 3
+        docker exec -u postgres postgres-test psql -U postgres -c "CREATE DATABASE test_db;"
     elif [ "{{action}}" = "clean" ]; then
         docker stop postgres-test
         docker rm postgres-test
@@ -101,8 +96,6 @@ check-format:
     cd crates/guest/assessor && cargo fmt --all --check
     cd crates/guest/util && cargo sort --workspace --check
     cd crates/guest/util && cargo fmt --all --check
-    cd bento && cargo sort --workspace --check
-    cd bento && cargo fmt --all --check
     cd documentation && bun run check
     dprint check
     forge fmt --check
@@ -118,8 +111,6 @@ check-clippy:
     cd examples/counter-with-callback && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
     cd examples/smart-contract-requestor && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cargo clippy --workspace --all-targets
-    cd bento && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
 
 # Format all code
@@ -138,8 +129,6 @@ format:
     cd crates/guest/assessor && cargo fmt --all
     cd crates/guest/util && cargo sort --workspace
     cd crates/guest/util && cargo fmt --all
-    cd bento && cargo sort --workspace
-    cd bento && cargo fmt --all
     cd documentation && bun install && bun run format-markdown
     dprint fmt
     forge fmt
@@ -245,10 +234,12 @@ localnet action="up": check-deps
         exit 1
     fi
 
+# Load environment variables from a .env.NETWORK file
 env NETWORK:
 	#!/usr/bin/env bash
 	FILE=".env.{{NETWORK}}"
 	if [ -f "$FILE" ]; then
+		echo "# Run this command with 'eval \$(just env {{NETWORK}})' to load variables into your shell"
 		grep -v '^#' "$FILE" | tr -d '"' | xargs -I {} echo export {}
 	else
 		echo "Error: $FILE file not found." >&2
@@ -260,14 +251,68 @@ cargo-update:
     cargo update
     cd examples/counter && cargo update
 
-# Start or stop the broker service
-broker action="start" env_file="":
+# Start the bento service
+bento action="up" env_file="" compose_flags="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
-        ./scripts/boundless_service.sh {{action}} --env-file {{env_file}}
+        ENV_FILE_ARG="--env-file {{env_file}}"
     else
-        ./scripts/boundless_service.sh {{action}}
+        ENV_FILE_ARG=""
     fi
+
+    if ! command -v docker &> /dev/null; then
+        echo "Error: Docker command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if ! docker compose version &> /dev/null; then
+        echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if [ "{{action}}" = "up" ]; then
+        if [ -n "{{env_file}}" ] && [ ! -f "{{env_file}}" ]; then
+            echo "Error: Environment file {{env_file}} does not exist."
+            exit 1
+        fi
+
+        echo "Starting Docker Compose services"
+        if [ -n "{{env_file}}" ]; then
+            echo "Using environment file: {{env_file}}"
+        else
+            echo "Using default values from compose.yml"
+        fi
+        
+        docker compose {{compose_flags}} $ENV_FILE_ARG up --build -d
+        echo "Docker Compose services have been started."
+    elif [ "{{action}}" = "down" ]; then
+        echo "Stopping Docker Compose services"
+        if docker compose {{compose_flags}} $ENV_FILE_ARG down; then
+            echo "Docker Compose services have been stopped and removed."
+        else
+            echo "Error: Failed to stop Docker Compose services."
+            exit 1
+        fi
+    elif [ "{{action}}" = "clean" ]; then
+        echo "Stopping and cleaning Docker Compose services"
+        if docker compose {{compose_flags}} $ENV_FILE_ARG down -v; then
+            echo "Docker Compose services have been stopped and volumes have been removed."
+        else
+            echo "Error: Failed to clean Docker Compose services."
+            exit 1
+        fi
+    elif [ "{{action}}" = "logs" ]; then
+        echo "Docker logs"
+        docker compose {{compose_flags}} $ENV_FILE_ARG logs -f
+    else
+        echo "Unknown action: {{action}}"
+        echo "Available actions: up, down, clean, logs"
+        exit 1
+    fi
+
+# Run the broker service with a bento cluster for proving.
+broker action="up" env_file="":
+    just bento "{{action}}" "{{env_file}}" "--profile broker"
 
 # Run the setup script
 bento-setup:

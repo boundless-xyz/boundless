@@ -34,8 +34,6 @@ jobs:
       - docker
       - rust-pkg-check
       - docs-rs
-      - bento-check
-      - bento-run
 
     runs-on: ubuntu-latest
     steps:
@@ -131,7 +129,6 @@ jobs:
 
       - name: sccache stats
         run: sccache --show-stats
-
   bento-check:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
     needs: files-changed
@@ -507,7 +504,6 @@ jobs:
 
       - name: sccache stats
         run: sccache --show-stats
-
   docker:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
     needs: files-changed
@@ -553,7 +549,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       docker: ${{ steps.changes.outputs.docker }}
-      bento: ${{ steps.changes.outputs.bento }}
       main:      ${{ steps.changes.outputs.main }}
       examples:  ${{ steps.changes.outputs.examples }}
       docs:      ${{ steps.changes.outputs.docs }}
@@ -571,9 +566,6 @@ jobs:
               - 'dockerfiles/**'
               - 'compose.yml'
               - '.env.broker-template'
-            # Changes to bento.
-            bento:
-              - 'bento/**'
             # Changes affect the main codebase (rust + contracts).
             main:
               - '*' # run is anything in the root changed.

@@ -4,27 +4,41 @@
 
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
-use anyhow::{Context, Error as AnyhowErr, Result as AnyhowRes};
+use anyhow::{Context, Result as AnyhowRes};
 use thiserror::Error;
 use tokio::task::JoinSet;
 
-use crate::config::ConfigLock;
+use crate::{config::ConfigLock, errors::CodedError};
 
 #[derive(Error, Debug)]
-pub enum SupervisorErr {
+pub enum SupervisorErr<E: CodedError> {
     /// Restart / replace the task after failure
-    #[error("Recoverable error: {0}")]
-    Recover(AnyhowErr),
+    #[error("{code} Recoverable error: {0}", code = self.code())]
+    Recover(E),
     /// Hard failure and exit the task set
-    #[error("Hard failure: {0}")]
-    Fault(AnyhowErr),
+    #[error("{code} Hard failure: {0}", code = self.code())]
+    Fault(E),
 }
 
-pub type RetryRes = Pin<Box<dyn Future<Output = Result<(), SupervisorErr>> + Send + 'static>>;
+const FAULT_CODE: &str = "[B-SUP-FAULT]";
+
+impl<E: CodedError> CodedError for SupervisorErr<E> {
+    fn code(&self) -> &str {
+        match self {
+            SupervisorErr::Recover(_) => "[B-SUP-RECOVER]",
+            SupervisorErr::Fault(_) => FAULT_CODE,
+        }
+    }
+}
+
+#[allow(type_alias_bounds)]
+pub type RetryRes<E: CodedError> =
+    Pin<Box<dyn Future<Output = Result<(), SupervisorErr<E>>> + Send + 'static>>;
 
 pub trait RetryTask {
+    type Error: CodedError;
     /// Defines how to spawn a task to be monitored for restarts
-    fn spawn(&self) -> RetryRes;
+    fn spawn(&self) -> RetryRes<Self::Error>;
 }
 
 /// Configuration for retry behavior in the supervisor
@@ -73,9 +87,10 @@ pub(crate) struct Supervisor<T: RetryTask> {
     config: ConfigLock,
 }
 
-impl<T> Supervisor<T>
+impl<T: RetryTask> Supervisor<T>
 where
-    T: RetryTask + Send,
+    T: Send,
+    T::Error: Send + Sync + 'static,
 {
     /// Create a new supervisor with a single task
     pub fn new(task: Arc<T>, config: ConfigLock) -> Self {
@@ -118,8 +133,8 @@ where
                     Ok(()) => {
                         tracing::debug!("Task exited cleanly");
                     }
-                    Err(err) => match err {
-                        SupervisorErr::Recover(err) => {
+                    Err(ref supervisor_err) => match supervisor_err {
+                        SupervisorErr::Recover(ref _err) => {
                             if self.retry_policy.critical {
                                 let max_retries = {
                                     let config =
@@ -130,8 +145,11 @@ where
                                 // Check if we've exceeded max retries
                                 if let Some(max) = max_retries {
                                     if retry_count >= max {
+                                        // We manually log the fault code rather than rendering the SupervisorErr::Recover
+                                        // code so that we indicate we are now in a hard fault state after exhausting retries.
                                         tracing::error!(
-                                            "Exceeded maximum retries ({max}) for task"
+                                            "{} Exceeded maximum retries ({max}) for task",
+                                            FAULT_CODE
                                         );
                                         anyhow::bail!("Exceeded maximum retries for task");
                                     }
@@ -139,7 +157,8 @@ where
                             }
 
                             tracing::warn!(
-                                "Recoverable failure detected: {err:?}, spawning replacement (retry {})",
+                                "{}, spawning replacement (retry {})",
+                                supervisor_err,
                                 retry_count + 1,
                             );
                             tracing::debug!("Waiting {:?} before retry", current_delay);
@@ -161,8 +180,8 @@ where
                                 .mul_f64(self.retry_policy.backoff_multiplier)
                                 .min(self.retry_policy.max_delay);
                         }
-                        SupervisorErr::Fault(err) => {
-                            tracing::error!("FAULT: Hard failure detected: {err:?}");
+                        SupervisorErr::Fault(_err) => {
+                            tracing::error!("{}", supervisor_err);
                             anyhow::bail!("Hard failure in supervisor task");
                         }
                     },
@@ -187,11 +206,26 @@ mod tests {
     use super::*;
     use anyhow::Context;
     use async_channel::{Receiver, Sender};
+    use thiserror::Error;
     use tracing_test::traced_test;
 
     struct TestTask {
         tx: Sender<u32>,
         rx: Receiver<u32>,
+    }
+
+    #[derive(Error, Debug)]
+    enum TestErr {
+        #[error("Sample error: {0}")]
+        SampleErr(anyhow::Error),
+    }
+
+    impl CodedError for TestErr {
+        fn code(&self) -> &str {
+            match self {
+                TestErr::SampleErr(_) => "[B-TEST-001]",
+            }
+        }
     }
 
     impl TestTask {
@@ -208,7 +242,7 @@ mod tests {
             self.tx.close()
         }
 
-        async fn process_item(rx: Receiver<u32>) -> Result<(), SupervisorErr> {
+        async fn process_item(rx: Receiver<u32>) -> Result<(), SupervisorErr<TestErr>> {
             loop {
                 let value = match rx.recv().await {
                     Ok(val) => val,
@@ -226,10 +260,22 @@ mod tests {
                     // mock a clean exit
                     1 => return Ok(()),
                     // Mock a soft failure
-                    2 => return Err(SupervisorErr::Recover(anyhow::anyhow!("Sample error"))),
+                    2 => {
+                        return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
+                            "Sample error"
+                        ))))
+                    }
                     // Mock a hard failure
-                    3 => return Err(SupervisorErr::Fault(anyhow::anyhow!("FAILURE"))),
-                    _ => return Err(SupervisorErr::Recover(anyhow::anyhow!("UNKNOWN VALUE TYPE"))),
+                    3 => {
+                        return Err(SupervisorErr::Fault(TestErr::SampleErr(anyhow::anyhow!(
+                            "FAILURE"
+                        ))))
+                    }
+                    _ => {
+                        return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
+                            "UNKNOWN VALUE TYPE"
+                        ))))
+                    }
                 }
             }
 
@@ -238,7 +284,8 @@ mod tests {
     }
 
     impl RetryTask for TestTask {
-        fn spawn(&self) -> RetryRes {
+        type Error = TestErr;
+        fn spawn(&self) -> RetryRes<Self::Error> {
             let rx_copy = self.rx.clone();
             Box::pin(Self::process_item(rx_copy))
         }
