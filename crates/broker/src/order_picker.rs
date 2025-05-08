@@ -310,34 +310,10 @@ where
             return Ok(Skip);
         }
 
-        let (skip_preflight, max_mcycle_limit) = {
+        let max_mcycle_limit = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            let skip_preflight =
-                if let Some(skip_preflights) = config.market.skip_preflight_ids.as_ref() {
-                    skip_preflights.contains(&order.request.requirements.imageId)
-                } else {
-                    false
-                };
-
-            (skip_preflight, config.market.max_mcycle_limit)
+            config.market.max_mcycle_limit
         };
-
-        // If we skip preflight we lock the order asap, or schedule it to be proven after the lock expires asap
-        if skip_preflight {
-            if lock_expired {
-                return Ok(ProveAfterLockExpire {
-                    total_cycles: None,
-                    lock_expire_timestamp_secs: lock_expiration,
-                    expiry_secs: order_expiration,
-                });
-            } else {
-                return Ok(Lock {
-                    total_cycles: None,
-                    target_timestamp_secs: 0,
-                    expiry_secs: expiration,
-                });
-            }
-        }
 
         // TODO: Move URI handling like this into the prover impls
         let image_id = upload_image_uri(&self.prover, order, &self.config)
@@ -1668,43 +1644,6 @@ mod tests {
             "Skipping order {:x} due to session limit exceeded",
             request_id
         )));
-
-        let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
-    }
-
-    // Currently the logic this test intends to check (the lines in evaluate_lock_expired_order) are unreachable,
-    // since the only way to hit it would be to skip the preflight check, and the current skip preflight configuration
-    // doesn't check the price at all.
-    // TODO: Confirm expected behavior for skip_preflight
-    #[traced_test]
-    #[ignore]
-    #[allow(dead_code)]
-    async fn price_locked_by_other_unprofitable_with_skip_preflight_ids() {
-        let config = ConfigLock::default();
-        {
-            config.load_write().unwrap().market.mcycle_price_stake_token = "0.1".into();
-            config.load_write().unwrap().market.skip_preflight_ids =
-                vec![Digest::from(ECHO_ID).as_bytes().try_into().unwrap()].into();
-        }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
-
-        let mut order = ctx.generate_next_order(Default::default()).await;
-
-        order.status = OrderStatus::Pricing;
-        order.fulfillment_type = FulfillmentType::FulfillAfterLockExpire;
-        order.request.offer.biddingStart = now_timestamp();
-        order.request.offer.lockTimeout = 0;
-        order.request.offer.timeout = 10000;
-
-        // Low stake means low reward for filling after it is unfulfilled
-        order.request.offer.lockStake = parse_ether("0.00001").unwrap();
-
-        ctx.db.add_order(order.clone()).await.unwrap();
-
-        assert!(!ctx.picker.price_order_and_update_db(&order).await);
-
-        assert!(logs_contain("Removing under priced order (slashed stake reward too low)"));
 
         let db_order = ctx.db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
