@@ -412,6 +412,7 @@ impl Monitor {
     /// Fetch the success rate of fulfilled requests by a prover within the given range.
     ///
     /// The success rate is calculated as the number of fulfilled requests divided by the number of locked requests.
+    /// If the number of locked requests is zero, the success rate returned is `None`.
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// prover: The prover address to filter requests by.
@@ -420,35 +421,37 @@ impl Monitor {
         from: i64,
         to: i64,
         prover: Address,
-    ) -> Result<f64> {
+    ) -> Result<Option<f64>> {
         let fulfilled = self.fetch_fulfillments_number_by_prover(from, to, prover).await?;
         let locked: i64 = self.fetch_locked_number_by_prover(from, to, prover).await?;
 
         if locked == 0 {
-            return Ok(0.0);
+            return Ok(None);
         }
 
-        Ok(fulfilled as f64 / locked as f64)
+        Ok(Some(fulfilled as f64 / locked as f64))
     }
 
     /// Total success rate of fulfilled requests by a specific prover address.
     ///
     /// The success rate is calculated as the number of fulfilled requests divided by the number of locked requests.
+    /// If the number of locked requests is zero, the success rate returned is `None`.
     /// prover: The prover address to filter requests by.
-    pub async fn total_success_rate_by_prover(&self, prover: Address) -> Result<f64> {
+    pub async fn total_success_rate_by_prover(&self, prover: Address) -> Result<Option<f64>> {
         let fulfilled = self.total_fulfillments_by_prover(prover).await?;
         let locked: i64 = self.total_locked_by_prover(prover).await?;
 
         if locked == 0 {
-            return Ok(0.0);
+            return Ok(None);
         }
 
-        Ok(fulfilled as f64 / locked as f64)
+        Ok(Some(fulfilled as f64 / locked as f64))
     }
 
     /// Fetch the success rate of fulfilled requests from a specific client address within the given range.
     ///
     /// The success rate is calculated as the number of fulfilled requests divided by the number of submitted requests.
+    /// If the number of submitted requests is zero, the success rate returned is `None`.
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// address: The client address to filter requests by.
@@ -457,29 +460,30 @@ impl Monitor {
         from: i64,
         to: i64,
         address: Address,
-    ) -> Result<f64> {
+    ) -> Result<Option<f64>> {
         let fulfilled = self.fetch_fulfillments_number_from_client(from, to, address).await?;
         let submitted: i64 = self.fetch_requests_number_from_client(from, to, address).await?;
 
         if submitted == 0 {
-            return Ok(0.0);
+            return Ok(None);
         }
 
-        Ok(fulfilled as f64 / submitted as f64)
+        Ok(Some(fulfilled as f64 / submitted as f64))
     }
 
     /// Total success rate of fulfilled requests from a specific client address.
     ///
     /// The success rate is calculated as the number of fulfilled requests divided by the number of submitted requests.
+    /// If the number of submitted requests is zero, the success rate returned is `None`.
     /// address: The client address to filter requests by.
-    pub async fn total_success_rate_from_client(&self, address: Address) -> Result<f64> {
+    pub async fn total_success_rate_from_client(&self, address: Address) -> Result<Option<f64>> {
         let fulfilled = self.total_fulfillments_from_client(address).await?;
         let submitted: i64 = self.total_requests_from_client(address).await?;
 
         if submitted == 0 {
-            return Ok(0.0);
+            return Ok(None);
         }
 
-        Ok(fulfilled as f64 / submitted as f64)
+        Ok(Some(fulfilled as f64 / submitted as f64))
     }
 }

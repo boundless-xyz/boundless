@@ -202,15 +202,7 @@ async fn test_monitoring() {
     let test_db = TestDb::new().await.unwrap();
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let exe_path = env!("CARGO_BIN_EXE_boundless-indexer");
     let args = [
@@ -383,11 +375,11 @@ async fn test_monitoring() {
 
     let client_success_rate =
         monitor.total_success_rate_from_client(ctx.customer_signer.address()).await.unwrap();
-    assert_eq!(client_success_rate, 0.5);
+    assert_eq!(client_success_rate, Some(0.5));
 
     let prover_success_rate =
         monitor.total_success_rate_by_prover(ctx.prover_signer.address()).await.unwrap();
-    assert_eq!(prover_success_rate, 0.5);
+    assert_eq!(prover_success_rate, Some(0.5));
 
     cli_process.kill().unwrap();
 }
