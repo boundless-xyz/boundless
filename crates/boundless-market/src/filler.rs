@@ -38,7 +38,7 @@ use url::Url;
 use crate::{
     contracts::{
         boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Offer,
-        Predicate, ProofRequest, RequestId, Requirements,
+        Predicate, ProofRequest, RequestId, Requirements, RequestError
     },
     input::GuestEnv,
     now_timestamp,
@@ -244,6 +244,7 @@ impl Layer<(&Url, &RequestInput)> for PreflightLayer {
     }
 }
 
+// TODO: Add support for callbacks and selectors.
 #[non_exhaustive]
 #[derive(Clone, Builder, Default)]
 pub struct RequirementsLayer {}
@@ -475,19 +476,22 @@ pub type FinalizerInput = (Url, RequestInput, Requirements, Offer, RequestId);
 
 impl Layer<FinalizerInput> for Finalizer {
     type Output = ProofRequest;
-    type Error = Infallible;
+    type Error = anyhow::Error;
 
     async fn process(
         &self,
         (program_url, input, requirements, offer, request_id): FinalizerInput,
     ) -> Result<Self::Output, Self::Error> {
-        Ok(ProofRequest {
+        let request = ProofRequest {
             requirements,
             id: request_id.into(),
             imageUrl: program_url.into(),
             input,
             offer,
-        })
+        };
+
+        request.validate().context("built request is invalid; check request parameters")?;
+        Ok(request)
     }
 }
 
@@ -805,6 +809,13 @@ impl Adapt<Finalizer> for RequestParams {
         let requirements = self.require_requirements()?.clone();
         let offer = self.require_offer()?.clone();
         let request_id = self.require_request_id()?.clone();
+        
+        // As an extra consistency check. verify the journal satisfies the required predicate.
+        if let Some(ref journal) = self.journal {
+            if !requirements.predicate.eval(journal) {
+                bail!("journal in request builder does not match requirements predicate; check request parameters");
+            }
+        }
 
         layer
             .process((program_url, input, requirements, offer, request_id))
