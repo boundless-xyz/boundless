@@ -18,7 +18,7 @@
 // TODO: Add debug and trace logging to the layers.
 // TODO: Create a test and an example of adding a layer.
 
-use std::{borrow::Cow, convert::Infallible, fmt, fmt::Debug, rc::Rc};
+use std::{borrow::Cow, fmt, fmt::Debug, rc::Rc};
 
 use alloy::{
     network::Ethereum,
@@ -26,7 +26,7 @@ use alloy::{
         utils::{format_units, Unit},
         U256,
     },
-    providers::{DynProvider, Provider},
+    providers::Provider,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
@@ -38,12 +38,12 @@ use url::Url;
 use crate::{
     contracts::{
         boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Offer,
-        Predicate, ProofRequest, RequestId, Requirements, RequestError
+        Predicate, ProofRequest, RequestId, Requirements,
     },
     input::GuestEnv,
     now_timestamp,
     selector::{ProofType, SupportedSelectors},
-    storage::{fetch_url, BuiltinStorageProvider, StorageProvider},
+    storage::{fetch_url, StorageProvider},
 };
 
 pub trait RequestBuilder {
@@ -514,7 +514,7 @@ pub struct StandardRequestBuilder<S, P> {
 }
 
 impl StandardRequestBuilder<(), ()> {
-    fn builder<S: Clone, P: Clone>() -> StandardRequestBuilderBuilder<S, P> {
+    pub fn builder<S: Clone, P: Clone>() -> StandardRequestBuilderBuilder<S, P> {
         Default::default()
     }
 }
@@ -809,7 +809,7 @@ impl Adapt<Finalizer> for RequestParams {
         let requirements = self.require_requirements()?.clone();
         let offer = self.require_offer()?.clone();
         let request_id = self.require_request_id()?.clone();
-        
+
         // As an extra consistency check. verify the journal satisfies the required predicate.
         if let Some(ref journal) = self.journal {
             if !requirements.predicate.eval(journal) {
@@ -832,11 +832,7 @@ mod tests {
     use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
     use tracing_test::traced_test;
 
-    use super::{
-        BoundlessMarketService, Finalizer, Layer, OfferLayer, OfferLayerBuilder, PreflightLayer,
-        RequestBuilder, RequestIdLayer, RequestParams, RequirementsLayer, StandardRequestBuilder,
-        StorageLayer, StorageLayerBuilder,
-    };
+    use super::{BoundlessMarketService, RequestBuilder, RequestParams, StandardRequestBuilder};
 
     use crate::storage::MockStorageProvider;
 
