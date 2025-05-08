@@ -25,6 +25,17 @@ This guide walks through the setup necessary, for both the requestor and prover,
 
 ## Requestor
 
+### Summary
+
+The general workflow for the requestor is:
+
+- Create an S3 bucket
+- Create an IAM role for the prover (using AWS account ID from the prover)
+- Upload the inputs to that S3 bucket
+- (Optional) Enable SSE-KMS for server-side encryption
+- Gate access to the S3 bucket to *only* the prover IAM role
+- Request a proof with the S3 url as the input URL
+
 ### 1. Create the  S3 bucket
 
 To continue, an [AWS account](https://signin.aws.amazon.com/signup?request_type=register) is required. After that, you'll need the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) to set up your S3 bucket, create roles and set the required policies.
@@ -187,6 +198,20 @@ After this setup, the requestor can now go ahead and [request a proof]()
 For details on requesting a proof programmatically, please see [Creating a Proof Request](/developers/tutorials/request#5-create-a-proof-request). If you're interested in doing a one-off test, take a look at the [request subcommands](/developers/tooling/cli#2-request-subcommands) in the Boundless CLI.
 
 ## Prover
+
+### Summary
+
+The general workflow for the prover is:
+
+- Export base AWS credentials to environment variables
+  - `AWS_ACCESS_KEY_ID`
+  - `AWS_SECRET_ACCESS_KEY`
+  - `AWS_REGION`
+- Export IAM role to assume to environment variable
+  - `AWS_ROLE_ARN`
+- Spin up the broker
+- Test with aws cli: `assume-role` to verify credentials
+
 
 ### 1. Set AWS credentials in environment variables
 
