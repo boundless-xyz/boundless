@@ -173,7 +173,7 @@ where
                 .await
                 .context("Failed to get transaction by hash")?
                 .context("Missing transaction data")?;
-            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
+            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input())
                 .context("Failed to decode calldata")?;
             let order_exists = match db.order_exists_with_request_id(request_id).await {
                 Ok(val) => val,
@@ -456,7 +456,7 @@ where
         let tx_data =
             provider.get_transaction_by_hash(tx_hash).await?.context("Missing transaction data")?;
 
-        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input())
             .context("Failed to decode calldata")?;
 
         // Check the request id flag to determine if the request is smart contract signed. If so we verify the
@@ -477,8 +477,7 @@ where
                 .call()
                 .await
             {
-                Ok(res) => {
-                    let magic_value = res.magicValue;
+                Ok(magic_value) => {
                     if magic_value != ERC1271_MAGIC_VALUE {
                         tracing::warn!("Invalid ERC1271 signature for request 0x{:x}, contract: {} returned magic value: 0x{:x}", calldata.request.id, request_id.addr, magic_value);
                         return Ok(());
@@ -726,7 +725,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let inputs = tx_data.input();
-        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
         let request = calldata.request;
         let customer_sig = calldata.clientSignature;

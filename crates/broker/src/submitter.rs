@@ -194,9 +194,8 @@ where
             .value()
             .with_context(|| format!("Receipt for assessor {assessor_proof_id} claims pruned"))?
             .digest();
-        let assessor_journal =
-            AssessorJournal::abi_decode(&assessor_receipt.journal.bytes, true)
-                .context("Failed to decode assessor journal for {assessor_proof_id}")?;
+        let assessor_journal = AssessorJournal::abi_decode(&assessor_receipt.journal.bytes)
+            .context("Failed to decode assessor journal for {assessor_proof_id}")?;
 
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };

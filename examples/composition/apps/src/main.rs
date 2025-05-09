@@ -177,8 +177,7 @@ async fn run<P: StorageProvider>(
         .getCount(boundless_client.caller())
         .call()
         .await
-        .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?
-        ._0;
+        .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?;
     tracing::info!("Counter value for address {:?} is {:?}", boundless_client.caller(), count);
 
     Ok(())

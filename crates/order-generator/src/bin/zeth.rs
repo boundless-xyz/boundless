@@ -2,6 +2,7 @@
 //
 // All rights reserved.
 
+/*
 use std::cmp::min;
 
 use alloy::{
@@ -411,3 +412,5 @@ async fn handle_failure(
     tokio::time::sleep(Duration::from_secs(RETRY_DELAY_SECS)).await;
     Ok(())
 }
+*/
+fn main() {}

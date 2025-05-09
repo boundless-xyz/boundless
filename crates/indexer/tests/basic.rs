@@ -6,7 +6,7 @@ use std::{process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, PrimitiveSignature, U256},
+    primitives::{Address, Bytes, Signature, U256},
     providers::Provider,
     rpc::types::BlockNumberOrTag,
     signers::Signer,
@@ -119,7 +119,7 @@ async fn test_e2e() {
             request_digest: request
                 .signing_hash(ctx.boundless_market_address, anvil.chain_id())
                 .unwrap(),
-            signature: PrimitiveSignature::try_from(client_sig.as_ref()).unwrap(),
+            signature: Signature::try_from(client_sig.as_ref()).unwrap(),
         }])
         .await
         .unwrap();

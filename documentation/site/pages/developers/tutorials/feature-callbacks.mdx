@@ -133,8 +133,7 @@ let counter = ICounter::ICounterInstance::new(counter_address, boundless_client.
 let count = counter
     .count()
     .call()
-    .await?
-    ._0;
+    .await?;
 # Ok(())
 # }
 ```
