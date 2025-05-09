@@ -95,8 +95,8 @@ impl Monitor {
             r#"
             SELECT COUNT(*)
             FROM proof_requests
-            WHERE block_timestamp >= $1
-            AND block_timestamp < $2
+            WHERE bidding_start >= $1
+            AND bidding_start < $2
             "#,
         )
         .bind(from)
@@ -129,8 +129,8 @@ impl Monitor {
             r#"
             SELECT COUNT(*)
             FROM proof_requests
-            WHERE block_timestamp >= $1
-            AND block_timestamp < $2
+            WHERE bidding_start >= $1
+            AND bidding_start < $2
             AND client_address = $3
             "#,
         )
@@ -200,8 +200,8 @@ impl Monitor {
             FROM request_fulfilled_events rfe
             JOIN proof_requests pr
               ON rfe.request_digest = pr.request_digest
-            WHERE pr.block_timestamp >= $1
-            AND pr.block_timestamp < $2
+            WHERE pr.bidding_start >= $1
+            AND pr.bidding_start < $2
             AND pr.client_address = $3
             "#,
         )

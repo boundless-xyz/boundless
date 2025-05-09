@@ -142,6 +142,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
         DB_URL: dbUrl,
         RUST_LOG: 'info',
         INTERVAL_SECONDS: intervalSeconds.toString(),
+        CLOUDWATCH_NAMESPACE: `${serviceName}-monitor-${args.chainId}`,
       },
       memorySize: 128,
       timeout: 30,

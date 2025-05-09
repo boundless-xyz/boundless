@@ -351,9 +351,21 @@ async fn test_monitoring() {
     // Wait for the events to be indexed
     tokio::time::sleep(Duration::from_secs(2)).await;
 
+    let now = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+
     // Check top level metrics
     let total_requests = monitor.total_requests().await.unwrap();
     assert_eq!(total_requests, 2);
+
+    let requests_count = monitor.fetch_requests_number(0, now as i64).await.unwrap();
+    assert_eq!(requests_count, 2);
 
     let total_requests =
         monitor.total_requests_from_client(ctx.customer_signer.address()).await.unwrap();
