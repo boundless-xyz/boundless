@@ -34,15 +34,15 @@ pub mod balance_alerts_layer;
 pub mod client;
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
-/// Filler module for building proving requests.
-#[cfg(not(target_os = "zkvm"))]
-pub mod filler;
 /// Input module for serializing input.
 #[cfg(not(target_os = "zkvm"))]
 pub mod input;
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]
 pub mod order_stream_client;
+/// Module providing functionality to build requests.
+#[cfg(not(target_os = "zkvm"))]
+pub mod request_builder;
 /// Selector module implementing utility functions for supported selectors.
 #[cfg(not(target_os = "zkvm"))]
 pub mod selector;
