@@ -240,7 +240,7 @@ where
                 log.requestId
             );
 
-            let request = IBoundlessMarket::submitRequestCall::abi_decode(&input, true)
+            let request = IBoundlessMarket::submitRequestCall::abi_decode(&input)
                 .context(anyhow!(
                     "abi decode failure for request submitted event of tx: {}",
                     hex::encode(metadata.tx_hash)
@@ -286,7 +286,7 @@ where
             tracing::debug!("Processing request locked event for request: 0x{:x}", log.requestId);
             let (metadata, input) = self.fetch_tx(log_data).await?;
 
-            let request = IBoundlessMarket::lockRequestCall::abi_decode(&input, true)
+            let request = IBoundlessMarket::lockRequestCall::abi_decode(&input)
                 .context(anyhow!(
                     "abi decode failure for request locked event of tx: {}",
                     hex::encode(metadata.tx_hash)

@@ -310,7 +310,7 @@ impl DefaultProver {
         let assessor_image_id = compute_image_id(&self.assessor_program)?;
         let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal.clone());
         let assessor_receipt_journal: AssessorJournal =
-            AssessorJournal::abi_decode(&assessor_journal, true)?;
+            AssessorJournal::abi_decode(&assessor_journal)?;
 
         receipts.push(assessor_receipt);
         claims.push(assessor_claim.clone());

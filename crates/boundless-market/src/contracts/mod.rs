@@ -651,7 +651,7 @@ impl Input {
 
     /// Sets the input type to URL and the data to the given URL.
     pub fn url(url: impl Into<String>) -> Self {
-        Self { inputType: InputType::Url, data: url.into().into() }
+        Self { inputType: InputType::Url, data: url.into().as_bytes().to_vec().into() }
     }
 }
 
@@ -797,15 +797,13 @@ impl From<ContractErr> for TxnErr {
                 };
 
                 // Trial deocde the error with each possible contract ABI.
-                if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data, true) {
+                if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data) {
                     Self::BoundlessMarketErr(decoded_error)
-                } else if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data, true) {
+                } else if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data) {
                     Self::HitPointsErr(decoded_error)
-                } else if let Ok(decoded_error) =
-                    IRiscZeroSetVerifierErrors::abi_decode(&data, true)
-                {
+                } else if let Ok(decoded_error) = IRiscZeroSetVerifierErrors::abi_decode(&data) {
                     Self::SetVerifierErr(decoded_error)
-                } else if let Ok(decoded_error) = IERC20Errors::abi_decode(&data, true) {
+                } else if let Ok(decoded_error) = IERC20Errors::abi_decode(&data) {
                     Self::ERC20Err(decoded_error)
                 } else {
                     Self::ContractErr(err)
@@ -830,7 +828,7 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
                 return Err(TxnErr::BytesDecode);
             };
 
-            let decoded_error = match T::abi_decode(&data, true) {
+            let decoded_error = match T::abi_decode(&data) {
                 Ok(res) => res,
                 Err(err) => {
                     return Err(TxnErr::DecodeErr(err, data));
