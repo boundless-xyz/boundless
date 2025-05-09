@@ -27,6 +27,7 @@ use alloy::{
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
 };
+
 use alloy_sol_types::{SolCall, SolEvent};
 use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
@@ -53,6 +54,10 @@ pub enum MarketError {
     #[error("Transaction error: {0}")]
     TxnError(#[from] TxnErr),
 
+    /// Transaction confirmation error.
+    #[error("Transaction confirmation error: {0:?}")]
+    TxnConfirmationError(anyhow::Error),
+
     /// Request not fulfilled.
     #[error("Request is not fulfilled 0x{0:x}")]
     RequestNotFulfilled(U256),
@@ -77,9 +82,17 @@ pub enum MarketError {
     #[error("Request not found in event logs 0x{0:x}")]
     RequestNotFound(U256),
 
+    /// Request lock has expired.
+    #[error("Request lock expired at {1}: 0x{0:x}")]
+    RequestLockHasExpired(U256, u64),
+
     /// Request already locked.
     #[error("Request already locked: 0x{0:x}")]
     RequestAlreadyLocked(U256),
+
+    /// Request already locked.
+    #[error("Request already fulfilled: 0x{0:x}")]
+    RequestAlreadyFulfilled(U256),
 
     /// Lock request reverted, possibly outbid.
     #[error("Lock request reverted, possibly outbid: txn_hash: {0}")]
@@ -469,10 +482,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
         if !receipt.status() {
             // TODO: Get + print revertReason
-            return Err(MarketError::Error(anyhow!(
-                "lockRequestWithSignature failed [{}], possibly outbid",
-                receipt.transaction_hash
-            )));
+            return Err(MarketError::LockRevert(receipt.transaction_hash));
         }
 
         tracing::info!(
@@ -513,13 +523,12 @@ impl<P: Provider> BoundlessMarketService<P> {
                 )
                 .into())
             }
-            Err(e) => Err(anyhow!(
+            Err(e) => Err(MarketError::TxnConfirmationError(anyhow!(
                 "failed to confirm tx {:?} within timeout {:?}: {}",
                 tx_hash,
                 self.timeout,
                 e
-            )
-            .into()),
+            ))),
         }
     }
 
