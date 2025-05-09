@@ -82,17 +82,9 @@ pub enum MarketError {
     #[error("Request not found in event logs 0x{0:x}")]
     RequestNotFound(U256),
 
-    /// Request lock has expired.
-    #[error("Request lock expired at {1}: 0x{0:x}")]
-    RequestLockHasExpired(U256, u64),
-
     /// Request already locked.
     #[error("Request already locked: 0x{0:x}")]
     RequestAlreadyLocked(U256),
-
-    /// Request already locked.
-    #[error("Request already fulfilled: 0x{0:x}")]
-    RequestAlreadyFulfilled(U256),
 
     /// Lock request reverted, possibly outbid.
     #[error("Lock request reverted, possibly outbid: txn_hash: {0}")]
