@@ -62,6 +62,7 @@ use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
+    compute_image_id,
     default_executor,
     sha::{Digest, Digestible},
     ExecutorEnv, Journal, SessionInfo,
@@ -79,7 +80,7 @@ use boundless_market::{
     },
     input::{GuestEnv, InputBuilder},
     selector::ProofType,
-    storage::{StorageProvider, StorageProviderConfig},
+    storage::{StorageProvider, StorageProviderConfig, StorageProviderType},
 };
 
 shadow!(build);
@@ -235,6 +236,37 @@ enum RequestCommands {
 
         /// The image id of the original request
         image_id: B256,
+    },
+
+    /// Generate a request YAML file from ELF path and input bytes
+    Generate {
+        /// Path to the ELF file
+        #[clap(long)]
+        elf_path: PathBuf,
+
+        /// Input bytes in hex format
+        #[clap(long, conflicts_with = "input_file")]
+        input_bytes: Option<String>,
+
+        /// Path to input file
+        #[clap(long, conflicts_with = "input_bytes")]
+        input_file: Option<PathBuf>,
+
+        /// Output YAML file path
+        #[clap(long)]
+        output_path: PathBuf,
+
+        /// Optional request ID
+        #[clap(long)]
+        id: Option<u32>,
+
+        /// Optional proof type
+        #[clap(long, value_enum, default_value_t = ProofType::Any)]
+        proof_type: ProofType,
+
+        /// Upload ELF and input to storage provider instead of using inline/file paths
+        #[clap(long)]
+        upload: bool,
     },
 }
 
@@ -729,6 +761,116 @@ where
                 .map_err(|_| anyhow::anyhow!("Verification failed"))?;
 
             tracing::info!("Successfully verified proof for request 0x{:x}", request_id);
+            Ok(())
+        }
+        RequestCommands::Generate { elf_path, input_bytes, input_file, output_path, id, proof_type, upload } => {
+            tracing::info!("Generating request YAML file from ELF path and input");
+            
+            // read input from input_bytes or input_file
+            let input_data = match (input_bytes.as_deref(), input_file.as_deref()) {
+                (Some(bytes), None) => read_input(bytes, None)?,
+                (None, Some(file)) => read_input("", Some(file))?,
+                _ => bail!("Either input_bytes or input_file must be provided"),
+            };
+
+            let encoded_input = InputBuilder::new().write_slice(&input_data).build_vec()?;
+
+            // if --upload, create a client with the storage provider and upload files
+            // TODO: add support for other storage providers than IPFS
+            let (image_url, input_type, request_input) = if *upload {
+                let storage_config = if let Ok(jwt) = std::env::var("PINATA_JWT") {
+                    tracing::debug!("Using Pinata storage provider with JWT");
+                    let mut config = StorageProviderConfig {
+                        storage_provider: StorageProviderType::Pinata,
+                        pinata_jwt: Some(jwt),
+                        s3_access_key: None,
+                        s3_secret_key: None,
+                        s3_bucket: None,
+                        s3_url: None,
+                        aws_region: None,
+                        pinata_api_url: None,
+                        ipfs_gateway_url: None,
+                        s3_use_presigned: None,
+                        file_path: None,
+                    };
+                    if let Ok(api_url) = std::env::var("PINATA_API_URL") {
+                        tracing::debug!("Using custom Pinata API URL: {}", api_url);
+                        config.pinata_api_url = Some(Url::parse(&api_url).context("Failed to parse PINATA_API_URL")?);
+                    }
+                    if let Ok(gateway_url) = std::env::var("IPFS_GATEWAY_URL") {
+                        tracing::debug!("Using custom IPFS gateway URL: {}", gateway_url);
+                        config.ipfs_gateway_url = Some(Url::parse(&gateway_url).context("Failed to parse IPFS_GATEWAY_URL")?);
+                    }
+                    Some(config)
+                } else {
+                    tracing::warn!("No PINATA_JWT found, falling back to dev mode storage provider");
+                    Some(StorageProviderConfig::dev_mode())
+                };
+
+                let client = ClientBuilder::new()
+                    .with_private_key(args.config.private_key.clone())
+                    .with_rpc_url(args.config.rpc_url.clone())
+                    .with_boundless_market_address(args.config.boundless_market_address)
+                    .with_set_verifier_address(args.config.set_verifier_address)
+                    .with_storage_provider_config(storage_config)
+                    .await
+                    .context("Failed to create client with storage provider")?
+                    .build()
+                    .await
+                    .context("Failed to build client")?;
+
+                let elf_data = std::fs::read(elf_path).context("Failed to read ELF file")?;
+                tracing::info!("Uploading ELF file...");
+                let image_url = client.upload_image(&elf_data).await?;
+                tracing::info!("Image URL: {}", image_url);
+                
+                tracing::info!("Uploading input data...");
+                let input_url = client.upload_input(&encoded_input).await?;
+                tracing::info!("Input URL: {}", input_url);
+                
+                // for url type, we pass the raw input data for execution
+                // but use the url string in the request
+                (image_url, InputType::Url, (input_url, input_data))
+            } else {
+                let file_url = Url::parse(&format!("file://{}", elf_path.display()))?;
+                (
+                    file_url.clone(),
+                    InputType::Inline,
+                    (file_url, input_data),
+                )
+            };
+            
+            let mut request = generate_request(
+                id.unwrap_or_default(),
+                &args.config.private_key.address(),
+                elf_path,
+                &request_input.1,  // pass raw input data for execution
+                image_url.as_ref(),
+                input_type,
+            )?;
+
+            request.input = match input_type {
+                InputType::Url => Input {
+                    inputType: input_type,
+                    data: Bytes::copy_from_slice(request_input.0.to_string().as_bytes()),
+                },
+                InputType::Inline => Input {
+                    inputType: input_type,
+                    data: Bytes::copy_from_slice(&encoded_input),
+                },
+                InputType::__Invalid => bail!("Invalid input type"),
+            };
+            
+            if *proof_type == ProofType::Groth16 {
+                request.requirements = request.requirements.with_groth16_proof();
+            }
+            
+            let output_file = File::create(output_path)
+                .context("Failed to create output YAML file")?;
+            serde_yaml::to_writer(output_file, &request)
+                .context("Failed to write request to YAML file")?;
+            
+            tracing::info!("Successfully generated request YAML file at {}", output_path.display());
             Ok(())
         }
     }
@@ -1349,6 +1491,94 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
     );
 
     Ok(())
+}
+
+/// Generate a default proof request with basic parameters 
+fn generate_request(
+    idx: u32,
+    caller: &Address,
+    elf_path: &Path,
+    raw_input: &[u8],
+    image_url: &str,
+    input_type: InputType,
+) -> Result<ProofRequest> {
+    let elf_data = std::fs::read(elf_path).context("Failed to read ELF file")?;
+    
+    let image_id = compute_image_id(&elf_data)?;
+    let image_id_bytes: [u8; 32] = image_id.as_bytes().try_into()?;
+    let image_id_b256 = B256::from(image_id_bytes);
+
+    // exec the program to get the journal and cycle count
+    let env = ExecutorEnv::builder().write_slice(raw_input).build()?;
+    let session_info = default_executor().execute(env, &elf_data)?;
+    let journal = session_info.journal;
+    let cycles_count = session_info
+        .segments
+        .iter()
+        .map(|segment| 1 << segment.po2)
+        .sum::<u64>();
+    let mcycles_count = cycles_count.div_ceil(1_000_000);
+
+    // TODO: check price calculation 
+    // baseline price per mcycle from documentation
+    let min_price_per_mcycle = parse_ether("0.0001").unwrap(); // 0.0001 ETH per mcycle
+    let max_price_per_mcycle = parse_ether("0.002").unwrap();  // 0.002 ETH per mcycle
+
+    let min_price = min_price_per_mcycle
+        .checked_mul(U256::from(mcycles_count))
+        .unwrap()
+        .div_ceil(U256::from(1_000_000));
+    let mcycle_max_price = max_price_per_mcycle
+        .checked_mul(U256::from(mcycles_count))
+        .unwrap()
+        .div_ceil(U256::from(1_000_000));
+
+    // use a conservative estimate for gas costs
+    const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 1_000_000;
+    let gas_cost_estimate = 100_000_000_000u128 * LOCK_FULFILL_GAS_UPPER_BOUND; // 100 gwei * gas limit
+    let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
+
+    let input_data = match input_type {
+        InputType::Url => {
+        std::str::from_utf8(raw_input).context("Input URL is not valid UTF-8")?.as_bytes().to_vec()
+        }
+        _ => raw_input.to_vec(),
+    };
+
+    Ok(ProofRequest {
+        id: RequestId::new(*caller, idx).into(),
+        requirements: Requirements {
+            imageId: image_id_b256,
+            predicate: Predicate {
+                predicateType: PredicateType::DigestMatch,
+                data: Bytes::copy_from_slice(journal.digest().as_bytes()),
+            },
+            callback: Callback::default(),
+            selector: UNSPECIFIED_SELECTOR,
+        },
+        imageUrl: image_url.to_string(),
+        input: Input {
+            inputType: input_type,
+            data: Bytes::copy_from_slice(&input_data),
+        },
+        offer: Offer {
+            minPrice: min_price,
+            maxPrice: max_price,
+            rampUpPeriod: 300,
+            lockTimeout: 2700,
+            timeout: 3600,
+            lockStake: parse_ether("5").unwrap(),
+            biddingStart: now_timestamp() + 30,
+        },
+    })
+}
+
+fn read_input(input_bytes: &str, input_file: Option<&Path>) -> Result<Vec<u8>> {
+    match input_file {
+        Some(path) => std::fs::read(path).context("Failed to read input file"),
+        None => hex::decode(input_bytes.trim_start_matches("0x"))
+            .context("Failed to decode input bytes from hex"),
+    }
 }
 
 #[cfg(test)]
