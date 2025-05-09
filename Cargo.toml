@@ -10,6 +10,7 @@ members = [
     "crates/guest/assessor",
     "crates/guest/util",
     "crates/indexer",
+    "crates/ops-lambdas/indexer-monitor",
     "crates/order-generator",
     "crates/order-stream",
     "crates/slasher",
@@ -33,7 +34,7 @@ guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
 
-alloy = { version = "0.12" }
+alloy = { version = "0.12", default-features = false }
 alloy-primitives = { version = "0.8" }
 alloy-sol-types = { version = "0.8", features = ["json"] }
 anyhow = { version = "1.0" }

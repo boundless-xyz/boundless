@@ -22,5 +22,5 @@ pub fn main() {
     let claim = receipt.claim().unwrap();
     receipt.verify(image_id).unwrap();
 
-    env::commit_slice(&claim.digest().as_bytes());
+    env::commit_slice(claim.digest().as_bytes());
 }
