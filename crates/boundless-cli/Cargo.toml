@@ -34,6 +34,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 shadow-rs = { version = "1.1", default-features = false }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
