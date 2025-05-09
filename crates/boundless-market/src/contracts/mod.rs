@@ -19,7 +19,7 @@ use std::{borrow::Cow, ops::Not};
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
     contract::Error as ContractErr,
-    primitives::{PrimitiveSignature, SignatureError},
+    primitives::{Signature, SignatureError},
     signers::Signer,
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
@@ -62,7 +62,7 @@ pub use boundless_market_contract::*;
 #[cfg(not(target_os = "zkvm"))]
 pub mod token {
     use alloy::{
-        primitives::{Address, PrimitiveSignature},
+        primitives::{Address, Signature},
         signers::Signer,
         sol_types::SolStruct,
     };
@@ -117,7 +117,7 @@ pub mod token {
             signer: &impl Signer,
             contract_addr: Address,
             chain_id: u64,
-        ) -> Result<PrimitiveSignature> {
+        ) -> Result<Signature> {
             let domain = eip712_domain! {
                 name: "HitPoints",
                 version: "1",
@@ -489,7 +489,7 @@ impl ProofRequest {
         signer: &impl Signer,
         contract_addr: Address,
         chain_id: u64,
-    ) -> Result<PrimitiveSignature, RequestError> {
+    ) -> Result<Signature, RequestError> {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         Ok(signer.sign_hash(&hash).await?)
@@ -514,7 +514,7 @@ impl ProofRequest {
         contract_addr: Address,
         chain_id: u64,
     ) -> Result<(), RequestError> {
-        let sig = PrimitiveSignature::try_from(signature.as_ref())?;
+        let sig = Signature::try_from(signature.as_ref())?;
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         let addr = sig.recover_address_from_prehash(&hash)?;

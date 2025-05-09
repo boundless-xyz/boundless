@@ -394,7 +394,7 @@ async fn compress_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
 mod tests {
     use super::*;
     use alloy::{
-        primitives::{FixedBytes, PrimitiveSignature},
+        primitives::{FixedBytes, Signature},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -407,7 +407,7 @@ mod tests {
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
         selector: Option<Selector>,
-    ) -> (ProofRequest, PrimitiveSignature) {
+    ) -> (ProofRequest, Signature) {
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
             Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
