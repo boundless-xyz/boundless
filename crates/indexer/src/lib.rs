@@ -32,7 +32,6 @@ use tokio::time::Duration;
 use url::Url;
 
 mod db;
-pub mod monitoring;
 pub mod test_utils;
 
 type ProviderWallet = FillProvider<

@@ -13,3 +13,5 @@ config:
     secure: v1:6OldikDHGPtFsshU:3tg0ETBuoOsjoCnrxja5zQnWyaGOSvtIsNEIjH2uu7tvuA==
   indexer:CHAIN_ID: "11155111"
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  indexer:CLIENTS: "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3"
+  indexer:PROVERS: "0x6bf69b603e9e655068e683bbffe285ea34e0f802"

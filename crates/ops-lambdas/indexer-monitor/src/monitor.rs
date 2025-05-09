@@ -4,18 +4,17 @@
 
 use std::str::FromStr;
 
-use crate::db::AnyDb;
 use alloy::primitives::Address;
 use anyhow::Result;
 use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
-    Row,
+    AnyPool, Row,
 };
 
 /// The `monitoring` struct provides functionality to monitor and query the indexer database.
 pub struct Monitor {
     /// The database connection pool.
-    pub db: AnyDb,
+    pub db: AnyPool,
 }
 
 impl Monitor {
@@ -25,7 +24,7 @@ impl Monitor {
         let opts = AnyConnectOptions::from_str(conn)?;
         let pool = AnyPoolOptions::new().max_connections(5).connect_with(opts).await?;
 
-        let db = AnyDb { pool };
+        let db = pool;
         Ok(Self { db })
     }
 
@@ -48,7 +47,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .fetch_all(self.db.pool())
+        .fetch_all(&self.db)
         .await?;
 
         Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
@@ -81,7 +80,7 @@ impl Monitor {
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", address))
-        .fetch_all(self.db.pool())
+        .fetch_all(&self.db)
         .await?;
 
         Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
@@ -102,7 +101,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -110,8 +109,7 @@ impl Monitor {
 
     /// Total number of submitted requests.
     pub async fn total_requests(&self) -> Result<i64> {
-        let row =
-            sqlx::query("SELECT COUNT(*) FROM proof_requests").fetch_one(self.db.pool()).await?;
+        let row = sqlx::query("SELECT COUNT(*) FROM proof_requests").fetch_one(&self.db).await?;
 
         Ok(row.get::<i64, _>(0))
     }
@@ -139,7 +137,7 @@ impl Monitor {
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", address))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -149,7 +147,7 @@ impl Monitor {
     pub async fn total_requests_from_client(&self, address: Address) -> Result<i64> {
         let row = sqlx::query("SELECT COUNT(*) FROM proof_requests WHERE client_address = $1")
             .bind(format!("{:x}", address))
-            .fetch_one(self.db.pool())
+            .fetch_one(&self.db)
             .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -170,7 +168,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -179,7 +177,7 @@ impl Monitor {
     /// Total number of fulfilled requests.
     pub async fn total_fulfillments(&self) -> Result<i64> {
         let row = sqlx::query("SELECT COUNT(*) FROM request_fulfilled_events")
-            .fetch_one(self.db.pool())
+            .fetch_one(&self.db)
             .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -210,7 +208,7 @@ impl Monitor {
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", address))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -228,7 +226,7 @@ impl Monitor {
             "#,
         )
         .bind(format!("{:x}", address))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -259,7 +257,7 @@ impl Monitor {
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", prover))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -279,7 +277,7 @@ impl Monitor {
             "#,
         )
         .bind(format!("{:x}", prover))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -308,7 +306,7 @@ impl Monitor {
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", prover))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -326,7 +324,7 @@ impl Monitor {
             "#,
         )
         .bind(format!("{:x}", prover))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -347,7 +345,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -355,9 +353,8 @@ impl Monitor {
 
     /// Total number of slashed requests.
     pub async fn total_slashed(&self) -> Result<i64> {
-        let row = sqlx::query("SELECT COUNT(*) FROM prover_slashed_events")
-            .fetch_one(self.db.pool())
-            .await?;
+        let row =
+            sqlx::query("SELECT COUNT(*) FROM prover_slashed_events").fetch_one(&self.db).await?;
 
         Ok(row.get::<i64, _>(0))
     }
@@ -385,7 +382,7 @@ impl Monitor {
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", prover))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))
@@ -403,7 +400,7 @@ impl Monitor {
             "#,
         )
         .bind(format!("{:x}", prover))
-        .fetch_one(self.db.pool())
+        .fetch_one(&self.db)
         .await?;
 
         Ok(row.get::<i64, _>(0))

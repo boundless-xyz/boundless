@@ -231,7 +231,7 @@ async fn test_monitoring() {
     #[allow(clippy::zombie_processes)]
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
 
-    let monitor = boundless_indexer::monitoring::Monitor::new(&test_db.db_url).await.unwrap();
+    let monitor = indexer_monitor::monitor::Monitor::new(&test_db.db_url).await.unwrap();
 
     let mut now = ctx
         .customer_provider

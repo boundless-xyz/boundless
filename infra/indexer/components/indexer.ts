@@ -8,6 +8,7 @@ import { getServiceNameV1 } from '../../util';
 const SERVICE_NAME_BASE = 'indexer';
 
 export class IndexerInstance extends pulumi.ComponentResource {
+  public readonly dbUrlSecret: aws.secretsmanager.Secret;
 
   constructor(
     name: string,
@@ -366,5 +367,10 @@ export class IndexerInstance extends pulumi.ComponentResource {
       alarmActions,
     });
 
+    this.dbUrlSecret = dbUrlSecret;
+    
+    this.registerOutputs({
+      dbUrlSecret: this.dbUrlSecret,
+    });
   }
 }
