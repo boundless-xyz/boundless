@@ -114,7 +114,7 @@ impl<P: Provider> HitPointsService<P> {
     /// Returns the balance of an account.
     pub async fn balance_of(&self, account: Address) -> Result<U256> {
         tracing::debug!("Calling balanceOf({:?})", account);
-        let contract = IERC20::new((*self.instance.address()).into(), self.instance.provider());
+        let contract = IERC20::new(*self.instance.address(), self.instance.provider());
         let call = contract.balanceOf(account).from(self.caller);
         let balance = call.call().await.map_err(IHitPointsErrors::decode_error)?;
         Ok(balance)
