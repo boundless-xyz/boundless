@@ -56,7 +56,7 @@ RUN \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc2 \
     source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p workflow -F cuda --bin agent && \
-    cp /src/bento/target/release/agent /src/agent
+    cp /src/bento/target/release/agent /src/agent && \
     sccache --show-stats
 
 # Use risczero/risc0-groth16-prover:v2025-01-31.1 as the basis for the prover and witness generator
