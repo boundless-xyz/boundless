@@ -270,7 +270,7 @@ impl Layer<(&[u8], &Journal)> for RequirementsLayer {
 }
 
 #[non_exhaustive]
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum RequestIdLayerMode {
     #[default]
     Rand,
@@ -832,9 +832,17 @@ mod tests {
     use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
     use tracing_test::traced_test;
 
-    use super::{BoundlessMarketService, RequestBuilder, RequestParams, StandardRequestBuilder};
+    use super::{
+        BoundlessMarketService, InputType, Layer, OfferLayer, Predicate,
+        PreflightLayer, RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerMode,
+        RequestInput, RequestParams, Requirements, RequirementsLayer, StandardRequestBuilder,
+        StorageLayer,
+    };
 
-    use crate::storage::MockStorageProvider;
+    use crate::input::GuestEnv;
+    use crate::storage::{fetch_url, MockStorageProvider, StorageProvider};
+    use alloy_primitives::U256;
+    use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
 
     #[tokio::test]
     #[traced_test]
@@ -857,6 +865,152 @@ mod tests {
         let params = RequestParams::default().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
         let request = request_builder.build(params).await?;
         println!("built request {request:#?}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_storage_layer() -> anyhow::Result<()> {
+        let storage = Arc::new(MockStorageProvider::start());
+        let layer = StorageLayer::builder()
+            .storage_provider(storage.clone())
+            .inline_input_max_bytes(Some(1024))
+            .build()?;
+        let env = GuestEnv::from(b"inline_data".to_vec());
+        let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
+
+        // Program should be uploaded and input inline.
+        assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
+        assert_eq!(request_input.inputType, InputType::Inline);
+        assert_eq!(request_input.data, env.encode()?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_storage_layer_large_input() -> anyhow::Result<()> {
+        let storage = Arc::new(MockStorageProvider::start());
+        let layer = StorageLayer::builder()
+            .storage_provider(storage.clone())
+            .inline_input_max_bytes(Some(1024))
+            .build()?;
+        let env = GuestEnv::from(rand::random_iter().take(2048).collect::<Vec<u8>>());
+        let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
+
+        // Program and input should be uploaded and input inline.
+        assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
+        assert_eq!(request_input.inputType, InputType::Url);
+        let fetched_input = fetch_url(String::from_utf8(request_input.data.to_vec())?).await?;
+        assert_eq!(fetched_input, env.encode()?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_preflight_layer() -> anyhow::Result<()> {
+        let storage = MockStorageProvider::start();
+        let program_url = storage.upload_program(ECHO_ELF).await?;
+        let layer = PreflightLayer::default();
+        let data = b"hello_zkvm".to_vec();
+        let env = GuestEnv::from(data.clone());
+        let input = RequestInput::inline(env.encode()?);
+        let session = layer.process((&program_url, &input)).await?;
+
+        assert_eq!(session.journal.as_ref(), data.as_slice());
+        // Verify non-zero cycle count and an exit code of zero.
+        let cycles: u64 = session.segments.iter().map(|s| 1 << s.po2).sum();
+        assert!(cycles > 0);
+        assert!(session.exit_code.is_ok());
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_requirements_layer() -> anyhow::Result<()> {
+        let layer = RequirementsLayer::default();
+        let program = ECHO_ELF;
+        let bytes = b"journal_data".to_vec();
+        let journal = Journal::new(bytes.clone());
+        let req = layer.process((program.as_ref(), &journal)).await?;
+
+        // Predicate should match the same journal
+        assert!(req.predicate.eval(&journal));
+        // And should not match different data
+        let other = Journal::new(b"other_data".to_vec());
+        assert!(!req.predicate.eval(&other));
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_request_id_layer_rand() -> anyhow::Result<()> {
+        let anvil = Anvil::new().spawn();
+        let test_ctx = create_test_ctx(&anvil).await?;
+        let market = BoundlessMarketService::new(
+            test_ctx.boundless_market_address,
+            test_ctx.customer_provider.clone(),
+            test_ctx.customer_signer.address(),
+        );
+        let layer = RequestIdLayer::from(market.clone());
+        assert_eq!(layer.mode, RequestIdLayerMode::Rand);
+        let id = layer.process(()).await?;
+        assert_eq!(id.addr, test_ctx.customer_signer.address());
+        assert!(!id.smart_contract_signed);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_request_id_layer_nonce() -> anyhow::Result<()> {
+        let anvil = Anvil::new().spawn();
+        let test_ctx = create_test_ctx(&anvil).await?;
+        let market = BoundlessMarketService::new(
+            test_ctx.boundless_market_address,
+            test_ctx.customer_provider.clone(),
+            test_ctx.customer_signer.address(),
+        );
+        let layer = RequestIdLayer::builder()
+            .boundless_market(market.clone())
+            .mode(RequestIdLayerMode::Nonce)
+            .build()?;
+
+        let id = layer.process(()).await?;
+        assert_eq!(id.addr, test_ctx.customer_signer.address());
+        // The customer address has sent no transactions.
+        assert_eq!(id.index, 0);
+        assert!(!id.smart_contract_signed);
+        // TODO: Send a tx then check that the index increments.
+        Ok(())
+    }
+
+    // OfferLayer test
+    #[tokio::test]
+    #[traced_test]
+    async fn test_offer_layer_estimates() -> anyhow::Result<()> {
+        // Use Anvil-backed provider for gas price
+        let anvil = Anvil::new().spawn();
+        let test_ctx = create_test_ctx(&anvil).await?;
+        let provider = test_ctx.customer_provider.clone();
+        let layer = OfferLayer::from(provider.clone());
+        // Build minimal requirements and request ID
+        let image_id = compute_image_id(ECHO_ELF).unwrap();
+        let predicate = Predicate::digest_match(Journal::new(b"hello".to_vec()).digest());
+        let requirements = Requirements::new(image_id, predicate);
+        let request_id = RequestId::new(test_ctx.customer_signer.address(), 0);
+
+        // Zero cycles
+        let offer_zero_mcycles = layer.process((&requirements, &request_id, 0u64)).await?;
+        assert_eq!(offer_zero_mcycles.minPrice, U256::ZERO);
+        // Defaults from builder
+        assert_eq!(offer_zero_mcycles.rampUpPeriod, 120);
+        assert_eq!(offer_zero_mcycles.lockTimeout, 600);
+        assert_eq!(offer_zero_mcycles.timeout, 1200);
+        // Max price should be non-negative, to account for fixed costs.
+        assert!(offer_zero_mcycles.maxPrice > U256::ZERO);
+
+        // Now create an offer for 100 Mcycles.
+        let offer_more_mcycles = layer.process((&requirements, &request_id, 100u64 << 20)).await?;
+        assert!(offer_more_mcycles.maxPrice > offer_zero_mcycles.maxPrice);
         Ok(())
     }
 }
