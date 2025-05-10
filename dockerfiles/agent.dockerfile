@@ -28,10 +28,11 @@ ARG CUDA_OPT_LEVEL=1
 ARG S3_CACHE_PREFIX
 
 WORKDIR /src/
-COPY bento/ ./bento/
+# TODO switch this to a tagged commit once one released with bento (https://github.com/boundless-xyz/boundless/issues/570)
+RUN git clone --depth=1 --branch main https://github.com/risc0/risc0.git
 COPY rust-toolchain.toml .
 
-WORKDIR /src/bento/
+WORKDIR /src/risc0/bento/
 
 ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}
@@ -56,7 +57,7 @@ RUN \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc2 \
     source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p workflow -F cuda --bin agent && \
-    cp /src/bento/target/release/agent /src/agent && \
+    cp /src/risc0/bento/target/release/agent /src/agent && \
     sccache --show-stats
 
 # Use risczero/risc0-groth16-prover:v2025-01-31.1 as the basis for the prover and witness generator

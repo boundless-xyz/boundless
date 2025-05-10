@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: ["release-*"]
   workflow_dispatch:
+    inputs:
+      chain_key:
+        description: "chain key to use for testing"
+        required: false
+        default: 'ethereum-sepolia-prod'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -31,6 +36,8 @@ jobs:
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: "v1.0.0"
 
       - name: install rust
         uses: risc0/risc0/.github/actions/rustup@release-2.0
@@ -55,64 +62,9 @@ jobs:
       - name: forge test
         run: forge test -vvv --fork-url="$RPC_URL"
         env:
+          CHAIN_KEY: ${{ github.event.inputs.chain_key }}
           FOUNDRY_PROFILE: deployment-test
           RPC_URL: https://ethereum-sepolia-rpc.publicnode.com
 
       - name: sccache stats
         run: sccache --show-stats
-        
-  assessor-elf:
-    runs-on: [self-hosted, Linux, X64, prod, cpu]
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: install python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-
-      - name: install foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
-        with:
-          toolchain: '1.85'
-
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-
-      - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: '2.0.0'
-          toolchain-version: '1.85.0'
-
-      - name: forge build
-        run: forge build
-        working-directory: contracts
-
-      - name: cargo build
-        run: cargo build --manifest-path crates/guest/assessor/Cargo.toml
-        env:
-          RISC0_USE_DOCKER: 1
-
-      - name: image ID check
-        id: image_id_check
-        run: bash image-id-check.sh
-
-      - name: upload to Pinata
-        id: pinata_upload
-        run: |
-          commit_hash=$(git rev-parse HEAD)
-          response=$(curl -H "Authorization: Bearer ${{ secrets.PINATA_JWT }}" --request POST \
-          --url 'https://api.pinata.cloud/pinning/pinFileToIPFS?=&=' \
-          --header 'Content-Type: multipart/form-data' \
-          --form "pinataMetadata={ \"name\": \"assessor-guest-${commit_hash}\" }" \
-          --form file=@target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/assessor_guest/assessor-guest)
-          echo "Response: $response"
-          id=$(echo "$response" | jq -r '.IpfsHash')
-          echo "::set-output name=pinata_id::$id"

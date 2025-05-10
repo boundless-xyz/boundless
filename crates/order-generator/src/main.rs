@@ -86,11 +86,11 @@ struct MainArgs {
     /// Number of seconds before the request expires.
     #[clap(long, default_value = "1800")]
     timeout: u32,
-    /// Elf file to use as the guest image, given as a path.
+    /// Program binary file to use as the guest image, given as a path.
     ///
     /// If unspecified, defaults to the included echo guest.
     #[clap(long)]
-    elf: Option<PathBuf>,
+    program: Option<PathBuf>,
     /// Input for the guest, given as a string or a path to a file.
     ///
     /// If unspecified, defaults to the current (risc0_zkvm::serde encoded) timestamp.
@@ -105,6 +105,11 @@ struct MainArgs {
     /// Balance threshold at which to log an error.
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
+    /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
+    ///
+    /// This parameter can only be set if order_stream_url is provided.
+    #[clap(long, value_parser = parse_ether, requires = "order_stream_url")]
+    auto_deposit: Option<U256>,
 }
 
 /// An estimated upper bound on the cost of locking an fulfilling a request.
@@ -167,7 +172,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .build()
         .await?;
 
-    let elf = match &args.elf {
+    let program = match &args.program {
         Some(path) => std::fs::read(path)?,
         None => {
             // A build of the echo guest, which simply commits the bytes it reads from inputs.
@@ -175,10 +180,10 @@ async fn run(args: &MainArgs) -> Result<()> {
             fetch_http(&Url::parse(url)?).await?
         }
     };
-    let image_id = compute_image_id(&elf)?;
+    let image_id = compute_image_id(&program)?;
 
-    let image_url = boundless_client.upload_image(&elf).await?;
-    tracing::info!("Uploaded image to {}", image_url);
+    let program_url = boundless_client.upload_program(&program).await?;
+    tracing::info!("Uploaded program to {}", program_url);
 
     let mut i = 0u64;
     loop {
@@ -201,7 +206,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             InputBuilder::new().write_slice(&input).build_env()?
         };
 
-        let session_info = default_executor().execute(env.clone().try_into()?, &elf)?;
+        let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
         let journal = session_info.journal;
 
         let cycles_count =
@@ -221,7 +226,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         // Note that the auction will allow us to pay the lowest price a prover will accept.
         // Add a 10% buffer to the gas costs to account for flucuations after submission.
         let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
-        let gas_cost_estimate = gas_price + (gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
+        let gas_cost_estimate = (gas_price + (gas_price / 10)) * LOCK_FULFILL_GAS_UPPER_BOUND;
         let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
         tracing::info!(
             "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
@@ -238,7 +243,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         );
 
         let request = ProofRequest::builder()
-            .with_image_url(image_url.clone())
+            .with_image_url(program_url.clone())
             .with_input(Input::inline(env.encode()?))
             .with_requirements(Requirements::new(
                 image_id,
@@ -258,6 +263,35 @@ async fn run(args: &MainArgs) -> Result<()> {
         tracing::info!("Request: {:?}", request);
 
         let submit_offchain = args.order_stream_url.is_some();
+
+        // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
+        // in the submitRequest call.
+        if submit_offchain {
+            if let Some(auto_deposit) = args.auto_deposit {
+                let market = boundless_client.boundless_market.clone();
+                let caller = boundless_client.caller();
+                let balance = market.balance_of(caller).await?;
+                tracing::info!(
+                    "Caller {} has balance {} ETH on market {}",
+                    caller,
+                    format_units(balance, "ether")?,
+                    args.boundless_market_address
+                );
+                if balance < auto_deposit {
+                    tracing::info!(
+                        "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
+                        format_units(balance, "ether")?,
+                        format_units(auto_deposit, "ether")?
+                    );
+                    market.deposit(auto_deposit).await?;
+                    tracing::info!(
+                        "Successfully deposited {} ETH",
+                        format_units(auto_deposit, "ether")?
+                    );
+                }
+            }
+        }
+
         let (request_id, _) = if submit_offchain {
             boundless_client.submit_request_offchain(&request).await?
         } else {
@@ -300,8 +334,6 @@ mod tests {
     };
     use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
     use boundless_market_test_utils::create_test_ctx;
-    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use tracing_test::traced_test;
 
     use super::*;
@@ -310,15 +342,7 @@ mod tests {
     #[traced_test]
     async fn test_main() {
         let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx(
-            &anvil,
-            SET_BUILDER_ID,
-            format!("file://{SET_BUILDER_PATH}"),
-            ASSESSOR_GUEST_ID,
-            format!("file://{ASSESSOR_GUEST_PATH}"),
-        )
-        .await
-        .unwrap();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -336,11 +360,12 @@ mod tests {
             ramp_up: 0,
             timeout: 1000,
             lock_timeout: 1000,
-            elf: None,
+            program: None,
             input: OrderInput { input: None, input_file: None },
             encode_input: false,
             warn_balance_below: None,
             error_balance_below: None,
+            auto_deposit: None,
         };
 
         run(&args).await.unwrap();

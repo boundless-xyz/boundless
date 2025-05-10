@@ -31,7 +31,7 @@ import {ConfigLoader, DeploymentConfig} from "../scripts/Config.s.sol";
 import {IHitPoints} from "../src/HitPoints.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
-bytes32 constant APP_IMAGE_ID = 0x722705a82a1dab8369b17e16bac42c9c538057fc1d32933d21ea2b47f292efb4;
+bytes32 constant APP_IMAGE_ID = 0x53cb4210cf2f5bf059e3a4f7bcbb8e21ddc5c11a690fd79e87947f9fec5522a3;
 uint256 constant DEFAULT_BALANCE = 1000 ether;
 
 /// Test designed to be run against a chain with an active deployment of the RISC Zero contracts.
@@ -188,9 +188,9 @@ contract DeploymentTest is Test {
         Client testProver = createClientContract("PROVER");
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
-        // 0xc101b42b is the selector for ZKVM_V1.2, update when necessary
+        // 0x9f39696c is the selector for ZKVM_V2.0, update when necessary
         // or refactor to read from the environment.
-        request.requirements.selector = bytes4(0xc101b42b);
+        request.requirements.selector = bytes4(0x9f39696c);
 
         ProofRequest[] memory requests = new ProofRequest[](1);
         requests[0] = request;
@@ -257,9 +257,9 @@ contract Client {
             minPrice: 1 ether,
             maxPrice: 2 ether,
             biddingStart: uint64(block.timestamp),
-            rampUpPeriod: uint32(10),
-            timeout: uint32(100),
-            lockTimeout: uint32(100),
+            rampUpPeriod: uint32(300),
+            timeout: uint32(3600),
+            lockTimeout: uint32(2700),
             lockStake: 1 ether
         });
     }
@@ -278,7 +278,7 @@ contract Client {
         return ProofRequest({
             id: RequestIdLibrary.from(wallet.addr, idx),
             requirements: defaultRequirements(),
-            imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy",
+            imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu",
             input: Input({
                 inputType: InputType.Inline,
                 data: hex"0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"

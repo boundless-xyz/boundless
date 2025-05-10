@@ -10,3 +10,5 @@ cache
 .github
 scripts
 examples
+crates/**/target
+examples/**/target

@@ -24,12 +24,9 @@ use boundless_market::{
     },
     input::InputBuilder,
 };
-use boundless_market_test_utils::{create_test_ctx_with_rpc_url, TestCtx};
+use boundless_market_test_utils::{create_test_ctx_with_rpc_url, TestCtx, ECHO_ELF, ECHO_ID};
 use broker::test_utils::BrokerBuilder;
 use clap::Parser;
-use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::{ECHO_ELF, ECHO_ID};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use risc0_zkp::core::digest::Digest;
 use tempfile::NamedTempFile;
@@ -69,7 +66,7 @@ struct StressTestArgs {
 async fn request_spawner<P: Provider>(
     shutdown: Arc<AtomicBool>,
     ctx: Arc<TestCtx<P>>,
-    elf_url: &str,
+    program_url: &str,
     args: StressTestArgs,
     spawner_id: u32,
 ) -> Result<()> {
@@ -85,7 +82,7 @@ async fn request_spawner<P: Provider>(
                 Digest::from(ECHO_ID),
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
-            elf_url,
+            program_url,
             Input {
                 inputType: InputType::Inline,
                 data: InputBuilder::new()
@@ -137,7 +134,7 @@ async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider>(
 }
 
 /// Basic handler that responds with a static string.
-async fn serve_elf() -> &'static [u8] {
+async fn serve_program() -> &'static [u8] {
     ECHO_ELF
 }
 
@@ -148,7 +145,7 @@ async fn main() -> Result<()> {
 
     let args = StressTestArgs::parse();
 
-    let app = Router::new().route("/", get(serve_elf));
+    let app = Router::new().route("/", get(serve_program));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
     let elf_url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move {
@@ -164,16 +161,9 @@ async fn main() -> Result<()> {
 
     // Setup test context
     let ctx = Arc::new(
-        create_test_ctx_with_rpc_url(
-            &anvil,
-            &rpc_url,
-            SET_BUILDER_ID,
-            format!("file://{SET_BUILDER_PATH}"),
-            ASSESSOR_GUEST_ID,
-            format!("file://{ASSESSOR_GUEST_PATH}"),
-        )
-        .await
-        .context("Failed to create test context")?,
+        create_test_ctx_with_rpc_url(&anvil, &rpc_url)
+            .await
+            .context("Failed to create test context")?,
     );
     let (broker_task, _config_file) =
         spawn_broker(&ctx, Url::parse(&rpc_url).unwrap(), &args.database_url).await?;
@@ -187,9 +177,9 @@ async fn main() -> Result<()> {
         let ctx_copy = ctx.clone();
         let args_copy = args.clone();
         let shutdown_copy = shutdown.clone();
-        let elf_url = elf_url.clone();
+        let program_url = elf_url.clone();
         tasks.spawn(async move {
-            request_spawner(shutdown_copy, ctx_copy, &elf_url, args_copy, i).await
+            request_spawner(shutdown_copy, ctx_copy, &program_url, args_copy, i).await
         });
     }
 

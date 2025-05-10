@@ -16,31 +16,29 @@ alloy-chains = "=0.1.67"
 anyhow = { workspace = true }
 async-channel = "2.3"
 async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true, optional = true }
-bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 futures = "0.3"
 futures-util = { workspace = true }
-# TEMP:
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
 hex = { workspace = true }
-http = "1.1"
 http-cache-reqwest = "0.15.1"
 notify = "6.1"
 reqwest = { workspace = true }
 reqwest-middleware = "0.4.1"
+reqwest-retry = "0.7"
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true, features = [ "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "json", "migrate", "macros"] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs"] }
@@ -52,17 +50,19 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
+aws-smithy-http-client = { version = "1.0", features = ["test-util"] }
 boundless-market = { workspace = true }
 broker = { path = ".", features = ["test-utils"] }
 elsa = "1.11"
-guest-assessor = { workspace = true }
-guest-util = { workspace = true }
 hex = { workspace = true }
+http = "1.0"
 httpmock = "0.7"
 proptest = "1.4"
 proptest-derive = "0.5"
 rand = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
+serial_test = "3.2"
+temp-env = { version = "0.3", features = ["async_closure"] }
 tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }
 

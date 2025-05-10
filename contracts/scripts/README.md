@@ -59,12 +59,13 @@ export DEPLOYER_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efca
 ### Public Networks (Testnet or Mainnet)
 
 Set the chain you are operating on by the key from the `deployment.toml` file.
-An example chain key is "ethereum-sepolia", and you can look at `deployment.toml` for the full list.
+An example chain key is `ethereum-sepolia-staging`, and you can look at `deployment.toml` for the full list.
+If deploying in production, use `ethereum-sepolia-prod`.
 
 > TODO: Instead of reading these into environment variables, we can have the Forge script directly read them from the TOML file.
 
 ```zsh
-export CHAIN_KEY="xxx-testnet"
+export CHAIN_KEY="ethereum-sepolia-[staging/prod]"
 ```
 
 Set your RPC URL, public and private key.

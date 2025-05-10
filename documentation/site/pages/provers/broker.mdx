@@ -80,19 +80,6 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 
 ## Broker Operation
 
-### Make sure Bento is running
-
-:::warning[Warning]
-A Broker needs a [Bento](/provers/proving-stack#what-is-bento) instance to operate. Please follow the [quick start](/provers/quick-start) guide to get Bento up and running.
-:::
-
-To check Bento is running correctly, you can send a sample proof workload:
-
-```sh [Terminal]
-# In the bento directory
-RUST_LOG=info cargo run --bin bento_cli -- -c 32
-```
-
 ```txt [Terminal]
 2024-10-23T14:37:37.364844Z  INFO bento_cli: image_id: a0dfc25e54ebde808e4fd8c34b6549bbb91b4928edeea90ceb7d1d8e7e9096c7 | input_id: eccc8f06-488a-426c-ae3d-e5acada9ae22
 2024-10-23T14:37:37.368613Z  INFO bento_cli: STARK job_id: 0d89e2ca-a1e3-478f-b89d-8ab23b89f51e
@@ -102,11 +89,9 @@ RUST_LOG=info cargo run --bin bento_cli -- -c 32
 2024-10-23T14:37:43.375780Z  INFO bento_cli: Job done!
 ```
 
-### Running the Broker service
+### Running the Broker service with bento
 
-:::warning[Warning]
-Before running the Broker, make sure you have connected to a running instance of Bento.
-:::
+Running a broker with `just` will also start the Bento cluster through docker compose.
 
 :::note[Note]
 `just` installation instructions can be found [here](https://github.com/casey/just#installation).
@@ -114,6 +99,31 @@ Before running the Broker, make sure you have connected to a running instance of
 
 ```sh [Terminal]
 just broker
+```
+
+### Make sure Bento is running
+
+:::warning[Warning]
+A Broker needs a [Bento](/provers/proving-stack#what-is-bento) instance to operate. Please follow the [quick start](/provers/quick-start) guide to get Bento up and running.
+:::
+
+To check Bento is running correctly, you can send a sample proof workload:
+
+> Before running this, [install Bento CLI](/provers/quick-start#bento-cli-installation)
+
+```sh [Terminal]
+# In the bento directory
+RUST_LOG=info bento_cli -c 32
+```
+
+### Running a standalone broker
+
+To run broker with an already initialized Bento cluster or with a different prover, you can build and run a broker directly with the following:
+
+```sh [Terminal]
+cargo build --bin broker --release
+# Run with flags or environment variables based on network/configuration
+./target/release/broker
 ```
 
 ### Stopping The Broker Service
@@ -130,7 +140,6 @@ Once your broker is running, there are a few methods to optimize the lock-in rat
 
 1. Decreasing the `mcycle_price` would tune your Broker to bid at lower prices for proofs.
 2. Increasing `lockin_priority_gas` expedites your market operations by consuming more gas which could help outrun other bidders.
-3. Adding known a `imageID` to `skip_preflight_ids` would reduce the delay of preflight/execution on a binary. This would allow you to beat other Brokers by submitting bids quicker.
 
 ### Tuning Service Settings
 

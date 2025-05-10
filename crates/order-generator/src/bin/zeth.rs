@@ -108,6 +108,11 @@ struct Args {
     /// Balance threshold at which to log an error.
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
+    /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
+    ///
+    /// This parameter can only be set if order_stream_url is provided.
+    #[clap(long, value_parser = parse_ether, requires = "order_stream_url")]
+    auto_deposit: Option<U256>,
 }
 
 #[tokio::main]
@@ -152,9 +157,9 @@ async fn main() -> Result<()> {
         .build()
         .await?;
 
-    // Upload the ZETH_GUESTS_RETH_ETHEREUM ELF to the storage provider so that it can be fetched by the market.
-    let image_url = boundless_client.upload_image(ZETH_GUESTS_RETH_ETHEREUM_ELF).await?;
-    tracing::info!("Uploaded image to {}", image_url);
+    // Upload the ZETH_GUESTS_RETH_ETHEREUM program to the storage provider so that it can be fetched by the market.
+    let program_url = boundless_client.upload_program(ZETH_GUESTS_RETH_ETHEREUM_ELF).await?;
+    tracing::info!("Uploaded program to {}", program_url);
 
     let mut block_number = args.start_block.unwrap_or(provider.get_block_number().await?);
     let mut ticker = tokio::time::interval(Duration::from_secs(args.interval));
@@ -198,7 +203,7 @@ async fn main() -> Result<()> {
             BuildArgs { block_number, block_count, cache: None, rpc: rpc.clone(), chain };
 
         let params = RequestParams {
-            image_url: image_url.clone(),
+            program_url: program_url.clone(),
             min: args.min_price_per_mcycle,
             max: args.max_price_per_mcycle,
             ramp_up: args.ramp_up,
@@ -206,6 +211,7 @@ async fn main() -> Result<()> {
             lock_timeout: args.lock_timeout,
             stake: args.stake,
             offchain: args.offchain,
+            auto_deposit: args.auto_deposit,
         };
         // Attempt to submit a request.
         match submit_request(build_args, chain_id, boundless_client.clone(), params).await {
@@ -258,7 +264,7 @@ async fn main() -> Result<()> {
 }
 
 struct RequestParams {
-    image_url: Url,
+    program_url: Url,
     min: U256,
     max: U256,
     ramp_up: u32,
@@ -266,6 +272,7 @@ struct RequestParams {
     lock_timeout: u32,
     stake: U256,
     offchain: bool,
+    auto_deposit: Option<U256>,
 }
 
 async fn submit_request<P, S>(
@@ -318,7 +325,7 @@ where
     // Add to the max price an estimated upper bound on the gas costs.
     // Add a 10% buffer to the gas costs to account for flucuations after submission.
     let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
-    let gas_cost_estimate = gas_price + (gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
+    let gas_cost_estimate = (gas_price + (gas_price / 10)) * LOCK_FULFILL_GAS_UPPER_BOUND;
     let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
     tracing::info!(
         "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
@@ -330,7 +337,7 @@ where
     let journal = session_info.journal;
 
     let request = ProofRequest::builder()
-        .with_image_url(params.image_url)
+        .with_image_url(params.program_url)
         .with_input(input_url)
         .with_requirements(Requirements::new(
             ZETH_GUESTS_RETH_ETHEREUM_ID,
@@ -346,6 +353,33 @@ where
                 .with_lock_timeout(params.lock_timeout),
         )
         .build()?;
+
+    // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
+    // in the submitRequest call.
+    if params.offchain {
+        if let Some(auto_deposit) = params.auto_deposit {
+            let market = boundless_client.boundless_market.clone();
+            let caller = boundless_client.caller();
+            let balance = market.balance_of(caller).await?;
+            tracing::info!(
+                "Caller {} has balance {} ETH on market",
+                caller,
+                format_units(balance, "ether")?
+            );
+            if balance < auto_deposit {
+                tracing::info!(
+                    "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
+                    format_units(balance, "ether")?,
+                    format_units(auto_deposit, "ether")?
+                );
+                market.deposit(auto_deposit).await?;
+                tracing::info!(
+                    "Successfully deposited {} ETH",
+                    format_units(auto_deposit, "ether")?
+                );
+            }
+        }
+    }
 
     // Send the request.
     let (request_id, _) = if params.offchain {

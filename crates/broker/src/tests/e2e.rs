@@ -19,10 +19,10 @@ use boundless_market::{
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
 };
-use boundless_market_test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count};
-use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::{ECHO_ELF, ECHO_ID};
+use boundless_market_test_utils::{
+    create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_GUEST_PATH, ECHO_ELF,
+    ECHO_ID, SET_BUILDER_PATH,
+};
 use risc0_zkvm::{is_dev_mode, sha::Digest};
 use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
@@ -35,6 +35,7 @@ fn generate_request(
     proof_type: ProofType,
     image_url: impl Into<String>,
     callback: Option<Callback>,
+    offer: Option<Offer>,
 ) -> ProofRequest {
     let mut requirements = Requirements::new(
         Digest::from(ECHO_ID),
@@ -51,19 +52,23 @@ fn generate_request(
         requirements,
         image_url,
         Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
-        Offer {
+        offer.unwrap_or(Offer {
             minPrice: parse_ether("0.02").unwrap(),
             maxPrice: parse_ether("0.04").unwrap(),
             biddingStart: now_timestamp(),
-            timeout: 600,
-            lockTimeout: 600,
+            timeout: 120,
+            lockTimeout: 120,
             rampUpPeriod: 1,
             lockStake: U256::from(10),
-        },
+        }),
     )
 }
 
 async fn new_config(min_batch_size: u64) -> NamedTempFile {
+    new_config_with_min_deadline(min_batch_size, 100).await
+}
+
+async fn new_config_with_min_deadline(min_batch_size: u64, min_deadline: u64) -> NamedTempFile {
     let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let mut config = Config::default();
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -74,7 +79,8 @@ async fn new_config(min_batch_size: u64) -> NamedTempFile {
     config.prover.status_poll_ms = 1000;
     config.prover.req_retry_count = 3;
     config.market.mcycle_price = "0.00001".into();
-    config.market.min_deadline = 100;
+    config.market.mcycle_price_stake_token = "0.0".into();
+    config.market.min_deadline = min_deadline;
     config.batcher.min_batch_size = Some(min_batch_size);
     config.write(config_file.path()).await.unwrap();
     config_file
@@ -113,8 +119,6 @@ fn broker_args(
         rpc_retry_max: 0,
         rpc_retry_backoff: 200,
         rpc_retry_cu: 1000,
-        nocache: true,
-        cache_dir: None,
     }
 }
 
@@ -143,15 +147,7 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -171,9 +167,9 @@ async fn simple_e2e() {
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -181,6 +177,7 @@ async fn simple_e2e() {
         &ctx.customer_signer.address(),
         ProofType::Any,
         image_url,
+        None,
         None,
     );
 
@@ -208,15 +205,7 @@ async fn simple_e2e_with_callback() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -249,9 +238,9 @@ async fn simple_e2e_with_callback() {
     );
     let broker = Broker::new(args, ctx.prover_provider.clone()).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order with callback
     let request = generate_request(
@@ -260,6 +249,7 @@ async fn simple_e2e_with_callback() {
         ProofType::Any,
         image_url,
         Some(callback),
+        None,
     );
 
     run_with_broker(broker, async move {
@@ -296,21 +286,83 @@ async fn simple_e2e_with_callback() {
 
 #[tokio::test]
 #[traced_test]
+async fn e2e_fulfill_after_lock_expiry() {
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    // Setup signers / providers
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    let locker_market = ctx.customer_market.clone();
+    let locker_signer = ctx.customer_signer.clone();
+    let prover_signer = ctx.prover_signer.clone();
+
+    ctx.hit_points_service.mint(locker_signer.address(), default_allowance()).await.unwrap();
+    ctx.hit_points_service.mint(prover_signer.address(), default_allowance()).await.unwrap();
+
+    // Deposit locker balances
+    locker_market.deposit_stake_with_permit(default_allowance(), &locker_signer).await.unwrap();
+    locker_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    let config = new_config_with_min_deadline(1, 0).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.boundless_market_address,
+        ctx.set_verifier_address,
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
+    let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
+
+    // Provide URL for ECHO program
+    let storage = MockStorageProvider::start();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    // Submit an order
+    let request = generate_request(
+        locker_market.index_from_nonce().await.unwrap(),
+        &locker_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        Some(Offer {
+            minPrice: parse_ether("0.0").unwrap(),
+            maxPrice: parse_ether("0.000000001").unwrap(),
+            biddingStart: now_timestamp(),
+            rampUpPeriod: 40,
+            lockTimeout: 40,
+            timeout: 120,
+            lockStake: U256::from(5),
+        }),
+    );
+
+    run_with_broker(broker, async move {
+        let request_id = locker_market.submit_request(&request, &locker_signer).await.unwrap();
+        let (_, client_sig) = locker_market.get_submitted_request(request_id, None).await.unwrap();
+        locker_market.lock_request(&request, &client_sig, None).await.unwrap();
+
+        // Wait for fulfillment
+        ctx.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(3),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+#[traced_test]
 #[ignore = "runs a proof; requires BONSAI if RISC0_DEV_MODE=FALSE"]
 async fn e2e_with_selector() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -330,9 +382,9 @@ async fn e2e_with_selector() {
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -340,6 +392,7 @@ async fn e2e_with_selector() {
         &ctx.customer_signer.address(),
         ProofType::Groth16,
         image_url,
+        None,
         None,
     );
 
@@ -371,15 +424,7 @@ async fn e2e_with_multiple_requests() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -399,9 +444,9 @@ async fn e2e_with_multiple_requests() {
     );
     let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
 
-    // Provide URL for ECHO ELF
+    // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
-    let image_url = storage.upload_image(ECHO_ELF).await.unwrap().to_string();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap().to_string();
 
     // Submit the first order
     let request = generate_request(
@@ -409,6 +454,7 @@ async fn e2e_with_multiple_requests() {
         &ctx.customer_signer.address(),
         ProofType::Any,
         &image_url,
+        None,
         None,
     );
 
@@ -421,6 +467,7 @@ async fn e2e_with_multiple_requests() {
             &ctx.customer_signer.address(),
             ProofType::Groth16,
             &image_url,
+            None,
             None,
         );
 

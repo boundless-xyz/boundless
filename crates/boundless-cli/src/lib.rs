@@ -63,7 +63,7 @@ alloy::sol!(
 impl OrderFulfilled {
     /// Creates a new [OrderFulfilled],
     pub fn new(
-        fill: BoundlessFulfillment,
+        fills: Vec<BoundlessFulfillment>,
         root_receipt: Receipt,
         assessor_receipt: AssessorReceipt,
     ) -> Result<Self> {
@@ -75,7 +75,7 @@ impl OrderFulfilled {
         Ok(OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),
             seal: root_seal.into(),
-            fills: vec![fill],
+            fills,
             assessorReceipt: assessor_receipt,
         })
     }
@@ -135,9 +135,9 @@ async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
 /// * LocalProver if the `prove` feature flag is enabled.
 /// * [ExternalProver] otherwise.
 pub struct DefaultProver {
-    set_builder_elf: Vec<u8>,
+    set_builder_program: Vec<u8>,
     set_builder_image_id: Digest,
-    assessor_elf: Vec<u8>,
+    assessor_program: Vec<u8>,
     address: Address,
     domain: EIP712DomainSaltless,
     supported_selectors: SupportedSelectors,
@@ -146,29 +146,29 @@ pub struct DefaultProver {
 impl DefaultProver {
     /// Creates a new [DefaultProver].
     pub fn new(
-        set_builder_elf: Vec<u8>,
-        assessor_elf: Vec<u8>,
+        set_builder_program: Vec<u8>,
+        assessor_program: Vec<u8>,
         address: Address,
         domain: EIP712DomainSaltless,
     ) -> Result<Self> {
-        let set_builder_image_id = compute_image_id(&set_builder_elf)?;
+        let set_builder_image_id = compute_image_id(&set_builder_program)?;
         let supported_selectors =
             SupportedSelectors::default().with_set_builder_image_id(set_builder_image_id);
         Ok(Self {
-            set_builder_elf,
+            set_builder_program,
             set_builder_image_id,
-            assessor_elf,
+            assessor_program,
             address,
             domain,
             supported_selectors,
         })
     }
 
-    // Proves the given [elf] with the given [input] and [assumptions].
+    // Proves the given [program] with the given [input] and [assumptions].
     // The [opts] parameter specifies the prover options.
     pub(crate) async fn prove(
         &self,
-        elf: Vec<u8>,
+        program: Vec<u8>,
         input: Vec<u8>,
         assumptions: Vec<Receipt>,
         opts: ProverOpts,
@@ -181,7 +181,7 @@ impl DefaultProver {
             }
             let env = env.build()?;
 
-            default_prover().prove_with_opts(env, &elf, &opts)
+            default_prover().prove_with_opts(env, &program, &opts)
         })
         .await??
         .receipt;
@@ -215,8 +215,13 @@ impl DefaultProver {
             .context("Failed to build set builder input")?;
         let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
 
-        self.prove(self.set_builder_elf.clone(), encoded_input, assumptions, ProverOpts::groth16())
-            .await
+        self.prove(
+            self.set_builder_program.clone(),
+            encoded_input,
+            assumptions,
+            ProverOpts::groth16(),
+        )
+        .await
     }
 
     // Proves the assessor.
@@ -230,101 +235,124 @@ impl DefaultProver {
 
         let stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
 
-        self.prove(self.assessor_elf.clone(), stdin, receipts, ProverOpts::succinct()).await
+        self.prove(self.assessor_program.clone(), stdin, receipts, ProverOpts::succinct()).await
     }
 
-    /// Fulfills an order as a singleton, returning the relevant data:
-    /// * The [Fulfillment] of the order.
+    /// Fulfills a list of orders, returning the relevant data:
+    /// * A list of [Fulfillment] of the orders.
     /// * The [Receipt] of the root set.
-    /// * The [SetInclusionReceipt] of the order.
     /// * The [SetInclusionReceipt] of the assessor.
     pub async fn fulfill(
         &self,
-        order: Order,
-    ) -> Result<(BoundlessFulfillment, Receipt, AssessorReceipt)> {
-        let request = order.request.clone();
-        let order_elf = fetch_url(&request.imageUrl).await?;
-        let order_input: Vec<u8> = match request.input.inputType {
-            InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
-            InputType::Url => {
-                GuestEnv::decode(
-                    &fetch_url(
-                        std::str::from_utf8(&request.input.data)
-                            .context("input url is not utf8")?,
-                    )
-                    .await?,
-                )?
-                .stdin
+        orders: &[Order],
+    ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
+        let orders_jobs = orders.iter().map(|order| async {
+            let request = order.request.clone();
+            let order_program = fetch_url(&request.imageUrl).await?;
+            let order_input: Vec<u8> = match request.input.inputType {
+                InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
+                InputType::Url => {
+                    GuestEnv::decode(
+                        &fetch_url(
+                            std::str::from_utf8(&request.input.data)
+                                .context("input url is not utf8")?,
+                        )
+                        .await?,
+                    )?
+                    .stdin
+                }
+                _ => bail!("Unsupported input type"),
+            };
+
+            let selector = request.requirements.selector;
+            if !self.supported_selectors.is_supported(selector) {
+                bail!("Unsupported selector {}", request.requirements.selector);
+            };
+
+            let order_receipt = self
+                .prove(order_program.clone(), order_input.clone(), vec![], ProverOpts::succinct())
+                .await?;
+
+            let order_journal = order_receipt.journal.bytes.clone();
+            let order_image_id = compute_image_id(&order_program)?;
+            let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
+            let order_claim_digest = order_claim.digest();
+
+            let fill = Fulfillment {
+                request: order.request.clone(),
+                signature: order.signature.into(),
+                journal: order_journal.clone(),
+            };
+
+            Ok::<_, anyhow::Error>((order_receipt, order_claim, order_claim_digest, fill))
+        });
+
+        let results = futures::future::join_all(orders_jobs).await;
+        let mut receipts = Vec::new();
+        let mut claims = Vec::new();
+        let mut claim_digests = Vec::new();
+        let mut fills = Vec::new();
+
+        for (i, result) in results.into_iter().enumerate() {
+            if let Err(e) = result {
+                tracing::warn!("Failed to prove request 0x{:x}: {}", orders[i].request.id, e);
+                continue;
             }
-            _ => bail!("Unsupported input type"),
-        };
+            let (receipt, claim, claim_digest, fill) = result?;
+            receipts.push(receipt);
+            claims.push(claim);
+            claim_digests.push(claim_digest);
+            fills.push(fill);
+        }
 
-        let selector = request.requirements.selector;
-        if !self.supported_selectors.is_supported(selector) {
-            bail!("Unsupported selector {}", request.requirements.selector);
-        };
-
-        let order_receipt = self
-            .prove(order_elf.clone(), order_input.clone(), vec![], ProverOpts::succinct())
-            .await?;
-
-        let order_journal = order_receipt.journal.bytes.clone();
-        let order_image_id = compute_image_id(&order_elf)?;
-
-        let fill = Fulfillment {
-            request: order.request.clone(),
-            signature: order.signature.into(),
-            journal: order_journal.clone(),
-        };
-
-        let assessor_receipt = self.assessor(vec![fill], vec![order_receipt.clone()]).await?;
+        let assessor_receipt = self.assessor(fills.clone(), receipts.clone()).await?;
         let assessor_journal = assessor_receipt.journal.bytes.clone();
-        let assessor_image_id = compute_image_id(&self.assessor_elf)?;
-
-        let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
-        let order_claim_digest = order_claim.digest();
+        let assessor_image_id = compute_image_id(&self.assessor_program)?;
         let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal.clone());
-        let assessor_claim_digest = assessor_claim.digest();
         let assessor_receipt_journal: AssessorJournal =
             AssessorJournal::abi_decode(&assessor_journal, true)?;
-        let root_receipt = self
-            .finalize(
-                vec![order_claim.clone(), assessor_claim.clone()],
-                vec![order_receipt.clone(), assessor_receipt],
-            )
-            .await?;
 
-        let order_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 0);
-        let assessor_path = merkle_path(&[order_claim_digest, assessor_claim_digest], 1);
+        receipts.push(assessor_receipt);
+        claims.push(assessor_claim.clone());
+        claim_digests.push(assessor_claim.digest());
+
+        let root_receipt = self.finalize(claims.clone(), receipts.clone()).await?;
 
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_image_id };
 
-        let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
-            order_claim,
-            order_path,
-            verifier_parameters.digest(),
-        );
-        let order_seal = if is_groth16_selector(selector) {
-            let receipt = self.compress(&order_receipt).await?;
-            encode_seal(&receipt)?
-        } else {
-            order_inclusion_receipt.abi_encode_seal()?
-        };
+        let mut boundless_fills = Vec::new();
+
+        for i in 0..fills.len() {
+            let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+                claims[i].clone(),
+                merkle_path(&claim_digests, i),
+                verifier_parameters.digest(),
+            );
+            let order = &orders[i];
+            let order_seal = if is_groth16_selector(order.request.requirements.selector) {
+                let receipt = self.compress(&receipts[i]).await?;
+                encode_seal(&receipt)?
+            } else {
+                order_inclusion_receipt.abi_encode_seal()?
+            };
+
+            let fulfillment = BoundlessFulfillment {
+                id: order.request.id,
+                requestDigest: order.request.eip712_signing_hash(&self.domain.alloy_struct()),
+                imageId: order.request.requirements.imageId,
+                journal: fills[i].journal.clone().into(),
+                seal: order_seal.into(),
+            };
+
+            boundless_fills.push(fulfillment);
+        }
 
         let assessor_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
             assessor_claim,
-            assessor_path,
+            merkle_path(&claim_digests, claim_digests.len() - 1),
             verifier_parameters.digest(),
         );
-
-        let fulfillment = BoundlessFulfillment {
-            id: request.id,
-            requestDigest: order.request.eip712_signing_hash(&self.domain.alloy_struct()),
-            imageId: request.requirements.imageId,
-            journal: order_journal.into(),
-            seal: order_seal.into(),
-        };
 
         let assessor_receipt = AssessorReceipt {
             seal: assessor_inclusion_receipt.abi_encode_seal()?.into(),
@@ -333,7 +361,7 @@ impl DefaultProver {
             callbacks: assessor_receipt_journal.callbacks,
         };
 
-        Ok((fulfillment, root_receipt, assessor_receipt))
+        Ok((boundless_fills, root_receipt, assessor_receipt))
     }
 }
 
@@ -373,9 +401,7 @@ mod tests {
         eip712_domain, Input, Offer, Predicate, ProofRequest, RequestId, Requirements,
         UNSPECIFIED_SELECTOR,
     };
-    use guest_assessor::ASSESSOR_GUEST_ELF;
-    use guest_set_builder::SET_BUILDER_ELF;
-    use guest_util::{ECHO_ID, ECHO_PATH};
+    use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
     use risc0_ethereum_contracts::selector::Selector;
 
     async fn setup_proving_request_and_signature(
@@ -416,7 +442,7 @@ mod tests {
         .expect("failed to create prover");
 
         let order = Order { request, request_digest, signature };
-        prover.fulfill(order.clone()).await.unwrap();
+        prover.fulfill(&[order.clone()]).await.unwrap();
     }
 
     #[tokio::test]
@@ -436,6 +462,6 @@ mod tests {
         .expect("failed to create prover");
 
         let order = Order { request, request_digest, signature };
-        prover.fulfill(order.clone()).await.unwrap();
+        prover.fulfill(&[order.clone()]).await.unwrap();
     }
 }
