@@ -16,6 +16,7 @@ use futures::StreamExt;
 use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheOptions};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use risc0_zkvm::Digest;
 use std::{
     env,
     error::Error as StdError,
@@ -331,6 +332,12 @@ pub async fn upload_image_uri(
     order: &crate::Order,
     config: &crate::config::ConfigLock,
 ) -> Result<String> {
+    let required_image_id = Digest::from(order.request.requirements.imageId.0);
+    let image_id_str = required_image_id.to_string();
+    if prover.has_image(&image_id_str).await? {
+        return Ok(image_id_str);
+    }
+
     let uri =
         create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
 
@@ -341,18 +348,19 @@ pub async fn upload_image_uri(
     let image_id =
         risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
 
-    let required_image_id = risc0_zkvm::sha::Digest::from(order.request.requirements.imageId.0);
     anyhow::ensure!(
         image_id == required_image_id,
         "image ID does not match requirements; expect {}, got {}",
         required_image_id,
         image_id
     );
-    let image_id = image_id.to_string();
 
-    prover.upload_image(&image_id, image_data).await.context("Failed to upload image to prover")?;
+    prover
+        .upload_image(&image_id_str, image_data)
+        .await
+        .context("Failed to upload image to prover")?;
 
-    Ok(image_id)
+    Ok(image_id_str)
 }
 
 pub async fn upload_input_uri(
