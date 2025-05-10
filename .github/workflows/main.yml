@@ -545,7 +545,5 @@ jobs:
       - name: Setup docker builder
         run: docker buildx create --driver docker-container --use
 
-      # - name: docker compose build
-      #   run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build --no-cache
       - name: docker compose build
-        run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml build --no-cache
+        run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build

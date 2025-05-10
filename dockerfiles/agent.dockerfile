@@ -52,12 +52,12 @@ ENV SCCACHE_RECACHE=1
 RUN echo "SCCACHE_RECACHE: $SCCACHE_RECACHE"
 
 RUN \
-    # --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
-    # --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc2 \
-    # source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
+    --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_agent_sc2 \
+    source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p workflow -F cuda --bin agent && \
     cp /src/bento/target/release/agent /src/agent
-    # sccache --show-stats
+    sccache --show-stats
 
 # Use risczero/risc0-groth16-prover:v2025-01-31.1 as the basis for the prover and witness generator
 FROM risczero/risc0-groth16-prover@sha256:2829419e1bee4b87a2ade42569d9dffb4a304bf593c531caa99c6a395e2558da AS binaries
