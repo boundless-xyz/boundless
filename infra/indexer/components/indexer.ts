@@ -163,29 +163,38 @@ export class IndexerInstance extends pulumi.ComponentResource {
       ],
     });
 
-    const rds = new aws.rds.Instance(`${serviceName}-rds`, {
-      engine: 'postgres',
-      engineVersion: '17.2',
-      identifier: `${serviceName}-rds`,
-      dbName: rdsDbName,
-      username: rdsUser,
-      password: rdsPassword,
-      maxAllocatedStorage: 500,
+    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora`, {
+      engine: "aurora-postgresql",
+      engineVersion: "17.4",
+      clusterIdentifier: `${serviceName}-aurora`,
+      databaseName: rdsDbName,
+      masterUsername: rdsUser,
+      masterPassword: rdsPassword,
       port: rdsPort,
-      instanceClass: 'db.t4g.small',
-      allocatedStorage: 20,
-      storageEncrypted: true,
+      backupRetentionPeriod: 7,
       skipFinalSnapshot: true,
-      publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
       vpcSecurityGroupIds: [rdsSecurityGroup.id],
-      storageType: 'gp3',
+      storageEncrypted: true,
     }, { protect: true });
+
+    const auroraWriter = new aws.rds.ClusterInstance(
+      `${serviceName}-aurora-writer`, {
+      clusterIdentifier: auroraCluster.id,
+      engine: "aurora-postgresql",
+      engineVersion: "17.4",
+      instanceClass: "db.t4g.medium",
+      identifier: `${serviceName}-aurora-writer`,
+      publiclyAccessible: false,
+      dbSubnetGroupName: dbSubnets.name,
+    },
+      { protect: true }
+    );
 
     const dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
       secretId: dbUrlSecret.id,
-      secretString: pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${rds.address}:${rdsPort}/${rdsDbName}?sslmode=require`,
+      secretString: pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`,
     });
 
     const dbSecretAccessPolicy = new aws.iam.Policy(`${serviceName}-db-url-policy`, {
@@ -277,7 +286,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
         taskRole: {
           args: {
             name: `${serviceName}-task`,
-            description: 'order stream ECS task role with db secret access',
+            description: 'indexer ECS task role with db secret access',
             managedPolicyArns: [dbSecretAccessPolicy.arn],
           },
         },
@@ -362,13 +371,13 @@ export class IndexerInstance extends pulumi.ComponentResource {
       evaluationPeriods: 60,
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
-      alarmDescription: 'Order stream log ERROR level',
+      alarmDescription: 'Indexer log ERROR level',
       actionsEnabled: true,
       alarmActions,
     });
 
     this.dbUrlSecret = dbUrlSecret;
-    
+
     this.registerOutputs({
       dbUrlSecret: this.dbUrlSecret,
     });
