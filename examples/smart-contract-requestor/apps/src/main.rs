@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
         args.private_key,
         args.rpc_url,
         args.order_stream_url,
-        BuiltinStorageProvider::from_config(&args.storage_config).await?,
+        BuiltinStorageProvider::from_config(&args.storage_config)?,
         args.boundless_market_address,
         args.set_verifier_address,
         args.smart_contract_requestor_address,

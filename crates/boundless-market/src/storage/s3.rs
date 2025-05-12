@@ -26,6 +26,7 @@ use aws_sdk_s3::{
 };
 use reqwest::Url;
 use sha2::{Digest as _, Sha256};
+use tokio::sync::OnceCell;
 use url::ParseError;
 
 use super::{StorageProvider, StorageProviderConfig};
@@ -36,14 +37,18 @@ pub struct S3StorageProvider {
     s3_bucket: String,
     client: aws_sdk_s3::Client,
     presigned: bool, // use s3:// urls or presigned https://
+    // Used to coordinate the lazy initialization of the bucket.
+    bucket_init: OnceCell<()>,
 }
 
 #[derive(thiserror::Error, Debug)]
 /// Error type for the S3 storage provider.
 pub enum S3StorageProviderError {
     /// Error type for S3 errors.
+    ///
+    /// Inside a [Box] because [S3Error] is rather large.
     #[error("AWS S3 error: {0}")]
-    S3Error(#[from] S3Error),
+    S3Error(#[from] Box<S3Error>),
 
     /// Error type for S3 presigning errors.
     #[error("S3 presigning error: {0}")]
@@ -68,7 +73,7 @@ pub enum S3StorageProviderError {
 
 impl S3StorageProvider {
     /// Creates a new S3 storage provider from the environment variables.
-    pub async fn from_env() -> Result<Self, S3StorageProviderError> {
+    pub fn from_env() -> Result<Self, S3StorageProviderError> {
         let access_key = std::env::var("S3_ACCESS_KEY")?;
         let secret_key = std::env::var("S3_SECRET_KEY")?;
         let bucket = std::env::var("S3_BUCKET")?;
@@ -76,18 +81,18 @@ impl S3StorageProvider {
         let region = std::env::var("AWS_REGION")?;
         let presigned = std::env::var_os("S3_NO_PRESIGNED").is_none();
 
-        Self::from_parts(access_key, secret_key, bucket, url, region, presigned).await
+        Ok(Self::from_parts(access_key, secret_key, bucket, url, region, presigned))
     }
 
     /// Creates a new S3 storage provider from the given parts.
-    pub async fn from_parts(
+    pub fn from_parts(
         access_key: String,
         secret_key: String,
         bucket: String,
         url: String,
         region: String,
         presigned: bool,
-    ) -> Result<Self, S3StorageProviderError> {
+    ) -> Self {
         let cred = Credentials::new(
             access_key.clone(),
             secret_key.clone(),
@@ -106,32 +111,11 @@ impl S3StorageProvider {
 
         let client = aws_sdk_s3::Client::from_conf(s3_config);
 
-        // Attempt to provision the bucket if it does not exist
-        // DO NOT MERGE: Can we move this to a lazy init step? Having this in the constructor is
-        // causing async to bubble up to client construction in a needless way. Use LazyLock.
-        let cfg = CreateBucketConfiguration::builder().build();
-        let res = client
-            .create_bucket()
-            .create_bucket_configuration(cfg)
-            .bucket(&bucket)
-            .send()
-            .await
-            .map_err(|e| S3Error::from(e.into_service_error()));
-
-        if let Err(err) = res {
-            match err {
-                S3Error::BucketAlreadyOwnedByYou(_) => {}
-                _ => return Err(err.into()),
-            }
-        }
-
-        Ok(Self { s3_bucket: bucket, client, presigned })
+        Self { s3_bucket: bucket, client, presigned, bucket_init: OnceCell::new() }
     }
 
     /// Creates a new S3 storage provider from the given configuration.
-    pub async fn from_config(
-        config: &StorageProviderConfig,
-    ) -> Result<Self, S3StorageProviderError> {
+    pub fn from_config(config: &StorageProviderConfig) -> Result<Self, S3StorageProviderError> {
         let access_key = config
             .s3_access_key
             .clone()
@@ -160,7 +144,7 @@ impl S3StorageProvider {
             .s3_use_presigned
             .ok_or_else(|| S3StorageProviderError::Config("s3_use_presigned".to_string()))?;
 
-        Self::from_parts(access_key, secret_key, bucket, url, region, presigned).await
+        Ok(Self::from_parts(access_key, secret_key, bucket, url, region, presigned))
     }
 
     async fn upload(
@@ -168,6 +152,8 @@ impl S3StorageProvider {
         data: impl AsRef<[u8]>,
         key: &str,
     ) -> Result<Url, S3StorageProviderError> {
+        self.ensure_bucket_init().await?;
+
         let byte_stream = ByteStream::from(data.as_ref().to_vec());
 
         self.client
@@ -177,7 +163,7 @@ impl S3StorageProvider {
             .body(byte_stream)
             .send()
             .await
-            .map_err(|e| S3Error::from(e.into_service_error()))?;
+            .map_err(|e| Box::new(S3Error::from(e.into_service_error())))?;
 
         if !self.presigned {
             return Ok(Url::parse(&format!("s3://{}/{}", self.s3_bucket, key)).unwrap());
@@ -192,9 +178,36 @@ impl S3StorageProvider {
             .key(key)
             .presigned(PresigningConfig::expires_in(Duration::from_secs(3600))?)
             .await
-            .map_err(|e| S3Error::from(e.into_service_error()))?;
+            .map_err(|e| Box::new(S3Error::from(e.into_service_error())))?;
 
         Ok(Url::parse(presigned_request.uri())?)
+    }
+
+    async fn ensure_bucket_init(&self) -> Result<(), S3StorageProviderError> {
+        self.bucket_init
+            .get_or_try_init(async || {
+                // Attempt to provision the bucket if it does not exist
+                let cfg = CreateBucketConfiguration::builder().build();
+                let res = self
+                    .client
+                    .create_bucket()
+                    .create_bucket_configuration(cfg)
+                    .bucket(&self.s3_bucket)
+                    .send()
+                    .await
+                    .map_err(|e| S3Error::from(e.into_service_error()));
+
+                match res {
+                    Ok(_) => Ok(()),
+                    Err(err) => match err {
+                        S3Error::BucketAlreadyOwnedByYou(_) => Ok(()),
+                        _ => Err(Box::new(err).into()),
+                    },
+                }
+            })
+            .await
+            // a simple incantation.
+            .map(|&()| ())
     }
 }
 

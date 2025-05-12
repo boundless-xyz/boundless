@@ -228,17 +228,16 @@ impl StorageProvider for BuiltinStorageProvider {
 /// - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
 // TODO: Consoplidate the from env implementation to use the clap parsing to reduce potential
 // issues from duplication.
-pub async fn storage_provider_from_env(
-) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
+pub fn storage_provider_from_env() -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
     if risc0_zkvm::is_dev_mode() {
         return Ok(BuiltinStorageProvider::File(TempFileStorageProvider::new()?));
     }
 
-    if let Ok(provider) = PinataStorageProvider::from_env().await {
+    if let Ok(provider) = PinataStorageProvider::from_env() {
         return Ok(BuiltinStorageProvider::Pinata(provider));
     }
 
-    if let Ok(provider) = S3StorageProvider::from_env().await {
+    if let Ok(provider) = S3StorageProvider::from_env() {
         return Ok(BuiltinStorageProvider::S3(provider));
     }
 
@@ -246,12 +245,12 @@ pub async fn storage_provider_from_env(
 }
 
 /// Creates a storage provider based on the given configuration.
-pub async fn storage_provider_from_config(
+pub fn storage_provider_from_config(
     config: &StorageProviderConfig,
 ) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
     match config.storage_provider {
         StorageProviderType::S3 => {
-            let provider = S3StorageProvider::from_config(config).await?;
+            let provider = S3StorageProvider::from_config(config)?;
             Ok(BuiltinStorageProvider::S3(provider))
         }
         StorageProviderType::Pinata => {
@@ -271,13 +270,13 @@ impl BuiltinStorageProvider {
     ///
     /// See [storage_provider_from_env()].
     pub async fn from_env() -> Result<Self, <Self as StorageProvider>::Error> {
-        storage_provider_from_env().await
+        storage_provider_from_env()
     }
 
     /// Creates a storage provider based on the given configuration.
-    pub async fn from_config(
+    pub fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, <Self as StorageProvider>::Error> {
-        storage_provider_from_config(config).await
+        storage_provider_from_config(config)
     }
 }

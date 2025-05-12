@@ -677,7 +677,7 @@ where
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
                 .with_order_stream_url(order_stream_url.clone())
-                .with_storage_provider_config(&storage_config)
+                .with_storage_provider_config(storage_config)
                 .await?
                 .with_timeout(args.config.tx_timeout)
                 .build()

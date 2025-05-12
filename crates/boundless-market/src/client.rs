@@ -226,7 +226,7 @@ impl<P> ClientBuilder<P> {
         self,
         config: &StorageProviderConfig,
     ) -> Result<ClientBuilder<BuiltinStorageProvider>, BuiltinStorageProviderError> {
-        let storage_provider = match BuiltinStorageProvider::from_config(&config).await {
+        let storage_provider = match BuiltinStorageProvider::from_config(config) {
             Ok(storage_provider) => Some(storage_provider),
             Err(BuiltinStorageProviderError::NoProvider) => None,
             Err(e) => return Err(e),
@@ -578,7 +578,7 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
-        let storage_provider = match storage_provider_from_env().await {
+        let storage_provider = match storage_provider_from_env() {
             Ok(provider) => Some(provider),
             Err(_) => None,
         };

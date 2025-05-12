@@ -64,7 +64,7 @@ const DEFAULT_GATEWAY_URL: &str = "https://gateway.pinata.cloud";
 
 impl PinataStorageProvider {
     /// Creates a new Pinata storage provider from the environment variables.
-    pub async fn from_env() -> Result<Self, PinataStorageProviderError> {
+    pub fn from_env() -> Result<Self, PinataStorageProviderError> {
         let jwt = std::env::var("PINATA_JWT")
             .context("failed to fetch environment variable 'PINATA_JWT'")?;
         if jwt.is_empty() {
