@@ -71,22 +71,13 @@ services:
 
 
   exec_agent:
-    image: agent
+    image: risczero/risc0-bento-agent:initial
     runtime: nvidia
     restart: always
     depends_on:
       - postgres
       - redis
       - minio
-
-    build:
-      context: .
-      dockerfile: dockerfiles/agent.dockerfile
-      # NOTE: we build a single image for all agents so specify the GPU flags here
-      # TODO: can we clean this up / make it more logical?
-      args:
-        NVCC_APPEND_FLAGS: "--gpu-architecture=compute_86 --gpu-code=compute_86,sm_86 --generate-code arch=compute_86,code=sm_86"
-        CUDA_OPT_LEVEL: 1
 
     mem_limit: 4G
     cpus: 4
@@ -109,7 +100,7 @@ services:
     entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
 
   aux_agent:
-    image: agent
+    image: risczero/risc0-bento-agent:initial
     runtime: nvidia
     pull_policy: never
     restart: always
@@ -135,7 +126,7 @@ services:
     entrypoint: /app/agent -t aux --monitor-requeue
 
   gpu_prove_agent0: &gpu
-    image: agent
+    image: risczero/risc0-bento-agent:initial
     runtime: nvidia
     pull_policy: never
     restart: always
@@ -195,7 +186,7 @@ services:
 
 
   snark_agent:
-    image: agent
+    image: risczero/risc0-bento-agent:initial
     runtime: nvidia
 
     pull_policy: never
@@ -225,14 +216,11 @@ services:
       stack: 90000000
 
   rest_api:
+    image: risczero/risc0-bento-rest-api:initial
     restart: always
     depends_on:
       - postgres
       - minio
-
-    build:
-      context: .
-      dockerfile: dockerfiles/rest_api.dockerfile
 
     mem_limit: 1G
     cpus: 1
