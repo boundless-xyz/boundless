@@ -132,7 +132,6 @@ export class MonitorLambda extends pulumi.ComponentResource {
       secretId: args.dbUrlSecret.id,
     }).secretString;
 
-    const intervalSeconds = parseInt(args.intervalMinutes) * 60;
     this.lambdaFunction = createRustLambda(`${serviceName}-monitor`, {
       projectPath: path.join(__dirname, '../../../'),
       packageName: 'indexer-monitor',
@@ -141,7 +140,6 @@ export class MonitorLambda extends pulumi.ComponentResource {
       environmentVariables: {
         DB_URL: dbUrl,
         RUST_LOG: 'info',
-        INTERVAL_SECONDS: intervalSeconds.toString(),
         CLOUDWATCH_NAMESPACE: `${serviceName}-monitor-${args.chainId}`,
       },
       memorySize: 128,

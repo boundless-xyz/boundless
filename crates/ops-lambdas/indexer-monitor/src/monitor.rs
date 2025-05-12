@@ -28,6 +28,34 @@ impl Monitor {
         Ok(Self { db })
     }
 
+    /// Set the last run timestamp in the database.
+    pub async fn set_last_run(&self, last_run: i64) -> Result<()> {
+        let res = sqlx::query(
+            "INSERT INTO metric_state (id, last_run) VALUES ($1, $2)
+         ON CONFLICT (id) DO UPDATE SET last_run = EXCLUDED.last_run",
+        )
+        .bind(true)
+        .bind(last_run)
+        .execute(&self.db)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            anyhow::bail!("Failed to set last run");
+        }
+
+        Ok(())
+    }
+
+    /// Fetches the last run timestamp from the database.
+    pub async fn get_last_run(&self) -> Result<i64> {
+        let row = sqlx::query("SELECT last_run FROM metric_state WHERE id = $1")
+            .bind(true)
+            .fetch_one(&self.db)
+            .await?;
+
+        Ok(row.get::<i64, _>("last_run"))
+    }
+
     /// Fetches requests that expired within the given range.
     ///
     /// from: timestamp in seconds.

@@ -3,18 +3,21 @@
 // All rights reserved.
 
 use std::str::FromStr;
+use std::time::Duration;
 
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
+use aws_config::retry::{RetryConfigBuilder, RetryMode};
 use aws_config::Region;
 use aws_sdk_cloudwatch::types::{MetricDatum, StandardUnit};
 use aws_sdk_cloudwatch::Client as CloudWatchClient;
+use aws_smithy_types::retry::ReconnectMode;
 use aws_smithy_types::DateTime;
 use chrono::Utc;
 use lambda_runtime::{Error, LambdaEvent};
 use serde::Deserialize;
 use std::env;
-use tracing::{debug, error, instrument};
+use tracing::{debug, instrument};
 
 use crate::monitor::Monitor;
 
@@ -28,7 +31,6 @@ pub struct Event {
 /// Lambda function configuration read from environment variables
 struct Config {
     db_url: String,
-    interval_seconds: i64,
     region: String,
     namespace: String,
 }
@@ -40,19 +42,12 @@ impl Config {
             .context("DB_URL environment variable is required")
             .map_err(|e| Error::from(e.to_string()))?;
 
-        let interval_seconds = env::var("INTERVAL_SECONDS")
-            .context("INTERVAL_SECONDS environment variable is required")
-            .map_err(|e| Error::from(e.to_string()))?
-            .parse()
-            .context("INTERVAL_SECONDS must be a valid integer")
-            .map_err(|e| Error::from(e.to_string()))?;
-
         let region = env::var("AWS_REGION").unwrap_or_else(|_| "us-west-2".to_string());
 
         let namespace =
             env::var("CLOUDWATCH_NAMESPACE").unwrap_or_else(|_| "indexer-monitor".to_string());
 
-        Ok(Self { db_url, interval_seconds, region, namespace })
+        Ok(Self { db_url, region, namespace })
     }
 }
 
@@ -72,11 +67,16 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .map_err(|e| Error::from(e.to_string()))?;
 
     let now = Utc::now().timestamp();
-    let start_time = now - config.interval_seconds;
+    let start_time = monitor
+        .get_last_run()
+        .await
+        .context("Failed to get last run time")
+        .map_err(|e| Error::from(e.to_string()))?;
 
-    debug!(start_time, now, "Fetching expired requests");
+    let mut metrics = vec![];
 
-    // Fetch expired requests
+    debug!(start_time, now, "Fetching metrics");
+
     let expired = monitor
         .fetch_requests_expired(start_time, now)
         .await
@@ -85,18 +85,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 
     let expired_count = expired.len();
     debug!(count = expired_count, "Found expired requests");
-
-    if let Err(e) = publish_metric(
-        &config.region,
-        &config.namespace,
-        "expired_requests",
-        expired_count as f64,
-        now,
-    )
-    .await
-    {
-        error!(error = %e, "Failed to publish metric");
-    };
+    metrics.push(new_metric("expired_requests", expired_count as f64, now));
 
     let requests_count = monitor
         .fetch_requests_number(start_time, now)
@@ -104,18 +93,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .context("Failed to fetch requests number")
         .map_err(|e| Error::from(e.to_string()))?;
     debug!(count = requests_count, "Fetched requests number");
-
-    if let Err(e) = publish_metric(
-        &config.region,
-        &config.namespace,
-        "requests_number",
-        requests_count as f64,
-        now,
-    )
-    .await
-    {
-        error!(error = %e, "Failed to publish metric");
-    };
+    metrics.push(new_metric("requests_number", requests_count as f64, now));
 
     let fulfillment_count = monitor
         .fetch_fulfillments_number(start_time, now)
@@ -123,17 +101,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .context("Failed to fetch fulfilled requests number")
         .map_err(|e| Error::from(e.to_string()))?;
     debug!(count = fulfillment_count, "Fetched fulfilled requests number");
-    if let Err(e) = publish_metric(
-        &config.region,
-        &config.namespace,
-        "fulfilled_requests_number",
-        fulfillment_count as f64,
-        now,
-    )
-    .await
-    {
-        error!(error = %e, "Failed to publish metric");
-    };
+    metrics.push(new_metric("fulfilled_requests_number", fulfillment_count as f64, now));
 
     let slashed_count = monitor
         .fetch_slashed_number(start_time, now)
@@ -141,17 +109,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .context("Failed to fetch slashed requests number")
         .map_err(|e| Error::from(e.to_string()))?;
     debug!(count = slashed_count, "Fetched slashed requests number");
-    if let Err(e) = publish_metric(
-        &config.region,
-        &config.namespace,
-        "slashed_requests_number",
-        slashed_count as f64,
-        now,
-    )
-    .await
-    {
-        error!(error = %e, "Failed to publish metric");
-    };
+    metrics.push(new_metric("slashed_requests_number", slashed_count as f64, now));
 
     for client in event.clients {
         debug!(client, "Processing client");
@@ -165,51 +123,33 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .context("Failed to fetch expired requests for client {client}")
             .map_err(|e| Error::from(e.to_string()))?;
         let expired_count = expired_requests.len();
-        if let Err(e) = publish_metric(
-            &config.region,
-            &config.namespace,
-            format!("expired_requests_from_{client}").as_str(),
+        metrics.push(new_metric(
+            &format!("expired_requests_from_{client}"),
             expired_count as f64,
             now,
-        )
-        .await
-        {
-            error!(error = %e, "Failed to publish metric");
-        };
+        ));
 
         let requests_count = monitor
             .fetch_requests_number_from_client(start_time, now, address)
             .await
             .context("Failed to fetch requests number for client {client}")
             .map_err(|e| Error::from(e.to_string()))?;
-        if let Err(e) = publish_metric(
-            &config.region,
-            &config.namespace,
-            format!("requests_number_from_{client}").as_str(),
+        metrics.push(new_metric(
+            &format!("requests_number_from_{client}"),
             requests_count as f64,
             now,
-        )
-        .await
-        {
-            error!(error = %e, "Failed to publish metric");
-        };
+        ));
 
         let fulfilled_count = monitor
             .fetch_fulfillments_number_from_client(start_time, now, address)
             .await
             .context("Failed to fetch fulfilled requests number for client {client}")
             .map_err(|e| Error::from(e.to_string()))?;
-        if let Err(e) = publish_metric(
-            &config.region,
-            &config.namespace,
-            format!("fulfilled_requests_number_from_{client}").as_str(),
+        metrics.push(new_metric(
+            &format!("fulfilled_requests_number_from_{client}"),
             fulfilled_count as f64,
             now,
-        )
-        .await
-        {
-            error!(error = %e, "Failed to publish metric");
-        };
+        ));
     }
 
     for prover in event.provers {
@@ -224,54 +164,57 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .await
             .context("Failed to fetch fulfilled requests number by prover {prover}")
             .map_err(|e| Error::from(e.to_string()))?;
-        if let Err(e) = publish_metric(
-            &config.region,
-            &config.namespace,
-            format!("fulfilled_requests_number_by_{prover}").as_str(),
+        metrics.push(new_metric(
+            &format!("fulfilled_requests_number_by_{prover}"),
             fulfilled_number as f64,
             now,
-        )
-        .await
-        {
-            error!(error = %e, "Failed to publish metric");
-        };
+        ));
 
         let locked_number = monitor
             .fetch_locked_number_by_prover(start_time, now, address)
             .await
             .context("Failed to fetch locked requests number by prover {prover}")
             .map_err(|e| Error::from(e.to_string()))?;
-        if let Err(e) = publish_metric(
-            &config.region,
-            &config.namespace,
-            format!("locked_requests_number_by_{prover}").as_str(),
+        metrics.push(new_metric(
+            &format!("locked_requests_number_by_{prover}"),
             locked_number as f64,
             now,
-        )
-        .await
-        {
-            error!(error = %e, "Failed to publish metric");
-        };
+        ));
 
         let slashed_number = monitor
             .fetch_slashed_number_by_prover(start_time, now, address)
             .await
             .context("Failed to fetch slashed requests number by prover {prover}")
             .map_err(|e| Error::from(e.to_string()))?;
-        if let Err(e) = publish_metric(
-            &config.region,
-            &config.namespace,
-            format!("slashed_requests_number_by_{prover}").as_str(),
+        metrics.push(new_metric(
+            &format!("slashed_requests_number_by_{prover}"),
             slashed_number as f64,
             now,
-        )
-        .await
-        {
-            error!(error = %e, "Failed to publish metric");
-        };
+        ));
     }
 
+    debug!("Publishing metrics to CloudWatch");
+    publish_metric(&config.region, &config.namespace, metrics)
+        .await
+        .map_err(|e| Error::from(e.to_string()))?;
+
+    debug!("Updating last run time: {now}");
+    monitor
+        .set_last_run(now)
+        .await
+        .context("Failed to update last run time")
+        .map_err(|e| Error::from(e.to_string()))?;
+
     Ok(())
+}
+
+fn new_metric(name: &str, value: f64, timestamp: i64) -> MetricDatum {
+    MetricDatum::builder()
+        .metric_name(name)
+        .timestamp(DateTime::from_secs(timestamp))
+        .unit(StandardUnit::Count)
+        .value(value)
+        .build()
 }
 
 /// Publishes a metric to CloudWatch
@@ -279,29 +222,26 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 async fn publish_metric(
     region: &str,
     namespace: &str,
-    metric_name: &str,
-    value: f64,
-    timestamp: i64,
+    metrics: Vec<MetricDatum>,
 ) -> Result<(), Error> {
-    // Configure AWS SDK
-    let config = aws_config::from_env().region(Region::new(region.to_string())).load().await;
-
-    // Create CloudWatch client
-    let client = CloudWatchClient::new(&config);
-
-    // Create metric datum
-    let datum = MetricDatum::builder()
-        .metric_name(metric_name)
-        .timestamp(DateTime::from_secs(timestamp))
-        .unit(StandardUnit::Count)
-        .value(value)
+    let retry_config = RetryConfigBuilder::new()
+        .mode(RetryMode::Standard)
+        .max_attempts(3)
+        .initial_backoff(Duration::from_secs(1))
+        .max_backoff(Duration::from_secs(20))
+        .reconnect_mode(ReconnectMode::ReconnectOnTransientError)
         .build();
+    let config = aws_config::from_env()
+        .region(Region::new(region.to_string()))
+        .retry_config(retry_config)
+        .load()
+        .await;
 
-    // Send metric to CloudWatch
+    let client = CloudWatchClient::new(&config);
     client
         .put_metric_data()
         .namespace(namespace)
-        .metric_data(datum)
+        .set_metric_data(Some(metrics))
         .send()
         .await
         .context("Failed to put metric data")
