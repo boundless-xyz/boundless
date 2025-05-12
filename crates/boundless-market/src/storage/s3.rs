@@ -107,6 +107,8 @@ impl S3StorageProvider {
         let client = aws_sdk_s3::Client::from_conf(s3_config);
 
         // Attempt to provision the bucket if it does not exist
+        // DO NOT MERGE: Can we move this to a lazy init step? Having this in the constructor is
+        // causing async to bubble up to client construction in a needless way. Use LazyLock.
         let cfg = CreateBucketConfiguration::builder().build();
         let res = client
             .create_bucket()

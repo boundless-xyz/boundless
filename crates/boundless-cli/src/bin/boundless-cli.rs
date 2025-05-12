@@ -172,7 +172,7 @@ enum RequestCommands {
     Submit {
         /// Storage provider to use
         #[clap(flatten)]
-        storage_config: Option<StorageProviderConfig>,
+        storage_config: StorageProviderConfig,
 
         /// Path to a YAML file containing the request
         yaml_request: PathBuf,
@@ -330,7 +330,7 @@ enum ProvingCommands {
 struct SubmitOfferArgs {
     /// Storage provider to use
     #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
+    storage_config: StorageProviderConfig,
 
     /// Path to a YAML file containing the offer
     yaml_offer: PathBuf,
@@ -637,7 +637,7 @@ where
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
-                .with_storage_provider_config(offer_args.storage_config.clone())
+                .with_storage_provider_config(&offer_args.storage_config)
                 .await?
                 .with_order_stream_url(order_stream_url)
                 .with_timeout(args.config.tx_timeout)
@@ -677,7 +677,7 @@ where
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
                 .with_order_stream_url(order_stream_url.clone())
-                .with_storage_provider_config(storage_config.clone())
+                .with_storage_provider_config(&storage_config)
                 .await?
                 .with_timeout(args.config.tx_timeout)
                 .build()
@@ -1642,7 +1642,7 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: "../../request.yaml".to_string().into(),
                 id: None,
                 wait: false,
@@ -1672,7 +1672,7 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: "../../request.yaml".to_string().into(),
                 id: None,
                 wait: false,
@@ -1701,7 +1701,7 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::SubmitOffer(SubmitOfferArgs {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_offer: "../../offer.yaml".to_string().into(),
                 id: None,
                 wait: false,
@@ -1847,7 +1847,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: request_path,
                 id: None,
                 wait: false,
@@ -2049,7 +2049,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: request_path,
                 id: None,
                 wait: false,
@@ -2103,7 +2103,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: request_path,
                 id: None,
                 wait: false,
@@ -2164,7 +2164,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: request_path,
                 id: None,
                 wait: false,

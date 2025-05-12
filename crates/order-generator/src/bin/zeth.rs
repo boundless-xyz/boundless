@@ -50,7 +50,7 @@ struct Args {
     order_stream_url: Option<Url>,
     /// Storage provider to use
     #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
+    storage_config: StorageProviderConfig,
     /// Private key used to interact with the BoundlessMarket contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url)
-        .with_storage_provider_config(args.storage_config.clone())
+        .with_storage_provider_config(&args.storage_config)
         .await?
         .with_private_key(args.private_key)
         .with_balance_alerts(balance_alerts)

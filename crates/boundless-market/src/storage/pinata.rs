@@ -108,9 +108,7 @@ impl PinataStorageProvider {
     }
 
     /// Creates a new Pinata storage provider from the given configuration.
-    pub async fn from_config(
-        config: &StorageProviderConfig,
-    ) -> Result<Self, PinataStorageProviderError> {
+    pub fn from_config(config: &StorageProviderConfig) -> Result<Self, PinataStorageProviderError> {
         Ok(PinataStorageProvider {
             pinata_jwt: config
                 .pinata_jwt

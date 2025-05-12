@@ -85,7 +85,7 @@ pub enum ClientError {
 }
 
 /// Builder for the client
-pub struct ClientBuilder<P> {
+pub struct ClientBuilder<P = BuiltinStorageProvider> {
     boundless_market_addr: Option<Address>,
     set_verifier_addr: Option<Address>,
     rpc_url: Option<Url>,
@@ -100,8 +100,6 @@ pub struct ClientBuilder<P> {
 
 impl<P> Default for ClientBuilder<P> {
     /// Creates a new `ClientBuilder` with all configuration options set to their default values.
-    ///
-    /// This implementation works with any storage provider type `P`.
     fn default() -> Self {
         Self {
             boundless_market_addr: None,
@@ -119,32 +117,15 @@ impl<P> Default for ClientBuilder<P> {
 }
 
 impl ClientBuilder<BuiltinStorageProvider> {
-    /// Create a new client builder using the built-in storage provider.
+    /// Create a new client builder.
     ///
-    /// For a different storage provider, use [`ClientBuilder::default()`] with an
-    /// explicit type parameter:
-    /// ```rust
-    /// # use boundless_market::{client::ClientBuilder, storage::S3StorageProvider};
-    /// let builder = ClientBuilder::<S3StorageProvider>::default();
-    /// ```
+    /// Equivalent to [Default] when using [BuiltinStorageProvider].
     pub fn new() -> Self {
         Self::default()
     }
-
-    /// Set the storage provider from the given config
-    pub async fn with_storage_provider_config(
-        self,
-        config: Option<StorageProviderConfig>,
-    ) -> Result<Self, <BuiltinStorageProvider as StorageProvider>::Error> {
-        let storage_provider = match config {
-            Some(cfg) => Some(BuiltinStorageProvider::from_config(&cfg).await?),
-            None => None,
-        };
-        Ok(self.with_storage_provider(storage_provider))
-    }
 }
 
-impl<P: StorageProvider> ClientBuilder<P> {
+impl<P> ClientBuilder<P> {
     /// Build the client
     pub async fn build(self) -> Result<Client<ProviderWallet, P>> {
         let mut client = Client::from_parts(
@@ -201,11 +182,6 @@ impl<P: StorageProvider> ClientBuilder<P> {
         Self { order_stream_url, ..self }
     }
 
-    /// Set the storage provider
-    pub fn with_storage_provider(self, storage_provider: Option<P>) -> Self {
-        Self { storage_provider, ..self }
-    }
-
     /// Set the transaction timeout in seconds
     pub fn with_timeout(self, tx_timeout: Option<Duration>) -> Self {
         Self { tx_timeout, ..self }
@@ -221,6 +197,41 @@ impl<P: StorageProvider> ClientBuilder<P> {
     /// Set the balance alerts configuration
     pub fn with_balance_alerts(self, config: BalanceAlertConfig) -> Self {
         Self { balance_alerts: Some(config), ..self }
+    }
+
+    /// Set the storage provider.
+    ///
+    /// The returned [ClientBuilder] will be generic over the provider [StorageProvider] type.
+    pub fn with_storage_provider<S: StorageProvider>(
+        self,
+        storage_provider: Option<S>,
+    ) -> ClientBuilder<S> {
+        // NOTE: We can't use the ..self syntax here because return is not Self.
+        ClientBuilder {
+            storage_provider,
+            boundless_market_addr: self.boundless_market_addr,
+            set_verifier_addr: self.set_verifier_addr,
+            rpc_url: self.rpc_url,
+            wallet: self.wallet,
+            local_signer: self.local_signer,
+            order_stream_url: self.order_stream_url,
+            tx_timeout: self.tx_timeout,
+            balance_alerts: self.balance_alerts,
+            bidding_start_delay: self.bidding_start_delay,
+        }
+    }
+
+    /// Set the storage provider from the given config
+    pub async fn with_storage_provider_config(
+        self,
+        config: &StorageProviderConfig,
+    ) -> Result<ClientBuilder<BuiltinStorageProvider>, BuiltinStorageProviderError> {
+        let storage_provider = match BuiltinStorageProvider::from_config(&config).await {
+            Ok(storage_provider) => Some(storage_provider),
+            Err(BuiltinStorageProviderError::NoProvider) => None,
+            Err(e) => return Err(e),
+        };
+        Ok(self.with_storage_provider(storage_provider))
     }
 }
 
@@ -245,7 +256,6 @@ pub struct Client<P, S> {
 impl<P, S> Client<P, S>
 where
     P: Provider<Ethereum> + 'static + Clone,
-    S: StorageProvider,
 {
     /// Create a new client
     pub fn new(
@@ -285,7 +295,10 @@ where
     }
 
     /// Set the storage provider
-    pub fn with_storage_provider(self, storage_provider: S) -> Self {
+    pub fn with_storage_provider(self, storage_provider: S) -> Self
+    where
+        S: StorageProvider,
+    {
         Self { storage_provider: Some(storage_provider), ..self }
     }
 
@@ -314,7 +327,10 @@ where
     }
 
     /// Upload a program binary to the storage provider
-    pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError> {
+    pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError>
+    where
+        S: StorageProvider,
+    {
         Ok(self
             .storage_provider
             .as_ref()
@@ -325,7 +341,10 @@ where
     }
 
     /// Upload input to the storage provider
-    pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError> {
+    pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError>
+    where
+        S: StorageProvider,
+    {
         Ok(self
             .storage_provider
             .as_ref()
@@ -340,10 +359,7 @@ where
     /// Requires a local signer to be set to sign the request.
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current time will be used, plus a delay.
-    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
-    where
-        <S as StorageProvider>::Error: std::fmt::Debug,
-    {
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError> {
         let signer = self.local_signer.as_ref().context("Local signer not set")?;
         self.submit_request_with_signer(request, signer).await
     }
@@ -357,10 +373,7 @@ where
         &self,
         request: &ProofRequest,
         signer: &impl Signer,
-    ) -> Result<(U256, u64), ClientError>
-    where
-        <S as StorageProvider>::Error: std::fmt::Debug,
-    {
+    ) -> Result<(U256, u64), ClientError> {
         let mut request = request.clone();
 
         if request.id == U256::ZERO {
@@ -405,10 +418,7 @@ where
         &self,
         request: &ProofRequest,
         signer: &impl Signer,
-    ) -> Result<(U256, u64), ClientError>
-    where
-        <S as StorageProvider>::Error: std::fmt::Debug,
-    {
+    ) -> Result<(U256, u64), ClientError> {
         let offchain_client = self
             .offchain_client
             .as_ref()
@@ -448,10 +458,7 @@ where
     pub async fn submit_request_offchain(
         &self,
         request: &ProofRequest,
-    ) -> Result<(U256, u64), ClientError>
-    where
-        <S as StorageProvider>::Error: std::fmt::Debug,
-    {
+    ) -> Result<(U256, u64), ClientError> {
         let signer = self.local_signer.as_ref().context("Local signer not set")?;
         self.submit_request_offchain_with_signer(request, signer).await
     }
@@ -599,7 +606,7 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
     }
 }
 
-impl<P: StorageProvider> Client<ProviderWallet, P> {
+impl<P> Client<ProviderWallet, P> {
     /// Create a new client from parts
     pub async fn from_parts(
         wallet: EthereumWallet,

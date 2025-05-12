@@ -18,7 +18,7 @@
 use std::{fmt::Debug, ops::Deref, path::PathBuf, result::Result::Ok, sync::Arc};
 
 use async_trait::async_trait;
-use clap::{Parser, ValueEnum};
+use clap::{builder::ArgPredicate, Parser, ValueEnum};
 use reqwest::Url;
 
 mod fetch;
@@ -111,7 +111,7 @@ pub enum BuiltinStorageProviderError {
     NoProvider,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Default, Clone, Debug, ValueEnum)]
 #[non_exhaustive]
 /// The type of storage provider to use.
 pub enum StorageProviderType {
@@ -121,6 +121,9 @@ pub enum StorageProviderType {
     Pinata,
     /// Temporary file storage provider.
     File,
+    /// No storage provider.
+    #[default]
+    None,
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -133,7 +136,11 @@ pub struct StorageProviderConfig {
     /// - For 'pinata', the following option is required:
     ///   --pinata-jwt (optionally, you can specify --pinata-api-url, --ipfs-gateway-url)
     /// - For 'file', no additional options are required (optionally, you can specify --file-path)    
-    #[arg(long, env, value_enum, default_value_t = StorageProviderType::Pinata)]
+    #[arg(long, env, value_enum, default_value_ifs = [
+        ("s3_access_key", ArgPredicate::IsPresent, "s3"),
+        ("pinata_jwt", ArgPredicate::IsPresent, "pinata"),
+        ("file_path", ArgPredicate::IsPresent, "file")
+    ])]
     pub storage_provider: StorageProviderType,
 
     // **S3 Storage Provider Options**
@@ -219,6 +226,8 @@ impl StorageProvider for BuiltinStorageProvider {
 /// Otherwise, the following environment variables are checked in order:
 /// - `PINATA_JWT`, `PINATA_API_URL`, `IPFS_GATEWAY_URL`: Pinata storage provider;
 /// - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
+// TODO: Consoplidate the from env implementation to use the clap parsing to reduce potential
+// issues from duplication.
 pub async fn storage_provider_from_env(
 ) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
     if risc0_zkvm::is_dev_mode() {
@@ -246,13 +255,14 @@ pub async fn storage_provider_from_config(
             Ok(BuiltinStorageProvider::S3(provider))
         }
         StorageProviderType::Pinata => {
-            let provider = PinataStorageProvider::from_config(config).await?;
+            let provider = PinataStorageProvider::from_config(config)?;
             Ok(BuiltinStorageProvider::Pinata(provider))
         }
         StorageProviderType::File => {
             let provider = TempFileStorageProvider::from_config(config)?;
             Ok(BuiltinStorageProvider::File(provider))
         }
+        StorageProviderType::None => Err(BuiltinStorageProviderError::NoProvider),
     }
 }
 

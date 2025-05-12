@@ -22,10 +22,7 @@ use boundless_market::{
     client::ClientBuilder,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
-    storage::{
-        storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider,
-        StorageProviderConfig,
-    },
+    storage::StorageProviderConfig,
 };
 use clap::{Args, Parser};
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
@@ -57,7 +54,7 @@ struct MainArgs {
     interval: u64,
     // Storage provider to use.
     #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
+    storage_config: StorageProviderConfig,
     /// Optional number of requests to submit.
     ///
     /// If unspecified, the loop will run indefinitely.
@@ -155,14 +152,10 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let storage_provider = match &args.storage_config {
-        Some(storage_config) => storage_provider_from_config(storage_config).await?,
-        None => storage_provider_from_env().await?,
-    };
-
-    let boundless_client = ClientBuilder::<BuiltinStorageProvider>::new()
+    let boundless_client = ClientBuilder::new()
         .with_rpc_url(args.rpc_url.clone())
-        .with_storage_provider(Some(storage_provider))
+        .with_storage_provider_config(&args.storage_config)
+        .await?
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url.clone())
@@ -347,7 +340,7 @@ mod tests {
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             order_stream_url: None,
-            storage_config: Some(StorageProviderConfig::dev_mode()),
+            storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             set_verifier_address: ctx.set_verifier_address,
             boundless_market_address: ctx.boundless_market_address,
