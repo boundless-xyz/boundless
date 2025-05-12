@@ -301,13 +301,18 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::{
-        BoundlessMarketService, InputType, Layer, OfferLayer, Predicate, PreflightLayer,
-        RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerMode, RequestInput, Requirements,
-        RequirementsLayer, StandardRequestBuilder, StorageLayer,
+        Layer, OfferLayer, PreflightLayer, RequestBuilder, RequestId, RequestIdLayer,
+        RequestIdLayerMode, RequirementsLayer, StandardRequestBuilder, StorageLayer,
     };
 
-    use crate::input::GuestEnv;
-    use crate::storage::{fetch_url, MockStorageProvider, StorageProvider};
+    use crate::{
+        contracts::{
+            boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Predicate,
+            Requirements,
+        },
+        input::GuestEnv,
+        storage::{fetch_url, MockStorageProvider, StorageProvider},
+    };
     use alloy_primitives::U256;
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
 
