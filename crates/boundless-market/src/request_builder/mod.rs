@@ -60,6 +60,21 @@ pub trait RequestBuilder<Params> {
     async fn build(&self, params: impl Into<Params>) -> Result<ProofRequest, Self::Error>;
 }
 
+/// Blanket implementation for [RequestBuilder] for all [Layer] that output a proof request.
+///
+/// This implementation allows for custom and modified layered builders to automatically be usable
+/// as a [RequestBuilder].
+impl<L, Params> RequestBuilder<Params> for L
+where
+    L: Layer<Params, Output = ProofRequest>,
+{
+    type Error = L::Error;
+
+    async fn build(&self, params: impl Into<Params>) -> Result<ProofRequest, Self::Error> {
+        self.process(params.into()).await
+    }
+}
+
 pub trait Layer<Input> {
     type Output;
     /// Error type that may be returned by this layer.
@@ -126,17 +141,17 @@ impl StandardRequestBuilder<(), ()> {
     }
 }
 
-impl<S, P> RequestBuilder<RequestParams> for StandardRequestBuilder<S, P>
+impl<S, P> Layer<RequestParams> for StandardRequestBuilder<S, P>
 where
     S: StorageProvider,
     S::Error: std::error::Error + Send + Sync + 'static,
     P: Provider<Ethereum> + 'static + Clone,
 {
+    type Output = ProofRequest;
     type Error = anyhow::Error;
 
-    async fn build(&self, params: impl Into<RequestParams>) -> Result<ProofRequest, Self::Error> {
-        params
-            .into()
+    async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
+        input
             .process_with(&self.storage_layer)
             .await?
             .process_with(&self.preflight_layer)
