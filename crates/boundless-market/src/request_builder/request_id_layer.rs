@@ -1,10 +1,10 @@
 #![allow(missing_docs)]
 
-use derive_builder::Builder;
+use super::{Adapt, Layer, RequestParams};
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::RequestId;
-use alloy::{providers::Provider, network::Ethereum};
-use super::{Layer, Adapt, RequestParams};
+use alloy::{network::Ethereum, providers::Provider};
+use derive_builder::Builder;
 
 #[non_exhaustive]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]

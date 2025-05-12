@@ -18,38 +18,23 @@
 // TODO: Add debug and trace logging to the layers.
 // TODO: Create a test and an example of adding a layer.
 
-use std::{borrow::Cow, fmt, fmt::Debug, rc::Rc};
+use std::{borrow::Cow, fmt, fmt::Debug};
 
-use alloy::{
-    network::Ethereum,
-    primitives::{
-        utils::{format_units, Unit},
-        U256,
-    },
-    providers::Provider,
-};
-use anyhow::{bail, Context};
+use alloy::{network::Ethereum, providers::Provider};
 use derive_builder::Builder;
-use risc0_zkvm::{
-    compute_image_id, default_executor, sha::Digestible, Executor, Journal, SessionInfo,
-};
+use risc0_zkvm::Journal;
 use url::Url;
 
 use crate::{
-    contracts::{
-        boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Offer,
-        Predicate, ProofRequest, RequestId, Requirements,
-    },
+    contracts::{Input as RequestInput, Offer, ProofRequest, RequestId, Requirements},
     input::GuestEnv,
-    now_timestamp,
-    selector::{ProofType, SupportedSelectors},
-    storage::{fetch_url, StorageProvider},
+    storage::StorageProvider,
 };
-mod storage_layer;
 mod preflight_layer;
+mod storage_layer;
 
-pub use storage_layer::StorageLayer;
 pub use preflight_layer::PreflightLayer;
+pub use storage_layer::StorageLayer;
 mod requirements_layer;
 pub use requirements_layer::RequirementsLayer;
 mod request_id_layer;
@@ -59,21 +44,20 @@ pub use offer_layer::OfferLayer;
 mod finalizer;
 pub use finalizer::Finalizer;
 
-pub trait RequestBuilder {
-    type Params;
+pub trait RequestBuilder<Params> {
     /// Error type that may be returned by this filler.
     type Error;
 
     // NOTE: Takes the self receiver so that the caller does not need to explicitly name the
     // RequestBuilder type (e.g. `<MyRequestBuilder as RequestBuilder>::default_params()`)
-    fn default_params(&self) -> Self::Params
+    fn default_params(&self) -> Params
     where
-        Self::Params: Default,
+        Params: Default,
     {
         Default::default()
     }
 
-    async fn build(&self, params: impl Into<Self::Params>) -> Result<ProofRequest, Self::Error>;
+    async fn build(&self, params: impl Into<Params>) -> Result<ProofRequest, Self::Error>;
 }
 
 pub trait Layer<Input> {
@@ -118,12 +102,6 @@ where
     }
 }
 
-
-
-
-
-
-
 /// A standard [RequestBuilder] provided as a default implementation.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
@@ -148,16 +126,15 @@ impl StandardRequestBuilder<(), ()> {
     }
 }
 
-impl<S, P> RequestBuilder for StandardRequestBuilder<S, P>
+impl<S, P> RequestBuilder<RequestParams> for StandardRequestBuilder<S, P>
 where
     S: StorageProvider,
     S::Error: std::error::Error + Send + Sync + 'static,
     P: Provider<Ethereum> + 'static + Clone,
 {
-    type Params = RequestParams;
     type Error = anyhow::Error;
 
-    async fn build(&self, params: impl Into<Self::Params>) -> Result<ProofRequest, Self::Error> {
+    async fn build(&self, params: impl Into<RequestParams>) -> Result<ProofRequest, Self::Error> {
         params
             .into()
             .process_with(&self.storage_layer)
@@ -315,9 +292,6 @@ impl MissingFieldError {
     }
 }
 
-
-
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -327,10 +301,9 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::{
-        BoundlessMarketService, InputType, Layer, OfferLayer, Predicate,
-        PreflightLayer, RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerMode,
-        RequestInput, RequestParams, Requirements, RequirementsLayer, StandardRequestBuilder,
-        StorageLayer,
+        BoundlessMarketService, InputType, Layer, OfferLayer, Predicate, PreflightLayer,
+        RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerMode, RequestInput, Requirements,
+        RequirementsLayer, StandardRequestBuilder, StorageLayer,
     };
 
     use crate::input::GuestEnv;
@@ -356,7 +329,8 @@ mod tests {
             .request_id_layer(market)
             .build()?;
 
-        let params = RequestParams::default().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let params =
+            request_builder.default_params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
         let request = request_builder.build(params).await?;
         println!("built request {request:#?}");
         Ok(())

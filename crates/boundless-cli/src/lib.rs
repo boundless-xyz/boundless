@@ -42,6 +42,7 @@ use boundless_market::{
     input::{GuestEnv, InputBuilder},
     order_stream_client::Order,
     selector::{is_groth16_selector, SupportedSelectors},
+    storage::fetch_url,
 };
 
 alloy::sol!(

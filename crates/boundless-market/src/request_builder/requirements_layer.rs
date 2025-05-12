@@ -1,11 +1,11 @@
 #![allow(missing_docs)]
 
-use derive_builder::Builder;
+use super::{Adapt, Layer, RequestParams};
+use crate::contracts::{Predicate, Requirements};
 use anyhow::Context;
-use risc0_zkvm::{compute_image_id, Journal};
+use derive_builder::Builder;
 use risc0_zkvm::sha::Digestible;
-use crate::contracts::{Requirements, Predicate};
-use super::{Layer, Adapt, RequestParams};
+use risc0_zkvm::{compute_image_id, Journal};
 
 #[non_exhaustive]
 #[derive(Clone, Builder, Default)]

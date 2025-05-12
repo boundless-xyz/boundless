@@ -1,13 +1,13 @@
 #![allow(missing_docs)]
 
-use std::fmt;
-use derive_builder::Builder;
-use anyhow::Context;
-use url::Url;
-use crate::input::GuestEnv;
+use super::{Adapt, Layer, RequestParams};
 use crate::contracts::Input as RequestInput;
+use crate::input::GuestEnv;
 use crate::storage::StorageProvider;
-use super::{Layer, Adapt, RequestParams};
+use anyhow::Context;
+use derive_builder::Builder;
+use std::fmt;
+use url::Url;
 
 #[non_exhaustive]
 #[derive(Clone, Builder)]
@@ -87,10 +87,7 @@ where
     S: StorageProvider + Default,
 {
     fn default() -> Self {
-        Self {
-            inline_input_max_bytes: Some(2048),
-            storage_provider: S::default(),
-        }
+        Self { inline_input_max_bytes: Some(2048), storage_provider: S::default() }
     }
 }
 

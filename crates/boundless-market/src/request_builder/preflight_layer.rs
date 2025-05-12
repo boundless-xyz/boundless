@@ -1,14 +1,14 @@
 #![allow(missing_docs)]
 
-use std::rc::Rc;
-use derive_builder::Builder;
-use anyhow::{Context, bail};
-use url::Url;
-use risc0_zkvm::{default_executor, Executor, SessionInfo};
-use crate::input::GuestEnv;
+use super::{Adapt, Layer, RequestParams};
 use crate::contracts::{Input as RequestInput, InputType};
+use crate::input::GuestEnv;
 use crate::storage::fetch_url;
-use super::{Layer, Adapt, RequestParams};
+use anyhow::{bail, Context};
+use derive_builder::Builder;
+use risc0_zkvm::{default_executor, Executor, SessionInfo};
+use std::rc::Rc;
+use url::Url;
 
 #[non_exhaustive]
 #[derive(Clone, Builder)]
@@ -26,8 +26,8 @@ impl PreflightLayer {
         let env = match input.inputType {
             InputType::Inline => GuestEnv::decode(&input.data)?,
             InputType::Url => {
-                let input_url = std::str::from_utf8(&input.data)
-                    .context("Input URL is not valid UTF-8")?;
+                let input_url =
+                    std::str::from_utf8(&input.data).context("Input URL is not valid UTF-8")?;
                 tracing::info!("Fetching input from {}", input_url);
                 GuestEnv::decode(&fetch_url(&input_url).await?)?
             }

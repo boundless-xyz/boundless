@@ -1,11 +1,11 @@
 #![allow(missing_docs)]
 
-use derive_builder::Builder;
-use anyhow::{Context, bail};
-use url::Url;
-use crate::contracts::{ProofRequest, Offer, RequestId, Requirements};
+use super::{Adapt, Layer, RequestParams};
 use crate::contracts::Input as RequestInput;
-use super::{Layer, Adapt, RequestParams};
+use crate::contracts::{Offer, ProofRequest, RequestId, Requirements};
+use anyhow::{bail, Context};
+use derive_builder::Builder;
+use url::Url;
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Builder, Default)]
@@ -23,7 +23,13 @@ impl Layer<(Url, RequestInput, Requirements, Offer, RequestId)> for Finalizer {
 
     async fn process(
         &self,
-        (program_url, input, requirements, offer, request_id): (Url, RequestInput, Requirements, Offer, RequestId),
+        (program_url, input, requirements, offer, request_id): (
+            Url,
+            RequestInput,
+            Requirements,
+            Offer,
+            RequestId,
+        ),
     ) -> Result<Self::Output, Self::Error> {
         let request = ProofRequest {
             requirements,

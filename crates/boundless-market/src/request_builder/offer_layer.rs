@@ -1,12 +1,19 @@
 #![allow(missing_docs)]
 
-use derive_builder::Builder;
-use alloy::{primitives::{U256, utils::{format_units, Unit}}, providers::Provider, network::Ethereum};
-use anyhow::Context;
-use crate::contracts::{Offer, Requirements, RequestId};
-use crate::selector::{ProofType, SupportedSelectors};
+use super::{Adapt, Layer, RequestParams};
+use crate::contracts::{Offer, RequestId, Requirements};
 use crate::now_timestamp;
-use super::{Layer, Adapt, RequestParams};
+use crate::selector::{ProofType, SupportedSelectors};
+use alloy::{
+    network::Ethereum,
+    primitives::{
+        utils::{format_units, Unit},
+        U256,
+    },
+    providers::Provider,
+};
+use anyhow::Context;
+use derive_builder::Builder;
 
 #[non_exhaustive]
 #[derive(Clone, Builder)]
