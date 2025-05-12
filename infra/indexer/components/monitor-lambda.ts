@@ -3,6 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { createRustLambda } from './rust-lambda';
 import { getServiceNameV1 } from '../../util';
+import { clients, provers } from './targets';
 
 export interface MonitorLambdaArgs {
   /** VPC where RDS lives */
@@ -15,12 +16,8 @@ export interface MonitorLambdaArgs {
   dbUrlSecret: aws.secretsmanager.Secret;
   /** Chain ID */
   chainId: string;
+  /** RUST_LOG level */
   rustLogLevel: string;
-  /** Lambda input payload (optional) */
-  lambdaInput?: {
-    clients: string[];
-    provers: string[];
-  };
 }
 
 const SERVICE_NAME_BASE = 'indexer';
@@ -159,15 +156,14 @@ export class MonitorLambda extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Default payload if not provided
-    const defaultLambdaInput = {
-      clients: [],
-      provers: []
+    const payload = {
+      clients: clients,
+      provers: provers,
     };
 
     new aws.cloudwatch.EventTarget(
       `${name}-target`,
-      { rule: rule.name, arn: this.lambdaFunction.arn, input: JSON.stringify(args.lambdaInput ?? defaultLambdaInput) },
+      { rule: rule.name, arn: this.lambdaFunction.arn, input: JSON.stringify(payload) },
       { parent: this },
     );
     new aws.lambda.Permission(
