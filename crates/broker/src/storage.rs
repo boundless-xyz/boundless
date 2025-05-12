@@ -339,7 +339,10 @@ pub async fn upload_image_uri(
         return Ok(image_id_str);
     }
 
-    tracing::debug!("Fetching program with image ID {image_id_str} from URI {}", order.request.imageUrl);
+    tracing::debug!(
+        "Fetching program with image ID {image_id_str} from URI {}",
+        order.request.imageUrl
+    );
     let uri =
         create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
 
