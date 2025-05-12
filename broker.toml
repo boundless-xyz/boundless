@@ -49,8 +49,6 @@ max_concurrent_proofs = 2
 # The broker service has a number of subtasks. Some are considered critical. If a task fails, it
 # will be retried, but after this number of retries, the process will exit.
 max_critical_task_retries = 10
-# Optional list of image IDs for which preflight should be skipped.
-#skip_preflight_ids = []
 # Optional allow list for customer address.
 #
 # If enabled, all requests from clients not in the allow list are skipped.

@@ -18,8 +18,8 @@ use boundless_market::{
     contracts::{Input, Offer, Predicate, ProofRequest, RequestId, Requirements},
     storage::{StorageProvider, StorageProviderConfig},
 };
+use boundless_market_test_utils::{ECHO_ELF, ECHO_ID};
 use clap::Parser;
-use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::{default_executor, serde::from_slice, sha::Digestible, Journal};
 use url::Url;
 
@@ -235,8 +235,6 @@ mod tests {
     use boundless_market::storage::MockStorageProvider;
     use boundless_market_test_utils::{create_test_ctx, TestCtx};
     use broker::test_utils::BrokerBuilder;
-    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
     use test_log::test;
     use tokio::task::JoinSet;
 
@@ -274,15 +272,7 @@ mod tests {
     async fn test_main() -> Result<()> {
         // Setup anvil and deploy contracts
         let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx(
-            &anvil,
-            SET_BUILDER_ID,
-            format!("file://{SET_BUILDER_PATH}"),
-            ASSESSOR_GUEST_ID,
-            format!("file://{ASSESSOR_GUEST_PATH}"),
-        )
-        .await
-        .unwrap();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
             .await
@@ -313,7 +303,8 @@ mod tests {
         let mut tasks = JoinSet::new();
 
         // Start a broker
-        let (broker, _) = BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
+        let (broker, _config) =
+            BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
         tasks.spawn(async move { broker.start_service().await });
 
         const TIMEOUT_SECS: u64 = 300; // 5 minutes

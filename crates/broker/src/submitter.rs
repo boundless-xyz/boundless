@@ -18,7 +18,6 @@ use boundless_market::{
     },
     selector::is_groth16_selector,
 };
-use guest_assessor::ASSESSOR_GUEST_ID;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
@@ -45,7 +44,7 @@ pub enum SubmitterErr {
     #[error("{code} Market error: {0}", code = self.code())]
     MarketError(#[from] MarketError),
 
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 
@@ -321,7 +320,7 @@ where
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
             // should make an explicit way to encode an inclusion proof without the claim.
-            ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
+            ReceiptClaim::ok(Digest::ZERO, MaybePruned::Pruned(Digest::ZERO)),
             assessor_path,
             inclusion_params.digest(),
         );
@@ -564,11 +563,10 @@ mod tests {
     };
     use boundless_market_test_utils::{
         deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
+        ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID,
+        SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH,
     };
     use chrono::Utc;
-    use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
-    use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;

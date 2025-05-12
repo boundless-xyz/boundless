@@ -17,7 +17,7 @@ use thiserror::Error;
 
 #[derive(Error)]
 pub enum ProvingErr {
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
 
@@ -263,8 +263,8 @@ mod tests {
     use boundless_market::contracts::{
         Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
     };
+    use boundless_market_test_utils::{ECHO_ELF, ECHO_ID};
     use chrono::Utc;
-    use guest_util::{ECHO_ELF, ECHO_ID};
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
     use tracing_test::traced_test;

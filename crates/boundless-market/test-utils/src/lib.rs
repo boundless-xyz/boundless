@@ -13,12 +13,17 @@
 // limitations under the License.
 
 use alloy::{
-    network::EthereumWallet,
+    network::{EthereumWallet, Network, TransactionBuilder},
     node_bindings::AnvilInstance,
     primitives::{Address, Bytes, FixedBytes},
-    providers::{ext::AnvilApi, Provider, ProviderBuilder, WalletProvider},
+    providers::{
+        ext::AnvilApi,
+        fillers::{ChainIdFiller, FillerControlFlow, GasFillable, GasFiller, TxFiller},
+        Provider, ProviderBuilder, SendableTx, WalletProvider,
+    },
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
+    transports::TransportResult,
 };
 use alloy_primitives::{B256, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
@@ -29,9 +34,6 @@ use boundless_market::contracts::{
     hit_points::{default_allowance, HitPointsService},
     AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
 };
-use guest_assessor::ASSESSOR_GUEST_ID;
-use guest_set_builder::SET_BUILDER_ID;
-use guest_util::ECHO_ID;
 use risc0_aggregation::{
     merkle_path, merkle_root, GuestState, SetInclusionReceipt,
     SetInclusionReceiptVerifierParameters,
@@ -45,6 +47,12 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 
+// Export image IDs and paths publicly to ensure all dependants use the same ones.
+pub use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+pub use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
+pub use guest_util::{ECHO_ELF, ECHO_ID, ECHO_PATH, IDENTITY_ELF, IDENTITY_ID, IDENTITY_PATH};
+
+#[non_exhaustive]
 pub struct TestCtx<P> {
     pub verifier_address: Address,
     pub set_verifier_address: Address,
@@ -265,36 +273,81 @@ pub async fn deploy_contracts(
 // with a RiscZeroGroth16Verifier otherwise.
 pub async fn create_test_ctx(
     anvil: &AnvilInstance,
-    set_builder_id: impl Into<Digest>,
-    set_builder_url: String,
-    assessor_guest_id: impl Into<Digest>,
-    assessor_guest_url: String,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-    create_test_ctx_with_rpc_url(
-        anvil,
-        &anvil.endpoint(),
-        set_builder_id,
-        set_builder_url,
-        assessor_guest_id,
-        assessor_guest_url,
-    )
-    .await
+    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint()).await
+}
+
+/// This is a stop-gap workaround to insufficient gas estimation for lock transactions in anvil.
+// TODO: resolve the gas discrepancy to avoid lock transaction failures if possible outside of
+//       tests, currently unclear if `anvil` specific or a gas difference based on timestamp control
+//       flow.
+#[derive(Clone, Copy, Debug, Default)]
+struct TestGasFiller;
+
+impl<N: Network> TxFiller<N> for TestGasFiller {
+    type Fillable = GasFillable;
+
+    fn status(&self, tx: &<N as Network>::TransactionRequest) -> FillerControlFlow {
+        TxFiller::<N>::status(&GasFiller, tx)
+    }
+
+    fn fill_sync(&self, _tx: &mut SendableTx<N>) {}
+
+    async fn prepare<P>(
+        &self,
+        provider: &P,
+        tx: &N::TransactionRequest,
+    ) -> TransportResult<Self::Fillable>
+    where
+        P: Provider<N>,
+    {
+        // Default gas filler, overrides in `fill`
+        GasFiller.prepare(provider, tx).await
+    }
+
+    async fn fill(
+        &self,
+        fillable: Self::Fillable,
+        mut tx: SendableTx<N>,
+    ) -> TransportResult<SendableTx<N>> {
+        if let Some(builder) = tx.as_mut_builder() {
+            // Overrides setting gas limit
+            match fillable {
+                GasFillable::Legacy { gas_limit, gas_price } => {
+                    // Multiply gas limit by 1.5
+                    let adjusted_gas_limit = (gas_limit * 15) / 10;
+                    builder.set_gas_limit(adjusted_gas_limit);
+                    builder.set_gas_price(gas_price);
+                }
+                GasFillable::Eip1559 { gas_limit, estimate } => {
+                    // Multiply gas limit by 1.5
+                    let adjusted_gas_limit = (gas_limit * 15) / 10;
+                    builder.set_gas_limit(adjusted_gas_limit);
+                    builder.set_max_fee_per_gas(estimate.max_fee_per_gas);
+                    builder.set_max_priority_fee_per_gas(estimate.max_priority_fee_per_gas);
+                }
+            }
+        };
+        TransportResult::Ok(tx)
+    }
 }
 
 pub async fn create_test_ctx_with_rpc_url(
     anvil: &AnvilInstance,
     rpc_url: &str,
-    set_builder_id: impl Into<Digest>,
-    set_builder_url: String,
-    assessor_guest_id: impl Into<Digest>,
-    assessor_guest_url: String,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
+    // NOTE: There may be use cases for making these configurable, but its not obviously the case.
+    let set_builder_id = Digest::from(SET_BUILDER_ID);
+    let set_builder_url = format!("file://{SET_BUILDER_PATH}");
+    let assessor_guest_id = Digest::from(ASSESSOR_GUEST_ID);
+    let assessor_guest_url = format!("file://{ASSESSOR_GUEST_PATH}");
+
     let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
         deploy_contracts(
             anvil,
-            set_builder_id.into(),
+            set_builder_id,
             set_builder_url,
-            assessor_guest_id.into(),
+            assessor_guest_id,
             assessor_guest_url,
         )
         .await
@@ -305,14 +358,26 @@ pub async fn create_test_ctx_with_rpc_url(
     let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
     let prover_provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .with_simple_nonce_management()
+        .filler(ChainIdFiller::default())
+        .filler(TestGasFiller)
         .wallet(EthereumWallet::from(prover_signer.clone()))
         .connect(rpc_url)
         .await?;
     let customer_provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .with_simple_nonce_management()
+        .filler(ChainIdFiller::default())
+        .filler(TestGasFiller)
         .wallet(EthereumWallet::from(customer_signer.clone()))
         .connect(rpc_url)
         .await?;
     let verifier_provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .with_simple_nonce_management()
+        .filler(ChainIdFiller::default())
+        .filler(TestGasFiller)
         .wallet(EthereumWallet::from(verifier_signer.clone()))
         .connect(rpc_url)
         .await?;
