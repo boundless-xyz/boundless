@@ -227,6 +227,15 @@ where
             .map_err(|e| -> OrderMonitorErr {
                 match e {
                     MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
+                    MarketError::RequestLockHasExpired(_e) => {
+                        OrderMonitorErr::LockTxFailed(e.to_string())
+                    }
+                    MarketError::RequestAlreadyFulfilled(_e) => {
+                        OrderMonitorErr::LockTxFailed(e.to_string())
+                    }
+                    MarketError::InsufficientBalance(_e) => {
+                        OrderMonitorErr::LockTxFailed(e.to_string())
+                    }
                     MarketError::TxnConfirmationError(e) => {
                         OrderMonitorErr::LockTxNotConfirmed(e.to_string())
                     }

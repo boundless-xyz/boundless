@@ -18,6 +18,7 @@ use std::{
     time::Duration,
 };
 
+use crate::contracts::IBoundlessMarket::IBoundlessMarketErrors;
 use alloy::{
     consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
@@ -65,6 +66,18 @@ pub enum MarketError {
     /// Request has expired.
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
+
+    /// Request lock has expired.
+    #[error("Request lock has expired 0x{0:x}")]
+    RequestLockHasExpired(U256),
+
+    /// Request has been fulfilled.
+    #[error("Request has been fulfilled 0x{0:x}")]
+    RequestAlreadyFulfilled(U256),
+
+    /// Insufficient balance.
+    #[error("Insufficient balance 0x{0:x}")]
+    InsufficientBalance(Address),
 
     /// Request malformed.
     #[error("Request error {0}")]
@@ -410,7 +423,29 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::trace!("Sending tx {}", format!("{:?}", call));
 
-        let pending_tx = call.send().await?;
+        let pending_tx = call.send().await.map_err(|e: alloy::contract::Error| {
+            let txn_err = MarketError::TxnError(TxnErr::from(e));
+            match txn_err {
+                MarketError::TxnError(TxnErr::BoundlessMarketErr(boundless_err)) => {
+                    match boundless_err {
+                        IBoundlessMarketErrors::RequestIsLocked(_) => {
+                            MarketError::RequestAlreadyLocked(request.id)
+                        }
+                        IBoundlessMarketErrors::RequestIsFulfilled(_) => {
+                            MarketError::RequestAlreadyFulfilled(request.id)
+                        }
+                        IBoundlessMarketErrors::RequestLockIsExpired(_) => {
+                            MarketError::RequestLockHasExpired(request.id)
+                        }
+                        IBoundlessMarketErrors::InsufficientBalance(address) => {
+                            MarketError::InsufficientBalance(address.account)
+                        }
+                        _ => MarketError::TxnError(TxnErr::BoundlessMarketErr(boundless_err)),
+                    }
+                }
+                _ => txn_err,
+            }
+        })?;
 
         let tx_hash = *pending_tx.tx_hash();
         tracing::trace!("Broadcasting tx {}", tx_hash);
@@ -467,7 +502,29 @@ impl<P: Provider> BoundlessMarketService<P> {
             .instance
             .lockRequestWithSignature(request.clone(), client_sig.clone(), prover_sig.clone())
             .from(self.caller);
-        let pending_tx = call.send().await.context("Failed to lock")?;
+        let pending_tx = call.send().await.map_err(|e: alloy::contract::Error| {
+            let txn_err = MarketError::TxnError(TxnErr::from(e));
+            match txn_err {
+                MarketError::TxnError(TxnErr::BoundlessMarketErr(boundless_err)) => {
+                    match boundless_err {
+                        IBoundlessMarketErrors::RequestIsLocked(_) => {
+                            MarketError::RequestAlreadyLocked(request.id)
+                        }
+                        IBoundlessMarketErrors::RequestIsFulfilled(_) => {
+                            MarketError::RequestAlreadyFulfilled(request.id)
+                        }
+                        IBoundlessMarketErrors::RequestLockIsExpired(_) => {
+                            MarketError::RequestLockHasExpired(request.id)
+                        }
+                        IBoundlessMarketErrors::InsufficientBalance(address) => {
+                            MarketError::InsufficientBalance(address.account)
+                        }
+                        _ => MarketError::TxnError(TxnErr::BoundlessMarketErr(boundless_err)),
+                    }
+                }
+                _ => txn_err,
+            }
+        })?;
 
         tracing::trace!("Broadcasting tx {}", pending_tx.tx_hash());
 
