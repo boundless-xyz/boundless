@@ -419,7 +419,7 @@ mod tests {
         let program = ECHO_ELF;
         let bytes = b"journal_data".to_vec();
         let journal = Journal::new(bytes.clone());
-        let req = layer.process((program.as_ref(), &journal)).await?;
+        let req = layer.process((program, &journal)).await?;
 
         // Predicate should match the same journal
         assert!(req.predicate.eval(&journal));
