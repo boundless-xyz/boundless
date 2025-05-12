@@ -335,9 +335,11 @@ pub async fn upload_image_uri(
     let required_image_id = Digest::from(order.request.requirements.imageId.0);
     let image_id_str = required_image_id.to_string();
     if prover.has_image(&image_id_str).await? {
+        tracing::debug!("Skipping program upload for cached image ID: {image_id_str}");
         return Ok(image_id_str);
     }
 
+    tracing::debug!("Fetching program with image ID {image_id_str} from URI {}", order.request.imageUrl);
     let uri =
         create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
 
@@ -355,6 +357,7 @@ pub async fn upload_image_uri(
         image_id
     );
 
+    tracing::debug!("Uploading program with image ID {image_id_str} to prover");
     prover
         .upload_image(&image_id_str, image_data)
         .await
