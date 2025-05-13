@@ -1,8 +1,8 @@
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
-import * as docker_build from '@pulumi/docker-build';
-import { ChainId, getServiceNameV1 } from '../../util';
+import { Image } from '@pulumi/docker-build';
+import { getServiceNameV1 } from '../../util';
 
 interface OrderGeneratorArgs {
   chainId: string;
@@ -11,11 +11,8 @@ interface OrderGeneratorArgs {
   pinataJWT: pulumi.Output<string>;
   ethRpcUrl: pulumi.Output<string>;
   orderStreamUrl?: pulumi.Output<string>;
-  githubTokenSecret?: pulumi.Output<string>;
+  image: Image; 
   logLevel: string;
-  dockerDir: string;
-  dockerTag: string;
-  dockerRemoteBuilder?: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
   pinataGateway: string;
@@ -34,7 +31,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
   constructor(name: string, args: OrderGeneratorArgs, opts?: pulumi.ComponentResourceOptions) {
     super(`boundless:order-generator:${name}`, name, args, opts);
 
-    const serviceName = getServiceNameV1(args.stackName, `order-generator-${name}`, args.chainId);
+    const serviceName = getServiceNameV1(args.stackName, `og-${name}`, args.chainId);
 
     const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
@@ -58,73 +55,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
       new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
         secretId: orderStreamUrlSecret.id,
         secretString: args.orderStreamUrl,
-    });
-
-    const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
-      forceDelete: true,
-      lifecyclePolicy: {
-        rules: [
-          {
-            description: 'Delete untagged images after N days',
-            tagStatus: 'untagged',
-            maximumAgeLimit: 7,
-          },
-        ],
-      },
-    });
-
-    const authToken = aws.ecr.getAuthorizationTokenOutput({
-      registryId: repo.repository.registryId,
-    });
-
-    let buildSecrets = {};
-    if (args.githubTokenSecret !== undefined) {
-      buildSecrets = {
-        ...buildSecrets,
-        githubTokenSecret: args.githubTokenSecret
-      }
-    }
-
-    const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${args.dockerTag}`;
-
-    const image = new docker_build.Image(`${serviceName}-image`, {
-      tags: [dockerTagPath],
-      context: {
-        location: args.dockerDir,
-      },
-      builder: args.dockerRemoteBuilder ? {
-        name: args.dockerRemoteBuilder,
-      } : undefined,
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: {
-        location: `${args.dockerDir}/dockerfiles/order_generator.dockerfile`,
-      },
-      secrets: buildSecrets,
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      registries: [
-        {
-          address: repo.repository.repositoryUrl,
-          password: authToken.password,
-          username: authToken.userName,
-        },
-      ],
     });
 
     const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
@@ -156,13 +86,24 @@ export class OrderGenerator extends pulumi.ComponentResource {
           {
             Effect: 'Allow',
             Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-            Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn],
+            Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn, orderStreamUrlSecret.arn],
           },
         ],
       },
     });
+    
+    var environment = [
+              {
+                name: 'IPFS_GATEWAY_URL',
+                value: args.pinataGateway,
+              },
+              {
+                name: 'RUST_LOG',
+                value: args.logLevel,
+              },
+            ]
 
-    const secrets = [
+    var secrets = [
       {
         name: 'RPC_URL',
         valueFrom: rpcUrlSecret.arn,
@@ -176,7 +117,13 @@ export class OrderGenerator extends pulumi.ComponentResource {
         valueFrom: pinataJwtSecret.arn,
       },
     ];
+
     if (name === 'offchain') {
+      environment.push({
+        name: 'AUTO_DEPOSIT',
+        value: '5',
+      });
+        value: args.orderStreamUrl,
       secrets.push({
         name: 'ORDER_STREAM_URL',
         valueFrom: orderStreamUrlSecret.arn,
@@ -202,24 +149,15 @@ export class OrderGenerator extends pulumi.ComponentResource {
           },
           container: {
             name: serviceName,
-            image: image.ref,
+            image: args.image.ref,
             cpu: 128,
             memory: 512,
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
-              `/app/boundless-order-generator --auto-deposit 5 --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle}`,
+              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle}`,
             ],
-            environment: [
-              {
-                name: 'IPFS_GATEWAY_URL',
-                value: args.pinataGateway,
-              },
-              {
-                name: 'RUST_LOG',
-                value: args.logLevel,
-              },
-            ],
+            environment,
             secrets,
           },
         },

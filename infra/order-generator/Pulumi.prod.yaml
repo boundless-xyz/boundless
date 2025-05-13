@@ -22,7 +22,7 @@ config:
   order-generator-base:RAMP_UP: "600"
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:TIMEOUT: "1800"
-  order-generator-base:SECONDS_PER_MCYCLES: "60"
+  order-generator-base:SECONDS_PER_MCYCLE: "60"
   order-generator-base:ORDER_STREAM_URL: https://eth-sepolia.beboundless.xyz
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:9iJ6gE5+gp4aipMW:lZlt7k89kafxnLvr8Qe0sStef/3gNEOcr67breAfH/sSrlgL4m6k081WHMUpaU2doI683Sd0TQ+kSnbLKINXfxvqiw/EFfhz4SxOks6d9UI=

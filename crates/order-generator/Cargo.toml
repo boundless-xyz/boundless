@@ -26,7 +26,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 
 [dev-dependencies]
-boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 tracing-test = { workspace = true }
 

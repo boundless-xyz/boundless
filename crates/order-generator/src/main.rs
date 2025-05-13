@@ -95,7 +95,7 @@ struct MainArgs {
     /// The cycle count to drive the loop.
     ///
     /// If unspecified, defaults to a random value.
-    #[clap(long)]
+    #[clap(long, env = "CYCLE_COUNT")]
     input: Option<u32>,
     /// Balance threshold at which to log a warning.
     #[clap(long, value_parser = parse_ether, default_value = "1")]
@@ -106,7 +106,7 @@ struct MainArgs {
     /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
     ///
     /// This parameter can only be set if order_stream_url is provided.
-    #[clap(long, value_parser = parse_ether, requires = "order_stream_url")]
+    #[clap(long, env, value_parser = parse_ether, requires = "order_stream_url")]
     auto_deposit: Option<U256>,
 }
 

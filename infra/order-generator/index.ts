@@ -1,5 +1,8 @@
 import * as pulumi from '@pulumi/pulumi';
-import { ChainId, getEnvVar } from '../util';
+import * as aws from '@pulumi/aws';
+import * as awsx from '@pulumi/awsx';
+import * as docker_build from '@pulumi/docker-build';
+import { getEnvVar, getServiceNameV1 } from '../util';
 import { OrderGenerator } from './components/order-generator';
 
 require('dotenv').config();
@@ -35,6 +38,74 @@ export = () => {
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
   const secondsPerMCycle = baseConfig.require('SECONDS_PER_MCYCLE');
   
+  const imageName = getServiceNameV1(stackName, `order-generator`);
+  const repo = new awsx.ecr.Repository(`${imageName}-repo`, {
+        forceDelete: true,
+        lifecyclePolicy: {
+          rules: [
+            {
+              description: 'Delete untagged images after N days',
+              tagStatus: 'untagged',
+              maximumAgeLimit: 7,
+            },
+          ],
+        },
+      });
+  
+      const authToken = aws.ecr.getAuthorizationTokenOutput({
+        registryId: repo.repository.registryId,
+      });
+  
+      let buildSecrets = {};
+      if (githubTokenSecret !== undefined) {
+        buildSecrets = {
+          ...buildSecrets,
+          githubTokenSecret
+        }
+      }
+  
+      const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+  
+      const image = new docker_build.Image(`${imageName}-image`, {
+        tags: [dockerTagPath],
+        context: {
+          location: dockerDir,
+        },
+        builder: dockerRemoteBuilder ? {
+          name: dockerRemoteBuilder,
+        } : undefined,
+        platforms: ['linux/amd64'],
+        push: true,
+        dockerfile: {
+          location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
+        },
+        secrets: buildSecrets,
+        cacheFrom: [
+          {
+            registry: {
+              ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+            },
+          },
+        ],
+        cacheTo: [
+          {
+            registry: {
+              mode: docker_build.CacheMode.Max,
+              imageManifest: true,
+              ociMediaTypes: true,
+              ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+            },
+          },
+        ],
+        registries: [
+          {
+            address: repo.repository.repositoryUrl,
+            password: authToken.password,
+            username: authToken.userName,
+          },
+        ],
+      });
+
   const offchainConfig = new pulumi.Config("order-generator-offchain");
   const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
   new OrderGenerator('offchain', {
@@ -44,11 +115,8 @@ export = () => {
     pinataJWT,
     ethRpcUrl,
     orderStreamUrl,
-    githubTokenSecret,
+    image,
     logLevel,
-    dockerDir,
-    dockerTag,
-    dockerRemoteBuilder,
     setVerifierAddr,
     boundlessMarketAddr,
     pinataGateway,
@@ -72,11 +140,8 @@ export = () => {
     pinataJWT,
     ethRpcUrl,
     orderStreamUrl,
-    githubTokenSecret,
+    image,
     logLevel,
-    dockerDir,
-    dockerTag,
-    dockerRemoteBuilder,
     setVerifierAddr,
     boundlessMarketAddr,
     pinataGateway,
