@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { getServiceNameV1, Severity } from "../../util";
-import { clients, Target } from "./targets";
+import { Target } from "./targets";
 
 const SERVICE_NAME_BASE = 'indexer';
 const stackName = pulumi.getStack();
@@ -65,8 +65,8 @@ export const createSuccessRateAlarm = (
                 id: "a",
                 metric: {
                     namespace: namespace,
-                    metricName: `requests_number_from_${target.address}`,
-                    period: 60,
+                    metricName: `fulfilled_requests_number_from_${target.address}`,
+                    period: 3600,
                     stat: "Sum",
                     ...metricConfig
                 },
@@ -76,8 +76,8 @@ export const createSuccessRateAlarm = (
                 id: "b",
                 metric: {
                     namespace: namespace,
-                    metricName: `expired_requests_from_${target.address}`,
-                    period: 60,
+                    metricName: `expired_requests_number_from_${target.address}`,
+                    period: 3600,
                     stat: "Sum",
                     ...metricConfig
                 },
@@ -85,14 +85,14 @@ export const createSuccessRateAlarm = (
             },
             {
                 id: "sr",
-                expression: "IF(a > 0, (a - b) / a, 1)",
+                expression: "IF(a + b > 0, a / (a + b), 1)",
                 label: "SuccessRate",
                 returnData: true,
             },
         ],
         threshold: 1,
         comparisonOperator: 'LessThanThreshold',
-        evaluationPeriods: 1,
+        evaluationPeriods: 12,
         datapointsToAlarm: 1,
         treatMissingData: 'notBreaching',
         alarmDescription: `${severity} ${metricName} ${description}`,

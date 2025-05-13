@@ -15,6 +15,8 @@ export interface MonitorLambdaArgs {
   intervalMinutes: string;
   /** RDS Url secret */
   dbUrlSecret: aws.secretsmanager.Secret;
+  /** RDS sg ID */
+  rdsSgId: pulumi.Input<string>;
   /** Chain ID */
   chainId: string;
   /** RUST_LOG level */
@@ -37,7 +39,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
     const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
 
     const role = new aws.iam.Role(
-      `${name}-role`,
+      `${serviceName}-role`,
       {
         assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({ Service: 'lambda.amazonaws.com' }),
       },
@@ -45,7 +47,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
     );
 
     new aws.iam.RolePolicyAttachment(
-      `${name}-logs`,
+      `${serviceName}-logs`,
       {
         role: role.name,
         policyArn: aws.iam.ManagedPolicies.AWSLambdaBasicExecutionRole,
@@ -54,7 +56,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
     );
 
     new aws.iam.RolePolicyAttachment(
-      `${name}-vpc-access`,
+      `${serviceName}-vpc-access`,
       {
         role: role.name,
         policyArn: aws.iam.ManagedPolicies.AWSLambdaVPCAccessExecutionRole,
@@ -81,7 +83,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
     );
 
     new aws.iam.RolePolicy(
-      `${name}-policy`,
+      `${serviceName}-policy`,
       {
         role: role.id,
         policy: inlinePolicy,
@@ -90,7 +92,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
     );
 
     const lambdaSg = new aws.ec2.SecurityGroup(
-      `${name}-sg`,
+      `${serviceName}-sg`,
       {
         vpcId: args.vpcId,
         description: 'Lambda SG for DB access',
@@ -106,21 +108,14 @@ export class MonitorLambda extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    const rdsSg = aws.ec2.getSecurityGroupOutput({
-      filters: [
-        { name: 'group-name', values: [`${serviceName}-rds`] },
-        { name: 'vpc-id', values: [args.vpcId] },
-      ],
-    });
-
     new aws.ec2.SecurityGroupRule(
-      `${name}-sg-ingress-rds`,
+      `${serviceName}-sg-ingress-rds`,
       {
         type: 'ingress',
         fromPort: 5432,
         toPort: 5432,
         protocol: 'tcp',
-        securityGroupId: rdsSg.id,
+        securityGroupId: args.rdsSgId,
         sourceSecurityGroupId: lambdaSg.id,
       },
       { parent: this },
@@ -181,7 +176,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
     // Create top level alarms
     // Total Number of Fulfilled Orders - SEV1: <5 within 10 minutes
 
-    createMetricAlarm("requests_fulfilled", Severity.SEV1,
+    createMetricAlarm("fulfilled_requests_number", Severity.SEV1,
       undefined,
       "less than 5 fulfilled orders in 10 minutes", {
       period: 600
@@ -194,7 +189,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
 
     // Total Number of Submitted Orders - SEV2: TBD(needs baseline)
 
-    createMetricAlarm("requests_submitted", Severity.SEV2,
+    createMetricAlarm("requests_number", Severity.SEV2,
       undefined,
       "less than 5 submitted orders in 10 minutes", {
       period: 600
@@ -208,7 +203,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
 
     // Total Number of Expired Orders - SEV2: TBD(needs baseline)
 
-    createMetricAlarm("requests_expired", Severity.SEV2,
+    createMetricAlarm("expired_requests_number", Severity.SEV2,
       undefined,
       "at least 2 expired orders in 10 minutes", {
       period: 600
@@ -221,7 +216,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
 
     // Total Number of Slashed Orders - SEV2: TBD(needs baseline)
 
-    createMetricAlarm("requests_slashed", Severity.SEV2,
+    createMetricAlarm("slashed_requests_number", Severity.SEV2,
       undefined,
       "at least 2 slashed orders in 10 minutes", {
       period: 600
@@ -235,41 +230,34 @@ export class MonitorLambda extends pulumi.ComponentResource {
     // Create alarms for each client
     clients.forEach((client) => {
       if (client.submissionRate != null) {
-        const period = client.submissionRate;
-        createMetricAlarm("requests_submitted", Severity.SEV1,
-          client,
-          "two missed submissions in an hour", {
-          period: period
-        },
-          {
-            threshold: 1,
-            comparisonOperator: "LessThanThreshold",
-            evaluationPeriods: 12,
-            datapointsToAlarm: 2,
-          },
-        );
-        createMetricAlarm("requests_submitted", Severity.SEV2,
-          client,
-          "one missed submissions in an hour", {
-          period: period
-        },
-          {
-            threshold: 1,
-            comparisonOperator: "LessThanThreshold",
-            evaluationPeriods: 12,
-            datapointsToAlarm: 2,
-          },
-        );
+        client.submissionRate.forEach((cfg) => {
+          const severity = cfg.severity;
+          const metricConfig = cfg.metricConfig;
+          const alarmConfig = cfg.alarmConfig;
+
+          createMetricAlarm(`requests_number_from`, severity,
+            client,
+            `${alarmConfig.datapointsToAlarm} missed submissions in ${metricConfig.period} seconds`, metricConfig,
+            {
+              threshold: 1,
+              comparisonOperator: "LessThanThreshold",
+              ...alarmConfig,
+            },
+          );
+        });
       };
 
       if (client.successRate != null) {
-        const rate = client.successRate;
-        createSuccessRateAlarm(client, Severity.SEV2, `success rate is below $rate`,
-          { period: 3600 },
-          { threshold: rate }
-        );
+        client.successRate.forEach((cfg) => {
+          const severity = cfg.severity;
+          const metricConfig = cfg.metricConfig;
+          const alarmConfig = cfg.alarmConfig;
 
-      }
+          createSuccessRateAlarm(client, severity, `success rate is below ${alarmConfig.threshold}`, metricConfig,
+            alarmConfig
+          );
+        });
+      };
 
     });
 

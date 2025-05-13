@@ -114,6 +114,31 @@ impl Monitor {
         Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
+    /// Fetches all requests that expired from a specific client address.
+    ///
+    /// address: The client address to filter requests by.
+    pub async fn fetch_total_requests_expired_from(
+        &self,
+        address: Address,
+    ) -> Result<i64> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*)
+            FROM proof_requests pr
+            LEFT JOIN request_fulfilled_events rfe
+              ON pr.request_digest = rfe.request_digest
+            WHERE
+              rfe.request_digest IS NULL
+              AND pr.client_address = $1
+            "#,
+        )
+        .bind(format!("{:x}", address))
+        .fetch_one(&self.db)
+        .await?;
+
+        Ok(row.get::<i64, _>(0))
+    }
+
     /// Fetch the number of requests that have been submitted within the given range.
     ///
     /// from: timestamp in seconds.
@@ -475,8 +500,8 @@ impl Monitor {
 
     /// Fetch the success rate of fulfilled requests from a specific client address within the given range.
     ///
-    /// The success rate is calculated as the number of fulfilled requests divided by the number of submitted requests.
-    /// If the number of submitted requests is zero, the success rate returned is `None`.
+    /// The success rate is calculated as the number of fulfilled requests divided by the number of fulfilled + expired requests.
+    /// If the number of fulfilled + expired requests is zero, the success rate returned is `None`.
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// address: The client address to filter requests by.
@@ -487,28 +512,28 @@ impl Monitor {
         address: Address,
     ) -> Result<Option<f64>> {
         let fulfilled = self.fetch_fulfillments_number_from_client(from, to, address).await?;
-        let submitted: i64 = self.fetch_requests_number_from_client(from, to, address).await?;
+        let expired: i64 = self.fetch_requests_expired_from(from, to, address).await?.len() as i64;
 
-        if submitted == 0 {
+        if (fulfilled + expired) == 0 {
             return Ok(None);
         }
 
-        Ok(Some(fulfilled as f64 / submitted as f64))
+        Ok(Some(fulfilled as f64 / (fulfilled + expired) as f64))
     }
 
     /// Total success rate of fulfilled requests from a specific client address.
     ///
-    /// The success rate is calculated as the number of fulfilled requests divided by the number of submitted requests.
-    /// If the number of submitted requests is zero, the success rate returned is `None`.
+    /// The success rate is calculated as the number of fulfilled requests divided by the number of fulfilled + expired requests.
+    /// If the number of fulfilled + expired requests is zero, the success rate returned is `None`.
     /// address: The client address to filter requests by.
     pub async fn total_success_rate_from_client(&self, address: Address) -> Result<Option<f64>> {
         let fulfilled = self.total_fulfillments_from_client(address).await?;
-        let submitted: i64 = self.total_requests_from_client(address).await?;
+        let expired: i64 = self.fetch_total_requests_expired_from(address).await?;
 
-        if submitted == 0 {
+        if (fulfilled + expired) == 0 {
             return Ok(None);
         }
 
-        Ok(Some(fulfilled as f64 / submitted as f64))
+        Ok(Some(fulfilled as f64 / (fulfilled + expired) as f64))
     }
 }

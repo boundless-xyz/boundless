@@ -1,13 +1,19 @@
+import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 import raw from "../targets.json";
+import { Severity } from "../../util";
+
+export interface AlarmConfig {
+    severity: Severity,
+    metricConfig: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
+    alarmConfig: Partial<aws.cloudwatch.MetricAlarmArgs>
+}
 
 export interface Target {
     name: string;
     address: string;
-    // Optional: e.g., one submission every 5 minutes -> 300
-    submissionRate?: number;
-    // Optional: e.g., 90% success rate -> 0.9
-    successRate?: number;
+    submissionRate?: [AlarmConfig];
+    successRate?: [AlarmConfig];
 }
 
 const stackName = pulumi.getStack();

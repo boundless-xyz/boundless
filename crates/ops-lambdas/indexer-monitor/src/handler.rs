@@ -85,7 +85,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 
     let expired_count = expired.len();
     debug!(count = expired_count, "Found expired requests");
-    metrics.push(new_metric("expired_requests", expired_count as f64, now));
+    metrics.push(new_metric("expired_requests_number", expired_count as f64, now));
 
     let requests_count = monitor
         .fetch_requests_number(start_time, now)
@@ -124,7 +124,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .map_err(|e| Error::from(e.to_string()))?;
         let expired_count = expired_requests.len();
         metrics.push(new_metric(
-            &format!("expired_requests_from_{client}"),
+            &format!("expired_requests_number_from_{client}"),
             expired_count as f64,
             now,
         ));

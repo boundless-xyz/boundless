@@ -9,6 +9,7 @@ const SERVICE_NAME_BASE = 'indexer';
 
 export class IndexerInstance extends pulumi.ComponentResource {
   public readonly dbUrlSecret: aws.secretsmanager.Secret;
+  public readonly rdsSecurityGroupId: pulumi.Output<string>;
 
   constructor(
     name: string,
@@ -377,9 +378,11 @@ export class IndexerInstance extends pulumi.ComponentResource {
     });
 
     this.dbUrlSecret = dbUrlSecret;
+    this.rdsSecurityGroupId = rdsSecurityGroup.id;
 
     this.registerOutputs({
       dbUrlSecret: this.dbUrlSecret,
+      rdsSecurityGroupId: this.rdsSecurityGroupId
     });
   }
 }

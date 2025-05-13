@@ -50,6 +50,7 @@ export = () => {
     privSubNetIds: privSubNetIds,
     intervalMinutes: '1',
     dbUrlSecret: indexer.dbUrlSecret,
+    rdsSgId: indexer.rdsSecurityGroupId,
     chainId: chainId,
     rustLogLevel: rustLogLevel,
   }, { parent: indexer, dependsOn: indexer });
