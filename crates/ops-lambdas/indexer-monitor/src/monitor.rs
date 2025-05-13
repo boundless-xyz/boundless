@@ -117,10 +117,7 @@ impl Monitor {
     /// Fetches all requests that expired from a specific client address.
     ///
     /// address: The client address to filter requests by.
-    pub async fn fetch_total_requests_expired_from(
-        &self,
-        address: Address,
-    ) -> Result<i64> {
+    pub async fn fetch_total_requests_expired_from(&self, address: Address) -> Result<i64> {
         let row = sqlx::query(
             r#"
             SELECT COUNT(*)
