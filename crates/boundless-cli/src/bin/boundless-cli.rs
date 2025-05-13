@@ -502,7 +502,7 @@ async fn main() -> Result<()> {
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     let caller = args.config.private_key.address();
     let wallet = EthereumWallet::from(args.config.private_key.clone());
-    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.config.rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(args.config.rpc_url.clone());
 
     let mut boundless_market =
         BoundlessMarketService::new(args.config.boundless_market_address, provider.clone(), caller);
@@ -1261,7 +1261,7 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
     println!("\n=== Environment Validation ===\n");
     print!("Testing RPC connection... ");
     let wallet = EthereumWallet::from(args.config.private_key.clone());
-    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.config.rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(args.config.rpc_url.clone());
 
     let rpc_ok = match provider.get_chain_id().await {
         Ok(chain_id) => {
@@ -1838,8 +1838,9 @@ mod tests {
 
         let request_id = request.id;
 
-        // Dump the request to a tmp file
-        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
 
@@ -2029,8 +2030,9 @@ mod tests {
             &ctx.customer_signer.address(),
         );
 
-        // Dump the request to a tmp file
-        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
 
@@ -2094,8 +2096,9 @@ mod tests {
             &ctx.customer_signer.address(),
         );
 
-        // Dump the request to a tmp file
-        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
 
@@ -2155,8 +2158,9 @@ mod tests {
 
         let request_id = request.id;
 
-        // Dump the request to a tmp file
-        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
 

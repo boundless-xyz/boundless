@@ -2,6 +2,7 @@
 //
 // All rights reserved.
 
+/* TODO(#630): Re-enable the zeth order generator
 use std::cmp::min;
 
 use alloy::{
@@ -140,7 +141,7 @@ async fn main() -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.zeth_rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(args.zeth_rpc_url.clone());
     let rpc = Some(args.zeth_rpc_url.to_string());
     let chain_id = provider.get_chain_id().await?;
     let chain = Some(NamedChain::try_from(chain_id).map_err(|_| anyhow!("Unknown chain"))?);
@@ -410,4 +411,8 @@ async fn handle_failure(
     }
     tokio::time::sleep(Duration::from_secs(RETRY_DELAY_SECS)).await;
     Ok(())
+}
+*/
+fn main() {
+    panic!("Zeth order generator not available. See https://github.com/boundless-xyz/boundless/issues/630)")
 }
