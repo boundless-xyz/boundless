@@ -63,6 +63,7 @@ export = () => {
     boundlessAlertsTopicArn,
   });
 
+  /* TODO(#630): Re-enable the zeth order generator
   const zethConfig = new pulumi.Config("order-generator-zeth");
   const zethPrivateKey = isDev ? pulumi.output(getEnvVar("ZETH_PRIVATE_KEY")) : zethConfig.requireSecret('PRIVATE_KEY');
   const zethRpcUrl = isDev ? pulumi.output(getEnvVar("ZETH_RPC_URL")) : zethConfig.requireSecret('ZETH_RPC_URL');
@@ -105,4 +106,5 @@ export = () => {
     timeout: zethTimeout,
     lockTimeout: zethLockTimeout,
   });
+  */
 };

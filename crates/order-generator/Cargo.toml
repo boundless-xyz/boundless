@@ -42,6 +42,7 @@ boundless-market-test-utils = { workspace = true }
 tracing-test = { workspace = true }
 
 [features]
+# TODO(#630): Re-enable the zeth order generator
 zeth = [
 #     "dep:reth-chainspec", 
 #     "dep:zeth", 

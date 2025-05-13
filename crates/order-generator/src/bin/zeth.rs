@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-/*
+/* TODO(#630): Re-enable the zeth order generator
 use std::cmp::min;
 
 use alloy::{
@@ -413,4 +413,6 @@ async fn handle_failure(
     Ok(())
 }
 */
-fn main() {}
+fn main() {
+    panic!("Zeth order generator not available. See https://github.com/boundless-xyz/boundless/issues/630)")
+}
