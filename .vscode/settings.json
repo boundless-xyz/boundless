@@ -38,5 +38,8 @@
 	"biome.lspBin": "documentation/node_modules/.bin/biome",
 	"cSpell.words": [
 		"offchain"
-	]
+	],
+	"[typescript]": {
+		"editor.defaultFormatter": "vscode.typescript-language-features"
+	}
 }
