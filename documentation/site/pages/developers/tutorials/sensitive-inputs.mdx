@@ -36,7 +36,7 @@ The general workflow for the requestor is:
 - Gate access to the S3 bucket to *only* the prover IAM role
 - Request a proof with the S3 url as the input URL
 
-### 1. Create the  S3 bucket
+### 1. Create the S3 bucket
 
 To continue, an [AWS account](https://signin.aws.amazon.com/signup?request_type=register) is required. After that, you'll need the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) to set up your S3 bucket, create roles and set the required policies.
 
@@ -193,9 +193,23 @@ aws s3api put-bucket-policy \
 
 ### 5. Submit a Request to the Boundless market
 
-After this setup, the requestor can now go ahead and [request a proof](/developers/tutorials/request).
+With your inputs now sitting privately in S3, you may now [request a proof](/developers/tutorials/request).
 
-For details on requesting a proof programmatically, please see [Creating a Proof Request](/developers/tutorials/request#5-create-a-proof-request). If you're interested in doing a one-off test, take a look at the [request subcommands](/developers/tooling/cli#2-request-subcommands) in the Boundless CLI.
+During this process, the documentation refers to IPFS as the input storage provider (see [Upload your inputs](/developers/tutorials/request#3-upload-the-input-of-your-program-to-ipfs), [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html) and [storage_provider_from_env](https://docs.rs/boundless-market/latest/boundless_market/storage/fn.storage_provider_from_env.html)).
+
+If you have already uploaded your inputs using the `aws` CLI above, you can skip the information below. Otherwise, if you are interested in using the Boundless SDK to upload your inputs to your S3 bucket, you will need to:
+
+- make sure your AWS credentials are set in environment variables, specifically:
+  - `S3_ACCESS` for the access key
+  - `S3_SECRET` for the secret ke
+  - `S3_BUCKET` for the bucket name of the bucket created in [Step 1](/developers/tutorials/sensitive-inputs#1-create-the--s3-bucket)
+  - `S3_URL` for the bucket URL of the bucket created in [Step 1](/developers/tutorials/sensitive-inputs#1-create-the--s3-bucket)
+  - `AWS_REGION` for the bucket region.
+  - and last, but not least, make sure `S3_NO_PRESIGNED=1`.
+
+After this setup, you may request a proof programmatically as [Request a Proof](/developers/tutorials/request) recommends; your inputs will be automatically uploaded to your gated S3 bucket, however remember that you still need to go through all the necessary gating policies as laid out in this tutorial to make sure your inputs are private and only available to select provers.
+
+If you're interested in doing a one-off test, take a look at the [request subcommands](/developers/tooling/cli#2-request-subcommands) in the Boundless CLI.
 
 ## Prover
 
