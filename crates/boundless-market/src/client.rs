@@ -39,6 +39,7 @@ use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use url::Url;
 
 use crate::{
+    request_builder::{StandardRequestBuilder, RequestBuilder},
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider},
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
@@ -66,39 +67,22 @@ type ProviderWallet = FillProvider<
     BalanceAlertProvider<RootProvider>,
 >;
 
-#[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
-/// Client error
-pub enum ClientError {
-    /// Storage provider error
-    #[error("Storage provider error {0}")]
-    StorageProviderError(#[from] BuiltinStorageProviderError),
-    /// Market error
-    #[error("Market error {0}")]
-    MarketError(#[from] MarketError),
-    /// Request error
-    #[error("RequestError {0}")]
-    RequestError(#[from] RequestError),
-    /// General error
-    #[error("Error {0}")]
-    Error(#[from] anyhow::Error),
-}
-
 /// Builder for the client
-pub struct ClientBuilder<P = BuiltinStorageProvider> {
+pub struct ClientBuilder<S, P, R> {
     boundless_market_addr: Option<Address>,
     set_verifier_addr: Option<Address>,
-    rpc_url: Option<Url>,
+    provider: ProviderBuilderField,
     wallet: Option<EthereumWallet>,
     local_signer: Option<PrivateKeySigner>,
     order_stream_url: Option<Url>,
-    storage_provider: Option<P>,
+    storage_provider: Option<S>,
     tx_timeout: Option<std::time::Duration>,
     bidding_start_delay: u64,
     balance_alerts: Option<BalanceAlertConfig>,
+    request_builder: Option<R>,
 }
 
-impl<P> Default for ClientBuilder<P> {
+impl<S> Default for ClientBuilder<S> {
     /// Creates a new `ClientBuilder` with all configuration options set to their default values.
     fn default() -> Self {
         Self {
@@ -112,11 +96,12 @@ impl<P> Default for ClientBuilder<P> {
             tx_timeout: None,
             bidding_start_delay: BIDDING_START_DELAY,
             balance_alerts: None,
+            request_builder: None,
         }
     }
 }
 
-impl ClientBuilder<BuiltinStorageProvider> {
+impl ClientBuilder<BuiltinStorageProvider, StandardRequestBuilder<BuiltinStorageProvider, ProviderWallet>> {
     /// Create a new client builder.
     ///
     /// Equivalent to [Default] when using [BuiltinStorageProvider].
@@ -125,9 +110,9 @@ impl ClientBuilder<BuiltinStorageProvider> {
     }
 }
 
-impl<P> ClientBuilder<P> {
+impl<S, R> ClientBuilder<S, R> {
     /// Build the client
-    pub async fn build(self) -> Result<Client<ProviderWallet, P>> {
+    pub async fn connect(self) -> Result<Client<ProviderWallet, S>> {
         let mut client = Client::from_parts(
             self.wallet.context("Wallet not set")?,
             self.rpc_url.context("RPC URL not set")?,
@@ -202,10 +187,10 @@ impl<P> ClientBuilder<P> {
     /// Set the storage provider.
     ///
     /// The returned [ClientBuilder] will be generic over the provider [StorageProvider] type.
-    pub fn with_storage_provider<S: StorageProvider>(
+    pub fn with_storage_provider<Z: StorageProvider>(
         self,
-        storage_provider: Option<S>,
-    ) -> ClientBuilder<S> {
+        storage_provider: Option<Z>,
+    ) -> ClientBuilder<Z, R> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
             storage_provider,
@@ -218,14 +203,15 @@ impl<P> ClientBuilder<P> {
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             bidding_start_delay: self.bidding_start_delay,
+            request_builder: self.request_builder,
         }
     }
 
     /// Set the storage provider from the given config
-    pub async fn with_storage_provider_config(
+    pub fn with_storage_provider_config(
         self,
         config: &StorageProviderConfig,
-    ) -> Result<ClientBuilder<BuiltinStorageProvider>, BuiltinStorageProviderError> {
+    ) -> Result<ClientBuilder<BuiltinStorageProvider, R>, BuiltinStorageProviderError> {
         let storage_provider = match BuiltinStorageProvider::from_config(config) {
             Ok(storage_provider) => Some(storage_provider),
             Err(BuiltinStorageProviderError::NoProvider) => None,
@@ -238,7 +224,7 @@ impl<P> ClientBuilder<P> {
 #[derive(Clone)]
 #[non_exhaustive]
 /// Client for interacting with the boundless market.
-pub struct Client<P, S> {
+pub struct Client<P, S, R> {
     /// Boundless market service.
     pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
@@ -251,6 +237,24 @@ pub struct Client<P, S> {
     pub local_signer: Option<LocalSigner<SigningKey>>,
     /// Bidding start delay with regard to the current time, in seconds.
     pub bidding_start_delay: u64,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+/// Client error
+pub enum ClientError {
+    /// Storage provider error
+    #[error("Storage provider error {0}")]
+    StorageProviderError(#[from] BuiltinStorageProviderError),
+    /// Market error
+    #[error("Market error {0}")]
+    MarketError(#[from] MarketError),
+    /// Request error
+    #[error("RequestError {0}")]
+    RequestError(#[from] RequestError),
+    /// General error
+    #[error("Error {0}")]
+    Error(#[from] anyhow::Error),
 }
 
 impl<P, S> Client<P, S>
@@ -608,6 +612,7 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
 
 impl<P> Client<ProviderWallet, P> {
     /// Create a new client from parts
+    /// DO NOT MERGE: refactor this
     pub async fn from_parts(
         wallet: EthereumWallet,
         rpc_url: Url,

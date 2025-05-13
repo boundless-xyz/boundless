@@ -768,7 +768,7 @@ where
                     .with_set_verifier_address(args.config.set_verifier_address)
                     .with_order_stream_url(order_stream_url.clone())
                     .with_timeout(args.config.tx_timeout)
-                    .build()
+                    .connect()
                     .await?;
                 let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
                 order.request
@@ -827,7 +827,7 @@ where
                 .with_set_verifier_address(args.config.set_verifier_address)
                 .with_order_stream_url(order_stream_url.clone())
                 .with_timeout(args.config.tx_timeout)
-                .build()
+                .connect()
                 .await?;
 
             let fetch_order_jobs = request_ids.iter().enumerate().map(|(i, request_id)| {
@@ -906,7 +906,7 @@ where
                 .with_set_verifier_address(args.config.set_verifier_address)
                 .with_order_stream_url(order_stream_url.clone())
                 .with_timeout(args.config.tx_timeout)
-                .build()
+                .connect()
                 .await?;
 
             let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
