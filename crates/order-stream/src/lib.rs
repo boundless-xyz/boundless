@@ -349,7 +349,7 @@ impl AppState {
             config.rpc_retry_cu,
         );
         let client = RpcClient::builder().layer(retry_layer).http(config.rpc_url.clone());
-        let rpc_provider = ProviderBuilder::new().on_client(client);
+        let rpc_provider = ProviderBuilder::new().connect_client(client);
 
         let db = if let Some(db_pool) = db_pool_opt {
             OrderDb::from_pool(db_pool).await?

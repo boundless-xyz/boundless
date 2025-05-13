@@ -28,7 +28,7 @@ use alloy::{
         Signer,
     },
 };
-use alloy_primitives::{PrimitiveSignature, B256};
+use alloy_primitives::{Signature, B256};
 use alloy_sol_types::SolStruct;
 use anyhow::{anyhow, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
@@ -547,7 +547,7 @@ where
                 Ok(Order {
                     request,
                     request_digest: digest,
-                    signature: PrimitiveSignature::try_from(signature_bytes.as_ref())
+                    signature: Signature::try_from(signature_bytes.as_ref())
                         .map_err(|_| ClientError::Error(anyhow!("Failed to parse signature")))?,
                 })
             }
@@ -590,7 +590,7 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
         let provider = ProviderBuilder::new()
             .wallet(wallet.clone())
             .layer(BalanceAlertLayer::default())
-            .on_http(rpc_url);
+            .connect_http(rpc_url);
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);

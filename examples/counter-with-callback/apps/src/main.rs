@@ -164,8 +164,7 @@ async fn run<P: StorageProvider>(
         .count()
         .call()
         .await
-        .with_context(|| format!("failed to call {}", ICounter::countCall::SIGNATURE))?
-        ._0;
+        .with_context(|| format!("failed to call {}", ICounter::countCall::SIGNATURE))?;
     tracing::info!("Counter value for address: {:?} is {:?}", client.caller(), count);
 
     Ok(())

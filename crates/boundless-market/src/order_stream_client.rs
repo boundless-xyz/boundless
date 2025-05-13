@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use alloy::{
-    primitives::{Address, PrimitiveSignature, U256},
+    primitives::{Address, Signature, U256},
     signers::{Error as SignerErr, Signer},
 };
 use alloy_primitives::B256;
@@ -93,7 +93,7 @@ pub struct Order {
     pub request_digest: B256,
     /// Order signature
     #[schema(value_type = Object)]
-    pub signature: PrimitiveSignature,
+    pub signature: Signature,
 }
 
 /// Order data + order-stream id
@@ -127,7 +127,7 @@ pub struct SubmitOrderRes {
 
 impl Order {
     /// Create a new Order
-    pub fn new(request: ProofRequest, request_digest: B256, signature: PrimitiveSignature) -> Self {
+    pub fn new(request: ProofRequest, request_digest: B256, signature: Signature) -> Self {
         Self { request, request_digest, signature }
     }
 
@@ -156,7 +156,7 @@ pub struct AuthMsg {
     message: SiweMsg,
     /// SIWE Signature of `message` field
     #[schema(value_type = Object)]
-    signature: PrimitiveSignature,
+    signature: Signature,
 }
 
 impl AuthMsg {
