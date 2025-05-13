@@ -434,9 +434,9 @@ export = () => {
   
   // Alarms at the supervisor level
   //
-  // 2 supervisor restarts within 15 mins triggers a SEV2 alarm
+  // 5 supervisor restarts within 15 mins triggers a SEV2 alarm
   createErrorCodeAlarm('"[B-SUP-RECOVER]"', 'supervisor-recover-errors', Severity.SEV2, {
-    threshold: 2,
+    threshold: 5,
   }, { period: 900 });
 
   // 1 supervisor fault triggers a SEV2 alarm
@@ -496,6 +496,13 @@ export = () => {
   //
   // Chain Monitor
   //
+  
+  // RPC errors can occur transiently. 
+  // If we see 5 rpc errors within 1 hour in the chain monitor trigger a SEV2 alarm to investigate.
+  createErrorCodeAlarm('"[B-CHM-400]"', 'chain-monitor-rpc-error', Severity.SEV2, {
+    threshold: 5,
+  }, { period: 3600 });
+
   // Any 1 unexpected error in the on-chain market monitor triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-CHM-500]"', 'chain-monitor-unexpected-error', Severity.SEV2);
 
@@ -558,6 +565,12 @@ export = () => {
 
   // If we fail to lock an order because we don't have enough stake balance, SEV2.
   createErrorCodeAlarm('"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2);
+
+  // 3 lock tx not confirmed errors within 1 hour in the order monitor triggers a SEV2 alarm.
+  // This may indicate a misconfiguration of the tx timeout config.
+  createErrorCodeAlarm('"[B-OM-006]"', 'order-monitor-lock-tx-not-confirmed', Severity.SEV2, { 
+    threshold: 3,
+  }, { period: 3600 });
 
   //
   // Prover
