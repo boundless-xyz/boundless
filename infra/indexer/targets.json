@@ -1,0 +1,29 @@
+{
+  "staging": {
+    "clients": [
+      { 
+        "name": "simple_order_generator", 
+        "address": "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3", 
+        "submissionRate": 300,
+        "successRate": 0.9
+      }
+    ],
+    "provers": [
+      { "name": "bonsai", "address": "0x6bf69b603e9e655068e683bbffe285ea34e0f802" },
+      { "name": "bento", "address": "0xf8087e8f3ba5fc4865eda2fcd3c05846982da136" }
+    ]
+  },
+  "prod": {
+    "clients": [
+      { 
+        "name": "simple_order_generator", 
+        "address": "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3",
+        "submissionRate": 300,
+        "successRate": 0.9
+      }
+    ],
+    "provers": [
+      { "name": "bonsai", "address": "0x6bf69b603e9e655068e683bbffe285ea34e0f802" }
+    ]
+  }
+}

@@ -1,22 +1,25 @@
 import * as pulumi from "@pulumi/pulumi";
+import raw from "../targets.json";
 
-const stagingClients = [
-    "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3"
-];
-const stagingProvers = [
-    "0x6bf69b603e9e655068e683bbffe285ea34e0f802",
-    "0xf8087e8f3ba5fc4865eda2fcd3c05846982da136"
-];
-
-const prodClients = [
-    "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3",
-];
-const prodProvers = [
-    "0x6bf69b603e9e655068e683bbffe285ea34e0f802"
-];
+export interface Target {
+    name: string;
+    address: string;
+    // Optional: e.g., one submission every 5 minutes -> 300
+    submissionRate?: number;
+    // Optional: e.g., 90% success rate -> 0.9
+    successRate?: number;
+}
 
 const stackName = pulumi.getStack();
-const isStaging = stackName === "staging" || stackName === "dev";
+const envKey = (stackName === "staging" || stackName === "dev") ? "staging" : "prod";
 
-export const clients = isStaging ? stagingClients : prodClients;
-export const provers = isStaging ? stagingProvers : prodProvers;
+const envData = raw[envKey] as {
+    clients: Target[];
+    provers: Target[];
+};
+
+export const clients: Target[] = envData.clients;
+export const provers: Target[] = envData.provers;
+
+export const clientAddresses: string[] = clients.map(c => c.address);
+export const proverAddresses: string[] = provers.map(p => p.address);

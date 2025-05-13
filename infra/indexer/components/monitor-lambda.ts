@@ -2,8 +2,9 @@ import * as path from 'path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { createRustLambda } from './rust-lambda';
-import { getServiceNameV1 } from '../../util';
+import { getServiceNameV1, Severity } from '../../util';
 import { clients, provers } from './targets';
+import { createMetricAlarm, createSuccessRateAlarm } from './alarms';
 
 export interface MonitorLambdaArgs {
   /** VPC where RDS lives */
@@ -176,6 +177,101 @@ export class MonitorLambda extends pulumi.ComponentResource {
       },
       { parent: this },
     );
+
+    // Create top level alarms
+    // Total Number of Fulfilled Orders - SEV1: <5 within 10 minutes
+
+    createMetricAlarm("requests_fulfilled", Severity.SEV1,
+      undefined,
+      "less than 5 fulfilled orders in 10 minutes", {
+      period: 600
+    },
+      {
+        threshold: 5,
+        comparisonOperator: "LessThanThreshold",
+      },
+    );
+
+    // Total Number of Submitted Orders - SEV2: TBD(needs baseline)
+
+    createMetricAlarm("requests_submitted", Severity.SEV2,
+      undefined,
+      "less than 5 submitted orders in 10 minutes", {
+      period: 600
+    },
+      {
+        threshold: 5,
+        comparisonOperator: "LessThanThreshold",
+      },
+    );
+
+
+    // Total Number of Expired Orders - SEV2: TBD(needs baseline)
+
+    createMetricAlarm("requests_expired", Severity.SEV2,
+      undefined,
+      "at least 2 expired orders in 10 minutes", {
+      period: 600
+    },
+      {
+        threshold: 2,
+        comparisonOperator: "GreaterThanOrEqualToThreshold",
+      },
+    );
+
+    // Total Number of Slashed Orders - SEV2: TBD(needs baseline)
+
+    createMetricAlarm("requests_slashed", Severity.SEV2,
+      undefined,
+      "at least 2 slashed orders in 10 minutes", {
+      period: 600
+    },
+      {
+        threshold: 2,
+        comparisonOperator: "GreaterThanOrEqualToThreshold",
+      },
+    );
+
+    // Create alarms for each client
+    clients.forEach((client) => {
+      if (client.submissionRate != null) {
+        const period = client.submissionRate;
+        createMetricAlarm("requests_submitted", Severity.SEV1,
+          client,
+          "two missed submissions in an hour", {
+          period: period
+        },
+          {
+            threshold: 1,
+            comparisonOperator: "LessThanThreshold",
+            evaluationPeriods: 12,
+            datapointsToAlarm: 2,
+          },
+        );
+        createMetricAlarm("requests_submitted", Severity.SEV2,
+          client,
+          "one missed submissions in an hour", {
+          period: period
+        },
+          {
+            threshold: 1,
+            comparisonOperator: "LessThanThreshold",
+            evaluationPeriods: 12,
+            datapointsToAlarm: 2,
+          },
+        );
+      };
+
+      if (client.successRate != null) {
+        const rate = client.successRate;
+        createSuccessRateAlarm(client, Severity.SEV2, `success rate is below $rate`,
+          { period: 3600 },
+          { threshold: rate }
+        );
+
+      }
+
+    });
 
     this.registerOutputs({ lambdaFunction: this.lambdaFunction });
   }
