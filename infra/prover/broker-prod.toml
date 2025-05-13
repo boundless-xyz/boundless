@@ -5,7 +5,6 @@ peak_prove_khz = 5000
 min_deadline = 200
 lookback_blocks = 100
 max_stake = "0.5"
-skip_preflight_ids = []
 max_file_size = 50_000_000
 max_mcycle_limit = 8_000
 max_concurrent_locks = 5

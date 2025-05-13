@@ -26,7 +26,7 @@ use thiserror::Error;
 
 #[derive(Error)]
 pub enum AggregatorErr {
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 

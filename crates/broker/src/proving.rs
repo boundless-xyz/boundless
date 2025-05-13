@@ -17,7 +17,7 @@ use thiserror::Error;
 
 #[derive(Error)]
 pub enum ProvingErr {
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
 

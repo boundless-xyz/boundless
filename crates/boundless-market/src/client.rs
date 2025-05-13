@@ -39,7 +39,6 @@ use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use url::Url;
 
 use crate::{
-    request_builder::{StandardRequestBuilder, RequestBuilder},
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider},
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
@@ -47,6 +46,7 @@ use crate::{
     },
     now_timestamp,
     order_stream_client::{Client as OrderStreamClient, Order},
+    request_builder::{RequestBuilder, StandardRequestBuilder},
     storage::{
         storage_provider_from_env, BuiltinStorageProvider, BuiltinStorageProviderError,
         StorageProvider, StorageProviderConfig,
@@ -101,7 +101,12 @@ impl<S> Default for ClientBuilder<S> {
     }
 }
 
-impl ClientBuilder<BuiltinStorageProvider, StandardRequestBuilder<BuiltinStorageProvider, ProviderWallet>> {
+impl
+    ClientBuilder<
+        BuiltinStorageProvider,
+        StandardRequestBuilder<BuiltinStorageProvider, ProviderWallet>,
+    >
+{
     /// Create a new client builder.
     ///
     /// Equivalent to [Default] when using [BuiltinStorageProvider].
