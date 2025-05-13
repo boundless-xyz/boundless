@@ -71,7 +71,7 @@ services:
 
 
   exec_agent:
-    image: risczero/risc0-bento-agent:initial
+    image: risczero/risc0-bento-agent:test01
     runtime: nvidia
     restart: always
     depends_on:
@@ -100,7 +100,7 @@ services:
     entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
 
   aux_agent:
-    image: risczero/risc0-bento-agent:initial
+    image: risczero/risc0-bento-agent:test01
     runtime: nvidia
     pull_policy: never
     restart: always
@@ -126,7 +126,7 @@ services:
     entrypoint: /app/agent -t aux --monitor-requeue
 
   gpu_prove_agent0: &gpu
-    image: risczero/risc0-bento-agent:initial
+    image: risczero/risc0-bento-agent:test01
     runtime: nvidia
     pull_policy: never
     restart: always
@@ -186,7 +186,7 @@ services:
 
 
   snark_agent:
-    image: risczero/risc0-bento-agent:initial
+    image: risczero/risc0-bento-agent:test01
     runtime: nvidia
 
     pull_policy: never
@@ -216,7 +216,7 @@ services:
       stack: 90000000
 
   rest_api:
-    image: risczero/risc0-bento-rest-api:initial
+    image: risczero/risc0-bento-rest-api:test01
     restart: always
     depends_on:
       - postgres
