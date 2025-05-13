@@ -29,7 +29,9 @@ This unlocks sophisticated, trustless interactions using Ethereum’s inexpensiv
 
 ## How does Steel Events work?
 
-The Steel Events feature enables the developer to query events directly within their guest program. To enable the Steel Events feature, the feature flag “unstable-event” needs to be added to the `risc0-steel` dependency:
+The Steel Events feature enables the developer to query events directly within their guest program.
+
+To enable the Steel Events feature, the feature flag “event” needs to be added to the `risc0-steel` dependency:
 
 ```
 risc0-steel = { path = "../../crates/steel", features = ["unstable-event"] }
@@ -118,7 +120,7 @@ let evm_input = env.into_input().await?;
 
 ## Running the Events Example
 
-To get started with events, you can use the \[Steel Events example\](https://github.com/risc0/risc0-ethereum/tree/main/examples/events):
+To get started with events, you can use the [Steel Events example](https://github.com/risc0/risc0-ethereum/tree/main/examples/events):
 
 ```
 git clone https://github.com/risc0/risc0-ethereum.git && cd risc0-ethereum/examples/events
