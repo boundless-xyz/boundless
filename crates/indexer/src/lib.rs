@@ -96,7 +96,7 @@ impl IndexerService<ProviderWallet> {
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
-        let provider = ProviderBuilder::new().wallet(wallet.clone()).on_http(rpc_url);
+        let provider = ProviderBuilder::new().wallet(wallet.clone()).connect_http(rpc_url);
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);

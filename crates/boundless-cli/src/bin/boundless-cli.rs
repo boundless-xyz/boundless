@@ -502,7 +502,7 @@ async fn main() -> Result<()> {
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     let caller = args.config.private_key.address();
     let wallet = EthereumWallet::from(args.config.private_key.clone());
-    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.config.rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(args.config.rpc_url.clone());
 
     let mut boundless_market =
         BoundlessMarketService::new(args.config.boundless_market_address, provider.clone(), caller);
@@ -1261,7 +1261,7 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
     println!("\n=== Environment Validation ===\n");
     print!("Testing RPC connection... ");
     let wallet = EthereumWallet::from(args.config.private_key.clone());
-    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.config.rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(args.config.rpc_url.clone());
 
     let rpc_ok = match provider.get_chain_id().await {
         Ok(chain_id) => {

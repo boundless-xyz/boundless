@@ -564,7 +564,7 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
         let provider = ProviderBuilder::new()
             .wallet(wallet.clone())
             .layer(BalanceAlertLayer::default())
-            .on_http(rpc_url);
+            .connect_http(rpc_url);
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
@@ -614,7 +614,7 @@ impl<P: StorageProvider> Client<ProviderWallet, P> {
         let provider = ProviderBuilder::new()
             .wallet(wallet)
             .layer(BalanceAlertLayer::new(balance_alerts.unwrap_or_default()))
-            .on_http(rpc_url);
+            .connect_http(rpc_url);
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);

@@ -141,7 +141,7 @@ async fn main() -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.zeth_rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(args.zeth_rpc_url.clone());
     let rpc = Some(args.zeth_rpc_url.to_string());
     let chain_id = provider.get_chain_id().await?;
     let chain = Some(NamedChain::try_from(chain_id).map_err(|_| anyhow!("Unknown chain"))?);
