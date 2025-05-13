@@ -8,12 +8,12 @@ FROM builder AS rust-builder
 
 ARG S3_CACHE_PREFIX
 
-
 WORKDIR /src/
-COPY bento/ ./bento/
+# TODO switch this to a tagged commit once one released with bento (https://github.com/boundless-xyz/boundless/issues/570)
+RUN git clone --depth=1 --branch main https://github.com/risc0/risc0.git
 COPY rust-toolchain.toml .
 
-WORKDIR /src/bento/
+WORKDIR /src/risc0/bento/
 
 COPY ./dockerfiles/sccache-setup.sh .
 RUN ./sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
@@ -28,7 +28,7 @@ RUN \
     --mount=type=cache,target=/root/.cache/sccache/,id=bndlss_api_sccache \
     source ./sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p api --bin rest_api && \
-    cp /src/bento/target/release/rest_api /src/rest_api && \
+    cp /src/risc0/bento/target/release/rest_api /src/rest_api && \
     sccache --show-stats
 
 FROM rust:1.85.0-bookworm AS runtime

@@ -64,7 +64,7 @@ We then use this proof as input to the Identity guest program:
 # use boundless_market::storage::StorageProvider;
 # async fn boundless_proof<P, S>(
 #     client: &Client<P, S>,
-#     elf: impl AsRef<[u8]>,
+#     program: impl AsRef<[u8]>,
 #     guest_env: GuestEnv,
 #     groth16: bool,
 # ) -> anyhow::Result<(Vec<u8>, Vec<u8>)>

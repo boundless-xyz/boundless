@@ -53,9 +53,6 @@ utoipa = { workspace = true }
 
 [dev-dependencies]
 boundless-market-test-utils = { workspace = true }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
-guest-util = { workspace = true }
 tracing-test = { workspace = true }
 
 [build-dependencies]

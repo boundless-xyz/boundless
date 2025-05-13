@@ -1,15 +1,17 @@
 [market]
 mcycle_price = "0.00001"
 mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
-assumption_price = "0.1"
 peak_prove_khz = 5000
 min_deadline = 200
 lookback_blocks = 100
 max_stake = "0.5"
-skip_preflight_ids = []
 max_file_size = 50_000_000
 max_mcycle_limit = 8_000
 max_concurrent_locks = 10
+balance_warn_threshold = "5"
+balance_error_threshold = "1"
+stake_balance_warn_threshold = "5"
+stake_balance_error_threshold = "1"
 # max_fetch_retries = 2
 # allow_client_addresses = []
 # lockin_priority_gas = 100

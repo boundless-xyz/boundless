@@ -9,6 +9,7 @@ members = [
     "crates/broker-stress",
     "crates/guest/assessor",
     "crates/guest/util",
+    "crates/indexer",
     "crates/order-generator",
     "crates/order-stream",
     "crates/slasher",

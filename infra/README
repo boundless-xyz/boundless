@@ -1,13 +1,22 @@
 # Onboarding for development deployments
 
-This is a one time setup that enables you to deploy applications to a development AWS accout for testing.
-This bootstraps the account with your personal VPC.
+This is a one time setup that enables you to deploy applications to a development AWS account for testing.
+
+This bootstraps the development account with your personal VPC. Then when you deploy other services, they will use this VPC.
 
 1. `cd infra/bootstrap`
 2. `export DEV_NAME="<your name>"`
 3. `pulumi login --local`
-4. `pulumi stack select staging-dev`
-5. `pulumi up`
+4. `pulumi stack init services-dev`
+5. `pulumi install`
+6. Login in development account using `aws-vault`
+7. `pulumi up`
+
+Now deploy the sample project to check everything is working:
+
+1. `cd infra/sample`
+2. `pulumi login --local && pulumi stack init dev`
+3. `pulumi up`
 
 # Creating a new project
 
@@ -29,3 +38,4 @@ Requires Ops Admin permissions. Create staging and prod stacks requires accessin
 7. `pulumi login "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"` 
 8. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" staging`
 9. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" prod`
+10. Set your secrets using `pulumi config set --secret <NAME> <VALUE>`

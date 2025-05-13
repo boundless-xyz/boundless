@@ -279,7 +279,7 @@ export class ZethGenerator extends pulumi.ComponentResource {
           essential: true,
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/order-generator-zeth --one-shot --max-retries ${retries} --interval ${interval} --min ${minPricePerMCycle} --max ${maxPricePerMCycle} --stake ${lockStake} --lock-timeout ${lockTimeout} --timeout ${timeout} --ramp-up ${rampUp} --set-verifier-address ${setVerifierAddr} --boundless-market-address ${boundlessMarketAddr}`,
+            `/app/order-generator-zeth --one-shot --auto-deposit 5 --max-retries ${retries} --interval ${interval} --min ${minPricePerMCycle} --max ${maxPricePerMCycle} --stake ${lockStake} --lock-timeout ${lockTimeout} --timeout ${timeout} --ramp-up ${rampUp} --set-verifier-address ${setVerifierAddr} --boundless-market-address ${boundlessMarketAddr}`,
           ],
           environment: [
             {
