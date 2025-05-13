@@ -15,28 +15,16 @@ config:
   order-generator-base:LOG_LEVEL: info
   order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
   order-generator-base:CHAIN_ID: "11155111"
-  order-generator-simple:PRIVATE_KEY:
-    secure: v1:9iJ6gE5+gp4aipMW:lZlt7k89kafxnLvr8Qe0sStef/3gNEOcr67breAfH/sSrlgL4m6k081WHMUpaU2doI683Sd0TQ+kSnbLKINXfxvqiw/EFfhz4SxOks6d9UI=
-  order-generator-simple:INTERVAL: "300"
-  order-generator-simple:LOCK_STAKE: "0.1"
-  order-generator-simple:MAX_PRICE_PER_MCYCLE: "0.1"
-  order-generator-simple:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-simple:RAMP_UP: "600"
-  order-generator-simple:LOCK_TIMEOUT: "900"
-  order-generator-simple:TIMEOUT: "1800"
-  order-generator-zeth:SCHEDULE_MINUTES: "10"
-  order-generator-zeth:RETRIES: "2"
-  order-generator-zeth:INTERVAL: "1800"
-  order-generator-zeth:LOCK_STAKE: "0.5"
-  order-generator-zeth:RAMP_UP: "600"
-  order-generator-zeth:MAX_PRICE_PER_MCYCLE: "0.001"
-  order-generator-zeth:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-zeth:LOCK_TIMEOUT: "1800"
-  order-generator-zeth:TIMEOUT: "3600"
-  order-generator-zeth:PRIVATE_KEY:
-    secure: v1:X0x504eGSlReaNWU:HHKOYSpWFvByYG23SRcGA2/uvj0i5S09Jfof+tNB/S1ooLrm8vmZ+QXhS3+8loVt8dIKS3H9U4svS5CrV5FHZNQXlAa74cQ3McoDQsIIQ84=
-  order-generator-zeth:BOUNDLESS_RPC_URL:
-    secure: v1:viPovgxNfN10vJpd:JL418F1i9LzQtkq2p8GT672BEWuHKrkclZTYcv4eA/Yfl4zaSOv/dNXfZ9W60AAU9tUr13z0KrI8LlYopJTlQIIMyA+Gcr3a7VH3LKd46zPS+fZoWRduGbd0SLOtidAVJ0p5H7Aggf6Bz71U21sAog==
-  order-generator-zeth:ZETH_RPC_URL:
-    secure: v1:PWEzsIk33K1Sublb:nenlpIv2Hse9SUZF8V3XhKavxY76hMElYa4vakUVCuFoLNm9Zwa2y5Wy43DBMPpRUbLyZB3aFpAqZ6cD/5jZxfrSd8B2ovJIEgR2n4RBJgUfE5ibpidhBKtEmtjpA1fTqEmQR9I=
+  order-generator-base:INTERVAL: "300"
+  order-generator-base:LOCK_STAKE: "0.1"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.1"
+  order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
+  order-generator-base:RAMP_UP: "600"
+  order-generator-base:LOCK_TIMEOUT: "900"
+  order-generator-base:TIMEOUT: "1800"
+  order-generator-base:SECONDS_PER_MCYCLES: "60"
   order-generator-base:ORDER_STREAM_URL: https://eth-sepolia.beboundless.xyz
+  order-generator-offchain:PRIVATE_KEY:
+    secure: v1:9iJ6gE5+gp4aipMW:lZlt7k89kafxnLvr8Qe0sStef/3gNEOcr67breAfH/sSrlgL4m6k081WHMUpaU2doI683Sd0TQ+kSnbLKINXfxvqiw/EFfhz4SxOks6d9UI=
+  order-generator-onchain:PRIVATE_KEY:
+    secure: v1:X0x504eGSlReaNWU:HHKOYSpWFvByYG23SRcGA2/uvj0i5S09Jfof+tNB/S1ooLrm8vmZ+QXhS3+8loVt8dIKS3H9U4svS5CrV5FHZNQXlAa74cQ3McoDQsIIQ84=

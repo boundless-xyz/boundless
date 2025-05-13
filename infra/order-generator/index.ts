@@ -1,7 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import { ChainId, getEnvVar } from '../util';
-import { SimpleGenerator } from './components/simple-generator';
-import { ZethGenerator } from './components/zeth-generator';
+import { OrderGenerator } from './components/order-generator';
 
 require('dotenv').config();
 
@@ -29,19 +28,19 @@ export = () => {
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
   const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
+  const interval = baseConfig.require('INTERVAL');
+  const lockStake = baseConfig.require('LOCK_STAKE');
+  const rampUp = baseConfig.require('RAMP_UP');
+  const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
+  const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
+  const secondsPerMCycle = baseConfig.require('SECONDS_PER_MCYCLE');
   
-  const simpleConfig = new pulumi.Config("order-generator-simple");
-  const simplePrivateKey = isDev ? pulumi.output(getEnvVar("SIMPLE_PRIVATE_KEY")) : simpleConfig.requireSecret('PRIVATE_KEY');
-  const simpleInterval = simpleConfig.require('INTERVAL');
-  const simpleLockStake = simpleConfig.require('LOCK_STAKE');
-  const simpleRampUp = simpleConfig.require('RAMP_UP');
-  const simpleMinPricePerMCycle = simpleConfig.require('MIN_PRICE_PER_MCYCLE');
-  const simpleMaxPricePerMCycle = simpleConfig.require('MAX_PRICE_PER_MCYCLE');
-  
-  new SimpleGenerator('order-generator', {
+  const offchainConfig = new pulumi.Config("order-generator-offchain");
+  const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
+  new OrderGenerator('offchain', {
     chainId,
     stackName,
-    privateKey: simplePrivateKey,
+    privateKey: offchainPrivateKey,
     pinataJWT,
     ethRpcUrl,
     orderStreamUrl,
@@ -53,36 +52,25 @@ export = () => {
     setVerifierAddr,
     boundlessMarketAddr,
     pinataGateway,
-    interval: simpleInterval,
-    lockStake: simpleLockStake,
-    rampUp: simpleRampUp,
-    minPricePerMCycle: simpleMinPricePerMCycle,
-    maxPricePerMCycle: simpleMaxPricePerMCycle,
+    interval,
+    lockStake,
+    rampUp,
+    minPricePerMCycle,
+    maxPricePerMCycle,
+    secondsPerMCycle,
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArn,
   });
 
-  const zethConfig = new pulumi.Config("order-generator-zeth");
-  const zethPrivateKey = isDev ? pulumi.output(getEnvVar("ZETH_PRIVATE_KEY")) : zethConfig.requireSecret('PRIVATE_KEY');
-  const zethRpcUrl = isDev ? pulumi.output(getEnvVar("ZETH_RPC_URL")) : zethConfig.requireSecret('ZETH_RPC_URL');
-  const zethBoundlessRpcUrl = isDev ? pulumi.output(getEnvVar("BOUNDLESS_RPC_URL")) : zethConfig.requireSecret('BOUNDLESS_RPC_URL');
-  const zethScheduleMinutes = zethConfig.require('SCHEDULE_MINUTES');
-  const zethRetries = zethConfig.require('RETRIES');
-  const zethInterval = zethConfig.require('INTERVAL');
-  const zethLockStake = zethConfig.require('LOCK_STAKE');
-  const zethRampUp = zethConfig.require('RAMP_UP');
-  const zethMinPricePerMCycle = zethConfig.require('MIN_PRICE_PER_MCYCLE');
-  const zethMaxPricePerMCycle = zethConfig.require('MAX_PRICE_PER_MCYCLE');
-  const zethTimeout = zethConfig.require('TIMEOUT');
-  const zethLockTimeout = zethConfig.require('LOCK_TIMEOUT');
-  new ZethGenerator('order-generator-zeth', {
+  const onchainConfig = new pulumi.Config("order-generator-onchain");
+  const onchainPrivateKey = isDev ? pulumi.output(getEnvVar("ONCHAIN_PRIVATE_KEY")) : onchainConfig.requireSecret('PRIVATE_KEY');
+  new OrderGenerator('onchain', {
     chainId,
     stackName,
-    privateKey: zethPrivateKey,
+    privateKey: onchainPrivateKey,
     pinataJWT,
-    zethRpcUrl,
-    boundlessRpcUrl: zethBoundlessRpcUrl,
+    ethRpcUrl,
     orderStreamUrl,
     githubTokenSecret,
     logLevel,
@@ -92,17 +80,15 @@ export = () => {
     setVerifierAddr,
     boundlessMarketAddr,
     pinataGateway,
-    interval: zethInterval,
-    lockStake: zethLockStake,
-    rampUp: zethRampUp,
-    minPricePerMCycle: zethMinPricePerMCycle,
-    maxPricePerMCycle: zethMaxPricePerMCycle,
+    interval,
+    lockStake,
+    rampUp,
+    minPricePerMCycle,
+    maxPricePerMCycle,
+    secondsPerMCycle,
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArn,
-    retries: zethRetries,
-    scheduleMinutes: zethScheduleMinutes,
-    timeout: zethTimeout,
-    lockTimeout: zethLockTimeout,
   });
+
 };

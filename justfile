@@ -103,7 +103,7 @@ check-format:
 # Run Cargo clippy
 check-clippy:
     RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cargo clippy --workspace --all-targets -F boundless-order-generator/zeth
+    cargo clippy --workspace --all-targets
     cd examples/counter && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
     cd examples/composition && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \

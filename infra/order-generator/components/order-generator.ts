@@ -4,7 +4,7 @@ import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
 import { ChainId, getServiceNameV1 } from '../../util';
 
-interface SimpleGeneratorArgs {
+interface OrderGeneratorArgs {
   chainId: string;
   stackName: string;
   privateKey: pulumi.Output<string>;
@@ -24,16 +24,17 @@ interface SimpleGeneratorArgs {
   rampUp: string;
   minPricePerMCycle: string;
   maxPricePerMCycle: string;
+  secondsPerMCycle: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
   boundlessAlertsTopicArn?: string;
 }
 
-export class SimpleGenerator extends pulumi.ComponentResource {
-  constructor(name: string, args: SimpleGeneratorArgs, opts?: pulumi.ComponentResourceOptions) {
+export class OrderGenerator extends pulumi.ComponentResource {
+  constructor(name: string, args: OrderGeneratorArgs, opts?: pulumi.ComponentResourceOptions) {
     super(`boundless:order-generator:${name}`, name, args, opts);
 
-    const serviceName = getServiceNameV1(args.stackName, "order-generator", args.chainId);
+    const serviceName = getServiceNameV1(args.stackName, `order-generator-${name}`, args.chainId);
 
     const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
@@ -54,9 +55,9 @@ export class SimpleGenerator extends pulumi.ComponentResource {
     });
 
     const orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
-    new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
-      secretId: orderStreamUrlSecret.id,
-      secretString: args.orderStreamUrl,
+      new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
+        secretId: orderStreamUrlSecret.id,
+        secretString: args.orderStreamUrl,
     });
 
     const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
@@ -155,11 +156,32 @@ export class SimpleGenerator extends pulumi.ComponentResource {
           {
             Effect: 'Allow',
             Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-            Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn, orderStreamUrlSecret.arn],
+            Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn],
           },
         ],
       },
     });
+
+    const secrets = [
+      {
+        name: 'RPC_URL',
+        valueFrom: rpcUrlSecret.arn,
+      },
+      {
+        name: 'PRIVATE_KEY',
+        valueFrom: privateKeySecret.arn,
+      },
+      {
+        name: 'PINATA_JWT',
+        valueFrom: pinataJwtSecret.arn,
+      },
+    ];
+    if (name === 'offchain') {
+      secrets.push({
+        name: 'ORDER_STREAM_URL',
+        valueFrom: orderStreamUrlSecret.arn,
+      });
+    };
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
     const service = new awsx.ecs.FargateService(
@@ -186,7 +208,7 @@ export class SimpleGenerator extends pulumi.ComponentResource {
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
-              `/app/boundless-order-generator --auto-deposit 5 --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr}`,
+              `/app/boundless-order-generator --auto-deposit 5 --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle}`,
             ],
             environment: [
               {
@@ -198,24 +220,7 @@ export class SimpleGenerator extends pulumi.ComponentResource {
                 value: args.logLevel,
               },
             ],
-            secrets: [
-              {
-                name: 'RPC_URL',
-                valueFrom: rpcUrlSecret.arn,
-              },
-              {
-                name: 'PRIVATE_KEY',
-                valueFrom: privateKeySecret.arn,
-              },
-              {
-                name: 'PINATA_JWT',
-                valueFrom: pinataJwtSecret.arn,
-              },
-              {
-                name: 'ORDER_STREAM_URL',
-                valueFrom: orderStreamUrlSecret.arn,
-              },
-            ],
+            secrets,
           },
         },
       },
@@ -256,7 +261,7 @@ export class SimpleGenerator extends pulumi.ComponentResource {
       evaluationPeriods: 60,
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
-      alarmDescription: 'Order generator log ERROR level',
+      alarmDescription: `Order generator ${name} log ERROR level`,
       actionsEnabled: true,
       alarmActions,
     });
