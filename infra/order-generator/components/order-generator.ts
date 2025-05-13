@@ -11,7 +11,7 @@ interface OrderGeneratorArgs {
   pinataJWT: pulumi.Output<string>;
   ethRpcUrl: pulumi.Output<string>;
   orderStreamUrl?: pulumi.Output<string>;
-  image: Image; 
+  image: Image;
   logLevel: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
@@ -52,9 +52,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     });
 
     const orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
-      new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
-        secretId: orderStreamUrlSecret.id,
-        secretString: args.orderStreamUrl,
+    new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
+      secretId: orderStreamUrlSecret.id,
+      secretString: args.orderStreamUrl,
     });
 
     const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
@@ -91,17 +91,18 @@ export class OrderGenerator extends pulumi.ComponentResource {
         ],
       },
     });
-    
+
     var environment = [
-              {
-                name: 'IPFS_GATEWAY_URL',
-                value: args.pinataGateway,
-              },
-              {
-                name: 'RUST_LOG',
-                value: args.logLevel,
-              },
-            ]
+      {
+        name: 'IPFS_GATEWAY_URL',
+        value: args.pinataGateway,
+      },
+      {
+        name: 'RUST_LOG',
+        value: args.logLevel,
+      },
+      { name: 'NO_COLOR', value: '1' },
+    ]
 
     var secrets = [
       {
@@ -123,11 +124,11 @@ export class OrderGenerator extends pulumi.ComponentResource {
         name: 'AUTO_DEPOSIT',
         value: '5',
       });
-        value: args.orderStreamUrl,
-      secrets.push({
-        name: 'ORDER_STREAM_URL',
-        valueFrom: orderStreamUrlSecret.arn,
-      });
+      value: args.orderStreamUrl,
+        secrets.push({
+          name: 'ORDER_STREAM_URL',
+          valueFrom: orderStreamUrlSecret.arn,
+        });
     };
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
