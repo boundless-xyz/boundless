@@ -95,7 +95,7 @@ struct MainArgs {
     program: Option<PathBuf>,
     /// The cycle count to drive the loop.
     ///
-    /// If unspecified, defaults to a random value between 1_000_000 and 400_000_000
+    /// If unspecified, defaults to a random value between 1_000_000 and 1_000_000_000
     /// with a step of 1_000_000.
     #[clap(long, env = "CYCLE_COUNT")]
     input: Option<u32>,
@@ -190,7 +190,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             None => {
                 // Generate a random input.
                 let mut rng = rand::rng();
-                let num: u32 = rng.random_range(1..=400);
+                let num: u32 = rng.random_range(1..=1000);
                 let input = num * 1_000_000;
                 tracing::debug!("Generated random input: {}", input);
                 input

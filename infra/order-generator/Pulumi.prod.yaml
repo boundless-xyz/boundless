@@ -17,7 +17,7 @@ config:
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:INTERVAL: "300"
   order-generator-base:LOCK_STAKE: "0.1"
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.001"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.01"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:RAMP_UP: "600"
   order-generator-base:LOCK_TIMEOUT: "900"
