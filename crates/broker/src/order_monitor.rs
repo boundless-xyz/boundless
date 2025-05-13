@@ -19,7 +19,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
-    RequestStatus,
+    IBoundlessMarket::IBoundlessMarketErrors,
+    RequestStatus, TxnErr,
 };
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
@@ -226,6 +227,12 @@ where
             .await
             .map_err(|e| -> OrderMonitorErr {
                 match e {
+                    MarketError::TxnError(txn_err) => match txn_err {
+                        TxnErr::BoundlessMarketErr(IBoundlessMarketErrors::RequestIsLocked(_)) => {
+                            OrderMonitorErr::AlreadyLocked
+                        }
+                        _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
+                    },
                     MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
                     MarketError::TxnConfirmationError(e) => {
                         OrderMonitorErr::LockTxNotConfirmed(e.to_string())

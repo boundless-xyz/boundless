@@ -434,9 +434,9 @@ export = () => {
   
   // Alarms at the supervisor level
   //
-  // 2 supervisor restarts within 15 mins triggers a SEV2 alarm
+  // 5 supervisor restarts within 15 mins triggers a SEV2 alarm
   createErrorCodeAlarm('"[B-SUP-RECOVER]"', 'supervisor-recover-errors', Severity.SEV2, {
-    threshold: 2,
+    threshold: 5,
   }, { period: 900 });
 
   // 1 supervisor fault triggers a SEV2 alarm
