@@ -15,7 +15,7 @@ boundless-market-test-utils = { path = "../../crates/boundless-market/test-utils
 broker = { path = "../../crates/broker" }
 
 # risc0 monorepo dependencies.
-risc0-zkvm = { version = "2.0.1", default-features = false }
+risc0-zkvm = { version = "2.0.2", default-features = false }
 
 # risc0-ethereum dependencies.
 risc0-ethereum-contracts = "2.1"
