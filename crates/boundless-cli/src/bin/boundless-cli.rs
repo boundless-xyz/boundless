@@ -1839,7 +1839,7 @@ mod tests {
         let request_id = request.id;
 
         // Dump the request to a tmp file; tmp is deleted on drop.
-        let tmp = tempdir();
+        let tmp = tempdir().unwrap();
         let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
@@ -2031,7 +2031,7 @@ mod tests {
         );
 
         // Dump the request to a tmp file; tmp is deleted on drop.
-        let tmp = tempdir();
+        let tmp = tempdir().unwrap();
         let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
@@ -2097,7 +2097,7 @@ mod tests {
         );
 
         // Dump the request to a tmp file; tmp is deleted on drop.
-        let tmp = tempdir();
+        let tmp = tempdir().unwrap();
         let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
@@ -2159,7 +2159,7 @@ mod tests {
         let request_id = request.id;
 
         // Dump the request to a tmp file; tmp is deleted on drop.
-        let tmp = tempdir();
+        let tmp = tempdir().unwrap();
         let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
