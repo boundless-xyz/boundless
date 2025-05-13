@@ -27,6 +27,7 @@ use boundless_market::{
 use clap::Parser;
 use rand::Rng;
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
+use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
 /// Arguments of the order generator.
@@ -118,6 +119,9 @@ const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 1_000_000;
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_ansi(false)
+        .with_span_events(FmtSpan::CLOSE)
+        .json()
         .init();
 
     match dotenvy::dotenv() {
