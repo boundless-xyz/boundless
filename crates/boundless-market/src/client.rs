@@ -18,10 +18,8 @@ use alloy::{
     network::{Ethereum, EthereumWallet},
     primitives::{Address, Bytes, U256},
     providers::{
-        fillers::{
-            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-            WalletFiller,
-        },
+        fillers::{FillProvider, JoinFill, RecommendedFillers, WalletFiller},
+        utils::JoinedRecommendedFillers,
         Identity, Provider, ProviderBuilder, RootProvider,
     },
     signers::{
@@ -57,21 +55,16 @@ use crate::{
 const BIDDING_START_DELAY: u64 = 30;
 
 type ProviderWallet = FillProvider<
-    JoinFill<
-        JoinFill<
-            Identity,
-            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-        >,
-        WalletFiller<EthereumWallet>,
-    >,
+    JoinFill<JoinedRecommendedFillers, WalletFiller<EthereumWallet>>,
     BalanceAlertProvider<RootProvider>,
 >;
 
 /// Builder for the client
-pub struct ClientBuilder<S, P, R> {
-    boundless_market_addr: Option<Address>,
+// TODO: Improve this docstring.
+pub struct ClientBuilder<S> {
+    boundless_market_address: Option<Address>,
     set_verifier_addr: Option<Address>,
-    provider: ProviderBuilderField,
+    rpc_url: Option<Url>,
     wallet: Option<EthereumWallet>,
     local_signer: Option<PrivateKeySigner>,
     order_stream_url: Option<Url>,
@@ -79,14 +72,13 @@ pub struct ClientBuilder<S, P, R> {
     tx_timeout: Option<std::time::Duration>,
     bidding_start_delay: u64,
     balance_alerts: Option<BalanceAlertConfig>,
-    request_builder: Option<R>,
 }
 
 impl<S> Default for ClientBuilder<S> {
     /// Creates a new `ClientBuilder` with all configuration options set to their default values.
     fn default() -> Self {
         Self {
-            boundless_market_addr: None,
+            boundless_market_address: None,
             set_verifier_addr: None,
             rpc_url: None,
             wallet: None,
@@ -96,7 +88,6 @@ impl<S> Default for ClientBuilder<S> {
             tx_timeout: None,
             bidding_start_delay: BIDDING_START_DELAY,
             balance_alerts: None,
-            request_builder: None,
         }
     }
 }
@@ -104,7 +95,6 @@ impl<S> Default for ClientBuilder<S> {
 impl
     ClientBuilder<
         BuiltinStorageProvider,
-        StandardRequestBuilder<BuiltinStorageProvider, ProviderWallet>,
     >
 {
     /// Create a new client builder.
@@ -115,32 +105,52 @@ impl
     }
 }
 
-impl<S, R> ClientBuilder<S, R> {
+impl<S> ClientBuilder<S> {
     /// Build the client
     pub async fn connect(self) -> Result<Client<ProviderWallet, S>> {
-        let mut client = Client::from_parts(
-            self.wallet.context("Wallet not set")?,
-            self.rpc_url.context("RPC URL not set")?,
-            self.boundless_market_addr.context("Boundless market address not set")?,
-            self.set_verifier_addr.context("Set verifier address not set")?,
-            self.order_stream_url,
-            self.storage_provider,
-            self.balance_alerts,
-        )
-        .await?;
+        let wallet = self.wallet.context("wallet is not set on ClientBuilder")?;
+        let rpc_url = self.rpc_url.context("rpc_url is not set on ClientBuilder")?;
+        let boundless_market_address = self
+            .boundless_market_address
+            .context("boundless_market_address is not set on ClientBuilder")?;
+        let set_verifier_addr =
+            self.set_verifier_addr.context("set_verifier_addr is not set on ClientBuilder")?;
+
+        let caller = wallet.default_signer().address();
+
+        let provider = ProviderBuilder::new()
+            .wallet(wallet)
+            .layer(BalanceAlertLayer::new(self.balance_alerts.unwrap_or_default()))
+            .connect(rpc_url)
+            .await;
+
+        let boundless_market =
+            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
+        let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
+
+        let chain_id = provider.get_chain_id().await.context("failed to get chain ID")?;
+        let offchain_client = order_stream_url
+            .map(|url| OrderStreamClient::new(url, boundless_market_address, chain_id));
+
+        let mut client = Client {
+            boundless_market,
+            set_verifier,
+            storage_provider,
+            offchain_client,
+            local_signer: self.local_signer,
+            bidding_start_delay: self.bidding_start_delay,
+        };
+
         if let Some(timeout) = self.tx_timeout {
             client = client.with_timeout(timeout);
         }
-        if let Some(local_signer) = self.local_signer {
-            client = client.with_local_signer(local_signer);
-        }
-        client = client.with_bidding_start_delay(self.bidding_start_delay);
+
         Ok(client)
     }
 
     /// Set the Boundless market address
     pub fn with_boundless_market_address(self, boundless_market_addr: Address) -> Self {
-        Self { boundless_market_addr: Some(boundless_market_addr), ..self }
+        Self { boundless_market_address: Some(boundless_market_addr), ..self }
     }
 
     /// Set the set verifier address
@@ -195,11 +205,11 @@ impl<S, R> ClientBuilder<S, R> {
     pub fn with_storage_provider<Z: StorageProvider>(
         self,
         storage_provider: Option<Z>,
-    ) -> ClientBuilder<Z, R> {
+    ) -> ClientBuilder<Z> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
             storage_provider,
-            boundless_market_addr: self.boundless_market_addr,
+            boundless_market_address: self.boundless_market_address,
             set_verifier_addr: self.set_verifier_addr,
             rpc_url: self.rpc_url,
             wallet: self.wallet,
@@ -208,7 +218,6 @@ impl<S, R> ClientBuilder<S, R> {
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             bidding_start_delay: self.bidding_start_delay,
-            request_builder: self.request_builder,
         }
     }
 
@@ -216,7 +225,7 @@ impl<S, R> ClientBuilder<S, R> {
     pub fn with_storage_provider_config(
         self,
         config: &StorageProviderConfig,
-    ) -> Result<ClientBuilder<BuiltinStorageProvider, R>, BuiltinStorageProviderError> {
+    ) -> Result<ClientBuilder<BuiltinStorageProvider>, BuiltinStorageProviderError> {
         let storage_provider = match BuiltinStorageProvider::from_config(config) {
             Ok(storage_provider) => Some(storage_provider),
             Err(BuiltinStorageProviderError::NoProvider) => None,
@@ -610,44 +619,6 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
             storage_provider,
             offchain_client,
             local_signer: Some(private_key),
-            bidding_start_delay: BIDDING_START_DELAY,
-        })
-    }
-}
-
-impl<P> Client<ProviderWallet, P> {
-    /// Create a new client from parts
-    /// DO NOT MERGE: refactor this
-    pub async fn from_parts(
-        wallet: EthereumWallet,
-        rpc_url: Url,
-        boundless_market_address: Address,
-        set_verifier_address: Address,
-        order_stream_url: Option<Url>,
-        storage_provider: Option<P>,
-        balance_alerts: Option<BalanceAlertConfig>,
-    ) -> Result<Self, ClientError> {
-        let caller = wallet.default_signer().address();
-
-        let provider = ProviderBuilder::new()
-            .wallet(wallet)
-            .layer(BalanceAlertLayer::new(balance_alerts.unwrap_or_default()))
-            .on_http(rpc_url);
-
-        let boundless_market =
-            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
-        let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
-
-        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let offchain_client = order_stream_url
-            .map(|url| OrderStreamClient::new(url, boundless_market_address, chain_id));
-
-        Ok(Self {
-            boundless_market,
-            set_verifier,
-            storage_provider,
-            offchain_client,
-            local_signer: None,
             bidding_start_delay: BIDDING_START_DELAY,
         })
     }
