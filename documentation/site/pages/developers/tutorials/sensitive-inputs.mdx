@@ -205,7 +205,7 @@ If you have already uploaded your inputs using the `aws` CLI above, you can skip
   - `S3_BUCKET` for the bucket name of the bucket created in [Step 1](/developers/tutorials/sensitive-inputs#1-create-the--s3-bucket)
   - `S3_URL` for the bucket URL of the bucket created in [Step 1](/developers/tutorials/sensitive-inputs#1-create-the--s3-bucket)
   - `AWS_REGION` for the bucket region.
-  - and last, but not least, make sure `S3_NO_PRESIGNED=1`.
+  - and last, but not least, make sure `S3_NO_PRESIGNED=1`
 
 After this setup, you may request a proof programmatically as [Request a Proof](/developers/tutorials/request) recommends; your inputs will be automatically uploaded to your gated S3 bucket, however remember that you still need to go through all the necessary gating policies as laid out in this tutorial to make sure your inputs are private and only available to select provers.
 
