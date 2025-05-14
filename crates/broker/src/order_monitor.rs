@@ -19,7 +19,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
-    RequestStatus,
+    IBoundlessMarket::IBoundlessMarketErrors,
+    RequestStatus, TxnErr,
 };
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
@@ -31,6 +32,9 @@ const MAX_PROVING_BATCH_SIZE: u32 = 10;
 pub enum OrderMonitorErr {
     #[error("{code} Failed to lock order: {0}", code = self.code())]
     LockTxFailed(String),
+
+    #[error("{code} Failed to confirm lock tx: {0}", code = self.code())]
+    LockTxNotConfirmed(String),
 
     #[error("{code} Invalid order status for locking: {0:?}", code = self.code())]
     InvalidStatus(OrderStatus),
@@ -50,6 +54,7 @@ impl_coded_debug!(OrderMonitorErr);
 impl CodedError for OrderMonitorErr {
     fn code(&self) -> &str {
         match self {
+            OrderMonitorErr::LockTxNotConfirmed(_) => "[B-OM-006]",
             OrderMonitorErr::LockTxFailed(_) => "[B-OM-007]",
             OrderMonitorErr::InvalidStatus(_) => "[B-OM-008]",
             OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
@@ -222,8 +227,23 @@ where
             .await
             .map_err(|e| -> OrderMonitorErr {
                 match e {
+                    MarketError::TxnError(txn_err) => match txn_err {
+                        TxnErr::BoundlessMarketErr(IBoundlessMarketErrors::RequestIsLocked(_)) => {
+                            OrderMonitorErr::AlreadyLocked
+                        }
+                        _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
+                    },
                     MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
+                    MarketError::TxnConfirmationError(e) => {
+                        OrderMonitorErr::LockTxNotConfirmed(e.to_string())
+                    }
                     MarketError::LockRevert(e) => {
+                        // Note: lock revert could be for any number of reasons;
+                        // 1/ someone may have locked in the block before us,
+                        // 2/ the lock may have expired,
+                        // 3/ the request may have been fulfilled,
+                        // 4/ the requestor may have withdrawn their funds
+                        // Currently we don't have a way to determine the cause of the revert.
                         OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
                     }
                     MarketError::Error(e) => {

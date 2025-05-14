@@ -14,6 +14,7 @@ mcycle_price_stake_token = "0.0001"
 #
 # Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
 # can be derived from benchmarking using Bento CLI or from data based on fulfilling market orders.
+# For more information, see https://docs.beboundless.xyz/provers/broker#benchmarking-bento
 peak_prove_khz = 100
 # Optional max cycles (in mcycles)
 #
@@ -49,8 +50,6 @@ max_concurrent_proofs = 2
 # The broker service has a number of subtasks. Some are considered critical. If a task fails, it
 # will be retried, but after this number of retries, the process will exit.
 max_critical_task_retries = 10
-# Optional list of image IDs for which preflight should be skipped.
-#skip_preflight_ids = []
 # Optional allow list for customer address.
 #
 # If enabled, all requests from clients not in the allow list are skipped.

@@ -164,8 +164,7 @@ async fn run<P: StorageProvider>(
         .count()
         .call()
         .await
-        .with_context(|| format!("failed to call {}", ICounter::countCall::SIGNATURE))?
-        ._0;
+        .with_context(|| format!("failed to call {}", ICounter::countCall::SIGNATURE))?;
     tracing::info!("Counter value for address: {:?} is {:?}", client.caller(), count);
 
     Ok(())
@@ -229,7 +228,8 @@ mod tests {
         let mut tasks = JoinSet::new();
 
         // Start a broker.
-        let (broker, _) = BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
+        let (broker, _config) =
+            BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
         tasks.spawn(async move { broker.start_service().await });
 
         const TIMEOUT_SECS: u64 = 600; // 10 minutes

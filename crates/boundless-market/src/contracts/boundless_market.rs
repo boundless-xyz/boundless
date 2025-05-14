@@ -27,6 +27,7 @@ use alloy::{
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
 };
+
 use alloy_sol_types::{SolCall, SolEvent};
 use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
@@ -52,6 +53,10 @@ pub enum MarketError {
     /// Transaction error.
     #[error("Transaction error: {0}")]
     TxnError(#[from] TxnErr),
+
+    /// Transaction confirmation error.
+    #[error("Transaction confirmation error: {0:?}")]
+    TxnConfirmationError(anyhow::Error),
 
     /// Request not fulfilled.
     #[error("Request is not fulfilled 0x{0:x}")]
@@ -103,7 +108,7 @@ impl From<alloy::contract::Error> for MarketError {
 
 /// Proof market service.
 pub struct BoundlessMarketService<P> {
-    instance: IBoundlessMarketInstance<(), P, Ethereum>,
+    instance: IBoundlessMarketInstance<P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
     chain_id: AtomicU64,
     caller: Address,
@@ -137,7 +142,7 @@ struct StakeBalanceAlertConfig {
 
 impl<P> Clone for BoundlessMarketService<P>
 where
-    IBoundlessMarketInstance<(), P, Ethereum>: Clone,
+    IBoundlessMarketInstance<P, Ethereum>: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -240,7 +245,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Returns the market contract instance.
-    pub fn instance(&self) -> &IBoundlessMarketInstance<(), P, Ethereum> {
+    pub fn instance(&self) -> &IBoundlessMarketInstance<P, Ethereum> {
         &self.instance
     }
 
@@ -291,7 +296,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// Returns the balance, in Ether, of the given account.
     pub async fn balance_of(&self, account: Address) -> Result<U256, MarketError> {
         tracing::trace!("Calling balanceOf({account})");
-        let balance = self.instance.balanceOf(account).call().await?._0;
+        let balance = self.instance.balanceOf(account).call().await?;
 
         Ok(balance)
     }
@@ -380,7 +385,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<u64, MarketError> {
         tracing::trace!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
-            self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
+            self.instance.requestIsLocked(request.id).call().await.context("call failed")?;
         if is_locked_in {
             return Err(MarketError::RequestAlreadyLocked(request.id));
         }
@@ -445,7 +450,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<u64, MarketError> {
         tracing::trace!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
-            self.instance.requestIsLocked(request.id).call().await.context("call failed")?._0;
+            self.instance.requestIsLocked(request.id).call().await.context("call failed")?;
         if is_locked_in {
             return Err(MarketError::RequestAlreadyLocked(request.id));
         }
@@ -469,10 +474,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
         if !receipt.status() {
             // TODO: Get + print revertReason
-            return Err(MarketError::Error(anyhow!(
-                "lockRequestWithSignature failed [{}], possibly outbid",
-                receipt.transaction_hash
-            )));
+            return Err(MarketError::LockRevert(receipt.transaction_hash));
         }
 
         tracing::info!(
@@ -513,13 +515,12 @@ impl<P: Provider> BoundlessMarketService<P> {
                 )
                 .into())
             }
-            Err(e) => Err(anyhow!(
+            Err(e) => Err(MarketError::TxnConfirmationError(anyhow!(
                 "failed to confirm tx {:?} within timeout {:?}: {}",
                 tx_hash,
                 self.timeout,
                 e
-            )
-            .into()),
+            ))),
         }
     }
 
@@ -793,7 +794,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling requestIsLocked({:x})", request_id);
         let res = self.instance.requestIsLocked(request_id).call().await?;
 
-        Ok(res._0)
+        Ok(res)
     }
 
     /// Checks if a request is fulfilled.
@@ -801,7 +802,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling requestIsFulfilled({:x})", request_id);
         let res = self.instance.requestIsFulfilled(request_id).call().await?;
 
-        Ok(res._0)
+        Ok(res)
     }
 
     /// Checks if a request is slashed.
@@ -809,7 +810,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling requestIsSlashed({:x})", request_id);
         let res = self.instance.requestIsSlashed(request_id).call().await?;
 
-        Ok(res._0)
+        Ok(res)
     }
 
     /// Returns the [RequestStatus] of a request.
@@ -833,7 +834,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         }
 
         if self.is_locked(request_id).await.context("Failed to check locked status")? {
-            let deadline = self.instance.requestDeadline(request_id).call().await?._0;
+            let deadline = self.instance.requestDeadline(request_id).call().await?;
             if timestamp > deadline && deadline > 0 {
                 return Ok(RequestStatus::Expired);
             };
@@ -978,7 +979,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                     .context("Failed to get transaction")?
                     .context("Transaction not found")?;
                 let inputs = tx_data.input();
-                let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true)
+                let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs)
                     .context("Failed to decode input")?;
                 return Ok((calldata.request, calldata.clientSignature));
             }
@@ -1018,7 +1019,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                 .context("Failed to get transaction")?
                 .context("Transaction not found")?;
             let inputs = tx_data.input();
-            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true)
+            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs)
                 .context("Failed to decode input")?;
             return Ok((calldata.request, calldata.clientSignature));
         }
@@ -1142,8 +1143,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             .call()
             .await
             .context("STAKE_TOKEN_CONTRACT call failed")?
-            ._0;
-        let contract = IERC20::new(token_address, self.instance.provider());
+            .0;
+        let contract = IERC20::new(token_address.into(), self.instance.provider());
         let call = contract.approve(spender, value).from(self.caller);
         let pending_tx = call.send().await.map_err(IHitPointsErrors::decode_error)?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -1190,10 +1191,10 @@ impl<P: Provider> BoundlessMarketService<P> {
             .call()
             .await
             .context("STAKE_TOKEN_CONTRACT call failed")?
-            ._0;
-        let contract = IERC20Permit::new(token_address, self.instance.provider());
+            .0;
+        let contract = IERC20Permit::new(token_address.into(), self.instance.provider());
         let call = contract.nonces(self.caller());
-        let nonce = call.call().await.map_err(IHitPointsErrors::decode_error)?._0;
+        let nonce = call.call().await.map_err(IHitPointsErrors::decode_error)?;
         let block = self
             .instance
             .provider()
@@ -1211,7 +1212,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         };
         tracing::debug!("Permit: {:?}", permit);
         let chain_id = self.get_chain_id().await?;
-        let sig = permit.sign(signer, token_address, chain_id).await?.as_bytes();
+        let sig = permit.sign(signer, token_address.into(), chain_id).await?.as_bytes();
         let r = B256::from_slice(&sig[..32]);
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
@@ -1247,7 +1248,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// Returns the deposited balance, in HP, of the given account.
     pub async fn balance_of_stake(&self, account: Address) -> Result<U256, MarketError> {
         tracing::trace!("Calling balanceOfStake({})", account);
-        let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?._0;
+        let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?;
         Ok(balance)
     }
 
@@ -1345,37 +1346,34 @@ impl Offer {
 
 /// Decodes the given calldata into a vector of Fulfillment objects.
 pub fn decode_calldata(data: &Bytes) -> Result<(Vec<Fulfillment>, AssessorReceipt)> {
-    if let Ok(call) = IBoundlessMarket::submitRootAndFulfillBatchCall::abi_decode(data, true) {
+    if let Ok(call) = IBoundlessMarket::submitRootAndFulfillBatchCall::abi_decode(data) {
         return Ok((call.fills, call.assessorReceipt));
     }
-    if let Ok(call) =
-        IBoundlessMarket::submitRootAndFulfillBatchAndWithdrawCall::abi_decode(data, true)
-    {
+    if let Ok(call) = IBoundlessMarket::submitRootAndFulfillBatchAndWithdrawCall::abi_decode(data) {
         return Ok((call.fills, call.assessorReceipt));
     }
-    if let Ok(call) = IBoundlessMarket::fulfillCall::abi_decode(data, true) {
+    if let Ok(call) = IBoundlessMarket::fulfillCall::abi_decode(data) {
         return Ok((vec![call.fill], call.assessorReceipt));
     }
-    if let Ok(call) = IBoundlessMarket::fulfillBatchCall::abi_decode(data, true) {
+    if let Ok(call) = IBoundlessMarket::fulfillBatchCall::abi_decode(data) {
         return Ok((call.fills, call.assessorReceipt));
     }
-    if let Ok(call) = IBoundlessMarket::fulfillAndWithdrawCall::abi_decode(data, true) {
+    if let Ok(call) = IBoundlessMarket::fulfillAndWithdrawCall::abi_decode(data) {
         return Ok((vec![call.fill], call.assessorReceipt));
     }
-    if let Ok(call) = IBoundlessMarket::fulfillBatchAndWithdrawCall::abi_decode(data, true) {
+    if let Ok(call) = IBoundlessMarket::fulfillBatchAndWithdrawCall::abi_decode(data) {
         return Ok((call.fills, call.assessorReceipt));
     }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillCall::abi_decode(data, true) {
+    if let Ok(call) = IBoundlessMarket::priceAndFulfillCall::abi_decode(data) {
         return Ok((vec![call.fill], call.assessorReceipt));
     }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchCall::abi_decode(data, true) {
+    if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchCall::abi_decode(data) {
         return Ok((call.fills, call.assessorReceipt));
     }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillAndWithdrawCall::abi_decode(data, true) {
+    if let Ok(call) = IBoundlessMarket::priceAndFulfillAndWithdrawCall::abi_decode(data) {
         return Ok((vec![call.fill], call.assessorReceipt));
     }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchAndWithdrawCall::abi_decode(data, true)
-    {
+    if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchAndWithdrawCall::abi_decode(data) {
         return Ok((call.fills, call.assessorReceipt));
     }
 

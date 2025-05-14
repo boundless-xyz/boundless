@@ -177,8 +177,7 @@ async fn run<P: StorageProvider>(
         .getCount(boundless_client.caller())
         .call()
         .await
-        .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?
-        ._0;
+        .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?;
     tracing::info!("Counter value for address {:?} is {:?}", boundless_client.caller(), count);
 
     Ok(())
@@ -316,7 +315,8 @@ mod tests {
         let mut tasks = JoinSet::new();
 
         // Start a broker.
-        let (broker, _) = BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
+        let (broker, _config) =
+            BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
         tasks.spawn(async move { broker.start_service().await });
 
         const TIMEOUT_SECS: u64 = 1800; // 30 minutes

@@ -25,7 +25,7 @@ export = () => {
   const vpcId = baseStack.getOutput('VPC_ID');
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
   const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS');
-  
+
   // Base Shared Prover Config
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : baseConfig.requireSecret('ETH_RPC_URL');
@@ -71,27 +71,27 @@ export = () => {
     sshPublicKey: bentoProverSshPublicKey
   });
 
-  // const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
-  // const bonsaiBroker = new BonsaiECSBroker(bonsaiBrokerServiceName, {
-  //   chainId: ChainId.SEPOLIA,
-  //   ethRpcUrl,
-  //   privateKey: bonsaiProverPrivateKey,
-  //   baseStackName,
-  //   bonsaiApiUrl,
-  //   bonsaiApiKey,
-  //   orderStreamUrl,
-  //   brokerTomlPath,
-  //   proofMarketAddr,
-  //   setVerifierAddr,
-  //   vpcId,
-  //   privSubNetIds,
-  //   dockerDir,
-  //   dockerTag,
-  //   ciCacheSecret,
-  //   githubTokenSecret,
-  //   boundlessAlertsTopicArn,
-  //   dockerRemoteBuilder,
-  // });
+  const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
+  const bonsaiBroker = new BonsaiECSBroker(bonsaiBrokerServiceName, {
+    chainId: ChainId.SEPOLIA,
+    ethRpcUrl,
+    privateKey: bonsaiProverPrivateKey,
+    baseStackName,
+    bonsaiApiUrl,
+    bonsaiApiKey,
+    orderStreamUrl,
+    brokerTomlPath,
+    boundlessMarketAddr,
+    setVerifierAddr,
+    vpcId,
+    privSubNetIds,
+    dockerDir,
+    dockerTag,
+    ciCacheSecret,
+    githubTokenSecret,
+    boundlessAlertsTopicArn,
+    dockerRemoteBuilder,
+  });
 
   return {
     bentoBrokerPublicIp: bentoBroker.instance.publicIp,
