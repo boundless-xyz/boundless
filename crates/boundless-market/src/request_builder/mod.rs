@@ -22,7 +22,7 @@ use std::{borrow::Cow, fmt, fmt::Debug};
 
 use alloy::{network::Ethereum, providers::Provider};
 use derive_builder::Builder;
-use risc0_zkvm::Journal;
+use risc0_zkvm::{Digest, Journal};
 use url::Url;
 
 use crate::{
@@ -143,7 +143,6 @@ impl StandardRequestBuilder<NotProvided, NotProvided> {
     }
 }
 
-// TODO: Maybe figure out a way to avoid having two copies of this impl.
 impl<P, S> Layer<RequestParams> for StandardRequestBuilder<P, S>
 where
     S: StorageProvider,
@@ -211,6 +210,8 @@ pub struct RequestParams {
     pub request_input: Option<RequestInput>,
     /// Count of the RISC Zero execution cycles. Used to estimate proving cost.
     pub cycles: Option<u64>,
+    /// Image ID identifying the program being executed.
+    pub image_id: Option<Digest>,
     /// Contents of the [Journal] that results from the execution.
     pub journal: Option<Journal>,
     /// [RequestId] to use for the proof request.
@@ -268,6 +269,14 @@ impl RequestParams {
 
     pub fn with_journal(self, value: impl Into<Journal>) -> Self {
         Self { journal: Some(value.into()), ..self }
+    }
+
+    pub fn require_image_id(&self) -> Result<Digest, MissingFieldError> {
+        self.image_id.ok_or(MissingFieldError::new("image_id"))
+    }
+
+    pub fn with_image_id(self, value: impl Into<Digest>) -> Self {
+        Self { image_id: Some(value.into()), ..self }
     }
 
     pub fn require_request_id(&self) -> Result<&RequestId, MissingFieldError> {
@@ -354,6 +363,7 @@ mod tests {
         },
         input::GuestEnv,
         storage::{fetch_url, MockStorageProvider, StorageProvider},
+        util::NotProvided,
     };
     use alloy_primitives::U256;
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
@@ -379,6 +389,70 @@ mod tests {
         let params = request_builder.params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
         let request = request_builder.build(params).await?;
         println!("built request {request:#?}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn with_offer_layer_settings() -> anyhow::Result<()> {
+        let anvil = Anvil::new().spawn();
+        let test_ctx = create_test_ctx(&anvil).await.unwrap();
+        let storage = Arc::new(MockStorageProvider::start());
+        let market = BoundlessMarketService::new(
+            test_ctx.boundless_market_address,
+            test_ctx.customer_provider.clone(),
+            test_ctx.customer_signer.address(),
+        );
+
+        let request_builder = StandardRequestBuilder::builder()
+            .storage_layer(Some(storage))
+            .offer_layer(
+                OfferLayer::builder()
+                    .provider(test_ctx.customer_provider.clone())
+                    .ramp_up_period(27)
+                    .build()?,
+            )
+            .request_id_layer(market)
+            .build()?;
+
+        let params = request_builder.params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let request = request_builder.build(params).await?;
+        assert_eq!(request.offer.rampUpPeriod, 27);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn without_storage_provider() -> anyhow::Result<()> {
+        let anvil = Anvil::new().spawn();
+        let test_ctx = create_test_ctx(&anvil).await.unwrap();
+        let market = BoundlessMarketService::new(
+            test_ctx.boundless_market_address,
+            test_ctx.customer_provider.clone(),
+            test_ctx.customer_signer.address(),
+        );
+
+        let request_builder = StandardRequestBuilder::builder()
+            .storage_layer(None::<NotProvided>)
+            .offer_layer(test_ctx.customer_provider.clone())
+            .request_id_layer(market)
+            .build()?;
+
+        // Try building the reqeust by providing the program.
+        let params = request_builder.params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let err = request_builder.build(params).await.unwrap_err();
+        tracing::debug!("err: {err}");
+
+        // Try again after uploading the program first.
+        let storage = Arc::new(MockStorageProvider::start());
+        let program_url = storage.upload_program(ECHO_ELF).await?;
+        let params =
+            request_builder.params().with_program_url(program_url).with_env(b"hello!".to_vec());
+        let request = request_builder.build(params).await?;
+        assert_eq!(
+            request.requirements.imageId,
+            risc0_zkvm::compute_image_id(ECHO_ELF)?.as_bytes()
+        );
         Ok(())
     }
 

@@ -16,8 +16,8 @@ use super::{Adapt, Layer, RequestParams};
 use crate::contracts::{Predicate, Requirements};
 use anyhow::Context;
 use derive_builder::Builder;
-use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{compute_image_id, Journal};
+use risc0_zkvm::{sha::Digestible, Digest};
 
 #[non_exhaustive]
 #[derive(Clone, Builder, Default)]
@@ -39,6 +39,18 @@ impl Layer<(&[u8], &Journal)> for RequirementsLayer {
     ) -> Result<Self::Output, Self::Error> {
         let image_id =
             compute_image_id(program).context("failed to compute image ID for program")?;
+        self.process((image_id, journal)).await
+    }
+}
+
+impl Layer<(Digest, &Journal)> for RequirementsLayer {
+    type Output = Requirements;
+    type Error = anyhow::Error;
+
+    async fn process(
+        &self,
+        (image_id, journal): (Digest, &Journal),
+    ) -> Result<Self::Output, Self::Error> {
         Ok(Requirements::new(image_id, Predicate::digest_match(journal.digest())))
     }
 }
@@ -54,10 +66,14 @@ impl Adapt<RequirementsLayer> for RequestParams {
             return Ok(self);
         }
 
-        let program = self.require_program()?;
         let journal = self.require_journal()?;
+        let requirements = if let Some(image_id) = self.image_id {
+            layer.process((image_id, journal)).await?
+        } else {
+            let program = self.require_program()?;
+            layer.process((program, journal)).await?
+        };
 
-        let requirements = layer.process((program, journal)).await?;
         Ok(self.with_requirements(requirements))
     }
 }

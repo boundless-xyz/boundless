@@ -16,9 +16,9 @@ use super::{Adapt, Layer, RequestParams};
 use crate::contracts::{Input as RequestInput, InputType};
 use crate::input::GuestEnv;
 use crate::storage::fetch_url;
-use anyhow::{bail, Context};
+use anyhow::{bail, ensure, Context};
 use derive_builder::Builder;
-use risc0_zkvm::{default_executor, Executor, SessionInfo};
+use risc0_zkvm::{default_executor, sha::Digestible, Executor, SessionInfo};
 use std::rc::Rc;
 use url::Url;
 
@@ -87,6 +87,17 @@ impl Adapt<PreflightLayer> for RequestParams {
         let session_info = layer.process((program_url, input)).await?;
         let cycles = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
         let journal = session_info.journal;
-        Ok(self.with_cycles(cycles).with_journal(journal))
+
+        // NOTE: SessionInfo should have ReceiptClaim provided for recent versions of risc0_zkvm.
+        let preflight_image_id = session_info
+            .receipt_claim
+            .context("preflight execution did not provide ReceiptClaim")?
+            .pre
+            .digest();
+        if let Some(provided_image_id) = self.image_id {
+            ensure!(provided_image_id == preflight_image_id, "provided image ID does not match the value calculated in preflight: {provided_image_id} != {preflight_image_id}");
+        }
+
+        Ok(self.with_cycles(cycles).with_journal(journal).with_image_id(preflight_image_id))
     }
 }
