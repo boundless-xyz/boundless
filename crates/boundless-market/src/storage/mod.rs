@@ -228,7 +228,8 @@ impl StorageProvider for StandardStorageProvider {
 /// - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
 // TODO: Consoplidate the from env implementation to use the clap parsing to reduce potential
 // issues from duplication.
-pub fn storage_provider_from_env() -> Result<StandardStorageProvider, StandardStorageProviderError> {
+pub fn storage_provider_from_env() -> Result<StandardStorageProvider, StandardStorageProviderError>
+{
     if risc0_zkvm::is_dev_mode() {
         return Ok(StandardStorageProvider::File(TempFileStorageProvider::new()?));
     }

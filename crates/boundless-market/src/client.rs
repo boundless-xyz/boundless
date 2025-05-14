@@ -54,7 +54,8 @@ use crate::{
 // Default bidding start delay (from the current time) in seconds
 const BIDDING_START_DELAY: u64 = 30;
 
-type ProviderWallet = FillProvider<
+/// Alias for the [alloy] RPC provider used by the [StandardClient].
+pub type StandardRpcProvider = FillProvider<
     JoinFill<JoinedRecommendedFillers, WalletFiller<EthereumWallet>>,
     BalanceAlertProvider<RootProvider>,
 >;
@@ -103,7 +104,7 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Build the client
     pub async fn build(
         self,
-    ) -> Result<Client<ProviderWallet, St, StandardRequestBuilder<ProviderWallet, St>, Si>>
+    ) -> Result<Client<StandardRpcProvider, St, StandardRequestBuilder<StandardRpcProvider, St>, Si>>
     where
         St: Clone,
     {
@@ -613,7 +614,15 @@ where
     }
 }
 
-impl Client<ProviderWallet, StandardStorageProvider, StandardRequestBuilder<ProviderWallet>, PrivateKeySigner> {
+/// Alias for a [Client] instantiated with the standard implementations provided by this crate.
+pub type StandardClient = Client<
+    StandardRpcProvider,
+    StandardStorageProvider,
+    StandardRequestBuilder<StandardRpcProvider>,
+    PrivateKeySigner,
+>;
+
+impl StandardClient {
     /// Create a new client from environment variables
     ///
     /// The following environment variables are required:
