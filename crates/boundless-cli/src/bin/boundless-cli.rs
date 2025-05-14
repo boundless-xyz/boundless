@@ -637,8 +637,7 @@ where
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
-                .with_storage_provider_config(&offer_args.storage_config)
-                .await?
+                .with_storage_provider_config(&offer_args.storage_config)?
                 .with_order_stream_url(order_stream_url)
                 .with_timeout(args.config.tx_timeout)
                 .build()
@@ -677,8 +676,7 @@ where
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
                 .with_order_stream_url(order_stream_url.clone())
-                .with_storage_provider_config(storage_config)
-                .await?
+                .with_storage_provider_config(storage_config)?
                 .with_timeout(args.config.tx_timeout)
                 .build()
                 .await?;

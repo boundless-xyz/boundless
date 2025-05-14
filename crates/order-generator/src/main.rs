@@ -154,8 +154,7 @@ async fn run(args: &MainArgs) -> Result<()> {
 
     let boundless_client = ClientBuilder::new()
         .with_rpc_url(args.rpc_url.clone())
-        .with_storage_provider_config(&args.storage_config)
-        .await?
+        .with_storage_provider_config(&args.storage_config)?
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url.clone())
