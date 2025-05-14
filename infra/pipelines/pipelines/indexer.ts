@@ -34,6 +34,8 @@ const BUILD_SPEC = `
           - cat docker_token.txt | docker login -u $DOCKER_USERNAME --password-stdin
           - curl https://sh.rustup.rs -sSf | sh -s -- -y
           - . "$HOME/.cargo/env"
+          - curl -fsSL https://cargo-lambda.info/install.sh | sh -s -- -y
+          - . "$HOME/.cargo/env"
           - ls -lt
       build:
         commands:
