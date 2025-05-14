@@ -50,8 +50,9 @@ pub trait RequestBuilder<Params> {
     type Error;
 
     // NOTE: Takes the self receiver so that the caller does not need to explicitly name the
-    // RequestBuilder type (e.g. `<MyRequestBuilder as RequestBuilder>::default_params()`)
-    fn default_params(&self) -> Params
+    // RequestBuilder trait (e.g. `<MyRequestBuilder as RequestBuilder>::params()`). This could
+    // also be used to set initial values on the params that are specific to the rrequest builder.
+    fn params(&self) -> Params
     where
         Params: Default,
     {
@@ -142,10 +143,35 @@ impl StandardRequestBuilder<NotProvided, NotProvided> {
     }
 }
 
+// TODO: Maybe figure out a way to avoid having two copies of this impl.
 impl<P, S> Layer<RequestParams> for StandardRequestBuilder<P, S>
 where
-    S: StorageProvider, // DO NOT MERGE: handle cases where the storage_provider is not provided.
+    S: StorageProvider,
     S::Error: std::error::Error + Send + Sync + 'static,
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    type Output = ProofRequest;
+    type Error = anyhow::Error;
+
+    async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
+        input
+            .process_with(&self.storage_layer)
+            .await?
+            .process_with(&self.preflight_layer)
+            .await?
+            .process_with(&self.requirements_layer)
+            .await?
+            .process_with(&self.request_id_layer)
+            .await?
+            .process_with(&self.offer_layer)
+            .await?
+            .process_with(&self.finalizer)
+            .await
+    }
+}
+
+impl<P> Layer<RequestParams> for StandardRequestBuilder<P, NotProvided>
+where
     P: Provider<Ethereum> + 'static + Clone,
 {
     type Output = ProofRequest;
@@ -350,8 +376,7 @@ mod tests {
             .request_id_layer(market)
             .build()?;
 
-        let params =
-            request_builder.default_params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let params = request_builder.params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
         let request = request_builder.build(params).await?;
         println!("built request {request:#?}");
         Ok(())

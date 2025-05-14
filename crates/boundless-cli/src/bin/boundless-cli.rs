@@ -1044,7 +1044,7 @@ where
         client.submit_request_offchain_with_signer(&request, signer).await?
     } else {
         tracing::info!("Submitting request onchain");
-        client.submit_request_with_signer(&request, signer).await?
+        client.submit_request_onchain_with_signer(&request, signer).await?
     };
 
     tracing::info!(
@@ -1168,7 +1168,7 @@ where
         client.submit_request_offchain_with_signer(&request, signer).await?
     } else {
         tracing::info!("Submitting request onchain");
-        client.submit_request_with_signer(&request, signer).await?
+        client.submit_request_onchain_with_signer(&request, signer).await?
     };
 
     tracing::info!(

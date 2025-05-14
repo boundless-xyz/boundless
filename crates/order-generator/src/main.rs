@@ -287,7 +287,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         let (request_id, _) = if submit_offchain {
             boundless_client.submit_request_offchain(&request).await?
         } else {
-            boundless_client.submit_request(&request).await?
+            boundless_client.submit_request_onchain(&request).await?
         };
 
         if submit_offchain {

@@ -16,7 +16,7 @@ use super::{Adapt, Layer, RequestParams};
 use crate::{
     contracts::Input as RequestInput, input::GuestEnv, storage::StorageProvider, util::NotProvided,
 };
-use anyhow::{anyhow, bail, Context};
+use anyhow::{bail, Context};
 use derive_builder::Builder;
 use std::fmt;
 use url::Url;
@@ -70,9 +70,10 @@ where
     S::Error: std::error::Error + Send + Sync + 'static,
 {
     pub async fn process_program(&self, program: &[u8]) -> anyhow::Result<Url> {
-        let storage_provider = self.storage_provider.as_ref().ok_or_else(|| {
-            anyhow!("cannot upload program using StorageLayer with no storage_provider")
-        })?;
+        let storage_provider = self
+            .storage_provider
+            .as_ref()
+            .context("cannot upload program using StorageLayer with no storage_provider")?;
         let program_url = storage_provider.upload_program(program).await?;
         Ok(program_url)
     }
@@ -81,8 +82,8 @@ where
         let input_data = env.encode().context("failed to encode guest environment")?;
         let request_input = match self.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
-                let storage_provider = self.storage_provider.as_ref().ok_or_else(|| {
-                    anyhow!("cannot upload input using StorageLayer with no storage_provider; input length of {} bytes exceeds inline limit of {limit} bytes", input_data.len())
+                let storage_provider = self.storage_provider.as_ref().with_context( || {
+                    format!("cannot upload input using StorageLayer with no storage_provider; input length of {} bytes exceeds inline limit of {limit} bytes", input_data.len())
                 })?;
                 RequestInput::url(storage_provider.upload_input(&input_data).await?)
             }

@@ -40,11 +40,8 @@ use crate::{
         storage_provider_from_env, StandardStorageProvider, StandardStorageProviderError,
         StorageProvider, StorageProviderConfig,
     },
-    util::{now_timestamp, NotProvided, StandardRpcProvider},
+    util::{NotProvided, StandardRpcProvider},
 };
-
-// Default bidding start delay (from the current time) in seconds
-const BIDDING_START_DELAY: u64 = 30;
 
 /// Builder for the client
 // TODO: Improve this docstring.
@@ -57,7 +54,6 @@ pub struct ClientBuilder<St = (), Si = ()> {
     order_stream_url: Option<Url>,
     storage_provider: Option<St>,
     tx_timeout: Option<std::time::Duration>,
-    bidding_start_delay: u64,
     balance_alerts: Option<BalanceAlertConfig>,
 }
 
@@ -73,7 +69,6 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             order_stream_url: None,
             storage_provider: None,
             tx_timeout: None,
-            bidding_start_delay: BIDDING_START_DELAY,
             balance_alerts: None,
         }
     }
@@ -122,7 +117,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             .map(|url| OrderStreamClient::new(url, boundless_market_address, chain_id));
 
         let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(self.storage_provider.clone()) // FIXME
+            .storage_layer(self.storage_provider.clone())
             .offer_layer(provider.clone())
             .request_id_layer(boundless_market.clone())
             .build()?;
@@ -133,7 +128,6 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_provider: self.storage_provider,
             offchain_client,
             signer: self.signer,
-            bidding_start_delay: self.bidding_start_delay,
             request_builder: Some(request_builder),
         };
 
@@ -173,7 +167,6 @@ impl<St, Si> ClientBuilder<St, Si> {
             order_stream_url: self.order_stream_url,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
-            bidding_start_delay: self.bidding_start_delay,
             set_verifier_address: self.set_verifier_address,
             boundless_market_address: self.boundless_market_address,
         }
@@ -192,13 +185,6 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the transaction timeout in seconds
     pub fn with_timeout(self, tx_timeout: Option<Duration>) -> Self {
         Self { tx_timeout, ..self }
-    }
-
-    /// Set the bidding start delay in seconds, from the current time.
-    ///
-    /// Used to set the bidding start time on requests, when a start time is not specified.
-    pub fn with_bidding_start_delay(self, bidding_start_delay: u64) -> Self {
-        Self { bidding_start_delay, ..self }
     }
 
     /// Set the balance alerts configuration
@@ -224,7 +210,6 @@ impl<St, Si> ClientBuilder<St, Si> {
             order_stream_url: self.order_stream_url,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
-            bidding_start_delay: self.bidding_start_delay,
         }
     }
 
@@ -271,8 +256,6 @@ pub struct Client<
     ///
     /// If not provided, requests must be fully constructed before handing them to this client.
     pub request_builder: Option<R>,
-    /// Bidding start delay with regard to the current time, in seconds.
-    pub bidding_start_delay: u64,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -313,7 +296,6 @@ where
             storage_provider: None,
             offchain_client: None,
             signer: None,
-            bidding_start_delay: BIDDING_START_DELAY,
             request_builder: None,
         }
     }
@@ -376,13 +358,7 @@ where
             storage_provider: self.storage_provider,
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
-            bidding_start_delay: self.bidding_start_delay,
         }
-    }
-
-    /// Set the bidding start delay, in seconds.
-    pub fn with_bidding_start_delay(self, bidding_start_delay: u64) -> Self {
-        Self { bidding_start_delay, ..self }
     }
 
     /// Upload a program binary to the storage provider.
@@ -413,25 +389,47 @@ where
             .map_err(|_| anyhow!("Failed to upload input"))?)
     }
 
-    /// Submit a proof request.
+    /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
+    pub async fn request_params<Params>(&self) -> Params
+    where
+        R: RequestBuilder<Params>,
+        Params: Default,
+    {
+        Params::default()
+    }
+
+    /// Build and submit a proof request by sending an onchain transaction.
+    ///
+    /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
+    /// provided to build the request from the given parameters.
+    pub async fn submit_onchain<Params>(&self, params: impl Into<Params>) -> Result<(U256, u64), ClientError>
+    where
+        Si: Signer,
+        R: RequestBuilder<Params>,
+        R::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let signer = self.signer.as_ref().context("signer is set on Client")?;
+        let request_builder = self.request_builder.as_ref().context("request_builder is not set on Client")?;
+        let request = request_builder.build(params).await.map_err(anyhow::Error::from)?;
+        self.submit_request_onchain_with_signer(&request, signer).await
+    }
+
+    /// Submit a proof request in an onchain transaction.
     ///
     /// Requires a signer to be set to sign the request.
-    /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current time will be used, plus a delay.
-    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
+    pub async fn submit_request_onchain(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
     where
         Si: Signer,
     {
         let signer = self.signer.as_ref().context("signer not set")?;
-        self.submit_request_with_signer(request, signer).await
+        self.submit_request_onchain_with_signer(request, signer).await
     }
 
-    /// Submit a proof request.
+    /// Submit a proof request in a transaction.
     ///
-    /// Accepts a signer to sign the request.
-    /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current time will be used, plus a delay.
-    pub async fn submit_request_with_signer(
+    /// Accepts a signer to sign the request. Note that the transaction will be signed by the alloy
+    /// [Provider] on this [Client].
+    pub async fn submit_request_onchain_with_signer(
         &self,
         request: &ProofRequest,
         signer: &impl Signer,
@@ -445,9 +443,6 @@ where
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
-        if request.offer.biddingStart == 0 {
-            request.offer.biddingStart = now_timestamp() + self.bidding_start_delay
-        };
 
         request.validate()?;
 
@@ -455,10 +450,10 @@ where
         Ok((request_id, request.expires_at()))
     }
 
-    /// Submit a proof request with a signature bytes.
+    /// Submit a pre-signed proof in an onchain transaction.
     ///
     /// Accepts a signature bytes to be used as the request signature.
-    pub async fn submit_request_with_signature_bytes(
+    pub async fn submit_request_onchain_with_signature(
         &self,
         request: &ProofRequest,
         signature: &Bytes,
@@ -467,15 +462,43 @@ where
         request.validate()?;
 
         let request_id =
-            self.boundless_market.submit_request_with_signature_bytes(&request, signature).await?;
+            self.boundless_market.submit_request_with_signature(&request, signature).await?;
         Ok((request_id, request.expires_at()))
+    }
+
+    /// Build and submit a proof request offchain via the order stream service.
+    ///
+    /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
+    /// provided to build the request from the given parameters.
+    pub async fn submit_offchain<Params>(&self, params: impl Into<Params>) -> Result<(U256, u64), ClientError>
+    where
+        Si: Signer,
+        R: RequestBuilder<Params>,
+        R::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let signer = self.signer.as_ref().context("signer is set on Client")?;
+        let request_builder = self.request_builder.as_ref().context("request_builder is not set on Client")?;
+        let request = request_builder.build(params).await.map_err(anyhow::Error::from)?;
+        self.submit_request_offchain_with_signer(&request, signer).await
+    }
+
+    /// Submit a proof request offchain via the order stream service.
+    ///
+    /// Requires a signer to be set to sign the request.
+    pub async fn submit_request_offchain(
+        &self,
+        request: &ProofRequest,
+    ) -> Result<(U256, u64), ClientError>
+    where
+        Si: Signer,
+    {
+        let signer = self.signer.as_ref().context("signer not set")?;
+        self.submit_request_offchain_with_signer(request, signer).await
     }
 
     /// Submit a proof request offchain via the order stream service.
     ///
     /// Accepts a signer to sign the request.
-    /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current time plus a delay will be used.
     pub async fn submit_request_offchain_with_signer(
         &self,
         request: &ProofRequest,
@@ -494,9 +517,6 @@ where
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
-        if request.offer.biddingStart == 0 {
-            request.offer.biddingStart = now_timestamp() + self.bidding_start_delay
-        };
         // Ensure address' balance is sufficient to cover the request
         let balance = self.boundless_market.balance_of(client_address).await?;
         if balance < U256::from(request.offer.maxPrice) {
@@ -510,22 +530,6 @@ where
         let order = offchain_client.submit_request(&request, signer).await?;
 
         Ok((order.request.id, request.expires_at()))
-    }
-
-    /// Submit a proof request offchain via the order stream service.
-    ///
-    /// Requires a signer to be set to sign the request.
-    /// If the request ID is not set, a random ID will be generated.
-    /// If the bidding start is not set, the current timestamp plus a delay will be used.
-    pub async fn submit_request_offchain(
-        &self,
-        request: &ProofRequest,
-    ) -> Result<(U256, u64), ClientError>
-    where
-        Si: Signer,
-    {
-        let signer = self.signer.as_ref().context("signer not set")?;
-        self.submit_request_offchain_with_signer(request, signer).await
     }
 
     /// Wait for a request to be fulfilled.
@@ -680,7 +684,6 @@ impl StandardClient {
             storage_provider,
             offchain_client,
             signer: Some(private_key),
-            bidding_start_delay: BIDDING_START_DELAY,
             request_builder: Some(request_builder),
         })
     }

@@ -333,7 +333,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on, with a signature specified as Bytes.
-    pub async fn submit_request_with_signature_bytes(
+    pub async fn submit_request_with_signature(
         &self,
         request: &ProofRequest,
         signature: &Bytes,
