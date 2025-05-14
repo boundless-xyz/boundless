@@ -31,6 +31,7 @@ admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 set-verifier = "0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"
+# deployed at block 8137095
 boundless-market = "0x006b92674E2A8d397884e293969f8eCD9f615f4C"
 stake-token = "0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9"
 
@@ -53,6 +54,7 @@ admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 set-verifier = "0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"
+# deployed at block 8038641
 boundless-market = "0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16"
 stake-token = "0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9"
 

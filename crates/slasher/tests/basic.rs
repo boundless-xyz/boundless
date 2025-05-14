@@ -6,7 +6,7 @@ use std::{process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, PrimitiveSignature, U256},
+    primitives::{Address, Bytes, Signature, U256},
     providers::Provider,
     rpc::types::BlockNumberOrTag,
     signers::Signer,
@@ -184,7 +184,7 @@ async fn test_slash_fulfilled() {
     let order = Order::new(
         request.clone(),
         request.signing_hash(ctx.boundless_market_address, anvil.chain_id()).unwrap(),
-        PrimitiveSignature::try_from(client_sig.as_ref()).unwrap(),
+        Signature::try_from(client_sig.as_ref()).unwrap(),
     );
     let prover = boundless_cli::DefaultProver::new(
         SET_BUILDER_ELF.to_vec(),
