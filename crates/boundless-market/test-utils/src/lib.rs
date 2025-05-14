@@ -52,6 +52,11 @@ pub use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_P
 pub use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
 pub use guest_util::{ECHO_ELF, ECHO_ID, ECHO_PATH, IDENTITY_ELF, IDENTITY_ID, IDENTITY_PATH};
 
+/// Re-export of the boundless_market crate, which can be used to avoid dependency issues when
+/// writing tests in the boundless_market crate itself, where two version of boundless_market end
+/// up in the Cargo dependency tree due to the way cycle-breaking works.
+pub use boundless_market;
+
 #[non_exhaustive]
 pub struct TestCtx<P> {
     pub verifier_address: Address,
