@@ -252,7 +252,7 @@ cargo-update:
     cd examples/counter && cargo update
 
 # Start the bento service
-bento action="up" env_file="" compose_flags="":
+bento action="up" env_file="" compose_flags="" detached="true":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
         ENV_FILE_ARG="--env-file {{env_file}}"
@@ -283,7 +283,13 @@ bento action="up" env_file="" compose_flags="":
             echo "Using default values from compose.yml"
         fi
         
-        docker compose {{compose_flags}} $ENV_FILE_ARG up --build -d
+        if [ "{{detached}}" = "true" ]; then
+            DETACHED_FLAG="-d"
+        else
+            DETACHED_FLAG=""
+        fi
+        
+        docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG
         echo "Docker Compose services have been started."
     elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services"
@@ -311,8 +317,8 @@ bento action="up" env_file="" compose_flags="":
     fi
 
 # Run the broker service with a bento cluster for proving.
-broker action="up" env_file="":
-    just bento "{{action}}" "{{env_file}}" "--profile broker"
+broker action="up" env_file="" detached="true":
+    just bento "{{action}}" "{{env_file}}" "--profile broker" "{{detached}}"
 
 # Run the setup script
 bento-setup:

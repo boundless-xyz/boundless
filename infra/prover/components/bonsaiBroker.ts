@@ -6,7 +6,7 @@ import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as fs from 'fs';
 import { createProverAlarms } from './brokerAlarms';
-export class BonsaiBroker extends pulumi.ComponentResource {
+export class BonsaiECSBroker extends pulumi.ComponentResource {
   constructor(name: string, args: {
       chainId: string;
       privateKey: string | pulumi.Output<string>;
@@ -262,6 +262,12 @@ export class BonsaiBroker extends pulumi.ComponentResource {
 
     const brokerS3BucketName = brokerS3Bucket.bucket.apply(n => n);
 
+    const logGroup = new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
+      name: serviceName,
+      retentionInDays: 0,
+      skipDestroy: true,
+    }, { parent: this });
+
     const service = new awsx.ecs.FargateService(serviceName, {
       name: serviceName,
       cluster: cluster.arn,
@@ -289,10 +295,8 @@ export class BonsaiBroker extends pulumi.ComponentResource {
           roleArn: taskRole.arn,
         },
         logGroup: {
-          args: {
-            name: serviceName,
-            retentionInDays: 0,
-            skipDestroy: true,
+          existing: {
+            name: logGroup.name,
           },
         },
         volumes: [
@@ -355,6 +359,6 @@ export class BonsaiBroker extends pulumi.ComponentResource {
 
     const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
 
-    createProverAlarms(serviceName, [service], alarmActions);
+    createProverAlarms(serviceName, logGroup, [service, logGroup], alarmActions);
   }
 }

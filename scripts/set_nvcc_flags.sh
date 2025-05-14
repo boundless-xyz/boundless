@@ -14,7 +14,7 @@ cat << 'EOF' > /tmp/detect_cuda.cu
 int main() {
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, 0);
-    printf("%d.%d", prop.major, prop.minor);
+    printf("%d%d", prop.major, prop.minor);
     return 0;
 }
 EOF
