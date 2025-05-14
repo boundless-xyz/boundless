@@ -113,7 +113,7 @@ impl SlashService<ProviderWallet> {
         let provider = ProviderBuilder::new()
             .layer(balance_alerts_layer)
             .wallet(wallet.clone())
-            .on_http(rpc_url);
+            .connect_http(rpc_url);
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
@@ -278,7 +278,7 @@ where
                 log.requestId
             );
 
-            let request = IBoundlessMarket::lockRequestCall::abi_decode(tx.input(), true)?.request;
+            let request = IBoundlessMarket::lockRequestCall::abi_decode(tx.input())?.request;
             let expires_at = request.expires_at();
             let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;
 

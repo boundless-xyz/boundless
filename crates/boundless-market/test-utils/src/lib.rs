@@ -191,8 +191,7 @@ pub async fn deploy_mock_callback<P: Provider>(
 
 pub async fn get_mock_callback_count(provider: &impl Provider, address: Address) -> Result<U256> {
     let instance = MockCallback::MockCallbackInstance::new(address, provider);
-    let count = instance.getCallCount().call().await?;
-    Ok(count._0)
+    Ok(instance.getCallCount().call().await?)
 }
 
 pub async fn deploy_contracts(

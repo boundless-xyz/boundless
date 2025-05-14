@@ -10,11 +10,6 @@ publish = false
 [package.metadata.release]
 release = false
 
-[[bin]]
-name = "order-generator-zeth"
-path = "src/bin/zeth.rs"
-required-features = ["zeth"]
-
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 anyhow = { workspace = true }
@@ -22,30 +17,16 @@ boundless-market = { workspace = true }
 clap = { workspace = true, features = ["env"] }
 dotenvy = { workspace = true }
 hex = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
-reth-chainspec = { git = "https://github.com/risc0/reth", branch = "p1.1.0_zstd", default-features = false, features = [
-    "std",
-], optional = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["json", "fmt", "env-filter"] }
 url = { workspace = true }
-zeth = { git = "https://github.com/risc0/zeth", rev = "26638d3", optional = true }
-zeth-guests = { git = "https://github.com/risc0/zeth", rev = "26638d3", optional = true, features = [ "debug-guest-build" ] }
-zeth-preflight = { git = "https://github.com/risc0/zeth", rev = "26638d3", optional = true }
-zeth-preflight-ethereum = { git = "https://github.com/risc0/zeth", rev = "26638d3", optional = true }
 
 [dev-dependencies]
-boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 tracing-test = { workspace = true }
 
 [features]
-zeth = [
-    "dep:reth-chainspec", 
-    "dep:zeth", 
-    "dep:zeth-guests", 
-    "dep:zeth-preflight", 
-    "dep:zeth-preflight-ethereum"
-    ]

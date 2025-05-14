@@ -188,7 +188,7 @@ async fn test_e2e() {
         .unwrap()
         .unwrap();
     let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
     let request = calldata.request;
     let customer_sig = calldata.clientSignature;
@@ -262,7 +262,7 @@ async fn test_e2e_merged_submit_fulfill() {
         .unwrap()
         .unwrap();
     let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
     let request = calldata.request;
     let customer_sig = calldata.clientSignature;
@@ -341,7 +341,7 @@ async fn test_e2e_price_and_fulfill_batch() {
         .unwrap()
         .unwrap();
     let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
     let request = calldata.request;
     let customer_sig = calldata.clientSignature;
@@ -413,7 +413,7 @@ async fn test_e2e_no_payment() {
         .unwrap()
         .unwrap();
     let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
     let request = calldata.request;
     let customer_sig = calldata.clientSignature;

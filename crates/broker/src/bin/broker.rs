@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
         .layer(balance_alerts_layer)
         .wallet(wallet)
         .with_chain(NamedChain::Sepolia)
-        .on_client(client);
+        .connect_client(client);
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
