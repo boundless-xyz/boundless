@@ -14,7 +14,10 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::Input as RequestInput, input::GuestEnv, storage::StorageProvider, util::NotProvided,
+    contracts::Input as RequestInput,
+    input::GuestEnv,
+    storage::{StandardStorageProvider, StorageProvider},
+    util::NotProvided,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
@@ -23,7 +26,7 @@ use url::Url;
 
 #[non_exhaustive]
 #[derive(Clone, Builder)]
-pub struct StorageLayer<S> {
+pub struct StorageLayer<S = StandardStorageProvider> {
     /// Maximum number of bytes to send as an inline input.
     ///
     /// Inputs larger than this size will be uploaded using the given storage provider. Set to none
@@ -64,6 +67,26 @@ impl<S: Clone> From<Option<S>> for StorageLayer<S> {
     }
 }
 
+impl<S> Default for StorageLayer<S>
+where
+    S: StorageProvider + Default + Clone,
+{
+    fn default() -> Self {
+        StorageLayer::builder()
+            .storage_provider(Some(Default::default()))
+            .build()
+            .expect("implementation error in Default for StorageLayer")
+    }
+}
+
+impl Default for StorageLayer<NotProvided> {
+    fn default() -> Self {
+        StorageLayer::builder()
+            .build()
+            .expect("implementation error in Default for StorageLayer")
+    }
+}
+
 impl<S> StorageLayer<S>
 where
     S: StorageProvider,
@@ -93,8 +116,8 @@ where
     }
 }
 
-impl StorageLayer<NotProvided> {
-    pub async fn process_env(&self, env: &GuestEnv) -> anyhow::Result<RequestInput> {
+impl<S> StorageLayer<S> {
+    pub(crate) async fn process_env_no_provider(&self, env: &GuestEnv) -> anyhow::Result<RequestInput> {
         let input_data = env.encode().context("failed to encode guest environment")?;
         let request_input = match self.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
@@ -124,18 +147,16 @@ where
     }
 }
 
-impl<S> Default for StorageLayer<S>
-where
-    S: StorageProvider + Default,
-{
-    fn default() -> Self {
-        Self { inline_input_max_bytes: Some(2048), storage_provider: Some(S::default()) }
-    }
-}
+impl Layer<&GuestEnv> for StorageLayer<NotProvided> {
+    type Error = anyhow::Error;
+    type Output = RequestInput;
 
-impl Default for StorageLayer<NotProvided> {
-    fn default() -> Self {
-        Self { inline_input_max_bytes: Some(2048), storage_provider: None }
+    async fn process(
+        &self,
+        env: &GuestEnv,
+    ) -> Result<Self::Output, Self::Error> {
+        let request_input = self.process_env_no_provider(env).await?;
+        Ok(request_input)
     }
 }
 
@@ -178,7 +199,7 @@ impl Adapt<StorageLayer<NotProvided>> for RequestParams {
             .require_program_url()
             .context("program_url must be set when storage provider is not provided")?;
         if params.request_input.is_none() {
-            let input = layer.process_env(params.require_env()?).await?;
+            let input = layer.process_env_no_provider(params.require_env()?).await?;
             params = params.with_request_input(input);
         }
         Ok(params)

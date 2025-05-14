@@ -13,8 +13,11 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::{contracts::Input as RequestInput,
-contracts::{Offer, ProofRequest, RequestId, Requirements}, util::now_timestamp};
+use crate::{
+    contracts::Input as RequestInput,
+    contracts::{Offer, ProofRequest, RequestId, Requirements},
+    util::now_timestamp,
+};
 use anyhow::{bail, Context};
 use derive_builder::Builder;
 use url::Url;
@@ -63,10 +66,18 @@ impl Layer<(Url, RequestInput, Requirements, Offer, RequestId)> for Finalizer {
 
         request.validate().context("built request is invalid; check request parameters")?;
         if self.check_expiration && request.is_expired() {
-            bail!("request expired at {}; current time is {}", request.expires_at(), now_timestamp());
+            bail!(
+                "request expired at {}; current time is {}",
+                request.expires_at(),
+                now_timestamp()
+            );
         }
         if self.check_expiration && request.is_lock_expired() {
-            bail!("request lock expired at {}; current time is {}", request.lock_expires_at(), now_timestamp());
+            bail!(
+                "request lock expired at {}; current time is {}",
+                request.lock_expires_at(),
+                now_timestamp()
+            );
         }
         Ok(request)
     }

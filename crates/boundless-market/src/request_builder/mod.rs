@@ -382,7 +382,6 @@ mod tests {
         Ok(())
     }
 
-    // TODO: Add test for StorageLayer<NotProvided>
     #[tokio::test]
     #[traced_test]
     async fn test_storage_layer() -> anyhow::Result<()> {
@@ -396,6 +395,20 @@ mod tests {
 
         // Program should be uploaded and input inline.
         assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
+        assert_eq!(request_input.inputType, InputType::Inline);
+        assert_eq!(request_input.data, env.encode()?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_storage_layer_no_provider() -> anyhow::Result<()> {
+        let layer = StorageLayer::builder().inline_input_max_bytes(Some(1024)).build()?;
+
+        let env = GuestEnv::from(b"inline_data".to_vec());
+        let request_input = layer.process(&env).await?;
+
+        // Program should be uploaded and input inline.
         assert_eq!(request_input.inputType, InputType::Inline);
         assert_eq!(request_input.data, env.encode()?);
         Ok(())
@@ -417,6 +430,20 @@ mod tests {
         assert_eq!(request_input.inputType, InputType::Url);
         let fetched_input = fetch_url(String::from_utf8(request_input.data.to_vec())?).await?;
         assert_eq!(fetched_input, env.encode()?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_storage_layer_large_input_no_provider() -> anyhow::Result<()> {
+        let layer = StorageLayer::builder().inline_input_max_bytes(Some(1024)).build()?;
+
+        let env = GuestEnv::from(rand::random_iter().take(2048).collect::<Vec<u8>>());
+        let err = layer.process(&env).await.unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("cannot upload input using StorageLayer with no storage_provider"));
         Ok(())
     }
 
@@ -498,7 +525,6 @@ mod tests {
         Ok(())
     }
 
-    // OfferLayer test
     #[tokio::test]
     #[traced_test]
     async fn test_offer_layer_estimates() -> anyhow::Result<()> {
