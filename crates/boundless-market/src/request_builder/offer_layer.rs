@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::contracts::{Offer, RequestId, Requirements};
-use crate::now_timestamp;
-use crate::selector::{ProofType, SupportedSelectors};
+use crate::{
+    contracts::{Offer, RequestId, Requirements},
+    selector::{ProofType, SupportedSelectors},
+    util::{now_timestamp, NotProvided},
+};
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -57,7 +59,7 @@ pub struct OfferLayer<P> {
     pub supported_selectors: SupportedSelectors,
 }
 
-impl OfferLayer<()> {
+impl OfferLayer<NotProvided> {
     pub fn builder<P: Clone>() -> OfferLayerBuilder<P> {
         Default::default()
     }

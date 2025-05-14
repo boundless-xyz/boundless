@@ -17,16 +17,8 @@ use std::{env, str::FromStr, time::Duration};
 use alloy::{
     network::{Ethereum, EthereumWallet},
     primitives::{Address, Bytes, U256},
-    providers::{
-        fillers::{FillProvider, JoinFill, RecommendedFillers, WalletFiller},
-        utils::JoinedRecommendedFillers,
-        Identity, Provider, ProviderBuilder, RootProvider,
-    },
-    signers::{
-        k256::ecdsa::SigningKey,
-        local::{LocalSigner, PrivateKeySigner},
-        Signer,
-    },
+    providers::{Provider, ProviderBuilder},
+    signers::{local::PrivateKeySigner, Signer},
 };
 use alloy_primitives::{Signature, B256};
 use alloy_sol_types::SolStruct;
@@ -37,28 +29,22 @@ use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use url::Url;
 
 use crate::{
-    balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider},
+    balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
         ProofRequest, RequestError,
     },
-    now_timestamp,
     order_stream_client::{Client as OrderStreamClient, Order},
-    request_builder::{RequestBuilder, StandardRequestBuilder},
+    request_builder::{RequestBuilder, StandardRequestBuilder, StandardRequestBuilderBuilderError},
     storage::{
         storage_provider_from_env, StandardStorageProvider, StandardStorageProviderError,
         StorageProvider, StorageProviderConfig,
     },
+    util::{now_timestamp, NotProvided, StandardRpcProvider},
 };
 
 // Default bidding start delay (from the current time) in seconds
 const BIDDING_START_DELAY: u64 = 30;
-
-/// Alias for the [alloy] RPC provider used by the [StandardClient].
-pub type StandardRpcProvider = FillProvider<
-    JoinFill<JoinedRecommendedFillers, WalletFiller<EthereumWallet>>,
-    BalanceAlertProvider<RootProvider>,
->;
 
 /// Builder for the client
 // TODO: Improve this docstring.
@@ -259,7 +245,12 @@ impl<St, Si> ClientBuilder<St, Si> {
 #[derive(Clone)]
 #[non_exhaustive]
 /// Client for interacting with the boundless market.
-pub struct Client<P, St = (), R = (), Si = ()> {
+pub struct Client<
+    P = StandardRpcProvider,
+    St = StandardStorageProvider,
+    R = StandardRequestBuilder,
+    Si = PrivateKeySigner,
+> {
     /// Boundless market service.
     pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
@@ -297,12 +288,15 @@ pub enum ClientError {
     /// Request error
     #[error("RequestError {0}")]
     RequestError(#[from] RequestError),
+    /// Error when trying to construct a [RequestBuilder].
+    #[error("Error building RequestBuilder {0}")]
+    BuilderError(#[from] StandardRequestBuilderBuilderError),
     /// General error
     #[error("Error {0}")]
     Error(#[from] anyhow::Error),
 }
 
-impl<P> Client<P, (), (), ()>
+impl<P> Client<P, NotProvided, NotProvided, NotProvided>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -675,7 +669,7 @@ impl StandardClient {
         };
 
         let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(storage_provider.clone()) // FIXME
+            .storage_layer(storage_provider.clone())
             .offer_layer(provider.clone())
             .request_id_layer(boundless_market.clone())
             .build()?;
@@ -687,7 +681,7 @@ impl StandardClient {
             offchain_client,
             signer: Some(private_key),
             bidding_start_delay: BIDDING_START_DELAY,
-            request_builder,
+            request_builder: Some(request_builder),
         })
     }
 }

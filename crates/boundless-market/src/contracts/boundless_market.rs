@@ -1388,7 +1388,7 @@ mod tests {
             AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType, Offer, Predicate,
             PredicateType, ProofRequest, RequestId, Requirements,
         },
-        now_timestamp,
+        util::now_timestamp,
     };
     use alloy::primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256};
     use alloy_sol_types::SolCall;

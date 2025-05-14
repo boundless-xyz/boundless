@@ -49,13 +49,7 @@ pub mod selector;
 /// Storage module for interacting with the storage provider.
 #[cfg(not(target_os = "zkvm"))]
 pub mod storage;
+/// Utility functions and types used elsewhere.
+pub(crate) mod util;
 
-/// A very small utility function to get the current unix timestamp.
-// TODO(#379): Avoid drift relative to the chain's timestamps.
-#[cfg(not(target_os = "zkvm"))]
-pub(crate) fn now_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
+pub use util::NotProvided;

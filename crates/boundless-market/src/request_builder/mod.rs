@@ -29,6 +29,7 @@ use crate::{
     contracts::{Input as RequestInput, Offer, ProofRequest, RequestId, Requirements},
     input::GuestEnv,
     storage::{StandardStorageProvider, StorageProvider},
+    util::{NotProvided, StandardRpcProvider},
 };
 mod preflight_layer;
 mod storage_layer;
@@ -120,7 +121,7 @@ where
 /// A standard [RequestBuilder] provided as a default implementation.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<P, S = StandardStorageProvider> {
+pub struct StandardRequestBuilder<P = StandardRpcProvider, S = StandardStorageProvider> {
     #[builder(setter(into))]
     pub storage_layer: StorageLayer<S>,
     #[builder(setter(into), default)]
@@ -135,7 +136,7 @@ pub struct StandardRequestBuilder<P, S = StandardStorageProvider> {
     pub finalizer: Finalizer,
 }
 
-impl StandardRequestBuilder<(), ()> {
+impl StandardRequestBuilder<NotProvided, NotProvided> {
     pub fn builder<P: Clone, S: Clone>() -> StandardRequestBuilderBuilder<P, S> {
         Default::default()
     }
@@ -344,7 +345,7 @@ mod tests {
         );
 
         let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(storage)
+            .storage_layer(Some(storage))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -356,12 +357,13 @@ mod tests {
         Ok(())
     }
 
+    // TODO: Add test for StorageLayer<NotProvided>
     #[tokio::test]
     #[traced_test]
     async fn test_storage_layer() -> anyhow::Result<()> {
         let storage = Arc::new(MockStorageProvider::start());
         let layer = StorageLayer::builder()
-            .storage_provider(storage.clone())
+            .storage_provider(Some(storage.clone()))
             .inline_input_max_bytes(Some(1024))
             .build()?;
         let env = GuestEnv::from(b"inline_data".to_vec());
@@ -379,7 +381,7 @@ mod tests {
     async fn test_storage_layer_large_input() -> anyhow::Result<()> {
         let storage = Arc::new(MockStorageProvider::start());
         let layer = StorageLayer::builder()
-            .storage_provider(storage.clone())
+            .storage_provider(Some(storage.clone()))
             .inline_input_max_bytes(Some(1024))
             .build()?;
         let env = GuestEnv::from(rand::random_iter().take(2048).collect::<Vec<u8>>());

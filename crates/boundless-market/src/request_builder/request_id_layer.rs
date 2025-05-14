@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::contracts::boundless_market::BoundlessMarketService;
-use crate::contracts::RequestId;
+use crate::{
+    contracts::boundless_market::BoundlessMarketService, contracts::RequestId, util::NotProvided,
+};
 use alloy::{network::Ethereum, providers::Provider};
 use derive_builder::Builder;
 
@@ -34,7 +35,7 @@ pub struct RequestIdLayer<P> {
     pub mode: RequestIdLayerMode,
 }
 
-impl RequestIdLayer<()> {
+impl RequestIdLayer<NotProvided> {
     pub fn builder<P: Clone>() -> RequestIdLayerBuilder<P> {
         Default::default()
     }
