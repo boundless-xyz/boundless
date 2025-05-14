@@ -13,15 +13,25 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::contracts::Input as RequestInput;
-use crate::contracts::{Offer, ProofRequest, RequestId, Requirements};
+use crate::{contracts::Input as RequestInput,
+contracts::{Offer, ProofRequest, RequestId, Requirements}, util::now_timestamp};
 use anyhow::{bail, Context};
 use derive_builder::Builder;
 use url::Url;
 
 #[non_exhaustive]
-#[derive(Debug, Clone, Builder, Default)]
-pub struct Finalizer {}
+#[derive(Debug, Clone, Builder)]
+pub struct Finalizer {
+    /// If true, the request's expiration time will be checked against the system clock.
+    #[builder(default = true)]
+    pub check_expiration: bool,
+}
+
+impl Default for Finalizer {
+    fn default() -> Self {
+        Self::builder().build().expect("implementation error in Default for Finalizer")
+    }
+}
 
 impl Finalizer {
     pub fn builder() -> FinalizerBuilder {
@@ -52,6 +62,12 @@ impl Layer<(Url, RequestInput, Requirements, Offer, RequestId)> for Finalizer {
         };
 
         request.validate().context("built request is invalid; check request parameters")?;
+        if self.check_expiration && request.is_expired() {
+            bail!("request expired at {}; current time is {}", request.expires_at(), now_timestamp());
+        }
+        if self.check_expiration && request.is_lock_expired() {
+            bail!("request lock expired at {}; current time is {}", request.lock_expires_at(), now_timestamp());
+        }
         Ok(request)
     }
 }

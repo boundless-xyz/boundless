@@ -402,14 +402,18 @@ where
     ///
     /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
     /// provided to build the request from the given parameters.
-    pub async fn submit_onchain<Params>(&self, params: impl Into<Params>) -> Result<(U256, u64), ClientError>
+    pub async fn submit_onchain<Params>(
+        &self,
+        params: impl Into<Params>,
+    ) -> Result<(U256, u64), ClientError>
     where
         Si: Signer,
         R: RequestBuilder<Params>,
         R::Error: std::error::Error + Send + Sync + 'static,
     {
         let signer = self.signer.as_ref().context("signer is set on Client")?;
-        let request_builder = self.request_builder.as_ref().context("request_builder is not set on Client")?;
+        let request_builder =
+            self.request_builder.as_ref().context("request_builder is not set on Client")?;
         let request = request_builder.build(params).await.map_err(anyhow::Error::from)?;
         self.submit_request_onchain_with_signer(&request, signer).await
     }
@@ -417,7 +421,10 @@ where
     /// Submit a proof request in an onchain transaction.
     ///
     /// Requires a signer to be set to sign the request.
-    pub async fn submit_request_onchain(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
+    pub async fn submit_request_onchain(
+        &self,
+        request: &ProofRequest,
+    ) -> Result<(U256, u64), ClientError>
     where
         Si: Signer,
     {
@@ -470,14 +477,18 @@ where
     ///
     /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
     /// provided to build the request from the given parameters.
-    pub async fn submit_offchain<Params>(&self, params: impl Into<Params>) -> Result<(U256, u64), ClientError>
+    pub async fn submit_offchain<Params>(
+        &self,
+        params: impl Into<Params>,
+    ) -> Result<(U256, u64), ClientError>
     where
         Si: Signer,
         R: RequestBuilder<Params>,
         R::Error: std::error::Error + Send + Sync + 'static,
     {
         let signer = self.signer.as_ref().context("signer is set on Client")?;
-        let request_builder = self.request_builder.as_ref().context("request_builder is not set on Client")?;
+        let request_builder =
+            self.request_builder.as_ref().context("request_builder is not set on Client")?;
         let request = request_builder.build(params).await.map_err(anyhow::Error::from)?;
         self.submit_request_offchain_with_signer(&request, signer).await
     }
