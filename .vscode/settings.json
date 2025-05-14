@@ -16,6 +16,7 @@
 		"./crates/guest/assessor/assessor-guest/Cargo.toml",
 		"./crates/guest/util/echo/Cargo.toml",
 		"./crates/guest/util/identity/Cargo.toml",
+		"./crates/guest/util/loop/Cargo.toml",
 		"./examples/counter/Cargo.toml",
 		"./examples/smart-contract-requestor/Cargo.toml",
 		"./examples/counter-with-callback/Cargo.toml"
@@ -35,6 +36,9 @@
 	"biome.rename": true,
 	"biome.enabled": true,
 	"biome.lspBin": "documentation/node_modules/.bin/biome",
+	"cSpell.words": [
+		"offchain"
+	],
 	"[typescript]": {
 		"editor.defaultFormatter": "vscode.typescript-language-features"
 	},

@@ -2660,6 +2660,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "hex",
+ "rand 0.9.1",
  "reqwest",
  "risc0-zkvm",
  "tokio",

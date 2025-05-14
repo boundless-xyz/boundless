@@ -21,6 +21,7 @@ export = () => {
   const dockerTag = config.require('DOCKER_TAG');
   const boundlessMarketAddr = config.require('BOUNDLESS_MARKET_ADDR');
 
+  const githubTokenSecret = config.get('GH_TOKEN_SECRET');
   const interval = config.require('INTERVAL');
   const retries = config.require('RETRIES');
   const skipAddresses = config.get('SKIP_ADDRESSES');
@@ -63,6 +64,14 @@ export = () => {
 
   const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
 
+  // Optionally add in the gh token secret and sccache s3 creds to the build ctx
+  let buildSecrets = {};
+  if (githubTokenSecret !== undefined) {
+    buildSecrets = {
+      githubTokenSecret
+    }
+  }
+
   const image = new docker_build.Image(`${serviceName}-image`, {
     tags: [dockerTagPath],
     context: {
@@ -71,6 +80,7 @@ export = () => {
     // Due to limitations with cargo-chef, we need to build for amd64, even though slasher doesn't
     // strictly need r0vm. See `dockerfiles/slasher.dockerfile` for more details.
     platforms: ['linux/amd64'],
+    secrets: buildSecrets,
     push: true,
     builder: dockerRemoteBuilder ? {
       name: dockerRemoteBuilder,
