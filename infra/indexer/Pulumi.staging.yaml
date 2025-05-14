@@ -13,3 +13,5 @@ config:
     secure: v1:Q8vUXQ59MCkcmyw8:C8BUe4hjIDn+biTuqdDYoluH+rM6eRMO0LKjjmpN9EpQ7A==
   indexer:CHAIN_ID: "11155111"
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  indexer:GH_TOKEN_SECRET:
+    secure: v1:D7aNTgIv8gY4epbh:mKyCvgukF7lPd76Gt36t/dIFggRDOHdTr7jfa3BSyc7+2mdXNdhT/TtymB9otk0NdcoqaesOx4tY972Hl5+b5NOKXBjRgDt2/m/cDKWDIrgllf+mFAZyBiFH8e2K+QQH7e00oOrKAkEH1Ne5+Q==
