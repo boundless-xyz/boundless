@@ -56,9 +56,9 @@ cat /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
 cd /local/boundless
 docker ps -a
 # View tail broker logs
-docker compose logs --tail=100 broker
+docker compose logs --tail=100 bento-broker-1
 # View broker logs
-docker compose logs broker
+docker compose logs bento-broker-1
 # View logs including bento:
-docker compose logs broker
+docker compose logs bento-broker-1
 ```
