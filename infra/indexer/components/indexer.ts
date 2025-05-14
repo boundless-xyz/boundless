@@ -257,10 +257,10 @@ export class IndexerInstance extends pulumi.ComponentResource {
       name: `${serviceName}-cluster`,
     });
 
-    const serviceLogGroup = `${serviceName}`;
+    const serviceLogGroup = `${serviceName}-serv`;
 
-    const service = new awsx.ecs.FargateService(`${serviceName}-serv`, {
-      name: `${serviceName}-serv`,
+    const service = new awsx.ecs.FargateService(serviceLogGroup, {
+      name: serviceLogGroup,
       cluster: cluster.arn,
       networkConfiguration: {
         securityGroups: [indexerSecGroup.id],
