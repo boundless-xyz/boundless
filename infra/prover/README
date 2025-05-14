@@ -54,6 +54,7 @@ cat /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
 
 # View docker logs
 cd /local/boundless
+docker ps -a
 # View tail broker logs
 docker compose logs --tail=100 broker
 # View broker logs

@@ -71,27 +71,29 @@ export = () => {
     sshPublicKey: bentoProverSshPublicKey
   });
 
-  const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
-  const bonsaiBroker = new BonsaiECSBroker(bonsaiBrokerServiceName, {
-    chainId: ChainId.SEPOLIA,
-    ethRpcUrl,
-    privateKey: bonsaiProverPrivateKey,
-    baseStackName,
-    bonsaiApiUrl,
-    bonsaiApiKey,
-    orderStreamUrl,
-    brokerTomlPath,
-    boundlessMarketAddr,
-    setVerifierAddr,
-    vpcId,
-    privSubNetIds,
-    dockerDir,
-    dockerTag,
-    ciCacheSecret,
-    githubTokenSecret,
-    boundlessAlertsTopicArn,
-    dockerRemoteBuilder,
-  });
+  if (process.env.SKIP_BONSAI !== "true") {
+    const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
+    const bonsaiBroker = new BonsaiECSBroker(bonsaiBrokerServiceName, {
+      chainId: ChainId.SEPOLIA,
+      ethRpcUrl,
+      privateKey: bonsaiProverPrivateKey,
+      baseStackName,
+      bonsaiApiUrl,
+      bonsaiApiKey,
+      orderStreamUrl,
+      brokerTomlPath,
+      boundlessMarketAddr,
+      setVerifierAddr,
+      vpcId,
+      privSubNetIds,
+      dockerDir,
+      dockerTag,
+      ciCacheSecret,
+      githubTokenSecret,
+      boundlessAlertsTopicArn,
+      dockerRemoteBuilder,
+    });
+  }
 
   return {
     bentoBrokerPublicIp: bentoBroker.instance.publicIp,
