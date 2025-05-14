@@ -36,7 +36,7 @@ const BUILD_SPEC = `
           - . "$HOME/.cargo/env"
           - curl -fsSL https://cargo-lambda.info/install.sh | sh -s -- -y
           - . "$HOME/.cargo/env"
-          - snap install zig --classic --beta
+          - npm install -g @ziglang/cli
           - ls -lt
       build:
         commands:
