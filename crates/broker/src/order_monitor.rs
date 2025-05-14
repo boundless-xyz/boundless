@@ -207,7 +207,7 @@ where
             .await
             .context("Failed to check if request is locked")?;
         if is_locked {
-            tracing::warn!("Request {} already locked: {order_status:?}, skipping", request_id);
+            tracing::warn!("Request 0x{:x} already locked: {order_status:?}, skipping", request_id);
             return Err(OrderMonitorErr::AlreadyLocked);
         }
 
@@ -217,7 +217,7 @@ where
         };
 
         tracing::info!(
-            "Locking request: {} for stake: {}",
+            "Locking request: 0x{:x} for stake: {}",
             request_id,
             order.request.offer.lockStake
         );
@@ -291,7 +291,7 @@ where
             let order_id = order.id();
             let request_id = order.request.id;
             match self.lock_order(order).await {
-                Ok(_) => tracing::info!("Locked request: {request_id}"),
+                Ok(_) => tracing::info!("Locked request: 0x{request_id:x}"),
                 Err(ref err) => {
                     match err {
                         OrderMonitorErr::UnexpectedError(inner) => {
@@ -303,7 +303,7 @@ where
                         // Only warn on known / classified errors
                         _ => {
                             tracing::warn!(
-                                "Soft failed to lock request: {request_id} - {} - {err:?}",
+                                "Soft failed to lock request: 0x{request_id:x} - {} - {err:?}",
                                 err.code()
                             );
                         }
@@ -382,7 +382,7 @@ where
             .iter()
             .map(|order| {
                 (
-                    format!("{:x}", order.request.id),
+                    format!("0x{:x}", order.request.id),
                     order.status,
                     order.fulfillment_type,
                     format!(
@@ -438,7 +438,7 @@ where
                 .context("Failed to check if request is fulfilled")?;
             if is_fulfilled {
                 tracing::info!(
-                    "Request {:x} was locked by another prover and was fulfilled. Skipping.",
+                    "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
                 self.db
@@ -446,7 +446,7 @@ where
                     .await
                     .context("Failed to set order status to skipped")?;
             } else {
-                tracing::info!("Request {:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
+                tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
                 candidate_orders.push(order);
             }
         }
@@ -463,7 +463,7 @@ where
         for order in pending_lock_orders {
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
-                tracing::info!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
+                tracing::info!("Request 0x{:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
                 self.db
                     .set_order_status(&order.id(), OrderStatus::Skipped)
                     .await
@@ -474,14 +474,14 @@ where
                 let our_address = self.provider.default_signer_address().to_string().to_lowercase();
                 let locker_address = locker.to_lowercase();
                 if locker_address != our_address {
-                    tracing::info!("Request {:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
+                    tracing::info!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
                     self.db
                         .set_order_status(&order.id(), OrderStatus::Skipped)
                         .await
                         .context("Failed to set order status to skipped")?;
                 } else {
                     // Edge case where we locked the order, but due to some reason was not moved to proving state. Should not happen.
-                    tracing::info!("Request {:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
+                    tracing::info!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
                     candidate_orders.push(order);
                 }
             } else {
@@ -501,13 +501,13 @@ where
         for order in candidate_orders {
             let now = now_timestamp();
             if order.request.expires_at() < current_block_timestamp {
-                tracing::debug!("Request {:x} has now expired. Skipping.", order.request.id);
+                tracing::debug!("Request 0x{:x} has now expired. Skipping.", order.request.id);
                 self.db
                     .set_order_status(&order.id(), OrderStatus::Skipped)
                     .await
                     .context("Failed to set order status to skipped")?;
             } else if order.request.expires_at().saturating_sub(now) < min_deadline {
-                tracing::debug!("Request {:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, order.request.expires_at(), min_deadline);
+                tracing::debug!("Request 0x{:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, order.request.expires_at(), min_deadline);
                 self.db
                     .set_order_status(&order.id(), OrderStatus::Skipped)
                     .await
@@ -636,7 +636,7 @@ where
             // For each order in consideration, check if it can be completed before its expiration.
             for order in orders_truncated {
                 if order.total_cycles.is_none() {
-                    tracing::warn!("Order {:x} has no total cycles, preflight was skipped? Not considering for peak khz limit", order.request.id);
+                    tracing::warn!("Order 0x{:x} has no total cycles, preflight was skipped? Not considering for peak khz limit", order.request.id);
                     continue;
                 }
 
@@ -652,7 +652,7 @@ where
                 tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
 
                 if completion_time > expiration {
-                    tracing::info!("Order {:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
+                    tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
                         order.request.id,
                         expiration,
                         proof_time_seconds,
