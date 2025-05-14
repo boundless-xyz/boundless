@@ -32,7 +32,7 @@ const BUILD_SPEC = `
           - git submodule update --init --recursive
           - echo $DOCKER_PAT > docker_token.txt
           - cat docker_token.txt | docker login -u $DOCKER_USERNAME --password-stdin
-          - curl https://sh.rustup.rs -sSf | sh
+          - curl https://sh.rustup.rs -sSf | sh -s -- -y
           - ls -lt
       build:
         commands:
