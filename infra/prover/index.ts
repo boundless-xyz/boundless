@@ -30,12 +30,12 @@ export = () => {
 
   const setVerifierAddr = config.require('SET_VERIFIER_ADDR');
   const proofMarketAddr = config.require('PROOF_MARKET_ADDR');
-  
+
   const bonsaiApiUrl = config.require('BONSAI_API_URL');
   const bonsaiApiKey = isDev ? getEnvVar("BONSAI_API_KEY") : config.getSecret('BONSAI_API_KEY');
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
-  
+
   const brokerTomlPath = config.require('BROKER_TOML_PATH')
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
 
@@ -44,7 +44,7 @@ export = () => {
     secretId: ethRpcUrlSecret.id,
     secretString: ethRpcUrl,
   });
-  
+
   const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-brokerPrivateKey`);
   const _privateKeySecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-privateKeyValue`, {
     secretId: privateKeySecret.id,
@@ -356,17 +356,14 @@ export = () => {
         ],
       },
     },
-  }, { dependsOn: [fileSystem,mountTargets] });
+  }, { dependsOn: [fileSystem, mountTargets] });
 
   const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
 
-  const createErrorCodeAlarm = (
-    pattern: string, 
-    metricName: string, 
-    severity: Severity,
-    alarmConfig?: Partial<aws.cloudwatch.MetricAlarmArgs>,
-    metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
-    description?: string
+  const createLogMetricFilter = (
+    pattern: string,
+    metricName: string,
+    severity?: Severity,
   ): void => {
     // Generate a metric by filtering for the error code
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-${metricName}-${severity}-filter`, {
@@ -380,6 +377,18 @@ export = () => {
       },
       pattern,
     }, { dependsOn: [service] });
+  };
+
+  const createErrorCodeAlarm = (
+    pattern: string,
+    metricName: string,
+    severity: Severity,
+    alarmConfig?: Partial<aws.cloudwatch.MetricAlarmArgs>,
+    metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
+    description?: string
+  ): void => {
+    // Generate a metric by filtering for the error code
+    createLogMetricFilter(pattern, metricName, severity);
 
     // Create an alarm for the metric
     new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricName}-${severity}-alarm`, {
@@ -431,7 +440,7 @@ export = () => {
   createErrorCodeAlarm('WARN "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV2);
   createErrorCodeAlarm('ERROR "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV1);
   createErrorCodeAlarm('ERROR "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV1);
-  
+
   // Alarms at the supervisor level
   //
   // 5 supervisor restarts within 15 mins triggers a SEV2 alarm
@@ -443,7 +452,7 @@ export = () => {
   createErrorCodeAlarm('"[B-SUP-FAULT]"', 'supervisor-fault-errors', Severity.SEV2, {
     threshold: 1,
   });
-  
+
   //
   // Alarms for specific services and error codes.
   // Matching without using regex to avoid the AWS limit.
@@ -496,7 +505,7 @@ export = () => {
   //
   // Chain Monitor
   //
-  
+
   // RPC errors can occur transiently. 
   // If we see 5 rpc errors within 1 hour in the chain monitor trigger a SEV2 alarm to investigate.
   createErrorCodeAlarm('"[B-CHM-400]"', 'chain-monitor-rpc-error', Severity.SEV2, {
@@ -514,7 +523,7 @@ export = () => {
   //
   // Off-chain Market Monitor
   //
-  
+
   // 10 websocket errors within 1 hour in the off-chain market monitor triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV1, {
     threshold: 10,
@@ -541,8 +550,9 @@ export = () => {
     threshold: 1,
   });
 
-  // 3 errors when fetching images/inputs within 15 minutes triggers a SEV2 alarm.
+  // Create a metric for errors when fetching images/inputs but don't alarm as could be user error.
   // Note: This is a pattern to match "[B-OP-001]" OR "[B-OP-002]"
+  createLogMetricFilter('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error');
   createErrorCodeAlarm('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error', Severity.SEV2, {
     threshold: 3,
   }, { period: 900 });
@@ -563,12 +573,20 @@ export = () => {
     threshold: 3,
   }, { period: 300 });
 
+
+  // Create metrics for scenarios where we fail to lock an order that we wanted to lock.
+  // Don't alarm as this is expected behavior when another prover locked before us.
+  // If we fail to lock an order because the tx fails for some reason.
+  createLogMetricFilter('"[B-OM-007]"', 'order-monitor-lock-tx-failed');
+  // If we fail to lock an order because we saw an event indicating another prover locked before us.
+  createLogMetricFilter('"[B-OM-009]"', 'order-monitor-already-locked');
+
   // If we fail to lock an order because we don't have enough stake balance, SEV2.
   createErrorCodeAlarm('"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2);
 
   // 3 lock tx not confirmed errors within 1 hour in the order monitor triggers a SEV2 alarm.
   // This may indicate a misconfiguration of the tx timeout config.
-  createErrorCodeAlarm('"[B-OM-006]"', 'order-monitor-lock-tx-not-confirmed', Severity.SEV2, { 
+  createErrorCodeAlarm('"[B-OM-006]"', 'order-monitor-lock-tx-not-confirmed', Severity.SEV2, {
     threshold: 3,
   }, { period: 3600 });
 
@@ -609,5 +627,5 @@ export = () => {
   createErrorCodeAlarm('"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV1, {
     threshold: 3,
   }, { period: 300 });
-  
+
 };
