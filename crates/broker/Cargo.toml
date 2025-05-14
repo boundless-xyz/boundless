@@ -12,7 +12,7 @@ release = false
 
 [dependencies]
 alloy = { workspace = true, features = ["network", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "rpc", "rpc-types"] }
-alloy-chains = "=0.1.67"
+alloy-chains = "0.2.0"
 anyhow = { workspace = true }
 async-channel = "2.3"
 async-trait = { workspace = true }

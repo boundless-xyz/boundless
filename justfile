@@ -102,15 +102,25 @@ check-format:
 
 # Run Cargo clippy
 check-clippy:
-    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/counter && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+
+    cd examples/counter && forge build && \
+    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/composition && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+
+    cd examples/composition && forge build && \
+    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/counter-with-callback && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+
+    cd examples/counter-with-callback && \
+    forge build && \
+    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
-    cd examples/smart-contract-requestor && forge build && RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
+
+    cd examples/smart-contract-requestor && \
+    forge build && \
+    RUSTFLAGS=-Dwarnings ISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
 
 # Format all code

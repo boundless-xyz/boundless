@@ -15,8 +15,8 @@ export = () => {
   const chainId = baseConfig.require('CHAIN_ID');
   const pinataJWT = isDev ? pulumi.output(getEnvVar("PINATA_JWT")) : baseConfig.requireSecret('PINATA_JWT');
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : baseConfig.requireSecret('ETH_RPC_URL');
-  const orderStreamUrl = isDev 
-    ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) 
+  const orderStreamUrl = isDev
+    ? pulumi.output(getEnvVar("ORDER_STREAM_URL"))
     : (baseConfig.getSecret('ORDER_STREAM_URL') || pulumi.output(""));
   const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
   const logLevel = baseConfig.require('LOG_LEVEL');
@@ -37,74 +37,74 @@ export = () => {
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
   const secondsPerMCycle = baseConfig.require('SECONDS_PER_MCYCLE');
-  
+
   const imageName = getServiceNameV1(stackName, `order-generator`);
   const repo = new awsx.ecr.Repository(`${imageName}-repo`, {
-        forceDelete: true,
-        lifecyclePolicy: {
-          rules: [
-            {
-              description: 'Delete untagged images after N days',
-              tagStatus: 'untagged',
-              maximumAgeLimit: 7,
-            },
-          ],
+    forceDelete: true,
+    lifecyclePolicy: {
+      rules: [
+        {
+          description: 'Delete untagged images after N days',
+          tagStatus: 'untagged',
+          maximumAgeLimit: 7,
         },
-      });
-  
-      const authToken = aws.ecr.getAuthorizationTokenOutput({
-        registryId: repo.repository.registryId,
-      });
-  
-      let buildSecrets = {};
-      if (githubTokenSecret !== undefined) {
-        buildSecrets = {
-          ...buildSecrets,
-          githubTokenSecret
-        }
-      }
-  
-      const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
-  
-      const image = new docker_build.Image(`${imageName}-image`, {
-        tags: [dockerTagPath],
-        context: {
-          location: dockerDir,
+      ],
+    },
+  });
+
+  const authToken = aws.ecr.getAuthorizationTokenOutput({
+    registryId: repo.repository.registryId,
+  });
+
+  let buildSecrets = {};
+  if (githubTokenSecret !== undefined) {
+    buildSecrets = {
+      ...buildSecrets,
+      githubTokenSecret
+    }
+  }
+
+  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+  const image = new docker_build.Image(`${imageName}-image`, {
+    tags: [dockerTagPath],
+    context: {
+      location: dockerDir,
+    },
+    builder: dockerRemoteBuilder ? {
+      name: dockerRemoteBuilder,
+    } : undefined,
+    platforms: ['linux/amd64'],
+    push: true,
+    dockerfile: {
+      location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
+    },
+    secrets: buildSecrets,
+    cacheFrom: [
+      {
+        registry: {
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
         },
-        builder: dockerRemoteBuilder ? {
-          name: dockerRemoteBuilder,
-        } : undefined,
-        platforms: ['linux/amd64'],
-        push: true,
-        dockerfile: {
-          location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
+      },
+    ],
+    cacheTo: [
+      {
+        registry: {
+          mode: docker_build.CacheMode.Max,
+          imageManifest: true,
+          ociMediaTypes: true,
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
         },
-        secrets: buildSecrets,
-        cacheFrom: [
-          {
-            registry: {
-              ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-            },
-          },
-        ],
-        cacheTo: [
-          {
-            registry: {
-              mode: docker_build.CacheMode.Max,
-              imageManifest: true,
-              ociMediaTypes: true,
-              ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-            },
-          },
-        ],
-        registries: [
-          {
-            address: repo.repository.repositoryUrl,
-            password: authToken.password,
-            username: authToken.userName,
-          },
-        ],
-      });
+      },
+    ],
+    registries: [
+      {
+        address: repo.repository.repositoryUrl,
+        password: authToken.password,
+        username: authToken.userName,
+      },
+    ],
+  });
 
   const offchainConfig = new pulumi.Config("order-generator-offchain");
   const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
@@ -155,5 +155,4 @@ export = () => {
     privateSubnetIds,
     boundlessAlertsTopicArn,
   });
-
 };
