@@ -34,7 +34,7 @@ guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
 
-alloy = { version = "0.15", default-features = false  }
+alloy = { version = "0.15", default-features = false }
 alloy-primitives = { version = "1.0" }
 alloy-sol-types = { version = "1.0", features = ["json"] }
 anyhow = { version = "1.0" }
