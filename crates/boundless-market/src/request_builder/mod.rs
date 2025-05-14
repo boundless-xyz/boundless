@@ -28,7 +28,7 @@ use url::Url;
 use crate::{
     contracts::{Input as RequestInput, Offer, ProofRequest, RequestId, Requirements},
     input::GuestEnv,
-    storage::{BuiltinStorageProvider, StorageProvider},
+    storage::{StandardStorageProvider, StorageProvider},
 };
 mod preflight_layer;
 mod storage_layer;
@@ -120,7 +120,7 @@ where
 /// A standard [RequestBuilder] provided as a default implementation.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<P, S = BuiltinStorageProvider> {
+pub struct StandardRequestBuilder<P, S = StandardStorageProvider> {
     #[builder(setter(into))]
     pub storage_layer: StorageLayer<S>,
     #[builder(setter(into), default)]

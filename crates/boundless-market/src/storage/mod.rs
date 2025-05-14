@@ -81,7 +81,7 @@ impl<S: StorageProvider + Sync + Send + ?Sized> StorageProvider for Arc<S> {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 /// A storage provider that can be used to upload images and inputs to a public URL.
-pub enum BuiltinStorageProvider {
+pub enum StandardStorageProvider {
     /// S3 storage provider.
     S3(S3StorageProvider),
     /// Pinata storage provider.
@@ -93,7 +93,7 @@ pub enum BuiltinStorageProvider {
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 /// Error type for the builtin storage providers.
-pub enum BuiltinStorageProviderError {
+pub enum StandardStorageProviderError {
     /// Error type for the S3 storage provider.
     #[error("S3 storage provider error")]
     S3(#[from] S3StorageProviderError),
@@ -200,8 +200,8 @@ impl StorageProviderConfig {
 }
 
 #[async_trait]
-impl StorageProvider for BuiltinStorageProvider {
-    type Error = BuiltinStorageProviderError;
+impl StorageProvider for StandardStorageProvider {
+    type Error = StandardStorageProviderError;
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
         Ok(match self {
@@ -228,44 +228,44 @@ impl StorageProvider for BuiltinStorageProvider {
 /// - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
 // TODO: Consoplidate the from env implementation to use the clap parsing to reduce potential
 // issues from duplication.
-pub fn storage_provider_from_env() -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
+pub fn storage_provider_from_env() -> Result<StandardStorageProvider, StandardStorageProviderError> {
     if risc0_zkvm::is_dev_mode() {
-        return Ok(BuiltinStorageProvider::File(TempFileStorageProvider::new()?));
+        return Ok(StandardStorageProvider::File(TempFileStorageProvider::new()?));
     }
 
     if let Ok(provider) = PinataStorageProvider::from_env() {
-        return Ok(BuiltinStorageProvider::Pinata(provider));
+        return Ok(StandardStorageProvider::Pinata(provider));
     }
 
     if let Ok(provider) = S3StorageProvider::from_env() {
-        return Ok(BuiltinStorageProvider::S3(provider));
+        return Ok(StandardStorageProvider::S3(provider));
     }
 
-    Err(BuiltinStorageProviderError::NoProvider)
+    Err(StandardStorageProviderError::NoProvider)
 }
 
 /// Creates a storage provider based on the given configuration.
 pub fn storage_provider_from_config(
     config: &StorageProviderConfig,
-) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
+) -> Result<StandardStorageProvider, StandardStorageProviderError> {
     match config.storage_provider {
         StorageProviderType::S3 => {
             let provider = S3StorageProvider::from_config(config)?;
-            Ok(BuiltinStorageProvider::S3(provider))
+            Ok(StandardStorageProvider::S3(provider))
         }
         StorageProviderType::Pinata => {
             let provider = PinataStorageProvider::from_config(config)?;
-            Ok(BuiltinStorageProvider::Pinata(provider))
+            Ok(StandardStorageProvider::Pinata(provider))
         }
         StorageProviderType::File => {
             let provider = TempFileStorageProvider::from_config(config)?;
-            Ok(BuiltinStorageProvider::File(provider))
+            Ok(StandardStorageProvider::File(provider))
         }
-        StorageProviderType::None => Err(BuiltinStorageProviderError::NoProvider),
+        StorageProviderType::None => Err(StandardStorageProviderError::NoProvider),
     }
 }
 
-impl BuiltinStorageProvider {
+impl StandardStorageProvider {
     /// Creates a storage provider based on the environment variables.
     ///
     /// See [storage_provider_from_env()].

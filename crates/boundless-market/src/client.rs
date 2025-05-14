@@ -46,7 +46,7 @@ use crate::{
     order_stream_client::{Client as OrderStreamClient, Order},
     request_builder::{RequestBuilder, StandardRequestBuilder},
     storage::{
-        storage_provider_from_env, BuiltinStorageProvider, BuiltinStorageProviderError,
+        storage_provider_from_env, StandardStorageProvider, StandardStorageProviderError,
         StorageProvider, StorageProviderConfig,
     },
 };
@@ -245,10 +245,10 @@ impl<St, Si> ClientBuilder<St, Si> {
     pub fn with_storage_provider_config(
         self,
         config: &StorageProviderConfig,
-    ) -> Result<ClientBuilder<BuiltinStorageProvider, Si>, BuiltinStorageProviderError> {
-        let storage_provider = match BuiltinStorageProvider::from_config(config) {
+    ) -> Result<ClientBuilder<StandardStorageProvider, Si>, StandardStorageProviderError> {
+        let storage_provider = match StandardStorageProvider::from_config(config) {
             Ok(storage_provider) => Some(storage_provider),
-            Err(BuiltinStorageProviderError::NoProvider) => None,
+            Err(StandardStorageProviderError::NoProvider) => None,
             Err(e) => return Err(e),
         };
         Ok(self.with_storage_provider(storage_provider))
@@ -289,7 +289,7 @@ pub struct Client<P, St = (), R = (), Si = ()> {
 pub enum ClientError {
     /// Storage provider error
     #[error("Storage provider error {0}")]
-    StorageProviderError(#[from] BuiltinStorageProviderError),
+    StorageProviderError(#[from] StandardStorageProviderError),
     /// Market error
     #[error("Market error {0}")]
     MarketError(#[from] MarketError),
@@ -613,7 +613,7 @@ where
     }
 }
 
-impl Client<ProviderWallet, BuiltinStorageProvider, StandardRequestBuilder<ProviderWallet>, PrivateKeySigner> {
+impl Client<ProviderWallet, StandardStorageProvider, StandardRequestBuilder<ProviderWallet>, PrivateKeySigner> {
     /// Create a new client from environment variables
     ///
     /// The following environment variables are required:
