@@ -61,28 +61,28 @@ type ProviderWallet = FillProvider<
 
 /// Builder for the client
 // TODO: Improve this docstring.
-pub struct ClientBuilder<S> {
+pub struct ClientBuilder<St = (), Si = ()> {
     boundless_market_address: Option<Address>,
-    set_verifier_addr: Option<Address>,
+    set_verifier_address: Option<Address>,
     rpc_url: Option<Url>,
     wallet: Option<EthereumWallet>,
-    local_signer: Option<PrivateKeySigner>,
+    signer: Option<Si>,
     order_stream_url: Option<Url>,
-    storage_provider: Option<S>,
+    storage_provider: Option<St>,
     tx_timeout: Option<std::time::Duration>,
     bidding_start_delay: u64,
     balance_alerts: Option<BalanceAlertConfig>,
 }
 
-impl<S> Default for ClientBuilder<S> {
+impl<St, Si> Default for ClientBuilder<St, Si> {
     /// Creates a new `ClientBuilder` with all configuration options set to their default values.
     fn default() -> Self {
         Self {
             boundless_market_address: None,
-            set_verifier_addr: None,
+            set_verifier_address: None,
             rpc_url: None,
             wallet: None,
-            local_signer: None,
+            signer: None,
             order_stream_url: None,
             storage_provider: None,
             tx_timeout: None,
@@ -92,53 +92,62 @@ impl<S> Default for ClientBuilder<S> {
     }
 }
 
-impl
-    ClientBuilder<
-        BuiltinStorageProvider,
-    >
-{
+impl ClientBuilder {
     /// Create a new client builder.
-    ///
-    /// Equivalent to [Default] when using [BuiltinStorageProvider].
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<S> ClientBuilder<S> {
+impl<St, Si> ClientBuilder<St, Si> {
     /// Build the client
-    pub async fn connect(self) -> Result<Client<ProviderWallet, S>> {
+    pub async fn build(
+        self,
+    ) -> Result<Client<ProviderWallet, St, StandardRequestBuilder<ProviderWallet, St>, Si>>
+    where
+        St: Clone,
+    {
         let wallet = self.wallet.context("wallet is not set on ClientBuilder")?;
         let rpc_url = self.rpc_url.context("rpc_url is not set on ClientBuilder")?;
         let boundless_market_address = self
             .boundless_market_address
             .context("boundless_market_address is not set on ClientBuilder")?;
-        let set_verifier_addr =
-            self.set_verifier_addr.context("set_verifier_addr is not set on ClientBuilder")?;
+        let set_verifier_address = self
+            .set_verifier_address
+            .context("set_verifier_address is not set on ClientBuilder")?;
 
         let caller = wallet.default_signer().address();
 
         let provider = ProviderBuilder::new()
             .wallet(wallet)
             .layer(BalanceAlertLayer::new(self.balance_alerts.unwrap_or_default()))
-            .connect(rpc_url)
-            .await;
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
 
         let chain_id = provider.get_chain_id().await.context("failed to get chain ID")?;
-        let offchain_client = order_stream_url
+        let offchain_client = self
+            .order_stream_url
             .map(|url| OrderStreamClient::new(url, boundless_market_address, chain_id));
+
+        let request_builder = StandardRequestBuilder::builder()
+            .storage_layer(self.storage_provider.clone()) // FIXME
+            .offer_layer(provider.clone())
+            .request_id_layer(boundless_market.clone())
+            .build()?;
 
         let mut client = Client {
             boundless_market,
             set_verifier,
-            storage_provider,
+            storage_provider: self.storage_provider,
             offchain_client,
-            local_signer: self.local_signer,
+            signer: self.signer,
             bidding_start_delay: self.bidding_start_delay,
+            request_builder: Some(request_builder),
         };
 
         if let Some(timeout) = self.tx_timeout {
@@ -155,7 +164,7 @@ impl<S> ClientBuilder<S> {
 
     /// Set the set verifier address
     pub fn with_set_verifier_address(self, set_verifier_addr: Address) -> Self {
-        Self { set_verifier_addr: Some(set_verifier_addr), ..self }
+        Self { set_verifier_address: Some(set_verifier_addr), ..self }
     }
 
     /// Set the RPC URL
@@ -164,11 +173,22 @@ impl<S> ClientBuilder<S> {
     }
 
     /// Set the private key
-    pub fn with_private_key(self, private_key: PrivateKeySigner) -> Self {
-        Self {
+    pub fn with_private_key(
+        self,
+        private_key: PrivateKeySigner,
+    ) -> ClientBuilder<St, PrivateKeySigner> {
+        // NOTE: We can't use the ..self syntax here because return is not Self.
+        ClientBuilder {
             wallet: Some(EthereumWallet::from(private_key.clone())),
-            local_signer: Some(private_key),
-            ..self
+            signer: Some(private_key),
+            storage_provider: self.storage_provider,
+            rpc_url: self.rpc_url,
+            order_stream_url: self.order_stream_url,
+            tx_timeout: self.tx_timeout,
+            balance_alerts: self.balance_alerts,
+            bidding_start_delay: self.bidding_start_delay,
+            set_verifier_address: self.set_verifier_address,
+            boundless_market_address: self.boundless_market_address,
         }
     }
 
@@ -205,15 +225,15 @@ impl<S> ClientBuilder<S> {
     pub fn with_storage_provider<Z: StorageProvider>(
         self,
         storage_provider: Option<Z>,
-    ) -> ClientBuilder<Z> {
+    ) -> ClientBuilder<Z, Si> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
             storage_provider,
             boundless_market_address: self.boundless_market_address,
-            set_verifier_addr: self.set_verifier_addr,
+            set_verifier_address: self.set_verifier_address,
             rpc_url: self.rpc_url,
             wallet: self.wallet,
-            local_signer: self.local_signer,
+            signer: self.signer,
             order_stream_url: self.order_stream_url,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
@@ -225,7 +245,7 @@ impl<S> ClientBuilder<S> {
     pub fn with_storage_provider_config(
         self,
         config: &StorageProviderConfig,
-    ) -> Result<ClientBuilder<BuiltinStorageProvider>, BuiltinStorageProviderError> {
+    ) -> Result<ClientBuilder<BuiltinStorageProvider, Si>, BuiltinStorageProviderError> {
         let storage_provider = match BuiltinStorageProvider::from_config(config) {
             Ok(storage_provider) => Some(storage_provider),
             Err(BuiltinStorageProviderError::NoProvider) => None,
@@ -238,17 +258,27 @@ impl<S> ClientBuilder<S> {
 #[derive(Clone)]
 #[non_exhaustive]
 /// Client for interacting with the boundless market.
-pub struct Client<P, S, R> {
+pub struct Client<P, St = (), R = (), Si = ()> {
     /// Boundless market service.
     pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
     pub set_verifier: SetVerifierService<P>,
-    /// Storage provider to upload programs and inputs.
-    pub storage_provider: Option<S>,
-    /// Order stream client to submit requests off-chain.
+    /// [StorageProvider] to upload programs and inputs.
+    ///
+    /// If not provided, this client will not be able to upload programs or inputs.
+    pub storage_provider: Option<St>,
+    /// [OrderStreamClient] to submit requests off-chain.
+    ///
+    /// If not provided, requests not only be sent onchain via a transaction.
     pub offchain_client: Option<OrderStreamClient>,
-    /// Local signer for signing requests.
-    pub local_signer: Option<LocalSigner<SigningKey>>,
+    /// Alloy [Signer] for signing requests.
+    ///
+    /// If not provided, requests must be pre-signed handing them to this client.
+    pub signer: Option<Si>,
+    /// [RequestBuilder] to construct [ProofRequest].
+    ///
+    /// If not provided, requests must be fully constructed before handing them to this client.
+    pub request_builder: Option<R>,
     /// Bidding start delay with regard to the current time, in seconds.
     pub bidding_start_delay: u64,
 }
@@ -271,7 +301,7 @@ pub enum ClientError {
     Error(#[from] anyhow::Error),
 }
 
-impl<P, S> Client<P, S>
+impl<P> Client<P, (), (), ()>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -287,11 +317,17 @@ where
             set_verifier,
             storage_provider: None,
             offchain_client: None,
-            local_signer: None,
+            signer: None,
             bidding_start_delay: BIDDING_START_DELAY,
+            request_builder: None,
         }
     }
+}
 
+impl<P, St, R, Si> Client<P, St, R, Si>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
     /// Get the provider
     pub fn provider(&self) -> P {
         self.boundless_market.instance().provider().clone()
@@ -313,9 +349,9 @@ where
     }
 
     /// Set the storage provider
-    pub fn with_storage_provider(self, storage_provider: S) -> Self
+    pub fn with_storage_provider(self, storage_provider: St) -> Self
     where
-        S: StorageProvider,
+        St: StorageProvider,
     {
         Self { storage_provider: Some(storage_provider), ..self }
     }
@@ -334,9 +370,19 @@ where
         }
     }
 
-    /// Set the local signer
-    pub fn with_local_signer(self, local_signer: LocalSigner<SigningKey>) -> Self {
-        Self { local_signer: Some(local_signer), ..self }
+    /// Set the signer
+    // TODO: Add an example of providing a local signer.
+    pub fn with_signer<Zi>(self, signer: Zi) -> Client<P, St, R, Zi> {
+        // NOTE: We can't use the ..self syntax here because return is not Self.
+        Client {
+            signer: Some(signer),
+            boundless_market: self.boundless_market,
+            set_verifier: self.set_verifier,
+            storage_provider: self.storage_provider,
+            offchain_client: self.offchain_client,
+            request_builder: self.request_builder,
+            bidding_start_delay: self.bidding_start_delay,
+        }
     }
 
     /// Set the bidding start delay, in seconds.
@@ -344,10 +390,10 @@ where
         Self { bidding_start_delay, ..self }
     }
 
-    /// Upload a program binary to the storage provider
+    /// Upload a program binary to the storage provider.
     pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError>
     where
-        S: StorageProvider,
+        St: StorageProvider,
     {
         Ok(self
             .storage_provider
@@ -358,10 +404,10 @@ where
             .map_err(|_| anyhow!("Failed to upload program"))?)
     }
 
-    /// Upload input to the storage provider
+    /// Upload input to the storage provider.
     pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError>
     where
-        S: StorageProvider,
+        St: StorageProvider,
     {
         Ok(self
             .storage_provider
@@ -374,11 +420,14 @@ where
 
     /// Submit a proof request.
     ///
-    /// Requires a local signer to be set to sign the request.
+    /// Requires a signer to be set to sign the request.
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current time will be used, plus a delay.
-    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError> {
-        let signer = self.local_signer.as_ref().context("Local signer not set")?;
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
+    where
+        Si: Signer,
+    {
+        let signer = self.signer.as_ref().context("signer not set")?;
         self.submit_request_with_signer(request, signer).await
     }
 
@@ -470,14 +519,17 @@ where
 
     /// Submit a proof request offchain via the order stream service.
     ///
-    /// Requires a local signer to be set to sign the request.
+    /// Requires a signer to be set to sign the request.
     /// If the request ID is not set, a random ID will be generated.
     /// If the bidding start is not set, the current timestamp plus a delay will be used.
     pub async fn submit_request_offchain(
         &self,
         request: &ProofRequest,
-    ) -> Result<(U256, u64), ClientError> {
-        let signer = self.local_signer.as_ref().context("Local signer not set")?;
+    ) -> Result<(U256, u64), ClientError>
+    where
+        Si: Signer,
+    {
+        let signer = self.signer.as_ref().context("signer not set")?;
         self.submit_request_offchain_with_signer(request, signer).await
     }
 
@@ -561,7 +613,7 @@ where
     }
 }
 
-impl Client<ProviderWallet, BuiltinStorageProvider> {
+impl Client<ProviderWallet, BuiltinStorageProvider, StandardRequestBuilder<ProviderWallet>, PrivateKeySigner> {
     /// Create a new client from environment variables
     ///
     /// The following environment variables are required:
@@ -613,13 +665,20 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
             Err(_) => None,
         };
 
+        let request_builder = StandardRequestBuilder::builder()
+            .storage_layer(storage_provider.clone()) // FIXME
+            .offer_layer(provider.clone())
+            .request_id_layer(boundless_market.clone())
+            .build()?;
+
         Ok(Self {
             boundless_market,
             set_verifier,
             storage_provider,
             offchain_client,
-            local_signer: Some(private_key),
+            signer: Some(private_key),
             bidding_start_delay: BIDDING_START_DELAY,
+            request_builder,
         })
     }
 }

@@ -28,7 +28,7 @@ use url::Url;
 use crate::{
     contracts::{Input as RequestInput, Offer, ProofRequest, RequestId, Requirements},
     input::GuestEnv,
-    storage::StorageProvider,
+    storage::{BuiltinStorageProvider, StorageProvider},
 };
 mod preflight_layer;
 mod storage_layer;
@@ -120,7 +120,7 @@ where
 /// A standard [RequestBuilder] provided as a default implementation.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<S, P> {
+pub struct StandardRequestBuilder<P, S = BuiltinStorageProvider> {
     #[builder(setter(into))]
     pub storage_layer: StorageLayer<S>,
     #[builder(setter(into), default)]
@@ -136,14 +136,14 @@ pub struct StandardRequestBuilder<S, P> {
 }
 
 impl StandardRequestBuilder<(), ()> {
-    pub fn builder<S: Clone, P: Clone>() -> StandardRequestBuilderBuilder<S, P> {
+    pub fn builder<P: Clone, S: Clone>() -> StandardRequestBuilderBuilder<P, S> {
         Default::default()
     }
 }
 
-impl<S, P> Layer<RequestParams> for StandardRequestBuilder<S, P>
+impl<P, S> Layer<RequestParams> for StandardRequestBuilder<P, S>
 where
-    S: StorageProvider,
+    S: StorageProvider, // DO NOT MERGE: handle cases where the storage_provider is not provided.
     S::Error: std::error::Error + Send + Sync + 'static,
     P: Provider<Ethereum> + 'static + Clone,
 {
