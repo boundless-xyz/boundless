@@ -81,9 +81,7 @@ where
 
 impl Default for StorageLayer<NotProvided> {
     fn default() -> Self {
-        StorageLayer::builder()
-            .build()
-            .expect("implementation error in Default for StorageLayer")
+        StorageLayer::builder().build().expect("implementation error in Default for StorageLayer")
     }
 }
 
@@ -117,7 +115,10 @@ where
 }
 
 impl<S> StorageLayer<S> {
-    pub(crate) async fn process_env_no_provider(&self, env: &GuestEnv) -> anyhow::Result<RequestInput> {
+    pub(crate) async fn process_env_no_provider(
+        &self,
+        env: &GuestEnv,
+    ) -> anyhow::Result<RequestInput> {
         let input_data = env.encode().context("failed to encode guest environment")?;
         let request_input = match self.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
@@ -151,10 +152,7 @@ impl Layer<&GuestEnv> for StorageLayer<NotProvided> {
     type Error = anyhow::Error;
     type Output = RequestInput;
 
-    async fn process(
-        &self,
-        env: &GuestEnv,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn process(&self, env: &GuestEnv) -> Result<Self::Output, Self::Error> {
         let request_input = self.process_env_no_provider(env).await?;
         Ok(request_input)
     }

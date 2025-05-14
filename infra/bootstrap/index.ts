@@ -32,10 +32,6 @@ export = async () => {
 
   let availabilityZones = (await aws.getAvailabilityZones()).names;
   
-  // For dev, we only use one AZ to limit the number of EIPs that are created.
-  if (isDev) {
-    availabilityZones = [availabilityZones[0]];
-  }
 
   const awsRegion = (await aws.getRegion({})).name;
   const services_vpc = new vpc.Vpc(`${prefix}vpc`, {

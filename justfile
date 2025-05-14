@@ -103,7 +103,7 @@ check-format:
 # Run Cargo clippy
 check-clippy:
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
-    cargo clippy --workspace --all-targets -F boundless-order-generator/zeth
+    cargo clippy --workspace --all-targets
 
     cd examples/counter && forge build && \
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
@@ -244,22 +244,22 @@ localnet action="up": check-deps
         exit 1
     fi
 
-# Load environment variables from a .env.NETWORK file
-env NETWORK:
-	#!/usr/bin/env bash
-	FILE=".env.{{NETWORK}}"
-	if [ -f "$FILE" ]; then
-		echo "# Run this command with 'eval \$(just env {{NETWORK}})' to load variables into your shell"
-		grep -v '^#' "$FILE" | tr -d '"' | xargs -I {} echo export {}
-	else
-		echo "Error: $FILE file not found." >&2
-		exit 1
-	fi
-
 # Update cargo dependencies
 cargo-update:
     cargo update
     cd examples/counter && cargo update
+
+# Load environment variables from a .env.NETWORK file
+env NETWORK:
+    #!/usr/bin/env bash
+    FILE=".env.{{NETWORK}}"
+    if [ -f "$FILE" ]; then
+        echo "# Run this command with 'source <(just env {{NETWORK}})' to load variables into your shell"
+        grep -v '^#' "$FILE" | tr -d '"' | xargs -I {} echo export {}
+    else
+        echo "Error: $FILE file not found." >&2
+        exit 1
+    fi
 
 # Start the bento service
 bento action="up" env_file="" compose_flags="":

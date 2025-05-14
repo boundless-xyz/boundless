@@ -1,0 +1,162 @@
+{
+  "staging": {
+    "clients": [
+      {
+        "name": "og_offchain",
+        "address": "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3",
+        "submissionRate": [
+          {
+            "severity": "SEV-1",
+            "metricConfig": {
+              "period": 300
+            },
+            "alarmConfig": {
+              "evaluationPeriods": 12,
+              "datapointsToAlarm": 2
+            }
+          },
+          {
+            "severity": "SEV-2",
+            "metricConfig": {
+              "period": 300
+            },
+            "alarmConfig": {
+              "evaluationPeriods": 12,
+              "datapointsToAlarm": 1
+            }
+          }
+        ],
+        "successRate": [
+          {
+            "severity": "SEV-2",
+            "alarmConfig": {
+              "threshold": 0.9
+            }
+          }
+        ]
+      },
+      {
+        "name": "og_onchain",
+        "address": "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3",
+        "submissionRate": [
+          {
+            "severity": "SEV-1",
+            "metricConfig": {
+              "period": 300
+            },
+            "alarmConfig": {
+              "evaluationPeriods": 12,
+              "datapointsToAlarm": 2
+            }
+          },
+          {
+            "severity": "SEV-2",
+            "metricConfig": {
+              "period": 300
+            },
+            "alarmConfig": {
+              "evaluationPeriods": 12,
+              "datapointsToAlarm": 1
+            }
+          }
+        ],
+        "successRate": [
+          {
+            "severity": "SEV-2",
+            "alarmConfig": {
+              "threshold": 0.9
+            }
+          }
+        ]
+      }
+    ],
+    "provers": [
+      {
+        "name": "r0-staging",
+        "address": "0x6bf69b603e9e655068e683bbffe285ea34e0f802"
+      }
+    ]
+  },
+  "prod": {
+    "clients": [
+      {
+        "name": "og_offchain",
+        "address": "0x2546c553d857d20658ece248f7c7d0861a240681",
+        "submissionRate": [
+          {
+            "severity": "SEV-1",
+            "metricConfig": {
+              "period": 300
+            },
+            "alarmConfig": {
+              "evaluationPeriods": 12,
+              "datapointsToAlarm": 2
+            }
+          },
+          {
+            "severity": "SEV-2",
+            "metricConfig": {
+              "period": 300
+            },
+            "alarmConfig": {
+              "evaluationPeriods": 12,
+              "datapointsToAlarm": 1
+            }
+          }
+        ],
+        "successRate": [
+          {
+            "severity": "SEV-2",
+            "alarmConfig": {
+              "threshold": 0.9
+            }
+          }
+        ]
+      },
+      {
+        "name": "og_onchain",
+        "address": "0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db0",
+        "submissionRate": [
+          {
+            "severity": "SEV-1",
+            "metricConfig": {
+              "period": 300
+            },
+            "alarmConfig": {
+              "evaluationPeriods": 12,
+              "datapointsToAlarm": 2
+            }
+          },
+          {
+            "severity": "SEV-2",
+            "metricConfig": {
+              "period": 300
+            },
+            "alarmConfig": {
+              "evaluationPeriods": 12,
+              "datapointsToAlarm": 1
+            }
+          }
+        ],
+        "successRate": [
+          {
+            "severity": "SEV-2",
+            "alarmConfig": {
+              "threshold": 0.9
+            }
+          }
+        ]
+      }
+    ],
+    "provers": [
+      {
+        "name": "r0-prod",
+        "address": "0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c"
+      },
+      {
+        "name": "r0-bento",
+        "address": "0xf8087e8f3ba5fc4865eda2fcd3c05846982da136"
+      }
+    ]
+  }
+}

@@ -11,7 +11,7 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
   const serviceName = getServiceNameV1(stackName, "order-slasher", ChainId.SEPOLIA);
-  
+
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
@@ -20,7 +20,8 @@ export = () => {
   const dockerDir = config.require('DOCKER_DIR');
   const dockerTag = config.require('DOCKER_TAG');
   const boundlessMarketAddr = config.require('BOUNDLESS_MARKET_ADDR');
-  
+
+  const githubTokenSecret = config.get('GH_TOKEN_SECRET');
   const interval = config.require('INTERVAL');
   const retries = config.require('RETRIES');
   const skipAddresses = config.get('SKIP_ADDRESSES');
@@ -60,8 +61,16 @@ export = () => {
   const authToken = aws.ecr.getAuthorizationTokenOutput({
     registryId: repo.repository.registryId,
   });
-  
+
   const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+  // Optionally add in the gh token secret and sccache s3 creds to the build ctx
+  let buildSecrets = {};
+  if (githubTokenSecret !== undefined) {
+    buildSecrets = {
+      githubTokenSecret
+    }
+  }
 
   const image = new docker_build.Image(`${serviceName}-image`, {
     tags: [dockerTagPath],
@@ -71,6 +80,7 @@ export = () => {
     // Due to limitations with cargo-chef, we need to build for amd64, even though slasher doesn't
     // strictly need r0vm. See `dockerfiles/slasher.dockerfile` for more details.
     platforms: ['linux/amd64'],
+    secrets: buildSecrets,
     push: true,
     builder: dockerRemoteBuilder ? {
       name: dockerRemoteBuilder,
@@ -203,7 +213,7 @@ export = () => {
       value: '1',
       defaultValue: '0',
     },
-    pattern: '?ERROR ?error ?Error',
+    pattern: 'ERROR',
   }, { dependsOn: [service] });
 
   const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
@@ -228,7 +238,7 @@ export = () => {
     evaluationPeriods: 60,
     datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
-    alarmDescription: 'Order generator log ERROR level',
+    alarmDescription: 'Order slasher log ERROR level',
     actionsEnabled: true,
     alarmActions,
   });

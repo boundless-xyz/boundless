@@ -56,13 +56,14 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
+use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
-    default_executor,
+    compute_image_id, default_executor,
     sha::{Digest, Digestible},
     ExecutorEnv, Journal, SessionInfo,
 };
@@ -272,7 +273,31 @@ enum ProvingCommands {
         #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["request_path", "tx_hash"])]
         order_stream_url: Option<Url>,
     },
+    Benchmark {
+        /// Proof request ids to benchmark.
+        #[arg(long, value_delimiter = ',')]
+        request_ids: Vec<U256>,
 
+        /// Bonsai API URL
+        ///
+        /// Toggling this disables Bento proving and uses Bonsai as a backend
+        #[clap(env = "BONSAI_API_URL")]
+        bonsai_api_url: Option<String>,
+
+        /// Bonsai API Key
+        ///
+        /// Not necessary if using Bento without authentication, which is the default.
+        #[clap(env = "BONSAI_API_KEY", hide_env_values = true)]
+        bonsai_api_key: Option<String>,
+
+        /// Offchain order stream service URL to submit offchain requests to
+        #[clap(
+            long,
+            env = "ORDER_STREAM_URL",
+            default_value = "https://order-stream.beboundless.xyz"
+        )]
+        order_stream_url: Option<Url>,
+    },
     /// Fulfill one or more proof requests using the RISC Zero zkVM default prover.
     ///
     /// This command can process multiple requests in a single batch, which is more efficient
@@ -921,7 +946,230 @@ where
             tracing::info!("Successfully locked request 0x{:x}", request_id);
             Ok(())
         }
+        ProvingCommands::Benchmark {
+            request_ids,
+            bonsai_api_url,
+            bonsai_api_key,
+            order_stream_url,
+        } => benchmark(request_ids, bonsai_api_url, bonsai_api_key, order_stream_url, args).await,
     }
+}
+
+/// Execute a proof request using the RISC Zero zkVM executor and measure performance
+async fn benchmark(
+    request_ids: &[U256],
+    bonsai_api_url: &Option<String>,
+    bonsai_api_key: &Option<String>,
+    order_stream_url: &Option<Url>,
+    args: &MainArgs,
+) -> Result<()> {
+    tracing::info!("Starting benchmark for {} requests", request_ids.len());
+    if request_ids.is_empty() {
+        bail!("No request IDs provided");
+    }
+
+    const DEFAULT_BENTO_API_URL: &str = "http://localhost:8081";
+    if let Some(url) = bonsai_api_url.as_ref() {
+        tracing::info!("Using Bonsai endpoint: {}", url);
+    } else {
+        tracing::info!("Defaulting to Default Bento endpoint: {}", DEFAULT_BENTO_API_URL);
+        std::env::set_var("BONSAI_API_URL", DEFAULT_BENTO_API_URL);
+    };
+    if bonsai_api_key.is_none() {
+        tracing::debug!("Assuming Bento, setting BONSAI_API_KEY to empty string");
+        std::env::set_var("BONSAI_API_KEY", "");
+    }
+    let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
+
+    // Track performance metrics across all runs
+    let mut worst_khz = f64::MAX;
+    let mut worst_time = 0.0;
+    let mut worst_cycles = 0.0;
+    let mut worst_request_id = U256::ZERO;
+
+    // Check if we can connect to PostgreSQL using environment variables
+    let pg_connection_available = std::env::var("POSTGRES_USER").is_ok()
+        && std::env::var("POSTGRES_PASSWORD").is_ok()
+        && std::env::var("POSTGRES_DB").is_ok();
+
+    let pg_pool = if pg_connection_available {
+        match create_pg_pool().await {
+            Ok(pool) => {
+                tracing::info!("Successfully connected to PostgreSQL database");
+                Some(pool)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to connect to PostgreSQL database: {}", e);
+                None
+            }
+        }
+    } else {
+        tracing::warn!(
+            "PostgreSQL environment variables not found, using client-side metrics only. \
+            This will be less accurate for smaller proofs."
+        );
+        None
+    };
+
+    for (idx, request_id) in request_ids.iter().enumerate() {
+        tracing::info!(
+            "Benchmarking request {}/{}: 0x{:x}",
+            idx + 1,
+            request_ids.len(),
+            request_id
+        );
+
+        // Fetch the request from order stream or on-chain
+        let client = ClientBuilder::new()
+            .with_private_key(args.config.private_key.clone())
+            .with_rpc_url(args.config.rpc_url.clone())
+            .with_boundless_market_address(args.config.boundless_market_address)
+            .with_set_verifier_address(args.config.set_verifier_address)
+            .with_timeout(args.config.tx_timeout)
+            .with_order_stream_url(order_stream_url.clone())
+            .build()
+            .await?;
+
+        let order = client.fetch_order(*request_id, None, None).await?;
+        let request = order.request;
+
+        tracing::debug!("Fetched request 0x{:x}", request_id);
+        tracing::debug!("Image URL: {}", request.imageUrl);
+
+        // Fetch ELF and input
+        tracing::debug!("Fetching ELF from {}", request.imageUrl);
+        let elf = fetch_url(&request.imageUrl).await?;
+
+        tracing::debug!("Processing input");
+        let input = match request.input.inputType {
+            InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
+            InputType::Url => {
+                let input_url = std::str::from_utf8(&request.input.data)
+                    .context("Input URL is not valid UTF-8")?;
+                tracing::debug!("Fetching input from {}", input_url);
+                GuestEnv::decode(&fetch_url(input_url).await?)?.stdin
+            }
+            _ => bail!("Unsupported input type"),
+        };
+
+        // Upload ELF
+        let image_id = compute_image_id(&elf)?.to_string();
+        prover.upload_img(&image_id, elf).await.unwrap();
+        tracing::debug!("Uploaded ELF to {}", image_id);
+
+        // Upload input
+        let input_id =
+            prover.upload_input(input).await.context("Failed to upload set-builder input")?;
+        tracing::debug!("Uploaded input to {}", input_id);
+
+        let assumptions = vec![];
+
+        // Start timing
+        let start_time = std::time::Instant::now();
+
+        let proof_id =
+            prover.create_session(image_id, input_id, assumptions.clone(), false).await?;
+        tracing::debug!("Created session {}", proof_id.uuid);
+
+        let (stats, elapsed_time) = loop {
+            let status = proof_id.status(&prover).await?;
+
+            match status.status.as_ref() {
+                "RUNNING" => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    continue;
+                }
+                "SUCCEEDED" => {
+                    let Some(stats) = status.stats else {
+                        bail!("Bento failed to return proof stats in response");
+                    };
+                    break (stats, status.elapsed_time);
+                }
+                _ => {
+                    let err_msg = status.error_msg.unwrap_or_default();
+                    bail!("snark proving failed: {err_msg}");
+                }
+            }
+        };
+
+        // Try to get effective KHz from PostgreSQL if available
+        let (total_cycles, elapsed_secs) = if let Some(ref pool) = pg_pool {
+            let total_cycles_query = r#"
+                SELECT (output->>'total_cycles')::FLOAT8
+                FROM tasks
+                WHERE task_id = 'init' AND job_id = $1::uuid
+            "#;
+
+            let elapsed_secs_query = r#"
+                SELECT EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at)))::FLOAT8
+                FROM tasks
+                WHERE job_id = $1::uuid
+            "#;
+
+            let total_cycles: f64 =
+                sqlx::query_scalar(total_cycles_query).bind(&proof_id.uuid).fetch_one(pool).await?;
+
+            let elapsed_secs: f64 =
+                sqlx::query_scalar(elapsed_secs_query).bind(&proof_id.uuid).fetch_one(pool).await?;
+
+            (total_cycles, elapsed_secs)
+        } else {
+            // Calculate the hz based on the duration and total cycles as observed by the client
+            tracing::debug!("No PostgreSQL data found for job, using client-side calculation.");
+            let total_cycles: f64 = stats.total_cycles as f64;
+            let elapsed_secs = start_time.elapsed().as_secs_f64();
+            (total_cycles, elapsed_secs)
+        };
+
+        let khz = (total_cycles / 1000.0) / elapsed_secs;
+
+        tracing::info!("KHz: {:.2} proved in {:.2}s", khz, elapsed_secs);
+
+        if let Some(time) = elapsed_time {
+            tracing::debug!("Server side time: {:?}", time);
+        }
+
+        // Track worst-case performance
+        if khz < worst_khz {
+            worst_khz = khz;
+            worst_time = elapsed_secs;
+            worst_cycles = total_cycles;
+            worst_request_id = *request_id;
+        }
+    }
+
+    if worst_cycles < 1_000_000.0 {
+        tracing::warn!("Worst case performance proof is one with less than 1M cycles, \
+            which might lead to a lower khz than expected. Benchmark using a larger proof if possible.");
+    }
+
+    // Report worst-case performance
+    tracing::info!("Worst-case performance:");
+    tracing::info!("  Request ID: 0x{:x}", worst_request_id);
+    tracing::info!("  Performance: {:.2} KHz", worst_khz);
+    tracing::info!("  Time: {:.2} seconds", worst_time);
+    tracing::info!("  Cycles: {}", worst_cycles);
+
+    println!("It is recommended to update this entry in broker.toml:");
+    println!("peak_prove_khz = {:.0}\n", worst_khz.round());
+    println!("Note: setting a lower value does not limit the proving speed, but will reduce the \
+              total throughput of the orders locked by the broker. It is recommended to set a value \
+              lower than this recommmendation, and increase it over time to increase capacity.");
+
+    Ok(())
+}
+
+/// Create a PostgreSQL connection pool using environment variables
+async fn create_pg_pool() -> Result<sqlx::PgPool> {
+    let user = std::env::var("POSTGRES_USER").context("POSTGRES_USER not set")?;
+    let password = std::env::var("POSTGRES_PASSWORD").context("POSTGRES_PASSWORD not set")?;
+    let db = std::env::var("POSTGRES_DB").context("POSTGRES_DB not set")?;
+    let host = "127.0.0.1";
+    let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
+
+    let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
+
+    sqlx::PgPool::connect(&connection_string).await.context("Failed to connect to PostgreSQL")
 }
 
 /// Submit an offer and create a proof request
