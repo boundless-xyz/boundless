@@ -3,7 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { createRustLambda } from './rust-lambda';
 import { getServiceNameV1, Severity } from '../../util';
-import { clients, provers } from './targets';
+import { clients, clientAddresses, proverAddresses } from './targets';
 import { createMetricAlarm, createSuccessRateAlarm } from './alarms';
 
 export interface MonitorLambdaArgs {
@@ -153,8 +153,8 @@ export class MonitorLambda extends pulumi.ComponentResource {
     );
 
     const payload = {
-      clients: clients,
-      provers: provers,
+      clients: clientAddresses,
+      provers: proverAddresses,
     };
 
     new aws.cloudwatch.EventTarget(
