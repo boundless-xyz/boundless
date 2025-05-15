@@ -40,7 +40,7 @@ pub struct StorageLayer<S = StandardStorageProvider> {
     /// [StorageProvider] used to upload programs and inputs.
     ///
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
-    /// [Self::inline_input_max_bytes].
+    /// [StorageLayerConfig::inline_input_max_bytes].
     pub storage_provider: Option<S>,
     pub config: StorageLayerConfig,
 }
