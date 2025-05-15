@@ -55,4 +55,4 @@ pub mod storage;
 /// Utility functions and types used elsewhere.
 pub(crate) mod util;
 
-pub use util::NotProvided;
+pub use util::{NotProvided, StandardRpcProvider};

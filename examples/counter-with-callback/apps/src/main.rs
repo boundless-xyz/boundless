@@ -12,7 +12,7 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::{
-    client::ClientBuilder,
+    client::Client,
     contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
     storage::{BuiltinStorageProvider, StorageProvider, StorageProviderConfig},
 };
@@ -97,7 +97,7 @@ async fn run<P: StorageProvider>(
     set_verifier_address: Address,
     counter_address: Address,
 ) -> Result<()> {
-    let client = ClientBuilder::<P>::default()
+    let client = Client::builder()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)

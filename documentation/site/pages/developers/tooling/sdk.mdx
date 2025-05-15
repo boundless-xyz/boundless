@@ -27,12 +27,12 @@ Below is an example of the **Boundless** end-to-end programmatic workflow:
 ### 1. Initialize Client
 
 ```rust
-use boundless_market::client::ClientBuilder;
+use boundless_market::client::Client;
 use alloy::signers::local::LocalSigner;
 # use alloy::primitives::Address;
 # use url::Url;
 # async fn init_client(rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
-let client = ClientBuilder::new()
+let client = Client::builder()
     .with_rpc_url(rpc_url)
     .with_boundless_market_address(market_address)
     .with_set_verifier_address(set_verifier_address)
@@ -47,12 +47,12 @@ let client = ClientBuilder::new()
 
 <StripRustCodeComments>
 ```rust
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::client::Client;
 # use alloy::signers::local::LocalSigner;
 # use alloy::primitives::Address;
 # use url::Url;
 # async fn upload_program_and_input(rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
-# let client = ClientBuilder::new()
+# let client = Client::builder()
 #    .with_rpc_url(rpc_url)
 #    .with_boundless_market_address(market_address)
 #    .with_set_verifier_address(set_verifier_address)
@@ -139,7 +139,6 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 
 ### `client`
 - `Client`: Core struct for transactions, storage, and offchain interaction.
-- `ClientBuilder`: Configure and build the client.
 
 ### `contracts`
 - `BoundlessMarketService`: Onchain interactions (requests, fulfillments, deposits).
@@ -162,7 +161,7 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 
 ```rust
 use boundless_market::{
-  client::ClientBuilder,
+  client::Client,
   contracts::{ProofRequest, RequestId, Requirements, Predicate, Offer},
   input::InputBuilder,
   storage::StorageProvider,
@@ -174,7 +173,7 @@ use std::time::Duration;
 use url::Url;
 
 async fn proof_submission(signer: &PrivateKeySigner, rpc_url: Url, market_address: Address, set_verifier_address: Address) -> anyhow::Result<()> {
-    let client = ClientBuilder::new()
+    let client = Client::builder()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(market_address)
         .with_set_verifier_address(set_verifier_address)

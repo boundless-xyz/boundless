@@ -16,7 +16,7 @@ use alloy::{
 use anyhow::{bail, Result};
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
-    client::ClientBuilder,
+    client::Client,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::InputBuilder,
     storage::StorageProviderConfig,
@@ -144,7 +144,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let boundless_client = ClientBuilder::new()
+    let boundless_client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
         .with_storage_provider_config(&args.storage_config)?
         .with_boundless_market_address(args.boundless_market_address)

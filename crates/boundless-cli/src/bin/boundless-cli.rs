@@ -73,7 +73,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use boundless_market::{
-    client::{Client, ClientBuilder},
+    client::Client,
     contracts::{
         boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
         PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR,
@@ -657,7 +657,7 @@ where
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-            let client = ClientBuilder::new()
+            let client = Client::builder()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
@@ -695,7 +695,7 @@ where
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-            let client = ClientBuilder::new()
+            let client = Client::builder()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
@@ -784,7 +784,7 @@ where
                 serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
             } else if let Some(request_id) = request_id {
                 tracing::debug!("Loading request from blockchain: 0x{:x}", request_id);
-                let client = ClientBuilder::new()
+                let client = Client::builder()
                     .with_private_key(args.config.private_key.clone())
                     .with_rpc_url(args.config.rpc_url.clone())
                     .with_boundless_market_address(args.config.boundless_market_address)
@@ -843,7 +843,7 @@ where
 
             let prover = DefaultProver::new(set_builder_program, assessor_program, caller, domain)?;
 
-            let client = ClientBuilder::new()
+            let client = Client::builder()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
@@ -922,7 +922,7 @@ where
         }
         ProvingCommands::Lock { request_id, request_digest, tx_hash, order_stream_url } => {
             tracing::info!("Locking proof request 0x{:x}", request_id);
-            let client = ClientBuilder::new()
+            let client = Client::builder()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
@@ -1020,7 +1020,7 @@ async fn benchmark(
         );
 
         // Fetch the request from order stream or on-chain
-        let client = ClientBuilder::new()
+        let client = Client::builder()
             .with_private_key(args.config.private_key.clone())
             .with_rpc_url(args.config.rpc_url.clone())
             .with_boundless_market_address(args.config.boundless_market_address)

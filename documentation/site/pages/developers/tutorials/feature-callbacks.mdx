@@ -110,11 +110,11 @@ Once the proof is fulfilled, our example checks the counter contract and confirm
 ```rust
 # use std::time::Duration;
 # use alloy::primitives::address;
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::client::Client;
 # use boundless_market::contracts::ProofRequest;
 # use alloy::sol_types::SolCall;
 # async fn submit_request(request: ProofRequest) -> anyhow::Result<()> {
-# let boundless_client = ClientBuilder::new().build().await?;
+# let boundless_client = Client::builder().build().await?;
 # let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
 alloy::sol! {
     #[sol(rpc)]

@@ -14,7 +14,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_market::storage::BuiltinStorageProvider;
 use boundless_market::{
-    client::{Client, ClientBuilder},
+    client::Client,
     contracts::{Input, Offer, Predicate, ProofRequest, RequestId, Requirements},
     storage::{StorageProvider, StorageProviderConfig},
 };
@@ -93,7 +93,7 @@ async fn run<P: StorageProvider>(
     smart_contract_requestor_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client = ClientBuilder::<P>::default()
+    let boundless_client = Client::builder()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)

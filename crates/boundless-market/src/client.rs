@@ -48,8 +48,7 @@ use crate::{
     util::{NotProvided, StandardRpcProvider},
 };
 
-/// Builder for the client
-// TODO: Improve this docstring.
+/// Builder for the [Client] with standard implementations for the required components.
 #[derive(Clone)]
 pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     deployment: Option<Deployment>,
@@ -404,6 +403,11 @@ where
             signer: None,
             request_builder: None,
         }
+    }
+
+    /// Create a [ClientBuilder] to construct a [Client].
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
     }
 }
 

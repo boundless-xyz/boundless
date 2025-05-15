@@ -11,7 +11,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_market::{client::ClientBuilder, storage::StorageProviderConfig};
+use boundless_market::{client::Client, storage::StorageProviderConfig};
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::sha::{Digest, Digestible};
@@ -94,7 +94,7 @@ async fn run(
     counter_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let client = ClientBuilder::new()
+    let client = Client::builder()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)
