@@ -12,6 +12,25 @@ export const createProverAlarms = (
   dependsOn: pulumi.Resource[],
   alarmActions: string[],
 ): void => {
+  const createLogMetricFilter = (
+    pattern: string,
+    metricName: string,
+    severity?: Severity,
+  ): void => {
+    // Generate a metric by filtering for the error code
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-${metricName}-${severity}-filter`, {
+      name: `${serviceName}-${metricName}-${severity}-filter`,
+      logGroupName: serviceName,
+      metricTransformation: {
+        namespace: `Boundless/Services/${serviceName}`,
+        name: `${serviceName}-${metricName}-${severity}`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern,
+    }, { dependsOn });
+  };
+
   const createErrorCodeAlarm = (
     pattern: string,
     metricName: string,
@@ -21,17 +40,7 @@ export const createProverAlarms = (
     description?: string
   ): void => {
     // Generate a metric by filtering for the error code
-    new aws.cloudwatch.LogMetricFilter(`${serviceName}-${metricName}-${severity}-filter`, {
-      name: `${serviceName}-${metricName}-${severity}-filter`,
-      logGroupName: logGroup.name,
-      metricTransformation: {
-        namespace: `Boundless/Services/${serviceName}`,
-        name: `${serviceName}-${metricName}-${severity}`,
-        value: '1',
-        defaultValue: '0',
-      },
-      pattern,
-    }, { dependsOn: [...dependsOn] });
+    createLogMetricFilter(pattern, metricName, severity);
 
     // Create an alarm for the metric
     new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricName}-${severity}-alarm`, {
@@ -54,7 +63,7 @@ export const createProverAlarms = (
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
-      alarmDescription: `${severity} ${metricName} ${pattern} ${description ? description : ''}`,
+      alarmDescription: `${severity} ${metricName} ${description}`,
       actionsEnabled: true,
       alarmActions,
       ...alarmConfig
@@ -193,8 +202,9 @@ export const createProverAlarms = (
     threshold: 1,
   });
 
-  // 3 errors when fetching images/inputs within 15 minutes triggers a SEV2 alarm.
+  // Create a metric for errors when fetching images/inputs but don't alarm as could be user error.
   // Note: This is a pattern to match "[B-OP-001]" OR "[B-OP-002]"
+  createLogMetricFilter('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error');
   createErrorCodeAlarm('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error', Severity.SEV2, {
     threshold: 3,
   }, { period: 900 });
@@ -214,6 +224,13 @@ export const createProverAlarms = (
   createErrorCodeAlarm('"[B-OM-500]"', 'order-monitor-unexpected-error', Severity.SEV1, {
     threshold: 3,
   }, { period: 300 });
+
+  // Create metrics for scenarios where we fail to lock an order that we wanted to lock.
+  // Don't alarm as this is expected behavior when another prover locked before us.
+  // If we fail to lock an order because the tx fails for some reason.
+  createLogMetricFilter('"[B-OM-007]"', 'order-monitor-lock-tx-failed');
+  // If we fail to lock an order because we saw an event indicating another prover locked before us.
+  createLogMetricFilter('"[B-OM-009]"', 'order-monitor-already-locked');
 
   // If we fail to lock an order because we don't have enough stake balance, SEV2.
   createErrorCodeAlarm('"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2);

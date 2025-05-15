@@ -20,6 +20,7 @@ export = () => {
   const dockerDir = config.require('DOCKER_DIR');
   const dockerTag = config.require('DOCKER_TAG');
   const boundlessMarketAddr = config.require('BOUNDLESS_MARKET_ADDR');
+
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
   const interval = config.require('INTERVAL');
   const retries = config.require('RETRIES');
@@ -212,7 +213,7 @@ export = () => {
       value: '1',
       defaultValue: '0',
     },
-    pattern: '?ERROR ?error ?Error',
+    pattern: 'ERROR',
   }, { dependsOn: [service] });
 
   const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
@@ -237,7 +238,7 @@ export = () => {
     evaluationPeriods: 60,
     datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
-    alarmDescription: 'Order generator log ERROR level',
+    alarmDescription: 'Order slasher log ERROR level',
     actionsEnabled: true,
     alarmActions,
   });
