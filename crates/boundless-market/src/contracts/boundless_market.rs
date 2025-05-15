@@ -413,7 +413,11 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
 
         let tx_hash = *pending_tx.tx_hash();
-        tracing::trace!("Broadcasting tx {}", tx_hash);
+        tracing::trace!(
+            "Broadcasting lock request tx {} with nonce {}",
+            tx_hash,
+            pending_tx.nonce()
+        );
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -469,7 +473,11 @@ impl<P: Provider> BoundlessMarketService<P> {
             .from(self.caller);
         let pending_tx = call.send().await.context("Failed to lock")?;
 
-        tracing::trace!("Broadcasting tx {}", pending_tx.tx_hash());
+        tracing::trace!(
+            "Broadcasting lock request tx {} with nonce {}",
+            tx_hash,
+            pending_tx.nonce()
+        );
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
         if !receipt.status() {
