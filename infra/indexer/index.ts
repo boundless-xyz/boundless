@@ -53,6 +53,7 @@ export = () => {
     rdsSgId: indexer.rdsSecurityGroupId,
     chainId: chainId,
     rustLogLevel: rustLogLevel,
+    boundlessAlertsTopicArn: boundlessAlertsTopicArn,
   }, { parent: indexer, dependsOn: indexer });
 
 };

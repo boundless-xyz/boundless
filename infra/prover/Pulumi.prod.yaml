@@ -11,7 +11,7 @@ config:
   prover:BROKER_TOML_PATH: broker-prod.toml
   prover:BASE_STACK: organization/bootstrap/services-prod
   prover:ETH_RPC_URL:
-    secure: v1:CHmozgrsQ1DIiZ6/:EpHWBQDlO7U3oL1Jp5nAYxL4SQghhuTiGOLCpaGuM21O5RW6eiMfLE145bHvK9+VJaY2F0wZS82IzdHAzateo/3YdHCtgFjjqZoT7VZnbTSmGaIkNw==
+    secure: v1:WGKgRuE6NRsSPeBi:sown/RZXGq3tcM1qUHp41HZo6Z2sll8GLSBcRbNsyxLQql6yDBBpNbkNEbhN9lB2TbFQxP399T9epYGWU2oBMj+348385QAcnX59w+wUtPj9/SyjhQ==
   prover:BONSAI_API_KEY:
     secure: v1:DBLnIT+fWqeYZsZd:FEOPSijO1WHd24xhepKtRB37SnovAt7A+7QmgJJ84yUvoKAmntUYalyrTN3TvSspnpgR23dQlfM=
   prover:PRIVATE_KEY:

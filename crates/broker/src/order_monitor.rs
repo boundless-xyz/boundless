@@ -125,6 +125,7 @@ pub struct OrderMonitor<P> {
     config: ConfigLock,
     market: BoundlessMarketService<Arc<P>>,
     provider: Arc<P>,
+    prover_addr: Address,
     capacity_debug_log: String,
 }
 
@@ -138,6 +139,7 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
         config: ConfigLock,
         block_time: u64,
+        prover_addr: Address,
         market_addr: Address,
     ) -> Result<Self> {
         let txn_timeout_opt = {
@@ -178,6 +180,7 @@ where
             config,
             market,
             provider,
+            prover_addr,
             capacity_debug_log: "".to_string(),
         })
     }
@@ -247,8 +250,20 @@ where
                         OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
                     }
                     MarketError::Error(e) => {
+                        // Insufficient balance error is thrown both when the requestor has insufficient balance,
+                        // Requestor having insufficient balance can happen and is out of our control. The prover
+                        // having insufficient balance is unexpected as we should have checked for that before committing to locking the order.
+                        let prover_addr_str =
+                            self.prover_addr.to_string().to_lowercase().replace("0x", "");
                         if e.to_string().contains("InsufficientBalance") {
-                            OrderMonitorErr::InsufficientBalance
+                            if e.to_string().contains(prover_addr_str) {
+                                OrderMonitorErr::InsufficientBalance
+                            } else {
+                                OrderMonitorErr::LockTxFailed(format!(
+                                    "Requestor has insufficient balance: {}",
+                                    e
+                                ))
+                            }
                         } else {
                             OrderMonitorErr::UnexpectedError(e)
                         }
