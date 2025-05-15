@@ -2,7 +2,11 @@
 //
 // All rights reserved.
 
-use std::{cmp::min, collections::HashMap, sync::Arc};
+use std::{
+    cmp::{max, min},
+    collections::HashMap,
+    sync::Arc,
+};
 
 use alloy::{
     consensus::Transaction,
@@ -114,7 +118,15 @@ where
         let mut interval = tokio::time::interval(self.config.interval);
         let current_block = self.current_block().await?;
         let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
-        let mut from_block = min(starting_block.unwrap_or(last_processed_block), current_block);
+        // If the starting block is set, use the maximum of the starting block and the last processed block
+        // Otherwise, use the last processed block if it is greater than 0, or the current block
+        // if the last processed block is 0.
+        // This is to ensure that we don't process blocks that have already been processed and
+        // to avoid processing blocks that are in the future.
+        let mut from_block: u64 = starting_block.map_or(
+            if last_processed_block == 0 { current_block } else { last_processed_block },
+            |from_block| max(min(from_block, current_block), last_processed_block),
+        );
 
         let mut attempt = 0;
         loop {
@@ -274,7 +286,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} locked events from block {} to block {}",
             logs.len(),
             from_block,
@@ -322,7 +334,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} proof delivered events from block {} to block {}",
             logs.len(),
             from_block,
@@ -361,7 +373,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} fulfilled events from block {} to block {}",
             logs.len(),
             from_block,
@@ -398,7 +410,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} slashed events from block {} to block {}",
             logs.len(),
             from_block,
@@ -436,7 +448,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} deposit events from block {} to block {}",
             logs.len(),
             from_block,
@@ -466,7 +478,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
@@ -496,7 +508,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} stake deposit events from block {} to block {}",
             logs.len(),
             from_block,
@@ -526,7 +538,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} stake withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
@@ -556,7 +568,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} callback failed events from block {} to block {}",
             logs.len(),
             from_block,
@@ -585,15 +597,25 @@ where
     }
 
     async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
-        Ok(self
-            .boundless_market
-            .instance()
-            .provider()
-            .get_block_by_number(BlockNumberOrTag::Number(block_number))
-            .await?
-            .context(anyhow!("Failed to get block by number: {}", block_number))?
-            .header
-            .timestamp)
+        let timestamp = self.db.get_block_timestamp(block_number).await?;
+        let ts = match timestamp {
+            Some(ts) => ts,
+            None => {
+                tracing::debug!("Block timestamp not found in DB for block {}", block_number);
+                let ts = self
+                    .boundless_market
+                    .instance()
+                    .provider()
+                    .get_block_by_number(BlockNumberOrTag::Number(block_number))
+                    .await?
+                    .context(anyhow!("Failed to get block by number: {}", block_number))?
+                    .header
+                    .timestamp;
+                self.db.add_block(block_number, ts).await?;
+                ts
+            }
+        };
+        Ok(ts)
     }
 
     fn clear_cache(&mut self) {

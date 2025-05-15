@@ -54,6 +54,9 @@ pub trait IndexerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
 
+    async fn add_block(&self, block_numb: u64, block_timestamp: u64) -> Result<(), DbError>;
+    async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
+
     async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError>;
 
     async fn add_proof_request(
@@ -212,6 +215,33 @@ impl IndexerDb for AnyDb {
         }
 
         Ok(())
+    }
+
+    async fn add_block(&self, block_numb: u64, block_timestamp: u64) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO blocks (block_number, block_timestamp) VALUES ($1, $2)
+         ON CONFLICT (block_number) DO NOTHING",
+        )
+        .bind(block_numb as i64)
+        .bind(block_timestamp as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError> {
+        let result = sqlx::query("SELECT block_timestamp FROM blocks WHERE block_number = $1")
+            .bind(block_numb as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = result {
+            let block_timestamp: i64 = row.get(0);
+            Ok(Some(block_timestamp as u64))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError> {
