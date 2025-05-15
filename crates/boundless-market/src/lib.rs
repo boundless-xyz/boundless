@@ -34,6 +34,9 @@ pub mod balance_alerts_layer;
 pub mod client;
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
+/// Configs for deployments of the Boundless Market (e.g. contract addresses, URLs, etc).
+#[cfg(not(target_os = "zkvm"))]
+pub mod deployments;
 /// Input module for serializing input.
 #[cfg(not(target_os = "zkvm"))]
 pub mod input;

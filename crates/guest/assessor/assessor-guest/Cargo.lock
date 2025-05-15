@@ -75,6 +75,7 @@ checksum = "7734aecfc58a597dde036e4c5cace2ae43e2f8bf3d406b022a1ef34da178dd49"
 dependencies = [
  "alloy-primitives",
  "num_enum",
+ "serde",
  "strum 0.27.1",
 ]
 
@@ -1948,6 +1949,7 @@ name = "boundless-market"
 version = "0.7.0"
 dependencies = [
  "alloy",
+ "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",

@@ -2595,6 +2595,7 @@ name = "boundless-market"
 version = "0.7.0"
 dependencies = [
  "alloy",
+ "alloy-chains",
  "alloy-primitives 1.1.0",
  "alloy-sol-types",
  "anyhow",

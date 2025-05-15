@@ -37,6 +37,7 @@ order-stream = { path = "crates/order-stream" }
 alloy = { version = "0.15", default-features = false }
 alloy-primitives = { version = "1.0" }
 alloy-sol-types = { version = "1.0", features = ["json"] }
+alloy-chains = "0.2.0"
 anyhow = { version = "1.0" }
 async-trait = "0.1"
 aws-config = { version = "1.6", features = ["behavior-version-latest"] }
