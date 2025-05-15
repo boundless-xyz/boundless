@@ -31,4 +31,5 @@ config:
     secure: v1:/PAo8IW1iSC4PfVa:j+e1NmKVKprC8cRWBPmmQ5GT9O4ppUeU2VYFdpPiZDZHHCW6GCrTbHO+1BWu1rinjCT1lppKhzXhxBXlVabTVdwPOfjYZO7lF4g+dQjqq5U=
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:mCtZDPI169gCEzCS:fs7WOQUknWQ3SgRy1tJWLzSqrm0DFlDyBlOy0FvCr+qPgOPpdedminnQHR4Em1kBoJteJ0H1iUKfNsaE0NUZOk3RAmCdGtsnu/QiYkHQAiQ=
-  
+  order-generator:ETH_RPC_URL:
+    secure: v1:q+IJN29qCq/a5XiD:vV4sMv0SwWDbrk9oH3NMbvX6YuYKhYfjuYk9DeXLIzlg1ukWGGmBfDwfOnNkD8lZCX2lxdF8yehcT04fsoAwkLas+pxxklu5PY5LP5oMwDVoVABdTQ==
