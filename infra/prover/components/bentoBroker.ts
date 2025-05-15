@@ -240,7 +240,6 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                                 `echo "Stopping Broker"`,
                                 "systemctl stop boundless-broker.service",
                                 `echo "Updating source code to latest on $GIT_BRANCH"`,
-                                "cd /local/boundless",
                                 "git reset --hard",
                                 `git checkout $GIT_BRANCH`,
                                 `git pull`,
@@ -250,7 +249,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                                 "aws s3 cp s3://$BUCKET/justfile ./justfile",
                                 `echo "Copying Compose Yml"`,
                                 "aws s3 cp s3://$BUCKET/compose.yml ./compose.yml",
-                                `echo "Refreshing Broker Env File (inc setting nvcc flags)"`,
+                                `echo "Refreshing Broker Env File"`,
                                 "/local/create-broker-env.sh",
                                 `echo "Restarting Broker"`,
                                 "systemctl start boundless-broker.service"
@@ -467,16 +466,6 @@ ETH_RPC_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.ethRpcUrl')
 PRIVATE_KEY_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.privateKey')
 ORDER_STREAM_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.orderStreamUrl')
 SEGMENT_SIZE=$(echo $CONFIG | jq -r '.segmentSize')
-
-# Set NVCC flags
-# Install nvcc
-export NVCC_FLAGS=$(/local/boundless/scripts/set_nvcc_flags.sh)
-# find replace . with nothing in the NVCC_FLAGS
-# TODO: Remove after https://github.com/boundless-xyz/boundless/commit/4511d67e89969274b403c454a8ceeb7231d5a1b3 is reverted.
-export NVCC_FLAGS=$(echo $NVCC_FLAGS | sed 's/\\.//g')
-# replace the NVCC_APPEND_FLAGS in the compose.yml with the nvcc flags
-sudo sed -i "s/NVCC_APPEND_FLAGS: .*/NVCC_APPEND_FLAGS: \"$NVCC_FLAGS\"/" /local/boundless/compose.yml
-cat /local/boundless/compose.yml | grep NVCC_APPEND_FLAGS
 
 # Get secrets from AWS Secrets Manager
 RPC_URL=$(aws --region ${region} secretsmanager get-secret-value --secret-id $ETH_RPC_URL_SECRET_ARN --query SecretString --output text)
