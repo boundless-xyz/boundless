@@ -38,9 +38,9 @@ pub use client::{Client, StandardClient};
 
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
-pub use contracts::{
-    boundless_market::BoundlessMarketService, Input, Offer, ProofRequest, RequestId, Requirements,
-};
+#[cfg(not(target_os = "zkvm"))]
+pub use contracts::boundless_market::BoundlessMarketService;
+pub use contracts::{Input, Offer, ProofRequest, RequestId, Requirements};
 
 /// Configs for deployments of the Boundless Market (e.g. contract addresses, URLs, etc).
 #[cfg(not(target_os = "zkvm"))]
