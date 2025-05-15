@@ -286,7 +286,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} locked events from block {} to block {}",
             logs.len(),
             from_block,
@@ -334,7 +334,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} proof delivered events from block {} to block {}",
             logs.len(),
             from_block,
@@ -373,7 +373,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} fulfilled events from block {} to block {}",
             logs.len(),
             from_block,
@@ -410,7 +410,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} slashed events from block {} to block {}",
             logs.len(),
             from_block,
@@ -448,7 +448,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} deposit events from block {} to block {}",
             logs.len(),
             from_block,
@@ -478,7 +478,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
@@ -508,7 +508,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} stake deposit events from block {} to block {}",
             logs.len(),
             from_block,
@@ -538,7 +538,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} stake withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
@@ -568,7 +568,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} callback failed events from block {} to block {}",
             logs.len(),
             from_block,
