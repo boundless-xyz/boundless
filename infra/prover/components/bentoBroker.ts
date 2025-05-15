@@ -49,7 +49,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
             secretId: ethRpcUrlSecret.id,
             secretString: ethRpcUrl,
         });
-        
+
         const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-brokerPrivateKey`);
         new aws.secretsmanager.SecretVersion(`${serviceName}-privateKeyValue`, {
             secretId: privateKeySecret.id,
@@ -164,8 +164,8 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                     {
                         Effect: 'Allow',
                         Action: [
-                            's3:GetObject', 
-                            's3:ListObject', 
+                            's3:GetObject',
+                            's3:ListObject',
                             's3:HeadObject'
                         ],
                         Resource: [
@@ -297,8 +297,8 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                 {
                     Effect: 'Allow',
                     Action: [
-                        's3:GetObject', 
-                        's3:ListObject', 
+                        's3:GetObject',
+                        's3:ListObject',
                         's3:HeadObject'
                     ],
                     Resource: [
@@ -473,7 +473,7 @@ SEGMENT_SIZE=$(echo $CONFIG | jq -r '.segmentSize')
 export NVCC_FLAGS=$(/local/boundless/scripts/set_nvcc_flags.sh)
 # find replace . with nothing in the NVCC_FLAGS
 # TODO: Remove after https://github.com/boundless-xyz/boundless/commit/4511d67e89969274b403c454a8ceeb7231d5a1b3 is reverted.
-export NVCC_FLAGS=$(echo $NVCC_FLAGS | sed 's/\.//g')
+export NVCC_FLAGS=$(echo $NVCC_FLAGS | sed 's/\\.//g')
 # replace the NVCC_APPEND_FLAGS in the compose.yml with the nvcc flags
 sudo sed -i "s/NVCC_APPEND_FLAGS: .*/NVCC_APPEND_FLAGS: \"$NVCC_FLAGS\"/" /local/boundless/compose.yml
 cat /local/boundless/compose.yml | grep NVCC_APPEND_FLAGS
@@ -583,7 +583,7 @@ reboot
         const logGroup = new aws.cloudwatch.LogGroup(`${name}-log-group`, {
             name: name,
             retentionInDays: 0,
-        }, { parent: this, import: name }); // TODO: remove import
+        }, { parent: this });
 
         const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
 

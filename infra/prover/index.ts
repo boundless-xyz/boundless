@@ -49,7 +49,7 @@ export = () => {
   const bentoProverPrivateKey = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY") : bentoConfig.requireSecret('PRIVATE_KEY');
   const segmentSize = bentoConfig.requireNumber('SEGMENT_SIZE');
 
-  const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-proverx", ChainId.SEPOLIA);
+  const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-prover", ChainId.SEPOLIA);
   const bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
     chainId: ChainId.SEPOLIA,
     ethRpcUrl,
