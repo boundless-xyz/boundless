@@ -293,7 +293,7 @@ async fn test_e2e_merged_submit_fulfill() {
     // publish the committed root + fulfillments
     ctx.prover_market
         .submit_merkle_and_fulfill(
-            ctx.set_verifier_address,
+            ctx.deployment.set_verifier_address,
             root,
             set_verifier_seal,
             fulfillments.clone(),

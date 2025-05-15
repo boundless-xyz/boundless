@@ -376,9 +376,9 @@ impl OrderStreamClient {
 /// Example usage:
 /// ```no_run
 /// use alloy::signers::Signer;
-/// use boundless_market::order_stream_client::{Client, order_stream, OrderData};
+/// use boundless_market::order_stream_client::{OrderStreamClient, order_stream, OrderData};
 /// use futures_util::StreamExt;
-/// async fn example_stream(client: Client, signer: &impl Signer) {
+/// async fn example_stream(client: OrderStreamClient, signer: &impl Signer) {
 ///     let socket = client.connect_async(signer).await.unwrap();
 ///     let mut order_stream = order_stream(socket);
 ///     while let Some(order) = order_stream.next().await {

@@ -31,16 +31,11 @@ pub struct FinalizerConfig {
 }
 
 #[non_exhaustive]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Finalizer {
     pub config: FinalizerConfig,
 }
 
-impl Default for Finalizer {
-    fn default() -> Self {
-        Self { config: Default::default() }
-    }
-}
 
 impl From<FinalizerConfig> for Finalizer {
     fn from(config: FinalizerConfig) -> Self {

@@ -378,7 +378,7 @@ mod tests {
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let storage = Arc::new(MockStorageProvider::start());
         let market = BoundlessMarketService::new(
-            test_ctx.boundless_market_address,
+            test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
             test_ctx.customer_signer.address(),
         );
@@ -402,7 +402,7 @@ mod tests {
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let storage = Arc::new(MockStorageProvider::start());
         let market = BoundlessMarketService::new(
-            test_ctx.boundless_market_address,
+            test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
             test_ctx.customer_signer.address(),
         );
@@ -428,7 +428,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let market = BoundlessMarketService::new(
-            test_ctx.boundless_market_address,
+            test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
             test_ctx.customer_signer.address(),
         );
@@ -568,7 +568,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await?;
         let market = BoundlessMarketService::new(
-            test_ctx.boundless_market_address,
+            test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
             test_ctx.customer_signer.address(),
         );
@@ -586,7 +586,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await?;
         let market = BoundlessMarketService::new(
-            test_ctx.boundless_market_address,
+            test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
             test_ctx.customer_signer.address(),
         );
