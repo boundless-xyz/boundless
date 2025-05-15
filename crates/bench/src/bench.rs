@@ -22,7 +22,7 @@ pub struct Bench {
     /// delay between requests in seconds
     ///
     /// If this is set to 0, the requests will be sent as fast as possible.
-    pub delay: u64,
+    pub interval: u64,
     /// Timeout for each request in seconds
     pub timeout: u32,
     /// The lock timeout for each request in seconds
@@ -36,9 +36,17 @@ pub struct BenchRow {
     pub cycle_count: u64,
     pub bid_start: u64,
     pub expires_at: u64,
+    pub locked_at: Option<u64>,
     pub fulfilled_at: Option<u64>,
     pub prover: Option<String>,
-    pub latency: Option<u64>,
+    /// The effective latency of the request in seconds
+    ///
+    /// This is the time it took for the request to be fulfilled after it was locked.
+    pub effective_latency: Option<u64>,
+    /// The end-to-end latency of the request in seconds
+    ///
+    /// This is the time it took for the request to be fulfilled after the bid started.
+    pub e2e_latency: Option<u64>,
 }
 
 impl BenchRow {
@@ -56,9 +64,11 @@ impl BenchRow {
             cycle_count,
             bid_start,
             expires_at,
+            locked_at: None,
             fulfilled_at: None,
             prover: None,
-            latency: None,
+            effective_latency: None,
+            e2e_latency: None,
         }
     }
 }

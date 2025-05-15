@@ -1,0 +1,7 @@
+{
+  "cycle_count_per_request": 1000000,
+  "requests_count": 10,
+  "interval": 0,
+  "timeout": 600,
+  "lock_timeout": 600
+}

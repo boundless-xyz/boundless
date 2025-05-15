@@ -42,6 +42,23 @@ impl Monitor {
         }
     }
 
+    /// Fetches the locked timestamp for a given request digest.
+    pub async fn fetch_locked_at(&self, request_digest: &str) -> Result<Option<u64>> {
+        let row = sqlx::query(
+            "SELECT block_timestamp FROM request_locked_events WHERE request_digest = $1",
+        )
+        .bind(request_digest)
+        .fetch_optional(&self.db)
+        .await?;
+
+        if let Some(row) = row {
+            let locked_at: i64 = row.get(0);
+            Ok(Some(locked_at as u64))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Fetches the fulfilled_at timestamp for a given request digest.
     pub async fn fetch_fulfilled_at(&self, request_digest: &str) -> Result<Option<u64>> {
         let row = sqlx::query(

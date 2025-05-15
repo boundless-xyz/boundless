@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::{fs::File, path::PathBuf, time::Duration};
+use std::{collections::HashSet, fs::File, path::PathBuf, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
@@ -29,7 +29,7 @@ use boundless_market::{
 use clap::Parser;
 use risc0_zkvm::{compute_image_id, default_executor, serde::to_vec, sha::Digestible, Journal};
 use tempfile::NamedTempFile;
-use tokio::task::JoinHandle;
+use tokio::{task::JoinHandle, time::Instant};
 use url::Url;
 
 mod bench;
@@ -306,12 +306,12 @@ pub async fn run(args: &MainArgs) -> Result<()> {
             );
         }
 
-        tokio::time::sleep(Duration::from_secs(bench.delay)).await;
+        tokio::time::sleep(Duration::from_secs(bench.interval)).await;
     }
 
     // wait for the bench to finish
     tracing::info!("Waiting for the bench to finish...");
-    tokio::time::sleep(Duration::from_secs(bench.timeout.into())).await;
+    wait(&bench_rows, &indexer_url, bench.timeout).await?;
 
     // process the rows
     let bench_rows = process(&bench_rows, &indexer_url).await?;
@@ -328,15 +328,47 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     Ok(())
 }
 
+async fn wait(rows: &[BenchRow], db_url: &str, timeout_secs: u32) -> Result<()> {
+    let db = db::Monitor::new(db_url).await?;
+    let mut pending: HashSet<String> = rows.iter().map(|r| r.request_digest.clone()).collect();
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs.into());
+
+    while !pending.is_empty() && Instant::now() < deadline {
+        let mut just_fulfilled = Vec::new();
+        for digest in &pending {
+            if db.fetch_fulfilled_at(digest).await?.is_some() {
+                just_fulfilled.push(digest.clone());
+            }
+        }
+
+        for d in just_fulfilled {
+            pending.remove(&d);
+        }
+
+        if pending.is_empty() {
+            break;
+        }
+
+        tracing::debug!("Still waiting on {} requests...", pending.len());
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+
+    if !pending.is_empty() {
+        tracing::warn!(
+            "Timeout reached ({}s) with {} requests unfulfilled",
+            timeout_secs,
+            pending.len()
+        );
+    }
+
+    Ok(())
+}
+
 async fn process(rows: &[BenchRow], db: &str) -> Result<BenchRows> {
     let db = db::Monitor::new(db).await?;
     let mut bench_rows = Vec::new();
     for row in rows {
-        let rd = db.fetch_request_digest(&row.request_digest).await?;
-        if rd.is_none() {
-            tracing::warn!("Request digest {} not found in the database", row.request_digest);
-            continue;
-        }
+        let locked_at = db.fetch_locked_at(&row.request_digest).await?;
         let fulfilled_at = db.fetch_fulfilled_at(&row.request_digest).await?;
         let prover = db.fetch_prover(&row.request_digest).await?;
         bench_rows.push(BenchRow {
@@ -345,9 +377,12 @@ async fn process(rows: &[BenchRow], db: &str) -> Result<BenchRows> {
             cycle_count: row.cycle_count,
             bid_start: row.bid_start,
             expires_at: row.expires_at,
+            locked_at,
             fulfilled_at,
             prover: prover.map(|addr| format!("{addr:x}")),
-            latency: fulfilled_at.map(|fulfilled_at| fulfilled_at - row.bid_start),
+            effective_latency: locked_at
+                .and_then(|locked_at| fulfilled_at.map(|fulfilled_at| fulfilled_at - locked_at)),
+            e2e_latency: fulfilled_at.map(|fulfilled_at| fulfilled_at - row.bid_start),
         });
     }
     Ok(BenchRows(bench_rows))
@@ -465,7 +500,7 @@ mod tests {
         let bench = Bench {
             cycle_count_per_request: 1000,
             requests_count: 2,
-            delay: 0,
+            interval: 0,
             timeout: 45,
             lock_timeout: 45,
         };
@@ -509,9 +544,11 @@ mod tests {
         let output = BenchRows::from_file(&output_path).unwrap();
         assert_eq!(output.0.len(), 2);
         for row in &output.0 {
+            assert!(row.locked_at.is_some());
             assert!(row.fulfilled_at.is_some());
             assert!(row.prover.is_some());
-            assert!(row.latency.is_some());
+            assert!(row.effective_latency.is_some());
+            assert!(row.e2e_latency.is_some());
         }
 
         broker_task.abort();
