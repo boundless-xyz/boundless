@@ -10,7 +10,6 @@ anyhow = { workspace = true }
 boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 clap = { workspace = true }
-dotenvy = { workspace = true }
 guest-util = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
 tokio = { workspace = true, features = ["full"] }

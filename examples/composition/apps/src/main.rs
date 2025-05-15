@@ -71,7 +71,6 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    load_dotenv()?;
     let args = Args::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing.
@@ -86,18 +85,6 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    Ok(())
-}
-
-/// Load environment variables from a `.env` file if available.
-fn load_dotenv() -> Result<()> {
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => {
-            tracing::debug!("No .env file found");
-        }
-        Err(e) => bail!("Failed to load .env file: {}", e),
-    }
     Ok(())
 }
 

@@ -16,7 +16,6 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true }
-dotenvy = { workspace = true }
 hex = { workspace = true }
 sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
 tempfile = { workspace = true }

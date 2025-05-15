@@ -122,12 +122,6 @@ async fn main() -> Result<()> {
         .json()
         .init();
 
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
-    }
-
     let args = MainArgs::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
