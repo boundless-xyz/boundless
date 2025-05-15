@@ -4,7 +4,7 @@ config:
   slasher:PRIVATE_KEY:
     secure: v1:3efkipLM4idAlwaJ:zL3IFTwgobXL0/UB8myW8kA9QZlXJTkRLUQ6O40/jbF6VDQ1gTEFP2oOpzCuCjsR+3ZiaYHzJSe3AB0Ej6bIahODR0llzAF+RpzcB/tmz2U=
   slasher:ETH_RPC_URL:
-    secure: v1:fWKzry8IB3uy/9jH:wj1rNfnq/Gvm4CcQ6mjqd5FZV10y3XwNNMttFaG+64lP416h+7tt59Sxm2W0kV91xDfQz69nTOP+Li/aGcA+nYCooyWShz6OC1HZNHtHpMktup/3Yg==
+    secure: v1:U9t0UwOizTLA1Hmf:i7YUWMkRaJOMUzXGq01qoVFCeMU+e2/N5bQaGSvkhzGb9pmqSL6PF6Oss9pRS5ucR2NOVeOErJxUFHaIN0F823Ro5oqlwSH6BTZr6b01jPhQ++QBgQ==
   slasher:BASE_STACK: organization/bootstrap/services-staging
   slasher:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
   slasher:DOCKER_DIR: ../../

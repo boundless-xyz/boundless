@@ -11,7 +11,7 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
 
 x-agent-common: &agent-common
-  image: agent
+  image: risczero/risc0-bento-agent:stable
   restart: always
   depends_on:
     - postgres
@@ -93,14 +93,6 @@ services:
   exec_agent:
     <<: *agent-common
     runtime: nvidia
-    build:
-      context: .
-      dockerfile: dockerfiles/agent.dockerfile
-      # NOTE: we build a single image for all agents so specify the GPU flags here
-      # TODO: can we clean this up / make it more logical?
-      args:
-        NVCC_APPEND_FLAGS: "--gpu-architecture=compute_86 --gpu-code=compute_86,sm_86 --generate-code arch=compute_86,code=sm_86"
-        CUDA_OPT_LEVEL: 1
 
     mem_limit: 4G
     cpus: 4
@@ -175,14 +167,11 @@ services:
       stack: 90000000
 
   rest_api:
+    image: risczero/risc0-bento-rest-api:stable
     restart: always
     depends_on:
       - postgres
       - minio
-
-    build:
-      context: .
-      dockerfile: dockerfiles/rest_api.dockerfile
 
     mem_limit: 1G
     cpus: 1

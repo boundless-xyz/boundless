@@ -3,7 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { createRustLambda } from './rust-lambda';
 import { getServiceNameV1, Severity } from '../../util';
-import { clients, provers } from './targets';
+import { clients, clientAddresses, proverAddresses } from './targets';
 import { createMetricAlarm, createSuccessRateAlarm } from './alarms';
 
 export interface MonitorLambdaArgs {
@@ -21,6 +21,8 @@ export interface MonitorLambdaArgs {
   chainId: string;
   /** RUST_LOG level */
   rustLogLevel: string;
+  /** Boundless alerts topic ARN */
+  boundlessAlertsTopicArn?: string;
 }
 
 const SERVICE_NAME_BASE = 'indexer';
@@ -132,7 +134,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
       role: role.arn,
       environmentVariables: {
         DB_URL: dbUrl,
-        RUST_LOG: 'info',
+        RUST_LOG: args.rustLogLevel,
         CLOUDWATCH_NAMESPACE: `${serviceName}-monitor-${args.chainId}`,
       },
       memorySize: 128,
@@ -144,6 +146,46 @@ export class MonitorLambda extends pulumi.ComponentResource {
     },
     );
 
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-monitor-error-filter`, {
+      name: `${serviceName}-monitor-log-err-filter`,
+      logGroupName: this.lambdaFunction.loggingConfig.logGroup,
+      metricTransformation: {
+        namespace: `Boundless/Services/${serviceName}`,
+        name: `${serviceName}-monitor-log-err`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: '?ERROR ?error ?Error',
+    }, { dependsOn: [this.lambdaFunction] });
+
+    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+
+    // 2 errors within 1 hour in the order generator triggers a SEV2 alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-monitor-error-alarm`, {
+      name: `${serviceName}-monitor-log-err`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-monitor-log-err`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 60,
+      datapointsToAlarm: 2,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Monitor Lambda ${name} log ERROR level`,
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+
     const rule = new aws.cloudwatch.EventRule(
       `${name}-schedule`,
       {
@@ -153,8 +195,8 @@ export class MonitorLambda extends pulumi.ComponentResource {
     );
 
     const payload = {
-      clients: clients,
-      provers: provers,
+      clients: clientAddresses,
+      provers: proverAddresses,
     };
 
     new aws.cloudwatch.EventTarget(
