@@ -250,16 +250,20 @@ where
                         OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
                     }
                     MarketError::Error(e) => {
-                        // Insufficient balance error is thrown both when the requestor has insufficient balance, 
+                        // Insufficient balance error is thrown both when the requestor has insufficient balance,
                         // Requestor having insufficient balance can happen and is out of our control. The prover
-                        // having insufficient balance is unexpected as we should have checked for that before 
+                        // having insufficient balance is unexpected as we should have checked for that before
                         // committing to locking the order.
-                        let prover_addr_str = self.prover_addr.to_string().to_lowercase().replace("0x", "");
+                        let prover_addr_str =
+                            self.prover_addr.to_string().to_lowercase().replace("0x", "");
                         if e.to_string().contains("InsufficientBalance") {
                             if e.to_string().contains(&prover_addr_str) {
                                 OrderMonitorErr::InsufficientBalance
                             } else {
-                                OrderMonitorErr::LockTxFailed(format!("Requestor has insufficient balance at lock time: {}", e))
+                                OrderMonitorErr::LockTxFailed(format!(
+                                    "Requestor has insufficient balance at lock time: {}",
+                                    e
+                                ))
                             }
                         } else {
                             OrderMonitorErr::UnexpectedError(e)
