@@ -27,37 +27,35 @@ mod counter {
     );
 }
 
-/// Arguments of the publisher CLI.
+/// Arguments for the counter app CLI.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     rpc_url: Url,
-    /// URL of the offchain order stream endpoint.
-    #[clap(short, long, env)]
-    order_stream_url: Option<Url>,
-    /// Storage provider to use
+    /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten)]
     storage_config: StorageProviderConfig,
+    #[clap(flatten)]
+    deployment: Option<Deployment>,
     /// Private key used to interact with the Counter contract.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
     /// Address of the Counter contract.
     #[clap(short, long, env)]
     counter_address: Address,
-    /// Address of the SetVerifier contract.
-    #[clap(short, long, env)]
-    set_verifier_address: Address,
-    /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
-    boundless_market_address: Address,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive("info")
+                .from_env_lossy(),
+        )
         .init();
 
     match dotenvy::dotenv() {
