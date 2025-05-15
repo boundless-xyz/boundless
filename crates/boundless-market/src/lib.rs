@@ -29,30 +29,53 @@ pub use alloy;
 /// when the balance of a given address falls below certain thresholds.
 #[cfg(not(target_os = "zkvm"))]
 pub mod balance_alerts_layer;
+
 /// Client module for interacting with the Boundless Market API.
 #[cfg(not(target_os = "zkvm"))]
 pub mod client;
+#[cfg(not(target_os = "zkvm"))]
+pub use client::{Client, StandardClient};
+
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
+pub use contracts::{
+    boundless_market::BoundlessMarketService, Input, Offer, ProofRequest, RequestId, Requirements,
+};
+
 /// Configs for deployments of the Boundless Market (e.g. contract addresses, URLs, etc).
 #[cfg(not(target_os = "zkvm"))]
 pub mod deployments;
+#[cfg(not(target_os = "zkvm"))]
+pub use deployments::Deployment;
+
 /// Input module for serializing input.
 #[cfg(not(target_os = "zkvm"))]
 pub mod input;
+#[cfg(not(target_os = "zkvm"))]
+pub use input::{GuestEnv, InputBuilder};
+
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]
 pub mod order_stream_client;
+#[cfg(not(target_os = "zkvm"))]
+pub use order_stream_client::OrderStreamClient;
+
 /// Module providing functionality to build requests.
 #[cfg(not(target_os = "zkvm"))]
 pub mod request_builder;
+
 /// Selector module implementing utility functions for supported selectors.
 #[cfg(not(target_os = "zkvm"))]
 pub mod selector;
+
 /// Storage module for interacting with the storage provider.
 #[cfg(not(target_os = "zkvm"))]
 pub mod storage;
+#[cfg(not(target_os = "zkvm"))]
+pub use storage::{StandardStorageProvider, StorageProvider, StorageProviderConfig};
+
 /// Utility functions and types used elsewhere.
 pub(crate) mod util;
-
-pub use util::{NotProvided, StandardRpcProvider};
+pub use util::NotProvided;
+#[cfg(not(target_os = "zkvm"))]
+pub use util::StandardRpcProvider;

@@ -35,7 +35,7 @@ use crate::{
         ProofRequest, RequestError,
     },
     deployments::Deployment,
-    order_stream_client::{Client as OrderStreamClient, Order},
+    order_stream_client::{OrderStreamClient, Order},
     request_builder::{
         FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
         RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,

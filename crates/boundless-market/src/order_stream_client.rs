@@ -197,7 +197,7 @@ impl AuthMsg {
 
 /// Client for interacting with the order stream server
 #[derive(Clone, Debug)]
-pub struct Client {
+pub struct OrderStreamClient {
     /// HTTP client
     pub client: reqwest::Client,
     /// Base URL of the order stream server
@@ -208,7 +208,7 @@ pub struct Client {
     pub chain_id: u64,
 }
 
-impl Client {
+impl OrderStreamClient {
     /// Create a new client
     pub fn new(base_url: Url, boundless_market_address: Address, chain_id: u64) -> Self {
         Self { client: reqwest::Client::new(), base_url, boundless_market_address, chain_id }
