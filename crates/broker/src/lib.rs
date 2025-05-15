@@ -558,6 +558,7 @@ where
             chain_monitor.clone(),
             config.clone(),
             block_times,
+            self.args.private_key.address(),
             self.args.boundless_market_address,
         )?);
         let cloned_config = config.clone();
