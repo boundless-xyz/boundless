@@ -422,7 +422,7 @@ where
     }
 
     /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
-    pub async fn request_params<Params>(&self) -> Params
+    pub fn request_params<Params>(&self) -> Params
     where
         R: RequestBuilder<Params>,
         Params: Default,
@@ -441,12 +441,12 @@ where
     where
         Si: Signer,
         R: RequestBuilder<Params>,
-        R::Error: std::error::Error + Send + Sync + 'static,
+        R::Error: Into<anyhow::Error>,
     {
         let signer = self.signer.as_ref().context("signer is set on Client")?;
         let request_builder =
             self.request_builder.as_ref().context("request_builder is not set on Client")?;
-        let request = request_builder.build(params).await.map_err(anyhow::Error::from)?;
+        let request = request_builder.build(params).await.map_err(Into::into)?;
         self.submit_request_onchain_with_signer(&request, signer).await
     }
 
@@ -516,12 +516,12 @@ where
     where
         Si: Signer,
         R: RequestBuilder<Params>,
-        R::Error: std::error::Error + Send + Sync + 'static,
+        R::Error: Into<anyhow::Error>,
     {
         let signer = self.signer.as_ref().context("signer is set on Client")?;
         let request_builder =
             self.request_builder.as_ref().context("request_builder is not set on Client")?;
-        let request = request_builder.build(params).await.map_err(anyhow::Error::from)?;
+        let request = request_builder.build(params).await.map_err(Into::into)?;
         self.submit_request_offchain_with_signer(&request, signer).await
     }
 
