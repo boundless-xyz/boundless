@@ -35,7 +35,11 @@ use crate::{
         ProofRequest, RequestError,
     },
     order_stream_client::{Client as OrderStreamClient, Order},
-    request_builder::{RequestBuilder, StandardRequestBuilder, StandardRequestBuilderBuilderError},
+    request_builder::{
+        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
+        RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
+        StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
+    },
     storage::{
         storage_provider_from_env, StandardStorageProvider, StandardStorageProviderError,
         StorageProvider, StorageProviderConfig,
@@ -45,7 +49,8 @@ use crate::{
 
 /// Builder for the client
 // TODO: Improve this docstring.
-pub struct ClientBuilder<St = (), Si = ()> {
+#[derive(Clone)]
+pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     boundless_market_address: Option<Address>,
     set_verifier_address: Option<Address>,
     rpc_url: Option<Url>,
@@ -55,10 +60,17 @@ pub struct ClientBuilder<St = (), Si = ()> {
     storage_provider: Option<St>,
     tx_timeout: Option<std::time::Duration>,
     balance_alerts: Option<BalanceAlertConfig>,
+    /// Configuration builder for [OfferLayer], part of [StandardRequestBuilder].
+    pub offer_layer_config: OfferLayerConfigBuilder,
+    /// Configuration builder for [StorageLayer], part of [StandardRequestBuilder].
+    pub storage_layer_config: StorageLayerConfigBuilder,
+    /// Configuration builder for [RequestIdLayer], part of [StandardRequestBuilder].
+    pub request_id_layer_config: RequestIdLayerConfigBuilder,
+    /// Configuration builder for [Finalizer][crate::request_builder::Finalizer], part of [StandardRequestBuilder].
+    pub request_finalizer_config: FinalizerConfigBuilder,
 }
 
 impl<St, Si> Default for ClientBuilder<St, Si> {
-    /// Creates a new `ClientBuilder` with all configuration options set to their default values.
     fn default() -> Self {
         Self {
             boundless_market_address: None,
@@ -70,6 +82,10 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             storage_provider: None,
             tx_timeout: None,
             balance_alerts: None,
+            offer_layer_config: Default::default(),
+            storage_layer_config: Default::default(),
+            request_id_layer_config: Default::default(),
+            request_finalizer_config: Default::default(),
         }
     }
 }
@@ -88,6 +104,7 @@ impl<St, Si> ClientBuilder<St, Si> {
     ) -> Result<Client<StandardRpcProvider, St, StandardRequestBuilder<StandardRpcProvider, St>, Si>>
     where
         St: Clone,
+        Si: Clone,
     {
         let wallet = self.wallet.context("wallet is not set on ClientBuilder")?;
         let rpc_url = self.rpc_url.context("rpc_url is not set on ClientBuilder")?;
@@ -117,9 +134,16 @@ impl<St, Si> ClientBuilder<St, Si> {
             .map(|url| OrderStreamClient::new(url, boundless_market_address, chain_id));
 
         let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(self.storage_provider.clone())
-            .offer_layer(provider.clone())
-            .request_id_layer(boundless_market.clone())
+            .storage_layer(StorageLayer::new(
+                self.storage_provider.clone(),
+                self.storage_layer_config.build()?,
+            ))
+            .offer_layer(OfferLayer::new(provider.clone(), self.offer_layer_config.build()?))
+            .request_id_layer(RequestIdLayer::new(
+                boundless_market.clone(),
+                self.request_id_layer_config.build()?,
+            ))
+            .finalizer(self.request_finalizer_config.build()?)
             .build()?;
 
         let mut client = Client {
@@ -169,6 +193,10 @@ impl<St, Si> ClientBuilder<St, Si> {
             balance_alerts: self.balance_alerts,
             set_verifier_address: self.set_verifier_address,
             boundless_market_address: self.boundless_market_address,
+            offer_layer_config: self.offer_layer_config,
+            storage_layer_config: self.storage_layer_config,
+            request_id_layer_config: self.request_id_layer_config,
+            request_finalizer_config: self.request_finalizer_config,
         }
     }
 
@@ -210,6 +238,10 @@ impl<St, Si> ClientBuilder<St, Si> {
             order_stream_url: self.order_stream_url,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
+            request_finalizer_config: self.request_finalizer_config,
+            request_id_layer_config: self.request_id_layer_config,
+            storage_layer_config: self.storage_layer_config,
+            offer_layer_config: self.offer_layer_config,
         }
     }
 

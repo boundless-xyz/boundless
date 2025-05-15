@@ -35,15 +35,17 @@ mod preflight_layer;
 mod storage_layer;
 
 pub use preflight_layer::PreflightLayer;
-pub use storage_layer::{StorageLayer, StorageLayerConfig};
+pub use storage_layer::{StorageLayer, StorageLayerConfig, StorageLayerConfigBuilder};
 mod requirements_layer;
 pub use requirements_layer::RequirementsLayer;
 mod request_id_layer;
-pub use request_id_layer::{RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode};
+pub use request_id_layer::{
+    RequestIdLayer, RequestIdLayerConfig, RequestIdLayerConfigBuilder, RequestIdLayerMode,
+};
 mod offer_layer;
-pub use offer_layer::{OfferLayer, OfferLayerConfig};
+pub use offer_layer::{OfferLayer, OfferLayerConfig, OfferLayerConfigBuilder};
 mod finalizer;
-pub use finalizer::{Finalizer, FinalizerConfig};
+pub use finalizer::{Finalizer, FinalizerConfig, FinalizerConfigBuilder};
 
 pub trait RequestBuilder<Params> {
     /// Error type that may be returned by this filler.

@@ -16,7 +16,7 @@ use super::{Adapt, Layer, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
     selector::{ProofType, SupportedSelectors},
-    util::{now_timestamp},
+    util::now_timestamp,
 };
 use alloy::{
     network::Ethereum,
