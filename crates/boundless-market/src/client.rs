@@ -106,6 +106,7 @@ impl<St, Si> ClientBuilder<St, Si> {
         St: Clone,
         Si: Clone,
     {
+        // TODO: Can you make the core of this function smaller?
         let wallet = self.wallet.context("wallet is not set on ClientBuilder")?;
         let rpc_url = self.rpc_url.context("rpc_url is not set on ClientBuilder")?;
         let boundless_market_address = self
@@ -146,6 +147,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             .finalizer(self.request_finalizer_config.build()?)
             .build()?;
 
+        // TODO: Use the builder pattern here.
         let mut client = Client {
             boundless_market,
             set_verifier,
