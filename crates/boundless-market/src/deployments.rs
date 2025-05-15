@@ -47,6 +47,7 @@ pub struct Deployment {
     /// URL for the offchain [order stream service].
     ///
     /// [order stream service]: crate::order_stream_client
+    #[builder(setter(into))]
     pub order_stream_url: Cow<'static, str>,
 }
 
