@@ -29,14 +29,15 @@ Without the Steel history feature enabled, the pinned block is *both* the block 
 ```rust
 # use alloy::providers::ProviderBuilder;
 # use alloy::primitives::Address;
-# use risc0_steel::{ethereum::EthEvmEnv, Contract};
+# use risc0_steel::{ethereum::{EthEvmEnv, ETH_SEPOLIA_CHAIN_SPEC}, Contract};
 # use url::Url;
 # async fn preflight(rpc_url: Url) -> Result<(), Box<dyn std::error::Error>> {
-# let provider = ProviderBuilder::new().on_http(rpc_url);
+# let provider = ProviderBuilder::new().connect_http(rpc_url);
 # let token_contract = Address::ZERO;
 // WITHOUT STEEL HISTORY
 // Create an EVM environment from that provider defaulting to the latest block.
 let mut env = EthEvmEnv::builder()
+    .chain_spec(&ETH_SEPOLIA_CHAIN_SPEC)
     .provider(provider.clone())
     .build()
     .await?;
@@ -54,13 +55,14 @@ With the Steel history feature enabled, the developer must specify both the exec
 ```rust
 # use alloy::providers::ProviderBuilder;
 # use alloy::primitives::Address;
-# use risc0_steel::{ethereum::EthEvmEnv, host::BlockNumberOrTag, Contract};
+# use risc0_steel::{ethereum::{EthEvmEnv, ETH_SEPOLIA_CHAIN_SPEC}, host::BlockNumberOrTag, Contract};
 # use url::Url;
 # async fn preflight(execution_block: BlockNumberOrTag, commitment_block: u64, beacon_api_url: Url, rpc_url: Url) -> Result<(), Box<dyn std::error::Error>> {
-# let provider = ProviderBuilder::new().on_http(rpc_url);
+# let provider = ProviderBuilder::new().connect_http(rpc_url);
 # let token_contract = Address::ZERO;
 /// WITH STEEL HISTORY
 let mut env = EthEvmEnv::builder()
+    .chain_spec(&ETH_SEPOLIA_CHAIN_SPEC)
     .provider(provider.clone())
     .block_number_or_tag(execution_block)
     .beacon_api(beacon_api_url)

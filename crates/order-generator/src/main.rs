@@ -2,10 +2,7 @@
 //
 // All rights reserved.
 
-use std::{
-    path::PathBuf,
-    time::{Duration, SystemTime},
-};
+use std::{path::PathBuf, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
@@ -27,8 +24,10 @@ use boundless_market::{
         StorageProviderConfig,
     },
 };
-use clap::{Args, Parser};
+use clap::Parser;
+use rand::Rng;
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
+use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
 /// Arguments of the order generator.
@@ -86,19 +85,20 @@ struct MainArgs {
     /// Number of seconds before the request expires.
     #[clap(long, default_value = "1800")]
     timeout: u32,
+    /// Additional time in seconds to add to the timeout for each 1M cycles.
+    #[clap(long, default_value = "60")]
+    seconds_per_mcycle: u32,
     /// Program binary file to use as the guest image, given as a path.
     ///
     /// If unspecified, defaults to the included echo guest.
     #[clap(long)]
     program: Option<PathBuf>,
-    /// Input for the guest, given as a string or a path to a file.
+    /// The cycle count to drive the loop.
     ///
-    /// If unspecified, defaults to the current (risc0_zkvm::serde encoded) timestamp.
-    #[command(flatten)]
-    input: OrderInput,
-    /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
-    #[clap(short, long)]
-    encode_input: bool,
+    /// If unspecified, defaults to a random value between 1_000_000 and 1_000_000_000
+    /// with a step of 1_000_000.
+    #[clap(long, env = "CYCLE_COUNT")]
+    input: Option<u32>,
     /// Balance threshold at which to log a warning.
     #[clap(long, value_parser = parse_ether, default_value = "1")]
     warn_balance_below: Option<U256>,
@@ -108,29 +108,21 @@ struct MainArgs {
     /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
     ///
     /// This parameter can only be set if order_stream_url is provided.
-    #[clap(long, value_parser = parse_ether, requires = "order_stream_url")]
+    #[clap(long, env, value_parser = parse_ether, requires = "order_stream_url")]
     auto_deposit: Option<U256>,
 }
 
-/// An estimated upper bound on the cost of locking an fulfilling a request.
+/// An estimated upper bound on the cost of locking and fulfilling a request.
 /// TODO: Make this configurable.
 const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 1_000_000;
-
-#[derive(Args, Clone, Debug)]
-#[group(required = false, multiple = false)]
-struct OrderInput {
-    /// Input for the guest, given as a hex-encoded string.
-    #[clap(long, value_parser = |s: &str| hex::decode(s))]
-    input: Option<Vec<u8>>,
-    /// Input for the guest, given as a path to a file.
-    #[clap(long)]
-    input_file: Option<PathBuf>,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_ansi(false)
+        .with_span_events(FmtSpan::CLOSE)
+        .json()
         .init();
 
     match dotenvy::dotenv() {
@@ -175,8 +167,8 @@ async fn run(args: &MainArgs) -> Result<()> {
     let program = match &args.program {
         Some(path) => std::fs::read(path)?,
         None => {
-            // A build of the echo guest, which simply commits the bytes it reads from inputs.
-            let url = "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu";
+            // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
+            let url = "https://gateway.pinata.cloud/ipfs/bafkreifpofz3uvc3vq7t2k2o66b2duwvmfab32js7dvn7jldpypwjqisyq";
             fetch_http(&Url::parse(url)?).await?
         }
     };
@@ -193,19 +185,19 @@ async fn run(args: &MainArgs) -> Result<()> {
             }
         }
 
-        let input: Vec<u8> = match (args.input.input.clone(), args.input.input_file.clone()) {
-            (Some(input), None) => input,
-            (None, Some(input_file)) => std::fs::read(input_file)?,
-            (None, None) => format! {"{:?}", SystemTime::now()}.as_bytes().to_vec(),
-            _ => bail!("at most one of input or input-file args must be provided"),
+        let input = match args.input {
+            Some(input) => input,
+            None => {
+                // Generate a random input.
+                let mut rng = rand::rng();
+                let num: u32 = rng.random_range(1..=1000);
+                let input = num * 1_000_000;
+                tracing::debug!("Generated random input: {}", input);
+                input
+            }
         };
 
-        let env = if args.encode_input {
-            InputBuilder::new().write(&input)?.build_env()?
-        } else {
-            InputBuilder::new().write_slice(&input).build_env()?
-        };
-
+        let env = InputBuilder::new().write(&(input as u64))?.build_env()?;
         let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
         let journal = session_info.journal;
 
@@ -221,6 +213,11 @@ async fn run(args: &MainArgs) -> Result<()> {
             .checked_mul(U256::from(cycles_count))
             .unwrap()
             .div_ceil(U256::from(1_000_000));
+        let m_cycles = input.div_ceil(1_000_000);
+        // add 1 minute for each 1M cycles to the original timeout
+        let timeout = args.timeout + args.seconds_per_mcycle.checked_mul(m_cycles).unwrap();
+        let lock_timeout =
+            args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles).unwrap();
 
         // Add to the max price an estimated upper bound on the gas costs.
         // Note that the auction will allow us to pay the lowest price a prover will accept.
@@ -255,8 +252,8 @@ async fn run(args: &MainArgs) -> Result<()> {
                     .with_max_price(max_price)
                     .with_lock_stake(args.lockin_stake)
                     .with_ramp_up_period(args.ramp_up)
-                    .with_timeout(args.timeout)
-                    .with_lock_timeout(args.lock_timeout),
+                    .with_timeout(timeout)
+                    .with_lock_timeout(lock_timeout),
             )
             .build()?;
 
@@ -360,9 +357,9 @@ mod tests {
             ramp_up: 0,
             timeout: 1000,
             lock_timeout: 1000,
+            seconds_per_mcycle: 60,
             program: None,
-            input: OrderInput { input: None, input_file: None },
-            encode_input: false,
+            input: None,
             warn_balance_below: None,
             error_balance_below: None,
             auto_deposit: None,
