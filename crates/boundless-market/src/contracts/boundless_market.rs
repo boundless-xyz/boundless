@@ -491,7 +491,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         pending_tx: PendingTransactionBuilder<Ethereum>,
     ) -> Result<TransactionReceipt, MarketError> {
         let tx_hash = *pending_tx.tx_hash();
-        
+
         // Get the nonce of the transaction for debugging purposes.
         // It is possible that the transaction is not found immediately after broadcast, so we don't error if it's not found.
         let tx_result = self.instance.provider().get_transaction_by_hash(tx_hash).await;
@@ -499,8 +499,11 @@ impl<P: Provider> BoundlessMarketService<P> {
             let nonce = tx.nonce();
             tracing::debug!("Tx {} broadcasted with nonce {}", tx_hash, nonce);
         } else {
-            tracing::debug!("Tx {} not found immediately after broadcast. Can't get nonce.", tx_hash);
-        } 
+            tracing::debug!(
+                "Tx {} not found immediately after broadcast. Can't get nonce.",
+                tx_hash
+            );
+        }
 
         match pending_tx.with_timeout(Some(self.timeout)).get_receipt().await {
             Ok(receipt) => Ok(receipt),
