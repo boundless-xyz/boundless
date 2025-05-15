@@ -33,9 +33,9 @@ use derive_builder::Builder;
 #[derive(Clone, Builder)]
 pub struct OfferLayerConfig {
     #[builder(setter(into), default = "U256::ZERO")]
-    pub min_price_per_mcycle: U256,
-    #[builder(setter(into), default = "U256::from(100) * Unit::TWEI.wei_const()")]
-    pub max_price_per_mcycle: U256,
+    pub min_price_per_cycle: U256,
+    #[builder(setter(into), default = "U256::from(100) * Unit::MWEI.wei_const()")]
+    pub max_price_per_cycle: U256,
     #[builder(default = "15")]
     pub bidding_start_delay: u64,
     #[builder(default = "120")]
@@ -141,17 +141,16 @@ where
         &self,
         (requirements, request_id, cycle_count): (&Requirements, &RequestId, u64),
     ) -> Result<Self::Output, Self::Error> {
-        let mcycle_count = cycle_count >> 20;
-        let min_price = self.config.min_price_per_mcycle * U256::from(mcycle_count);
-        let max_price_mcycle = self.config.max_price_per_mcycle * U256::from(mcycle_count);
+        let min_price = self.config.min_price_per_cycle * U256::from(cycle_count);
+        let max_price_cycle = self.config.max_price_per_cycle * U256::from(cycle_count);
 
         let gas_price: u128 = self.provider.get_gas_price().await?;
         let gas_cost_estimate = self.estimate_gas_cost(requirements, request_id, gas_price)?;
-        let max_price = max_price_mcycle + gas_cost_estimate;
+        let max_price = max_price_cycle + gas_cost_estimate;
         tracing::debug!(
-            "Setting a max price of {} ether: {} mcycle_price + {} gas_cost_estimate",
+            "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate",
             format_units(max_price, "ether")?,
-            format_units(max_price_mcycle, "ether")?,
+            format_units(max_price_cycle, "ether")?,
             format_units(gas_cost_estimate, "ether")?,
         );
 

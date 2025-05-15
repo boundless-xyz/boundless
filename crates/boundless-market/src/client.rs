@@ -22,7 +22,7 @@ use alloy::{
 };
 use alloy_primitives::{Signature, B256};
 use alloy_sol_types::SolStruct;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
@@ -34,6 +34,7 @@ use crate::{
         boundless_market::{BoundlessMarketService, MarketError},
         ProofRequest, RequestError,
     },
+    deployments::Deployment,
     order_stream_client::{Client as OrderStreamClient, Order},
     request_builder::{
         FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
@@ -51,12 +52,10 @@ use crate::{
 // TODO: Improve this docstring.
 #[derive(Clone)]
 pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
-    boundless_market_address: Option<Address>,
-    set_verifier_address: Option<Address>,
+    deployment: Option<Deployment>,
     rpc_url: Option<Url>,
     wallet: Option<EthereumWallet>,
     signer: Option<Si>,
-    order_stream_url: Option<Url>,
     storage_provider: Option<St>,
     tx_timeout: Option<std::time::Duration>,
     balance_alerts: Option<BalanceAlertConfig>,
@@ -73,12 +72,10 @@ pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
 impl<St, Si> Default for ClientBuilder<St, Si> {
     fn default() -> Self {
         Self {
-            boundless_market_address: None,
-            set_verifier_address: None,
+            deployment: None,
             rpc_url: None,
             wallet: None,
             signer: None,
-            order_stream_url: None,
             storage_provider: None,
             tx_timeout: None,
             balance_alerts: None,
@@ -106,18 +103,12 @@ impl<St, Si> ClientBuilder<St, Si> {
         St: Clone,
         Si: Clone,
     {
-        // TODO: Can you make the core of this function smaller?
-        let wallet = self.wallet.context("wallet is not set on ClientBuilder")?;
         let rpc_url = self.rpc_url.context("rpc_url is not set on ClientBuilder")?;
-        let boundless_market_address = self
-            .boundless_market_address
-            .context("boundless_market_address is not set on ClientBuilder")?;
-        let set_verifier_address = self
-            .set_verifier_address
-            .context("set_verifier_address is not set on ClientBuilder")?;
+        let wallet = self.wallet.context("wallet is not set on ClientBuilder")?;
 
-        let caller = wallet.default_signer().address();
+        let wallet_default_signer = wallet.default_signer().address();
 
+        // Connect the RPC provider.
         let provider = ProviderBuilder::new()
             .wallet(wallet)
             .layer(BalanceAlertLayer::new(self.balance_alerts.unwrap_or_default()))
@@ -125,15 +116,47 @@ impl<St, Si> ClientBuilder<St, Si> {
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
-        let boundless_market =
-            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
-        let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
+        // Resolve the deployment information.
+        let chain_id =
+            provider.get_chain_id().await.context("failed to query chain ID from RPC provider")?;
+        let deployment = self
+            .deployment
+            .or_else(|| Deployment::from_chain_id(chain_id))
+            .with_context(|| format!("no deployment provided for unknown chain_id {chain_id}"))?;
 
-        let chain_id = provider.get_chain_id().await.context("failed to get chain ID")?;
-        let offchain_client = self
+        // Check that the chain ID is matches the deployment, to avoid misconfigurations.
+        if chain_id != deployment.chain_id {
+            bail!("provided deployment does not match chain_id reported by RPC provider: {chain_id} != {}", deployment.chain_id);
+        }
+
+        // Build the contract instances.
+        let boundless_market = BoundlessMarketService::new(
+            deployment.boundless_market_address,
+            provider.clone(),
+            wallet_default_signer,
+        );
+        let set_verifier = SetVerifierService::new(
+            deployment.set_verifier_address,
+            provider.clone(),
+            wallet_default_signer,
+        );
+
+        // Build the order stream client, if a URL was provided.
+        let offchain_client = deployment
             .order_stream_url
-            .map(|url| OrderStreamClient::new(url, boundless_market_address, chain_id));
+            .as_ref()
+            .map(|order_stream_url| {
+                let url = Url::parse(order_stream_url.as_ref())
+                    .context("failed to parse order_stream_url")?;
+                anyhow::Ok(OrderStreamClient::new(
+                    url,
+                    deployment.boundless_market_address,
+                    chain_id,
+                ))
+            })
+            .transpose()?;
 
+        // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(StorageLayer::new(
                 self.storage_provider.clone(),
@@ -147,7 +170,6 @@ impl<St, Si> ClientBuilder<St, Si> {
             .finalizer(self.request_finalizer_config.build()?)
             .build()?;
 
-        // TODO: Use the builder pattern here.
         let mut client = Client {
             boundless_market,
             set_verifier,
@@ -164,14 +186,9 @@ impl<St, Si> ClientBuilder<St, Si> {
         Ok(client)
     }
 
-    /// Set the Boundless market address
-    pub fn with_boundless_market_address(self, boundless_market_addr: Address) -> Self {
-        Self { boundless_market_address: Some(boundless_market_addr), ..self }
-    }
-
-    /// Set the set verifier address
-    pub fn with_set_verifier_address(self, set_verifier_addr: Address) -> Self {
-        Self { set_verifier_address: Some(set_verifier_addr), ..self }
+    /// Set the [Deployment] of the Boundless Market that this client will use.
+    pub fn with_deployment(self, deployment: Deployment) -> Self {
+        Self { deployment: Some(deployment), ..self }
     }
 
     /// Set the RPC URL
@@ -188,13 +205,11 @@ impl<St, Si> ClientBuilder<St, Si> {
         ClientBuilder {
             wallet: Some(EthereumWallet::from(private_key.clone())),
             signer: Some(private_key),
+            deployment: self.deployment,
             storage_provider: self.storage_provider,
             rpc_url: self.rpc_url,
-            order_stream_url: self.order_stream_url,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
-            set_verifier_address: self.set_verifier_address,
-            boundless_market_address: self.boundless_market_address,
             offer_layer_config: self.offer_layer_config,
             storage_layer_config: self.storage_layer_config,
             request_id_layer_config: self.request_id_layer_config,
@@ -205,11 +220,6 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the wallet
     pub fn with_wallet(self, wallet: EthereumWallet) -> Self {
         Self { wallet: Some(wallet), ..self }
-    }
-
-    /// Set the order stream URL
-    pub fn with_order_stream_url(self, order_stream_url: Option<Url>) -> Self {
-        Self { order_stream_url, ..self }
     }
 
     /// Set the transaction timeout in seconds
@@ -232,12 +242,10 @@ impl<St, Si> ClientBuilder<St, Si> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
             storage_provider,
-            boundless_market_address: self.boundless_market_address,
-            set_verifier_address: self.set_verifier_address,
+            deployment: self.deployment,
             rpc_url: self.rpc_url,
             wallet: self.wallet,
             signer: self.signer,
-            order_stream_url: self.order_stream_url,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             request_finalizer_config: self.request_finalizer_config,
@@ -258,6 +266,70 @@ impl<St, Si> ClientBuilder<St, Si> {
             Err(e) => return Err(e),
         };
         Ok(self.with_storage_provider(storage_provider))
+    }
+
+    /// Modify the [OfferLayer] configuration used in the [StandardRequestBuilder].
+    ///
+    /// ```rust
+    /// # use boundless_market::client::ClientBuilder;
+    /// use alloy::primitives::utils::parse_units;
+    ///
+    /// ClientBuilder::new().config_offer_layer(|config| config
+    ///     .max_price_per_cycle(parse_units("0.1", "gwei").unwrap())
+    ///     .ramp_up_period(36)
+    ///     .lock_timeout(120)
+    ///     .timeout(300)
+    /// );
+    /// ```
+    pub fn config_offer_layer(
+        mut self,
+        f: impl FnOnce(&mut OfferLayerConfigBuilder) -> &mut OfferLayerConfigBuilder,
+    ) -> Self {
+        f(&mut self.offer_layer_config);
+        self
+    }
+
+    /// Modify the [RequestIdLayer] configuration used in the [StandardRequestBuilder].
+    ///
+    /// ```rust
+    /// # use boundless_market::client::ClientBuilder;
+    /// use boundless_market::request_builder::RequestIdLayerMode;
+    ///
+    /// ClientBuilder::new().config_request_id_layer(|config| config
+    ///     .mode(RequestIdLayerMode::Nonce)
+    /// );
+    /// ```
+    pub fn config_request_id_layer(
+        mut self,
+        f: impl FnOnce(&mut RequestIdLayerConfigBuilder) -> &mut RequestIdLayerConfigBuilder,
+    ) -> Self {
+        f(&mut self.request_id_layer_config);
+        self
+    }
+
+    /// Modify the [StorageLayer] configuration used in the [StandardRequestBuilder].
+    ///
+    /// ```rust
+    /// # use boundless_market::client::ClientBuilder;
+    /// ClientBuilder::new().config_storage_layer(|config| config
+    ///     .inline_input_max_bytes(10240)
+    /// );
+    /// ```
+    pub fn config_storage_layer(
+        mut self,
+        f: impl FnOnce(&mut StorageLayerConfigBuilder) -> &mut StorageLayerConfigBuilder,
+    ) -> Self {
+        f(&mut self.storage_layer_config);
+        self
+    }
+
+    /// Modify the [Finalizer][crate::request_builder::Finalizer] configuration used in the [StandardRequestBuilder].
+    pub fn config_request_finalizer(
+        mut self,
+        f: impl FnOnce(&mut FinalizerConfigBuilder) -> &mut FinalizerConfigBuilder,
+    ) -> Self {
+        f(&mut self.request_finalizer_config);
+        self
     }
 }
 
@@ -373,7 +445,7 @@ where
     }
 
     /// Set the transaction timeout
-    pub fn with_timeout(self, tx_timeout: std::time::Duration) -> Self {
+    pub fn with_timeout(self, tx_timeout: Duration) -> Self {
         Self {
             boundless_market: self.boundless_market.with_timeout(tx_timeout),
             set_verifier: self.set_verifier.with_timeout(tx_timeout),
