@@ -44,6 +44,9 @@ pub struct Deployment {
     /// [RiscZeroSetVerifier]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroSetVerifier.sol
     pub set_verifier_address: Address,
 
+    /// Address of the stake token contract. The staking token is an ERC-20.
+    pub stake_token_address: Address,
+
     /// URL for the offchain [order stream service].
     ///
     /// [order stream service]: crate::order_stream_client
@@ -74,5 +77,6 @@ pub const SEPOLIA: Deployment = Deployment {
     boundless_market_address: address!("0x006b92674E2A8d397884e293969f8eCD9f615f4C"),
     verifier_router_address: address!("0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"),
     set_verifier_address: address!("0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"),
+    stake_token_address: address!("0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9"),
     order_stream_url: Cow::Borrowed("https://eth-sepolia.beboundless.xyz"),
 };
