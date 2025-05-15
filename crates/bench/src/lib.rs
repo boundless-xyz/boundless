@@ -2,7 +2,11 @@
 //
 // All rights reserved.
 
-use std::{fs::File, path::Path, path::PathBuf, time::Duration};
+use std::{
+    fs::File,
+    path::PathBuf,
+    time::Duration,
+};
 
 use alloy::{
     network::EthereumWallet,
@@ -28,99 +32,16 @@ use boundless_market::{
 };
 use clap::Parser;
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
-use serde::{Deserialize, Serialize};
-use tempfile::NamedTempFile;
 use tokio::task::JoinHandle;
 use url::Url;
+use tempfile::NamedTempFile;
 
+mod bench;
 pub mod db;
 
+pub use bench::{Bench, BenchRow, BenchRows};
+
 const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 100_000_000; // 100M gas
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-/// Parameters for the benchmark
-pub struct Bench {
-    /// The cycle count per request
-    pub cycle_count_per_request: u64,
-    /// The number of requests to send
-    pub requests_count: u32,
-    /// delay between requests in seconds
-    ///
-    /// If this is set to 0, the requests will be sent as fast as possible.
-    pub delay: u64,
-    /// Timeout for each request in seconds
-    pub timeout: u32,
-    /// The lock timeout for each request in seconds
-    pub lock_timeout: u32,
-}
-
-#[derive(Debug, Serialize)]
-pub struct BenchRow {
-    pub request_digest: String,
-    pub request_id: String,
-    pub cycle_count: u64,
-    pub bid_start: u64,
-    pub expires_at: u64,
-    pub fulfilled_at: Option<u64>,
-    pub prover: Option<String>,
-    pub latency: Option<u64>,
-}
-
-impl BenchRow {
-    /// Create a new benchmark row
-    pub fn new(
-        request_digest: String,
-        request_id: String,
-        cycle_count: u64,
-        bid_start: u64,
-        expires_at: u64,
-    ) -> Self {
-        Self {
-            request_digest,
-            request_id,
-            cycle_count,
-            bid_start,
-            expires_at,
-            fulfilled_at: None,
-            prover: None,
-            latency: None,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct BenchRows(pub Vec<BenchRow>);
-
-impl BenchRows {
-    /// Write the rows out as CSV to `path`.
-    pub fn write_csv<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let file = File::create(path)?;
-        let mut wtr = csv::Writer::from_writer(file);
-
-        wtr.write_record(&[
-            "request_id",
-            "cycle_count",
-            "bid_start",
-            "expires_at",
-            "fulfilled_at",
-            "prover",
-            "latency",
-        ])?;
-
-        for row in &self.0 {
-            wtr.serialize(row)?;
-        }
-        wtr.flush()?;
-        Ok(())
-    }
-
-    /// Write the rows out as pretty-printed JSON array to `path`.
-    pub fn write_json<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let file = File::create(path)?;
-        serde_json::to_writer_pretty(file, &self.0)?;
-        Ok(())
-    }
-}
 
 /// Arguments of the benchmark.
 #[derive(Parser, Debug)]
@@ -186,6 +107,9 @@ pub struct MainArgs {
     /// The path of the output file.
     #[clap(long)]
     pub output: Option<PathBuf>,
+    /// Use json format for the output file.
+    #[clap(long)]
+    pub json: bool,
 }
 
 pub async fn run(args: &MainArgs) -> Result<()> {
@@ -320,7 +244,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
             )
             .build()?;
 
-        tracing::info!("Request: {:?}", request);
+        tracing::debug!("Request: {:?}", request);
 
         let submit_offchain = args.order_stream_url.is_some();
 
@@ -363,7 +287,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         bench_rows.push(BenchRow::new(
             format!("{request_digest:x}"),
             format!("{request_id:x}"),
-            input,
+            cycles_count,
             request.offer.biddingStart,
             expires_at,
         ));
@@ -394,20 +318,10 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     // process the rows
     let bench_rows = process(&bench_rows, &indexer_url).await?;
     tracing::info!("Bench finished");
-    tracing::info!("Bench rows: {:?}", bench_rows);
+    tracing::debug!("Bench rows: {:?}", bench_rows);
 
     // write the rows to a file
-    if let Some(output) = &args.output {
-        if output.extension().unwrap_or_default() == "csv" {
-            bench_rows.write_csv(output)?;
-        } else {
-            bench_rows.write_json(output)?;
-        }
-    } else {
-        // write to a new file in the current directory
-        let output = PathBuf::from(format!("bench_{}.json", chrono::Utc::now().timestamp()));
-        bench_rows.write_json(output)?;
-    }
+    bench_rows.dump(args.output.clone(), args.json)?;
 
     if let Some(handle) = indexer_handle {
         handle.abort();
@@ -460,8 +374,8 @@ fn now_timestamp() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
+    use std::fs::create_dir_all;
+    
     use alloy::node_bindings::Anvil;
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderConfig;
@@ -545,9 +459,9 @@ mod tests {
             ctx.boundless_market_address,
             ctx.set_verifier_address,
             anvil.endpoint_url(),
-            ctx.prover_signer.clone(),
+            ctx.prover_signer,
         );
-        let broker = Broker::new(args, ctx.prover_provider.clone()).await.unwrap();
+        let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
         let broker_task = tokio::spawn(async move { broker.start_service().await });
 
         let bench = Bench {
@@ -559,16 +473,16 @@ mod tests {
         };
         let bench_path = PathBuf::from("out/bench.json");
         if let Some(dir) = bench_path.parent() {
-            fs::create_dir_all(dir).unwrap();
+            create_dir_all(dir).unwrap();
         }
         let bench_file = File::create(&bench_path).unwrap();
         serde_json::to_writer_pretty(bench_file, &bench).unwrap();
 
-        let output_path = PathBuf::from("out/output.json");
+        let output_path = PathBuf::from("out/output.csv");
         if let Some(dir) = output_path.parent() {
-            fs::create_dir_all(dir).unwrap();
+            create_dir_all(dir).unwrap();
         }
-        let output_file = File::create(&output_path).unwrap();
+        let _output_file = File::create(&output_path).unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
@@ -587,38 +501,20 @@ mod tests {
             auto_deposit: None,
             indexer_url: None,
             bench: bench_path,
-            output: Some(output_path),
+            output: Some(output_path.clone()),
+            json: false,
         };
-
-        let client_addr = ctx.customer_signer.address();
-        tracing::info!("Client address: {:x}", client_addr);
-        let client_balance = ctx.customer_provider.get_balance(client_addr).await.unwrap();
-
-        let addr = ctx.prover_signer.address();
-        tracing::info!("Prover address: {:x}", addr);
-        let balance = ctx.prover_provider.get_balance(addr).await.unwrap();
 
         run(&args).await.unwrap();
 
-        tracing::info!(
-            "Client balance before bench: {}",
-            format_units(client_balance, "ether").unwrap()
-        );
-        let client_balance = ctx.customer_provider.get_balance(client_addr).await.unwrap();
-        tracing::info!(
-            "Client balance after bench: {}",
-            format_units(client_balance, "ether").unwrap()
-        );
-
-        tracing::info!("Prover balance before bench: {}", format_units(balance, "ether").unwrap());
-        let balance = ctx.prover_provider.get_balance(addr.clone()).await.unwrap();
-        tracing::info!("Prover balance after bench: {}", format_units(balance, "ether").unwrap());
-
-        let balance_of_stake = ctx.prover_market.balance_of_stake(addr).await.unwrap();
-        tracing::info!(
-            "Prover balance of stake after bench: {}",
-            format_units(balance_of_stake, "ether").unwrap()
-        );
+        // Check the output file
+        let output = BenchRows::from_file(&output_path).unwrap();
+        assert_eq!(output.0.len(), 2);
+        for row in &output.0 {
+            assert!(row.fulfilled_at.is_some());
+            assert!(row.prover.is_some());
+            assert!(row.latency.is_some());
+        }
 
         broker_task.abort();
     }

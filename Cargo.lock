@@ -2542,7 +2542,6 @@ dependencies = [
  "clap",
  "csv",
  "dotenvy",
- "hex",
  "reqwest",
  "risc0-zkvm",
  "serde",

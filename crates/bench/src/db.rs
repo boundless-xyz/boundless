@@ -7,7 +7,7 @@ use std::str::FromStr;
 use alloy::primitives::Address;
 use anyhow::Result;
 use sqlx::{
-    any::{ AnyConnectOptions, AnyPoolOptions },
+    any::{AnyConnectOptions, AnyPoolOptions},
     AnyPool, Row,
 };
 

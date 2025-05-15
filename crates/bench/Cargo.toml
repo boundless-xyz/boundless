@@ -19,7 +19,6 @@ chrono = "0.4"
 clap = { workspace = true, features = ["env"] }
 csv = "1.2"
 dotenvy = { workspace = true }
-hex = { workspace = true }
 reqwest = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 serde = { workspace = true, features = ["derive"] }
