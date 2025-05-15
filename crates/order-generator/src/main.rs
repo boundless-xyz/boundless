@@ -168,7 +168,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         Some(path) => std::fs::read(path)?,
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            let url = "https://gateway.pinata.cloud/ipfs/bafkreifpofz3uvc3vq7t2k2o66b2duwvmfab32js7dvn7jldpypwjqisyq";
+            let url = "https://gateway.pinata.cloud/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi";
             fetch_http(&Url::parse(url)?).await?
         }
     };
@@ -185,19 +185,19 @@ async fn run(args: &MainArgs) -> Result<()> {
             }
         }
 
+        let mut rng = rand::rng();
+        let nonce: u64 = rng.random();
         let input = match args.input {
             Some(input) => input,
             None => {
-                // Generate a random input.
-                let mut rng = rand::rng();
                 let num: u32 = rng.random_range(1..=1000);
                 let input = num * 1_000_000;
-                tracing::debug!("Generated random input: {}", input);
+                tracing::debug!("Generated random cycle count: {}", input);
                 input
             }
         };
 
-        let env = InputBuilder::new().write(&(input as u64))?.build_env()?;
+        let env = InputBuilder::new().write(&(input as u64))?.write(&nonce)?.build_env()?;
         let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
         let journal = session_info.journal;
 

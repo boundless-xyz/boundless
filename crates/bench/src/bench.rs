@@ -104,7 +104,7 @@ impl BenchRows {
             || output
                 .extension()
                 .and_then(|s| s.to_str())
-                .map_or(false, |s| s.eq_ignore_ascii_case("json"));
+                .is_some_and(|s| s.eq_ignore_ascii_case("json"));
 
         tracing::info!(
             "Writing benchmark {} to {}",

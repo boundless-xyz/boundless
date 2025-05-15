@@ -15,6 +15,7 @@ alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types",
 anyhow = { workspace = true }
 boundless-indexer = { path = "../indexer" }
 boundless-market = { workspace = true }
+bytemuck = { workspace = true }
 chrono = "0.4"
 clap = { workspace = true, features = ["env"] }
 csv = "1.2"

@@ -2538,6 +2538,7 @@ dependencies = [
  "boundless-market",
  "boundless-market-test-utils",
  "broker",
+ "bytemuck",
  "chrono",
  "clap",
  "csv",

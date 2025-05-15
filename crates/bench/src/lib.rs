@@ -2,11 +2,7 @@
 //
 // All rights reserved.
 
-use std::{
-    fs::File,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{fs::File, path::PathBuf, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
@@ -31,10 +27,10 @@ use boundless_market::{
     },
 };
 use clap::Parser;
-use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
+use risc0_zkvm::{compute_image_id, default_executor, serde::to_vec, sha::Digestible, Journal};
+use tempfile::NamedTempFile;
 use tokio::task::JoinHandle;
 use url::Url;
-use tempfile::NamedTempFile;
 
 mod bench;
 pub mod db;
@@ -145,7 +141,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         }
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            let url = "https://gateway.pinata.cloud/ipfs/bafkreifpofz3uvc3vq7t2k2o66b2duwvmfab32js7dvn7jldpypwjqisyq";
+            let url = "https://gateway.pinata.cloud/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi";
             (fetch_http(&Url::parse(url)?).await?, Url::parse(url)?)
         }
     };
@@ -154,9 +150,8 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     let bench_file = File::open(&args.bench)?;
     let bench: Bench = serde_json::from_reader(bench_file)?;
     let input = bench.cycle_count_per_request;
-    let env = InputBuilder::new().write(&(input as u64))?.build_env()?;
+    let env = InputBuilder::new().write(&(input as u64))?.write(&now_timestamp())?.build_env()?;
     let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
-    let journal = session_info.journal;
 
     let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
     let min_price = args
@@ -225,6 +220,9 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         );
 
         let bidding_start = now_timestamp() + 10;
+        let env = InputBuilder::new().write(&(input as u64))?.write(&bidding_start)?.build_env()?;
+        let journal =
+            Journal::new(bytemuck::pod_collect_to_vec(&to_vec(&(input as u64, bidding_start))?));
         let mut request = ProofRequest::builder()
             .with_image_url(program_url.clone())
             .with_input(Input::inline(env.encode()?))
@@ -375,11 +373,11 @@ fn now_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use std::fs::create_dir_all;
-    
+
     use alloy::node_bindings::Anvil;
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderConfig;
-    use boundless_market_test_utils::create_test_ctx;
+    use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
     use broker::{config::Config, Args, Broker};
     use risc0_zkvm::is_dev_mode;
     use tracing_test::traced_test;
@@ -495,7 +493,7 @@ mod tests {
             max_price_per_mcycle: parse_ether("0.002").unwrap(),
             lockin_stake: parse_ether("0.0").unwrap(),
             ramp_up: 0,
-            program: None,
+            program: is_dev_mode().then(|| PathBuf::from(LOOP_PATH)),
             warn_balance_below: None,
             error_balance_below: None,
             auto_deposit: None,
