@@ -349,7 +349,7 @@ async fn wait(rows: &[BenchRow], db_url: &str, timeout_secs: u32) -> Result<()> 
             break;
         }
 
-        tracing::debug!("Still waiting on {} requests...", pending.len());
+        tracing::info!("Still waiting on {} requests...", pending.len());
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 
@@ -381,7 +381,8 @@ async fn process(rows: &[BenchRow], db: &str) -> Result<BenchRows> {
             fulfilled_at,
             prover: prover.map(|addr| format!("{addr:x}")),
             effective_latency: locked_at
-                .and_then(|locked_at| fulfilled_at.map(|fulfilled_at| fulfilled_at - locked_at)),
+                .zip(fulfilled_at)
+                .map(|(locked, fulfilled)| fulfilled - locked),
             e2e_latency: fulfilled_at.map(|fulfilled_at| fulfilled_at - row.bid_start),
         });
     }
