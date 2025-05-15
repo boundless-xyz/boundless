@@ -36,7 +36,6 @@ pub struct Finalizer {
     pub config: FinalizerConfig,
 }
 
-
 impl From<FinalizerConfig> for Finalizer {
     fn from(config: FinalizerConfig) -> Self {
         Self { config }

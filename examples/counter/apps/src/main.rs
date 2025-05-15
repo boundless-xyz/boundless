@@ -11,7 +11,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_market::{client::Client, storage::StorageProviderConfig};
+use boundless_market::{Client, StorageProviderConfig, Deployment};
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::sha::{Digest, Digestible};

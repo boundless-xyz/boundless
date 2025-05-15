@@ -124,8 +124,8 @@ impl<St, Si> ClientBuilder<St, Si> {
             .with_context(|| format!("no deployment provided for unknown chain_id {chain_id}"))?;
 
         // Check that the chain ID is matches the deployment, to avoid misconfigurations.
-        if chain_id != deployment.chain_id {
-            bail!("provided deployment does not match chain_id reported by RPC provider: {chain_id} != {}", deployment.chain_id);
+        if deployment.chain_id.map(|id| id != chain_id).unwrap_or(false) {
+            bail!("provided deployment does not match chain_id reported by RPC provider: {chain_id} != {}", deployment.chain_id.unwrap());
         }
 
         // Build the contract instances.
@@ -669,6 +669,7 @@ where
             .await?)
     }
 
+    // TODO: How is this being used? Are the example sending the receipt with Groth16 root?
     /// Get the [SetInclusionReceipt] for a request.
     ///
     /// Example:
@@ -691,6 +692,8 @@ where
         request_id: U256,
         image_id: B256,
     ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
+        // TODO(#646): This logic is only correct under the assumption there is a single set
+        // verifier.
         let (journal, seal) = self.boundless_market.get_request_fulfillment(request_id).await?;
         let claim = ReceiptClaim::ok(Digest::from(image_id.0), journal.to_vec());
         let receipt =

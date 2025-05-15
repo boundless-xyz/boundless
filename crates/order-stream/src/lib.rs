@@ -530,7 +530,7 @@ mod tests {
             hit_points::default_allowance, Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
         input::InputBuilder,
-        order_stream_client::{order_stream, Client},
+        order_stream_client::{order_stream, OrderStreamClient},
     };
     use boundless_market_test_utils::{create_test_ctx, TestCtx};
 
@@ -603,7 +603,7 @@ mod tests {
     }
 
     /// Helper to wait for server health with exponential backoff
-    async fn wait_for_server_health(client: &Client, addr: &SocketAddr, max_retries: usize) {
+    async fn wait_for_server_health(client: &OrderStreamClient, addr: &SocketAddr, max_retries: usize) {
         let mut retry_delay = tokio::time::Duration::from_millis(50);
 
         let health_url = format!("http://{}{}", addr, HEALTH_CHECK);
@@ -644,7 +644,7 @@ mod tests {
         let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
 
         // Create client
-        let client = Client::new(
+        let client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,
@@ -666,7 +666,7 @@ mod tests {
         let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
 
         // Connect customer signer as well
-        let customer_client = Client::new(
+        let customer_client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,

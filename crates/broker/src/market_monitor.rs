@@ -19,7 +19,7 @@ use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService, IBoundlessMarket, RequestId, RequestStatus,
     },
-    order_stream_client::Client as OrderStreamClient,
+    order_stream_client::OrderStreamClient as OrderStreamClient,
 };
 use futures_util::StreamExt;
 
