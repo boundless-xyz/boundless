@@ -38,6 +38,8 @@ use url::Url;
 mod db;
 pub mod test_utils;
 
+const MAX_BATCH_SIZE: u64 = 500;
+
 type ProviderWallet = FillProvider<
     JoinFill<
         JoinFill<
@@ -138,12 +140,15 @@ where
                         continue;
                     }
 
-                    tracing::info!("Processing blocks from {} to {}", from_block, to_block);
+                    // cap to at most 500 blocks per batch
+                    let batch_end = min(to_block, from_block.saturating_add(MAX_BATCH_SIZE));
 
-                    match self.process_blocks(from_block, to_block).await {
+                    tracing::info!("Processing blocks from {} to {}", from_block, batch_end);
+
+                    match self.process_blocks(from_block, batch_end).await {
                         Ok(_) => {
                             attempt = 0;
-                            from_block = to_block + 1;
+                            from_block = batch_end + 1;
                         }
                         Err(e) => match e {
                             // Irrecoverable errors
@@ -154,7 +159,7 @@ where
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
-                                    to_block,
+                                    batch_end,
                                     e
                                 );
                                 return Err(e);
@@ -170,7 +175,7 @@ where
                                 tracing::warn!(
                                     "Failed to process blocks from {} to {}: {:?}, attempt number {}, retrying in {}s",
                                     from_block,
-                                    to_block,
+                                    batch_end,
                                     e,
                                     attempt,
                                     delay.as_secs()
