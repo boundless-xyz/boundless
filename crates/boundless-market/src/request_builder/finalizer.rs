@@ -24,20 +24,38 @@ use url::Url;
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Builder)]
-pub struct Finalizer {
+pub struct FinalizerConfig {
     /// If true, the request's expiration time will be checked against the system clock.
     #[builder(default = true)]
     pub check_expiration: bool,
 }
 
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+pub struct Finalizer {
+    pub config: FinalizerConfig,
+}
+
 impl Default for Finalizer {
     fn default() -> Self {
-        Self::builder().build().expect("implementation error in Default for Finalizer")
+        Self { config: Default::default() }
     }
 }
 
-impl Finalizer {
-    pub fn builder() -> FinalizerBuilder {
+impl From<FinalizerConfig> for Finalizer {
+    fn from(config: FinalizerConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl Default for FinalizerConfig {
+    fn default() -> Self {
+        Self::builder().build().expect("implementation error in Default for FinalizerConfig")
+    }
+}
+
+impl FinalizerConfig {
+    pub fn builder() -> FinalizerConfigBuilder {
         Default::default()
     }
 }
@@ -65,14 +83,14 @@ impl Layer<(Url, RequestInput, Requirements, Offer, RequestId)> for Finalizer {
         };
 
         request.validate().context("built request is invalid; check request parameters")?;
-        if self.check_expiration && request.is_expired() {
+        if self.config.check_expiration && request.is_expired() {
             bail!(
                 "request expired at {}; current time is {}",
                 request.expires_at(),
                 now_timestamp()
             );
         }
-        if self.check_expiration && request.is_lock_expired() {
+        if self.config.check_expiration && request.is_lock_expired() {
             bail!(
                 "request lock expired at {}; current time is {}",
                 request.lock_expires_at(),

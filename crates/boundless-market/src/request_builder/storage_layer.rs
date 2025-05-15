@@ -21,35 +21,33 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
-use std::fmt;
 use url::Url;
 
 #[non_exhaustive]
 #[derive(Clone, Builder)]
-pub struct StorageLayer<S = StandardStorageProvider> {
+pub struct StorageLayerConfig {
     /// Maximum number of bytes to send as an inline input.
     ///
     /// Inputs larger than this size will be uploaded using the given storage provider. Set to none
     /// to indicate that inputs should always be sent inline.
     #[builder(setter(into), default = "Some(2048)")]
     pub inline_input_max_bytes: Option<usize>,
-    #[builder(default)]
+}
+
+#[non_exhaustive]
+#[derive(Clone)]
+pub struct StorageLayer<S = StandardStorageProvider> {
     /// [StorageProvider] used to upload programs and inputs.
     ///
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
     /// [Self::inline_input_max_bytes].
     pub storage_provider: Option<S>,
+    pub config: StorageLayerConfig,
 }
 
-impl StorageLayer<NotProvided> {
-    pub fn builder<S: Clone>() -> StorageLayerBuilder<S> {
+impl StorageLayerConfig {
+    pub fn builder() -> StorageLayerConfigBuilder {
         Default::default()
-    }
-}
-
-impl<S> fmt::Debug for StorageLayer<S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StorageLayer").finish()
     }
 }
 
@@ -59,29 +57,44 @@ impl<S: Clone> From<Option<S>> for StorageLayer<S> {
     ///
     /// Provided value is an [Option] such that whether the storage provider is available can be
     /// reolved at runtime (e.g. from environment variables).
-    fn from(value: Option<S>) -> Self {
-        StorageLayer::builder()
-            .storage_provider(value)
-            .build()
-            .expect("implementation error in From<S> for StorageLayer")
+    fn from(storage_provider: Option<S>) -> Self {
+        StorageLayer { storage_provider, config: Default::default() }
+    }
+}
+
+impl<S> From<StorageLayerConfig> for StorageLayer<S>
+where
+    S: StorageProvider + Default,
+{
+    fn from(config: StorageLayerConfig) -> Self {
+        Self { storage_provider: Some(Default::default()), config }
     }
 }
 
 impl<S> Default for StorageLayer<S>
 where
-    S: StorageProvider + Default + Clone,
+    S: StorageProvider + Default,
 {
     fn default() -> Self {
-        StorageLayer::builder()
-            .storage_provider(Some(Default::default()))
-            .build()
-            .expect("implementation error in Default for StorageLayer")
+        StorageLayer { storage_provider: Some(Default::default()), config: Default::default() }
     }
 }
 
 impl Default for StorageLayer<NotProvided> {
     fn default() -> Self {
-        StorageLayer::builder().build().expect("implementation error in Default for StorageLayer")
+        StorageLayer { storage_provider: None, config: Default::default() }
+    }
+}
+
+impl From<StorageLayerConfig> for StorageLayer<NotProvided> {
+    fn from(config: StorageLayerConfig) -> Self {
+        Self { storage_provider: None, config }
+    }
+}
+
+impl Default for StorageLayerConfig {
+    fn default() -> Self {
+        Self::builder().build().expect("implementation error in Default for StorageLayerConfig")
     }
 }
 
@@ -101,7 +114,7 @@ where
 
     pub async fn process_env(&self, env: &GuestEnv) -> anyhow::Result<RequestInput> {
         let input_data = env.encode().context("failed to encode guest environment")?;
-        let request_input = match self.inline_input_max_bytes {
+        let request_input = match self.config.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
                 let storage_provider = self.storage_provider.as_ref().with_context( || {
                     format!("cannot upload input using StorageLayer with no storage_provider; input length of {} bytes exceeds inline limit of {limit} bytes", input_data.len())
@@ -115,12 +128,16 @@ where
 }
 
 impl<S> StorageLayer<S> {
+    pub fn new(storage_provider: Option<S>, config: StorageLayerConfig) -> Self {
+        Self { storage_provider, config }
+    }
+
     pub(crate) async fn process_env_no_provider(
         &self,
         env: &GuestEnv,
     ) -> anyhow::Result<RequestInput> {
         let input_data = env.encode().context("failed to encode guest environment")?;
-        let request_input = match self.inline_input_max_bytes {
+        let request_input = match self.config.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
                 bail!("cannot upload input using StorageLayer with no storage_provider; input length of {} bytes exceeds inline limit of {limit} bytes", input_data.len());
             }

@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::{
-    contracts::boundless_market::BoundlessMarketService, contracts::RequestId, util::NotProvided,
-};
+use crate::{contracts::boundless_market::BoundlessMarketService, contracts::RequestId};
 use alloy::{network::Ethereum, providers::Provider};
 use derive_builder::Builder;
 
@@ -29,24 +27,39 @@ pub enum RequestIdLayerMode {
 
 #[non_exhaustive]
 #[derive(Clone, Builder)]
-pub struct RequestIdLayer<P> {
-    pub boundless_market: BoundlessMarketService<P>,
+pub struct RequestIdLayerConfig {
     #[builder(default)]
     pub mode: RequestIdLayerMode,
 }
 
-impl RequestIdLayer<NotProvided> {
-    pub fn builder<P: Clone>() -> RequestIdLayerBuilder<P> {
+#[non_exhaustive]
+#[derive(Clone)]
+pub struct RequestIdLayer<P> {
+    pub boundless_market: BoundlessMarketService<P>,
+    pub config: RequestIdLayerConfig,
+}
+
+impl RequestIdLayerConfig {
+    pub fn builder() -> RequestIdLayerConfigBuilder {
         Default::default()
     }
 }
 
 impl<P: Clone> From<BoundlessMarketService<P>> for RequestIdLayer<P> {
-    fn from(value: BoundlessMarketService<P>) -> Self {
-        RequestIdLayer::builder()
-            .boundless_market(value)
-            .build()
-            .expect("implementation error in From<BoundlessMarketService<P>> for RequestIdLayer")
+    fn from(boundless_market: BoundlessMarketService<P>) -> Self {
+        RequestIdLayer { boundless_market, config: Default::default() }
+    }
+}
+
+impl Default for RequestIdLayerConfig {
+    fn default() -> Self {
+        Self::builder().build().expect("implementation error in Default for RequestIdLayerConfig")
+    }
+}
+
+impl<P> RequestIdLayer<P> {
+    pub fn new(boundless_market: BoundlessMarketService<P>, config: RequestIdLayerConfig) -> Self {
+        Self { boundless_market, config }
     }
 }
 
@@ -58,7 +71,7 @@ where
     type Error = anyhow::Error;
 
     async fn process(&self, (): ()) -> Result<Self::Output, Self::Error> {
-        let id_u256 = match self.mode {
+        let id_u256 = match self.config.mode {
             RequestIdLayerMode::Nonce => self.boundless_market.request_id_from_nonce().await?,
             RequestIdLayerMode::Rand => self.boundless_market.request_id_from_rand().await?,
         };

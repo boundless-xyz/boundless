@@ -17,23 +17,17 @@ use crate::contracts::{Input as RequestInput, InputType};
 use crate::input::GuestEnv;
 use crate::storage::fetch_url;
 use anyhow::{bail, ensure, Context};
-use derive_builder::Builder;
 use risc0_zkvm::{default_executor, sha::Digestible, Executor, SessionInfo};
 use std::rc::Rc;
 use url::Url;
 
 #[non_exhaustive]
-#[derive(Clone, Builder)]
+#[derive(Clone)]
 pub struct PreflightLayer {
-    #[builder(setter(into), default = "default_executor()")]
-    executor: Rc<dyn Executor>,
+    pub executor: Rc<dyn Executor>,
 }
 
 impl PreflightLayer {
-    pub fn builder() -> PreflightLayerBuilder {
-        Default::default()
-    }
-
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             InputType::Inline => GuestEnv::decode(&input.data)?,
@@ -52,6 +46,15 @@ impl PreflightLayer {
 impl Default for PreflightLayer {
     fn default() -> Self {
         Self { executor: default_executor() }
+    }
+}
+
+impl<E> From<E> for PreflightLayer
+where
+    E: Into<Rc<dyn Executor>>,
+{
+    fn from(executor: E) -> Self {
+        Self { executor: executor.into() }
     }
 }
 

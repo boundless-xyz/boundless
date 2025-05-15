@@ -35,15 +35,15 @@ mod preflight_layer;
 mod storage_layer;
 
 pub use preflight_layer::PreflightLayer;
-pub use storage_layer::StorageLayer;
+pub use storage_layer::{StorageLayer, StorageLayerConfig};
 mod requirements_layer;
 pub use requirements_layer::RequirementsLayer;
 mod request_id_layer;
-pub use request_id_layer::{RequestIdLayer, RequestIdLayerMode};
+pub use request_id_layer::{RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode};
 mod offer_layer;
-pub use offer_layer::OfferLayer;
+pub use offer_layer::{OfferLayer, OfferLayerConfig};
 mod finalizer;
-pub use finalizer::Finalizer;
+pub use finalizer::{Finalizer, FinalizerConfig};
 
 pub trait RequestBuilder<Params> {
     /// Error type that may be returned by this filler.
@@ -352,8 +352,9 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::{
-        Layer, OfferLayer, PreflightLayer, RequestBuilder, RequestId, RequestIdLayer,
-        RequestIdLayerMode, RequirementsLayer, StandardRequestBuilder, StorageLayer,
+        Layer, OfferLayer, OfferLayerConfig, PreflightLayer, RequestBuilder, RequestId,
+        RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequirementsLayer,
+        StandardRequestBuilder, StorageLayer, StorageLayerConfig,
     };
 
     use crate::{
@@ -406,12 +407,10 @@ mod tests {
 
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(Some(storage))
-            .offer_layer(
-                OfferLayer::builder()
-                    .provider(test_ctx.customer_provider.clone())
-                    .ramp_up_period(27)
-                    .build()?,
-            )
+            .offer_layer(OfferLayer::new(
+                test_ctx.customer_provider.clone(),
+                OfferLayerConfig::builder().ramp_up_period(27).build()?,
+            ))
             .request_id_layer(market)
             .build()?;
 
@@ -460,10 +459,10 @@ mod tests {
     #[traced_test]
     async fn test_storage_layer() -> anyhow::Result<()> {
         let storage = Arc::new(MockStorageProvider::start());
-        let layer = StorageLayer::builder()
-            .storage_provider(Some(storage.clone()))
-            .inline_input_max_bytes(Some(1024))
-            .build()?;
+        let layer = StorageLayer::new(
+            Some(storage.clone()),
+            StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
+        );
         let env = GuestEnv::from(b"inline_data".to_vec());
         let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
 
@@ -477,7 +476,9 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_storage_layer_no_provider() -> anyhow::Result<()> {
-        let layer = StorageLayer::builder().inline_input_max_bytes(Some(1024)).build()?;
+        let layer = StorageLayer::<NotProvided>::from(
+            StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
+        );
 
         let env = GuestEnv::from(b"inline_data".to_vec());
         let request_input = layer.process(&env).await?;
@@ -492,10 +493,10 @@ mod tests {
     #[traced_test]
     async fn test_storage_layer_large_input() -> anyhow::Result<()> {
         let storage = Arc::new(MockStorageProvider::start());
-        let layer = StorageLayer::builder()
-            .storage_provider(Some(storage.clone()))
-            .inline_input_max_bytes(Some(1024))
-            .build()?;
+        let layer = StorageLayer::new(
+            Some(storage.clone()),
+            StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
+        );
         let env = GuestEnv::from(rand::random_iter().take(2048).collect::<Vec<u8>>());
         let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
 
@@ -510,7 +511,9 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_storage_layer_large_input_no_provider() -> anyhow::Result<()> {
-        let layer = StorageLayer::builder().inline_input_max_bytes(Some(1024)).build()?;
+        let layer = StorageLayer::from(
+            StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
+        );
 
         let env = GuestEnv::from(rand::random_iter().take(2048).collect::<Vec<u8>>());
         let err = layer.process(&env).await.unwrap_err();
@@ -568,7 +571,7 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
         let layer = RequestIdLayer::from(market.clone());
-        assert_eq!(layer.mode, RequestIdLayerMode::Rand);
+        assert_eq!(layer.config.mode, RequestIdLayerMode::Rand);
         let id = layer.process(()).await?;
         assert_eq!(id.addr, test_ctx.customer_signer.address());
         assert!(!id.smart_contract_signed);
@@ -585,10 +588,10 @@ mod tests {
             test_ctx.customer_provider.clone(),
             test_ctx.customer_signer.address(),
         );
-        let layer = RequestIdLayer::builder()
-            .boundless_market(market.clone())
-            .mode(RequestIdLayerMode::Nonce)
-            .build()?;
+        let layer = RequestIdLayer::new(
+            market.clone(),
+            RequestIdLayerConfig::builder().mode(RequestIdLayerMode::Nonce).build()?,
+        );
 
         let id = layer.process(()).await?;
         assert_eq!(id.addr, test_ctx.customer_signer.address());

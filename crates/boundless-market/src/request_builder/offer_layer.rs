@@ -16,7 +16,7 @@ use super::{Adapt, Layer, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
     selector::{ProofType, SupportedSelectors},
-    util::{now_timestamp, NotProvided},
+    util::{now_timestamp},
 };
 use alloy::{
     network::Ethereum,
@@ -31,8 +31,7 @@ use derive_builder::Builder;
 
 #[non_exhaustive]
 #[derive(Clone, Builder)]
-pub struct OfferLayer<P> {
-    pub provider: P,
+pub struct OfferLayerConfig {
     #[builder(setter(into), default = "U256::ZERO")]
     pub min_price_per_mcycle: U256,
     #[builder(setter(into), default = "U256::from(100) * Unit::TWEI.wei_const()")]
@@ -59,18 +58,28 @@ pub struct OfferLayer<P> {
     pub supported_selectors: SupportedSelectors,
 }
 
-impl OfferLayer<NotProvided> {
-    pub fn builder<P: Clone>() -> OfferLayerBuilder<P> {
+#[non_exhaustive]
+#[derive(Clone)]
+pub struct OfferLayer<P> {
+    pub provider: P,
+    pub config: OfferLayerConfig,
+}
+
+impl OfferLayerConfig {
+    pub fn builder() -> OfferLayerConfigBuilder {
         Default::default()
     }
 }
 
+impl Default for OfferLayerConfig {
+    fn default() -> Self {
+        Self::builder().build().expect("implementation error in Default for OfferLayerConfig")
+    }
+}
+
 impl<P: Clone> From<P> for OfferLayer<P> {
-    fn from(value: P) -> Self {
-        OfferLayer::builder()
-            .provider(value)
-            .build()
-            .expect("implementation error in From<P> for OfferLayer")
+    fn from(provider: P) -> Self {
+        OfferLayer { provider, config: Default::default() }
     }
 }
 
@@ -78,14 +87,19 @@ impl<P> OfferLayer<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
+    pub fn new(provider: P, config: OfferLayerConfig) -> Self {
+        Self { provider, config }
+    }
+
     fn estimate_gas_usage(
         &self,
         requirements: &Requirements,
         request_id: &RequestId,
     ) -> anyhow::Result<u64> {
-        let mut gas_usage_estimate = self.lock_gas_estimate + self.fulfill_gas_estimate;
+        let mut gas_usage_estimate =
+            self.config.lock_gas_estimate + self.config.fulfill_gas_estimate;
         if request_id.smart_contract_signed {
-            gas_usage_estimate += self.smart_contract_sig_verify_gas_estimate;
+            gas_usage_estimate += self.config.smart_contract_sig_verify_gas_estimate;
         }
         if let Some(callback) = requirements.callback.as_option() {
             gas_usage_estimate +=
@@ -93,11 +107,12 @@ where
         }
 
         let proof_type = self
+            .config
             .supported_selectors
             .proof_type(requirements.selector)
             .context("cannot estimate gas usage for request with unsupported selector")?;
         if let ProofType::Groth16 = proof_type {
-            gas_usage_estimate += self.groth16_verify_gas_estimate;
+            gas_usage_estimate += self.config.groth16_verify_gas_estimate;
         };
         Ok(gas_usage_estimate)
     }
@@ -127,8 +142,8 @@ where
         (requirements, request_id, cycle_count): (&Requirements, &RequestId, u64),
     ) -> Result<Self::Output, Self::Error> {
         let mcycle_count = cycle_count >> 20;
-        let min_price = self.min_price_per_mcycle * U256::from(mcycle_count);
-        let max_price_mcycle = self.max_price_per_mcycle * U256::from(mcycle_count);
+        let min_price = self.config.min_price_per_mcycle * U256::from(mcycle_count);
+        let max_price_mcycle = self.config.max_price_per_mcycle * U256::from(mcycle_count);
 
         let gas_price: u128 = self.provider.get_gas_price().await?;
         let gas_cost_estimate = self.estimate_gas_cost(requirements, request_id, gas_price)?;
@@ -143,11 +158,11 @@ where
         Ok(Offer {
             minPrice: min_price,
             maxPrice: max_price,
-            biddingStart: now_timestamp() + self.bidding_start_delay,
-            rampUpPeriod: self.ramp_up_period,
-            lockTimeout: self.lock_timeout,
-            timeout: self.timeout,
-            lockStake: self.lock_stake,
+            biddingStart: now_timestamp() + self.config.bidding_start_delay,
+            rampUpPeriod: self.config.ramp_up_period,
+            lockTimeout: self.config.lock_timeout,
+            timeout: self.config.timeout,
+            lockStake: self.config.lock_stake,
         })
     }
 }
