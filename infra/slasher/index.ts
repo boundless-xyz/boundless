@@ -242,4 +242,40 @@ export = () => {
     actionsEnabled: true,
     alarmActions,
   });
+
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
+    name: `${serviceName}-log-fatal-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-fatal`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: 'FATAL',
+  }, { dependsOn: [service] });
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
+    name: `${serviceName}-log-fatal`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-fatal`,
+          period: 60,
+          stat: 'Sum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    treatMissingData: 'notBreaching',
+    alarmDescription: `Order slasher FATAL (task exited)`,
+    actionsEnabled: true,
+    alarmActions,
+  });
 };

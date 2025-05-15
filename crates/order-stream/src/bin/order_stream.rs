@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     order_stream::run(&args).await.context("Running order-stream REST API failed")?;
-    tracing::info!("order-stream REST API shutdown");
+    tracing::error!("FATAL: order-stream REST API shutdown");
 
     Ok(())
 }

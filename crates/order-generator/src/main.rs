@@ -134,7 +134,10 @@ async fn main() -> Result<()> {
     let args = MainArgs::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
-    run(&args).await?;
+    let result = run(&args).await;
+    if let Err(e) = result {
+        tracing::error!("FATAL: {:?}", e);
+    }
 
     Ok(())
 }
