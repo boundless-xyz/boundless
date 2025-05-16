@@ -821,7 +821,6 @@ where
     }
 }
 
-// DO NOT MERGE: Add a test that the order_gas_cost is being enforced as a min price.
 #[cfg(test)]
 mod tests {
     use super::*;

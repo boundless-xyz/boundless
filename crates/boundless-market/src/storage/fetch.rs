@@ -14,7 +14,7 @@
 
 //! An implementation of URL fetching that supports the common URL types seen on Boundless.
 
-use anyhow::bail;
+use anyhow::{bail, ensure};
 use url::Url;
 
 /// Fetches the content of a URL.
@@ -25,8 +25,10 @@ pub async fn fetch_url(url_str: impl AsRef<str>) -> anyhow::Result<Vec<u8>> {
 
     match url.scheme() {
         "http" | "https" => fetch_http(&url).await,
-        // DO NOT MERGE: File fetch can be dangerous to enable by default.
-        "file" => fetch_file(&url).await,
+        "file" => {
+            ensure!(risc0_zkvm::is_dev_mode(), "file fetch is on enabled when RISC0_DEV_MODE is enabled");
+            fetch_file(&url).await
+        },
         _ => bail!("unsupported URL scheme: {}", url.scheme()),
     }
 }
