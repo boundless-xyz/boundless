@@ -26,9 +26,12 @@ pub async fn fetch_url(url_str: impl AsRef<str>) -> anyhow::Result<Vec<u8>> {
     match url.scheme() {
         "http" | "https" => fetch_http(&url).await,
         "file" => {
-            ensure!(risc0_zkvm::is_dev_mode(), "file fetch is on enabled when RISC0_DEV_MODE is enabled");
+            ensure!(
+                risc0_zkvm::is_dev_mode(),
+                "file fetch is on enabled when RISC0_DEV_MODE is enabled"
+            );
             fetch_file(&url).await
-        },
+        }
         _ => bail!("unsupported URL scheme: {}", url.scheme()),
     }
 }
