@@ -130,7 +130,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
 
     const { marketMetricsNamespace, serviceMetricsNamespace } = args;
 
-    this.lambdaFunction = createRustLambda(`${serviceName}-monitor`, {
+    const { lambda, logGroupName } = createRustLambda(`${serviceName}-monitor`, {
       projectPath: path.join(__dirname, '../../../'),
       packageName: 'indexer-monitor',
       release: true,
@@ -148,10 +148,11 @@ export class MonitorLambda extends pulumi.ComponentResource {
       },
     },
     );
+    this.lambdaFunction = lambda;
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-monitor-error-filter`, {
       name: `${serviceName}-monitor-log-err-filter`,
-      logGroupName: this.lambdaFunction.loggingConfig.logGroup,
+      logGroupName: logGroupName,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
         name: `${serviceName}-monitor-log-err`,
