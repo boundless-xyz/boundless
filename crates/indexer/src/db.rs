@@ -518,10 +518,14 @@ impl IndexerDb for AnyDb {
         // TODO: Improve this
         // If for some reason due to a gap in the db that is missing the associated locked request event,
         // we set the prover address to zero.
-        let prover_address = result
-            .map(|row| row.try_get("prover_address"))
-            .transpose()?
-            .unwrap_or_else(|| format!("{:x}", Address::ZERO));
+        let prover_address =
+            result.map(|row| row.try_get("prover_address")).transpose()?.unwrap_or_else(|| {
+                tracing::warn!(
+                    "Missing request locked event for slashed event for request id: {:x}",
+                    request_id
+                );
+                format!("{:x}", Address::ZERO)
+            });
         sqlx::query(
             "INSERT INTO prover_slashed_events (
                 request_id, 
