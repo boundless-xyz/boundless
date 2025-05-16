@@ -3,9 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { getServiceNameV1 } from '../../util';
 
-const SERVICE_NAME_BASE = 'indexer';
 
 export class IndexerInstance extends pulumi.ComponentResource {
   public readonly dbUrlSecret: aws.secretsmanager.Secret;
@@ -27,10 +25,11 @@ export class IndexerInstance extends pulumi.ComponentResource {
       ethRpcUrl: pulumi.Output<string>;
       boundlessAlertsTopicArn?: string;
       startBlock: string;
+      serviceMetricsNamespace: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
-    super(`${SERVICE_NAME_BASE}-${args.chainId}`, name, opts);
+    super(name, name, opts);
 
     const {
       ciCacheSecret,
@@ -42,11 +41,11 @@ export class IndexerInstance extends pulumi.ComponentResource {
       vpcId,
       rdsPassword,
       ethRpcUrl,
-      startBlock
+      startBlock,
+      serviceMetricsNamespace
     } = args;
 
-    const stackName = pulumi.getStack();
-    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
+    const serviceName = name;
 
     const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
       lifecyclePolicy: {
@@ -257,10 +256,10 @@ export class IndexerInstance extends pulumi.ComponentResource {
       name: `${serviceName}-cluster`,
     });
 
-    const serviceLogGroup = `${serviceName}-serv`;
+    const serviceLogGroup = `${serviceName}-service`;
 
-    const service = new awsx.ecs.FargateService(serviceLogGroup, {
-      name: serviceLogGroup,
+    const service = new awsx.ecs.FargateService(`${serviceName}-service`, {
+      name: `${serviceName}-service`,
       cluster: cluster.arn,
       networkConfiguration: {
         securityGroups: [indexerSecGroup.id],
@@ -342,7 +341,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       name: `${serviceName}-log-err-filter`,
       logGroupName: serviceLogGroup,
       metricTransformation: {
-        namespace: 'Boundless/Services/Indexer',
+        namespace: serviceMetricsNamespace,
         name: `${serviceName}-log-err`,
         value: '1',
         defaultValue: '0',
@@ -358,7 +357,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
         {
           id: 'm1',
           metric: {
-            namespace: `Boundless/Services/${serviceName}`,
+            namespace: serviceMetricsNamespace,
             metricName: `${serviceName}-log-err`,
             period: 60,
             stat: 'Sum',

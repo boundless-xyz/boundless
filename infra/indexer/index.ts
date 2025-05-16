@@ -1,7 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 import { IndexerInstance } from './components/indexer';
 import { MonitorLambda } from './components/monitor-lambda';
-import { getEnvVar } from '../util';
+import { getEnvVar, getServiceNameV1 } from '../util';
 
 require('dotenv').config();
 
@@ -29,7 +29,16 @@ export = () => {
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
   const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS') as pulumi.Output<string[]>;
 
-  const indexer = new IndexerInstance(`indexer`, {
+  const indexerServiceName = getServiceNameV1(stackName, "indexer", chainId);
+  const monitorServiceName = getServiceNameV1(stackName, "monitor", chainId);
+
+  // Metric namespace for service metrics, e.g. operation health of the monitor/indexer infra
+  const serviceMetricsNamespace = `Boundless/Services/${indexerServiceName}`;
+  const marketName = getServiceNameV1(stackName, "", chainId);
+  // Metric namespace for market metrics, e.g. fulfillment success rate, order count, etc.
+  const marketMetricsNamespace = `Boundless/Market/${marketName}`;
+
+  const indexer = new IndexerInstance(indexerServiceName, {
     chainId,
     ciCacheSecret,
     dockerDir,
@@ -43,9 +52,10 @@ export = () => {
     ethRpcUrl,
     boundlessAlertsTopicArn,
     startBlock,
+    serviceMetricsNamespace,
   });
 
-  new MonitorLambda('monitor', {
+  new MonitorLambda(monitorServiceName, {
     vpcId: vpcId,
     privSubNetIds: privSubNetIds,
     intervalMinutes: '1',
@@ -54,6 +64,8 @@ export = () => {
     chainId: chainId,
     rustLogLevel: rustLogLevel,
     boundlessAlertsTopicArn: boundlessAlertsTopicArn,
+    serviceMetricsNamespace,
+    marketMetricsNamespace,
   }, { parent: indexer, dependsOn: indexer });
 
 };
