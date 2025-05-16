@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     order_stream::run(&args).await.context("Running order-stream REST API failed")?;
-    tracing::info!("order-stream REST API shutdown");
+    tracing::error!("FATAL: order-stream REST API shutdown");
 
     Ok(())
 }

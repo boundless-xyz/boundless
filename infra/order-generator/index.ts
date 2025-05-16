@@ -107,6 +107,7 @@ export = () => {
   });
 
   const offchainConfig = new pulumi.Config("order-generator-offchain");
+  const autoDeposit = offchainConfig.require('AUTO_DEPOSIT');
   const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
   new OrderGenerator('offchain', {
     chainId,
@@ -114,7 +115,10 @@ export = () => {
     privateKey: offchainPrivateKey,
     pinataJWT,
     ethRpcUrl,
-    orderStreamUrl,
+    offchainConfig: {
+      autoDeposit,
+      orderStreamUrl,
+    },
     image,
     logLevel,
     setVerifierAddr,
@@ -139,7 +143,6 @@ export = () => {
     privateKey: onchainPrivateKey,
     pinataJWT,
     ethRpcUrl,
-    orderStreamUrl,
     image,
     logLevel,
     setVerifierAddr,
