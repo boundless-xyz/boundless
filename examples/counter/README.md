@@ -1,6 +1,7 @@
 # Counter Example
 
-> This example should be run against a deployment of the Boundless market.
+This is an example of using Boundless to produce proofs, for use in running a smart contract.
+The smart contract is a simple counter of how many proofs have been verifier, and the guest simply echos to input to the journal.
 
 ## Build
 
@@ -47,7 +48,9 @@ export COUNTER_ADDRESS=# COPY COUNTER ADDRESS FROM DEPLOY LOGS
 
 ## Run the example
 
-Running this example will send a proof request to the Boundless Market.
+Running this example will send a proof request to the Boundless Market on Sepolia.
+
+Alternatively, you can run a [local devnet](#local-development)
 
 In order to send a request to Boundless, you'll need to upload your program to a public URL.
 You can use any file hosting service, and the Boundless SDK provides built-in support uploading to AWS S3, and to IPFS via [Pinata](https://www.pinata.cloud).
