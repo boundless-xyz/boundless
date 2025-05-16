@@ -66,6 +66,6 @@ export = () => {
     boundlessAlertsTopicArn: boundlessAlertsTopicArn,
     serviceMetricsNamespace,
     marketMetricsNamespace,
-  }, { parent: indexer, dependsOn: indexer });
+  }, { parent: indexer, dependsOn: [indexer, indexer.dbUrlSecret, indexer.dbUrlSecretVersion] });
 
 };

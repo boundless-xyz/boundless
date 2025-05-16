@@ -7,6 +7,7 @@ import * as pulumi from '@pulumi/pulumi';
 
 export class IndexerInstance extends pulumi.ComponentResource {
   public readonly dbUrlSecret: aws.secretsmanager.Secret;
+  public readonly dbUrlSecretVersion: aws.secretsmanager.SecretVersion;
   public readonly rdsSecurityGroupId: pulumi.Output<string>;
 
   constructor(
@@ -192,7 +193,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
     );
 
     const dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`);
-    new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
+    const dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
       secretId: dbUrlSecret.id,
       secretString: pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`,
     });
@@ -413,10 +414,12 @@ export class IndexerInstance extends pulumi.ComponentResource {
     });
 
     this.dbUrlSecret = dbUrlSecret;
+    this.dbUrlSecretVersion = dbUrlSecretVersion;
     this.rdsSecurityGroupId = rdsSecurityGroup.id;
 
     this.registerOutputs({
       dbUrlSecret: this.dbUrlSecret,
+      dbUrlSecretVersion: this.dbUrlSecretVersion,
       rdsSecurityGroupId: this.rdsSecurityGroupId
     });
   }
