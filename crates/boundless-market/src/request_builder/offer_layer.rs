@@ -91,7 +91,7 @@ where
         Self { provider, config }
     }
 
-    fn estimate_gas_usage(
+    pub fn estimate_gas_usage_upper_bound(
         &self,
         requirements: &Requirements,
         request_id: &RequestId,
@@ -117,15 +117,15 @@ where
         Ok(gas_usage_estimate)
     }
 
-    fn estimate_gas_cost(
+    pub fn estimate_gas_cost_upper_bound(
         &self,
         requirements: &Requirements,
         request_id: &RequestId,
         gas_price: u128,
     ) -> anyhow::Result<U256> {
-        let gas_usage_estimate = self.estimate_gas_usage(requirements, request_id)?;
+        let gas_usage_estimate = self.estimate_gas_usage_upper_bound(requirements, request_id)?;
 
-        let gas_cost_estimate = (gas_price + (gas_price / 10)) * (gas_usage_estimate as u128);
+        let gas_cost_estimate = gas_price * (gas_usage_estimate as u128);
         Ok(U256::from(gas_cost_estimate))
     }
 }
@@ -145,8 +145,10 @@ where
         let max_price_cycle = self.config.max_price_per_cycle * U256::from(cycle_count);
 
         let gas_price: u128 = self.provider.get_gas_price().await?;
-        let gas_cost_estimate = self.estimate_gas_cost(requirements, request_id, gas_price)?;
-        let max_price = max_price_cycle + gas_cost_estimate;
+        let gas_cost_estimate = self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
+
+        // Add the gas price plus 10% to the max_price.
+        let max_price = max_price_cycle + (gas_cost_estimate + (gas_cost_estimate / U256::from(10)));
         tracing::debug!(
             "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate",
             format_units(max_price, "ether")?,
