@@ -60,7 +60,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
     const orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
       secretId: orderStreamUrlSecret.id,
-      secretString: offchainConfig?.orderStreamUrl ?? '',
+      secretString: offchainConfig?.orderStreamUrl ?? 'none',
     });
 
     const secretHash = pulumi
