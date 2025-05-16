@@ -2,9 +2,9 @@ import * as path from 'path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { createRustLambda } from './rust-lambda';
-import { getServiceNameV1, Severity } from '../../util';
+import { Severity } from '../../util';
 import { clients, clientAddresses, proverAddresses } from './targets';
-import { createMetricAlarm, createSuccessRateAlarm } from './alarms';
+import { buildCreateMetricFns } from './alarms';
 
 export interface MonitorLambdaArgs {
   /** VPC where RDS lives */
@@ -23,9 +23,11 @@ export interface MonitorLambdaArgs {
   rustLogLevel: string;
   /** Boundless alerts topic ARN */
   boundlessAlertsTopicArn?: string;
+  /** Namespace for service metrics, e.g. operation health of the monitor/indexer infra */
+  serviceMetricsNamespace: string;
+  /** Namespace for market metrics, e.g. order volume, order count, etc. */
+  marketMetricsNamespace: string;
 }
-
-const SERVICE_NAME_BASE = 'indexer';
 
 export class MonitorLambda extends pulumi.ComponentResource {
   public readonly lambdaFunction: aws.lambda.Function;
@@ -35,10 +37,9 @@ export class MonitorLambda extends pulumi.ComponentResource {
     args: MonitorLambdaArgs,
     opts?: pulumi.ComponentResourceOptions,
   ) {
-    super(`${SERVICE_NAME_BASE}-${args.chainId}`, name, opts);
+    super(name, name, opts);
 
-    const stackName = pulumi.getStack();
-    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
+    const serviceName = name;
 
     const role = new aws.iam.Role(
       `${serviceName}-role`,
@@ -127,7 +128,9 @@ export class MonitorLambda extends pulumi.ComponentResource {
       secretId: args.dbUrlSecret.id,
     }).secretString;
 
-    this.lambdaFunction = createRustLambda(`${serviceName}-monitor`, {
+    const { marketMetricsNamespace, serviceMetricsNamespace } = args;
+
+    const { lambda, logGroupName } = createRustLambda(`${serviceName}-monitor`, {
       projectPath: path.join(__dirname, '../../../'),
       packageName: 'indexer-monitor',
       release: true,
@@ -135,7 +138,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
       environmentVariables: {
         DB_URL: dbUrl,
         RUST_LOG: args.rustLogLevel,
-        CLOUDWATCH_NAMESPACE: `${serviceName}-monitor-${args.chainId}`,
+        CLOUDWATCH_NAMESPACE: marketMetricsNamespace,
       },
       memorySize: 128,
       timeout: 30,
@@ -145,12 +148,13 @@ export class MonitorLambda extends pulumi.ComponentResource {
       },
     },
     );
+    this.lambdaFunction = lambda;
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-monitor-error-filter`, {
       name: `${serviceName}-monitor-log-err-filter`,
-      logGroupName: this.lambdaFunction.loggingConfig.logGroup,
+      logGroupName: logGroupName,
       metricTransformation: {
-        namespace: `Boundless/Services/${serviceName}`,
+        namespace: serviceMetricsNamespace,
         name: `${serviceName}-monitor-log-err`,
         value: '1',
         defaultValue: '0',
@@ -167,7 +171,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
         {
           id: 'm1',
           metric: {
-            namespace: `Boundless/Services/${serviceName}`,
+            namespace: serviceMetricsNamespace,
             metricName: `${serviceName}-monitor-log-err`,
             period: 60,
             stat: 'Sum',
@@ -217,6 +221,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
 
     // Create top level alarms
     // Total Number of Fulfilled Orders - SEV1: <5 within 10 minutes
+    const { createMetricAlarm, createSuccessRateAlarm } = buildCreateMetricFns(serviceName, marketMetricsNamespace, alarmActions);
 
     createMetricAlarm("fulfilled_requests_number", Severity.SEV1,
       undefined,

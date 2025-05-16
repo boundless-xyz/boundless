@@ -125,7 +125,10 @@ async fn main() -> Result<()> {
     let args = MainArgs::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
-    run(&args).await?;
+    let result = run(&args).await;
+    if let Err(e) = result {
+        tracing::error!("FATAL: {:?}", e);
+    }
 
     Ok(())
 }
@@ -255,10 +258,11 @@ async fn run(args: &MainArgs) -> Result<()> {
                 let caller = boundless_client.caller();
                 let balance = market.balance_of(caller).await?;
                 tracing::info!(
-                    "Caller {} has balance {} ETH on market {}",
+                    "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
                     caller,
                     format_units(balance, "ether")?,
-                    args.boundless_market_address
+                    args.boundless_market_address,
+                    format_units(auto_deposit, "ether")?
                 );
                 if balance < auto_deposit {
                     tracing::info!(

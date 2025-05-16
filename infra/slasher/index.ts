@@ -3,7 +3,7 @@ import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
 import { ChainId, getServiceNameV1, getEnvVar } from '../util';
-
+import * as crypto from 'crypto';
 require('dotenv').config();
 
 export = () => {
@@ -44,6 +44,15 @@ export = () => {
     secretId: rpcUrlSecret.id,
     secretString: ethRpcUrl,
   });
+
+  const secretHash = pulumi
+    .all([ethRpcUrl, privateKey])
+    .apply(([_ethRpcUrl, _privateKey]) => {
+      const hash = crypto.createHash("sha1");
+      hash.update(_ethRpcUrl);
+      hash.update(_privateKey);
+      return hash.digest("hex");
+    });
 
   const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
     forceDelete: true,
@@ -187,6 +196,10 @@ export = () => {
               name: 'BOUNDLESS_MARKET_ADDRESS',
               value: boundlessMarketAddr,
             },
+            {
+              name: 'SECRET_HASH',
+              value: secretHash,
+            },
           ],
           secrets: [
             {
@@ -239,6 +252,42 @@ export = () => {
     datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
     alarmDescription: 'Order slasher log ERROR level',
+    actionsEnabled: true,
+    alarmActions,
+  });
+
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
+    name: `${serviceName}-log-fatal-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-fatal`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: 'FATAL',
+  }, { dependsOn: [service] });
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
+    name: `${serviceName}-log-fatal`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-fatal`,
+          period: 60,
+          stat: 'Sum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    treatMissingData: 'notBreaching',
+    alarmDescription: `Order slasher FATAL (task exited)`,
     actionsEnabled: true,
     alarmActions,
   });

@@ -96,6 +96,7 @@ impl SlasherDb for SqliteDb {
         expires_at: u64,
         lock_expires_at: u64,
     ) -> Result<(), DbError> {
+        tracing::trace!("Adding order: 0x{:x}", id);
         // Only store the order if it has a valid expiration time.
         // If the expires_at is 0, the request is already slashed or fulfilled (or even not locked).
         if expires_at > 0 && lock_expires_at > 0 && !self.order_exists(id).await? {
@@ -110,6 +111,7 @@ impl SlasherDb for SqliteDb {
     }
 
     async fn get_order(&self, id: U256) -> Result<(u64, u64), DbError> {
+        tracing::trace!("Getting order: 0x{:x}", id);
         let res = sqlx::query("SELECT expires_at, lock_expires_at FROM orders WHERE id = $1")
             .bind(format!("{id:x}"))
             .fetch_optional(&self.pool)
@@ -125,6 +127,7 @@ impl SlasherDb for SqliteDb {
     }
 
     async fn remove_order(&self, id: U256) -> Result<(), DbError> {
+        tracing::trace!("Removing order: 0x{:x}", id);
         if self.order_exists(id).await? {
             sqlx::query("DELETE FROM orders WHERE id = $1")
                 .bind(format!("{id:x}"))

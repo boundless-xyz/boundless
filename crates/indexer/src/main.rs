@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     .await?;
 
     if let Err(err) = indexer_service.run(args.start_block).await {
-        bail!("Error running the indexer: {err}");
+        bail!("FATAL: Error running the indexer: {err}");
     }
 
     Ok(())

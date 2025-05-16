@@ -290,7 +290,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
-    /// Returns the balance, in Ether, of the given account.
+    /// Returns the balance, in Wei, of the given account.
     pub async fn balance_of(&self, account: Address) -> Result<U256, MarketError> {
         tracing::trace!("Calling balanceOf({account})");
         let balance = self.instance.balanceOf(account).call().await?;
@@ -423,7 +423,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let pending_tx = call.send().await?;
 
         let tx_hash = *pending_tx.tx_hash();
-        tracing::trace!("Broadcasting tx {}", tx_hash);
+        tracing::trace!("Broadcasting lock request tx {}", tx_hash);
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -479,7 +479,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .from(self.caller);
         let pending_tx = call.send().await.context("Failed to lock")?;
 
-        tracing::trace!("Broadcasting tx {}", pending_tx.tx_hash());
+        tracing::trace!("Broadcasting lock request with signature tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
         if !receipt.status() {
@@ -501,6 +501,20 @@ impl<P: Provider> BoundlessMarketService<P> {
         pending_tx: PendingTransactionBuilder<Ethereum>,
     ) -> Result<TransactionReceipt, MarketError> {
         let tx_hash = *pending_tx.tx_hash();
+
+        // Get the nonce of the transaction for debugging purposes.
+        // It is possible that the transaction is not found immediately after broadcast, so we don't error if it's not found.
+        let tx_result = self.instance.provider().get_transaction_by_hash(tx_hash).await;
+        if let Ok(Some(tx)) = tx_result {
+            let nonce = tx.nonce();
+            tracing::debug!("Tx {} broadcasted with nonce {}", tx_hash, nonce);
+        } else {
+            tracing::debug!(
+                "Tx {} not found immediately after broadcast. Can't get nonce.",
+                tx_hash
+            );
+        }
+
         match pending_tx.with_timeout(Some(self.timeout)).get_receipt().await {
             Ok(receipt) => Ok(receipt),
             Err(PendingTransactionError::TransportError(err)) if err.is_null_resp() => {
