@@ -66,26 +66,17 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
-    run(args.rpc_url, args.deployment, args.storage_config, args.private_key, args.counter_address)
-        .await?;
-
-    Ok(())
+    run(args).await
 }
 
 /// Main logic which creates the Boundless client, executes the proofs and submits the tx.
-async fn run(
-    rpc_url: Url,
-    deployment: Option<Deployment>,
-    storage_config: StorageProviderConfig,
-    private_key: PrivateKeySigner,
-    counter_address: Address,
-) -> Result<()> {
+async fn run(args: Args) -> Result<()> {
     // Create a Boundless client from the provided parameters.
     let client = Client::builder()
-        .with_rpc_url(rpc_url)
-        .with_deployment(deployment)
-        .with_storage_provider_config(&storage_config)?
-        .with_private_key(private_key)
+        .with_rpc_url(args.rpc_url)
+        .with_deployment(args.deployment)
+        .with_storage_provider_config(&args.storage_config)?
+        .with_private_key(args.private_key)
         .build()
         .await
         .context("failed to build boundless client")?;
@@ -111,7 +102,7 @@ async fn run(
 
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.
-    let counter = ICounterInstance::new(counter_address, client.provider().clone());
+    let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
     let journal_digest = B256::try_from(journal.digest().as_bytes())?;
     let image_id = B256::try_from(Digest::from(ECHO_ID).as_bytes())?;
     let call_increment = counter.increment(seal, image_id, journal_digest).from(client.caller());
@@ -146,7 +137,7 @@ mod tests {
         providers::{Provider, ProviderBuilder, WalletProvider},
     };
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::MockStorageProvider;
+    use boundless_market::storage::StorageProviderType;
     use boundless_market_test_utils::{create_test_ctx, TestCtx};
     use broker::test_utils::BrokerBuilder;
     use test_log::test;
@@ -168,7 +159,14 @@ mod tests {
             .connect(&anvil.endpoint())
             .await
             .unwrap();
-        let counter = Counter::deploy(&deployer_provider, test_ctx.set_verifier_address).await?;
+        let counter = Counter::deploy(
+            &deployer_provider,
+            test_ctx
+                .deployment
+                .verifier_router_address
+                .context("deployment is missing verifier_router_address")?,
+        )
+        .await?;
 
         Ok(*counter.address())
     }
@@ -194,17 +192,20 @@ mod tests {
 
         const TIMEOUT_SECS: u64 = 600; // 10 minutes
 
+        let run_task = run(Args {
+            counter_address,
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.customer_signer,
+            storage_config: StorageProviderConfig::builder()
+                .storage_provider(StorageProviderType::Mock)
+                .build()
+                .unwrap(),
+            deployment: Some(ctx.deployment),
+        });
+
         // Run with properly handled cancellation.
         tokio::select! {
-            run_result = run(
-                ctx.customer_signer,
-                anvil.endpoint_url(),
-                None,
-                MockStorageProvider::start(),
-                ctx.boundless_market_address,
-                ctx.set_verifier_address,
-                counter_address,
-            ) => run_result?,
+            run_result = run_task => run_result?,
 
             broker_task_result = tasks.join_next() => {
                 panic!("Broker exited unexpectedly: {:?}", broker_task_result.unwrap());

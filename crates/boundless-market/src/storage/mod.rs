@@ -20,6 +20,7 @@ use std::{fmt::Debug, ops::Deref, path::PathBuf, result::Result::Ok, sync::Arc};
 use async_trait::async_trait;
 use clap::{builder::ArgPredicate, Args, ValueEnum};
 use reqwest::Url;
+use derive_builder::Builder;
 
 mod fetch;
 mod file;
@@ -88,6 +89,9 @@ pub enum StandardStorageProvider {
     Pinata(PinataStorageProvider),
     /// Temporary file storage provider, used for local testing.
     File(TempFileStorageProvider),
+    /// Mock storage provider, used for local testing.
+    #[cfg(feature = "test-utils")]
+    Mock(Arc<MockStorageProvider>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -103,6 +107,10 @@ pub enum StandardStorageProviderError {
     /// Error type for the temporary file storage provider.
     #[error("temp file storage provider error")]
     File(#[from] TempFileStorageProviderError),
+    /// Error type for the mock storage provider.
+    #[cfg(feature = "test-utils")]
+    #[error("mock storage provider error")]
+    Mock(#[from] MockStorageError),
     /// Error type for an invalid storage provider.
     #[error("Invalid storage provider: {0}")]
     InvalidProvider(String),
@@ -115,19 +123,23 @@ pub enum StandardStorageProviderError {
 #[non_exhaustive]
 /// The type of storage provider to use.
 pub enum StorageProviderType {
+    /// No storage provider.
+    #[default]
+    None,
     /// S3 storage provider.
     S3,
     /// Pinata storage provider.
     Pinata,
     /// Temporary file storage provider.
     File,
-    /// No storage provider.
-    #[default]
-    None,
+    /// Mock storage provider.
+    #[cfg(feature = "test-utils")]
+    Mock,
 }
 
-#[derive(Clone, Debug, Args)]
 /// Configuration for the storage provider.
+#[non_exhaustive]
+#[derive(Clone, Debug, Args, Builder)]
 pub struct StorageProviderConfig {
     /// Storage provider to use [possible values: s3, pinata, file]
     ///
@@ -141,46 +153,62 @@ pub struct StorageProviderConfig {
         ("pinata_jwt", ArgPredicate::IsPresent, "pinata"),
         ("file_path", ArgPredicate::IsPresent, "file")
     ])]
+    #[builder(default)]
     pub storage_provider: StorageProviderType,
 
     // **S3 Storage Provider Options**
     /// S3 access key
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub s3_access_key: Option<String>,
     /// S3 secret key
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub s3_secret_key: Option<String>,
     /// S3 bucket
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub s3_bucket: Option<String>,
     /// S3 URL
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub s3_url: Option<String>,
     /// S3 region
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub aws_region: Option<String>,
     /// Use presigned URLs for S3
     #[arg(long, env, requires("s3_access_key"), default_value = "true")]
+    #[builder(setter(strip_option), default)]
     pub s3_use_presigned: Option<bool>,
 
     // **Pinata Storage Provider Options**
     /// Pinata JWT
     #[arg(long, env, required_if_eq("storage_provider", "pinata"))]
+    #[builder(setter(strip_option, into), default)]
     pub pinata_jwt: Option<String>,
     /// Pinata API URL
     #[arg(long, env, requires("pinata_jwt"))]
+    #[builder(setter(strip_option), default)]
     pub pinata_api_url: Option<Url>,
     /// Pinata gateway URL
     #[arg(long, env, requires("pinata_jwt"))]
+    #[builder(setter(strip_option), default)]
     pub ipfs_gateway_url: Option<Url>,
 
     // **File Storage Provider Options**
     /// Path for file storage provider
     #[arg(long)]
+    #[builder(setter(strip_option, into), default)]
     pub file_path: Option<PathBuf>,
 }
 
 impl StorageProviderConfig {
+    /// Create a new [StorageProviderConfigBuilder] to construct a config.
+    pub fn builder() -> StorageProviderConfigBuilder {
+        Default::default()
+    }
+
     /// Create a new configuration for a [StorageProviderType::File].
     pub fn dev_mode() -> Self {
         Self {
@@ -208,6 +236,8 @@ impl StorageProvider for StandardStorageProvider {
             Self::S3(provider) => provider.upload_program(program).await?,
             Self::Pinata(provider) => provider.upload_program(program).await?,
             Self::File(provider) => provider.upload_program(program).await?,
+            #[cfg(feature = "test-utils")]
+            Self::Mock(provider) => provider.upload_program(program).await?,
         })
     }
 
@@ -216,6 +246,8 @@ impl StorageProvider for StandardStorageProvider {
             Self::S3(provider) => provider.upload_input(input).await?,
             Self::Pinata(provider) => provider.upload_input(input).await?,
             Self::File(provider) => provider.upload_input(input).await?,
+            #[cfg(feature = "test-utils")]
+            Self::Mock(provider) => provider.upload_input(input).await?,
         })
     }
 }
@@ -261,6 +293,11 @@ pub fn storage_provider_from_config(
         StorageProviderType::File => {
             let provider = TempFileStorageProvider::from_config(config)?;
             Ok(StandardStorageProvider::File(provider))
+        }
+        #[cfg(feature = "test-utils")]
+        StorageProviderType::Mock => {
+            let provider = MockStorageProvider::start();
+            Ok(StandardStorageProvider::Mock(Arc::new(provider)))
         }
         StorageProviderType::None => Err(StandardStorageProviderError::NoProvider),
     }

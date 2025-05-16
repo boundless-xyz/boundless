@@ -16,7 +16,7 @@
 //! accessible to provers.
 
 use std::{
-    fmt::Debug,
+    fmt, fmt::Debug,
     result::Result::Ok,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -35,6 +35,15 @@ use super::StorageProvider;
 pub struct MockStorageProvider {
     server: MockServer,
     next_id: AtomicUsize,
+}
+
+impl fmt::Debug for MockStorageProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MockStorageProvider")
+            .field("server", &"<MockServer>")
+            .field("next_id", &self.next_id.load(std::sync::atomic::Ordering::Relaxed))
+            .finish()
+    }
 }
 
 /// Error type for the temporary file storage provider.
