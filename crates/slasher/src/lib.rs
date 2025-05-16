@@ -273,9 +273,10 @@ where
             }
 
             tracing::debug!(
-                "Processing locked event from sender: {:?} for request: 0x{:x}",
+                "Processing locked event from sender: {:?} for request: 0x{:x} found at block {}",
                 sender,
-                log.requestId
+                log.requestId,
+                log_data.block_number.unwrap_or(0)
             );
 
             let request = IBoundlessMarket::lockRequestCall::abi_decode(tx.input())?.request;
@@ -309,7 +310,12 @@ where
             to_block
         );
 
-        for (log, _) in logs {
+        for (log, log_data) in logs {
+            tracing::debug!(
+                "Processing slashed event for request: 0x{:x} found at block {}",
+                log.requestId,
+                log_data.block_number.unwrap_or(0)
+            );
             self.remove_order(log.requestId).await?;
         }
 
@@ -337,16 +343,30 @@ where
             to_block
         );
 
-        for (log, data) in logs {
-            let current_ts = if let Some(current_ts) = data.block_timestamp {
+        for (log, log_data) in logs {
+            tracing::debug!(
+                "Processing fulfilled event for request: 0x{:x} found at block {}",
+                log.requestId,
+                log_data.block_number.unwrap_or(0)
+            );
+            let current_ts = if let Some(current_ts) = log_data.block_timestamp {
                 current_ts
             } else {
-                let bn = data.block_number.ok_or(ServiceError::BlockNumberNotFound)?;
+                let bn = log_data.block_number.ok_or(ServiceError::BlockNumberNotFound)?;
                 self.block_timestamp(bn).await?
             };
             let (_, lock_expires_at) = self.db.get_order(log.requestId).await?;
             if current_ts <= lock_expires_at {
+                tracing::debug!(
+                    "Request was fulfilled before lock expired. Removing from db: 0x{:x}",
+                    log.requestId
+                );
                 self.remove_order(log.requestId).await?;
+            } else {
+                tracing::debug!(
+                    "Request was fulfilled after lock expired. Not removing from db: 0x{:x}",
+                    log.requestId
+                );
             }
         }
 
@@ -376,6 +396,10 @@ where
             self.db.get_expired_orders(self.block_timestamp(current_block).await?).await?;
 
         for request_id in expired {
+            tracing::debug!(
+                "About to slash expired request: 0x{:x}",
+                request_id
+            );
             match self.boundless_market.slash(request_id).await {
                 Ok(_) => {
                     tracing::info!("Slashing successful for request 0x{:x}", request_id);
@@ -387,7 +411,7 @@ where
                         || err_msg.contains("RequestIsFulfilled")
                     {
                         tracing::warn!(
-                            "Request already processed, removing 0x{:x}, reason: {}",
+                            "Request was either fulfilled before lock expiry, or has already been slashed, removing 0x{:x}, reason: {}",
                             request_id,
                             err_msg
                         );
