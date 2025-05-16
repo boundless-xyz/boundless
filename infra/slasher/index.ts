@@ -3,7 +3,7 @@ import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
 import { ChainId, getServiceNameV1, getEnvVar } from '../util';
-
+import * as crypto from 'crypto';
 require('dotenv').config();
 
 export = () => {
@@ -44,6 +44,15 @@ export = () => {
     secretId: rpcUrlSecret.id,
     secretString: ethRpcUrl,
   });
+
+  const secretHash = pulumi
+    .all([ethRpcUrl, privateKey])
+    .apply(([_ethRpcUrl, _privateKey]) => {
+      const hash = crypto.createHash("sha1");
+      hash.update(_ethRpcUrl);
+      hash.update(_privateKey);
+      return hash.digest("hex");
+    });
 
   const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
     forceDelete: true,
@@ -186,6 +195,10 @@ export = () => {
             {
               name: 'BOUNDLESS_MARKET_ADDRESS',
               value: boundlessMarketAddr,
+            },
+            {
+              name: 'SECRET_HASH',
+              value: secretHash,
             },
           ],
           secrets: [

@@ -3,6 +3,7 @@ import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import { Image } from '@pulumi/docker-build';
 import { getServiceNameV1 } from '../../util';
+import * as crypto from 'crypto';
 
 interface OrderGeneratorArgs {
   chainId: string;
@@ -56,15 +57,21 @@ export class OrderGenerator extends pulumi.ComponentResource {
       secretString: args.ethRpcUrl,
     });
 
-    let orderStreamUrlSecret: aws.secretsmanager.Secret | undefined;
-    if (offchainConfig) {
-      const orderStreamUrl = offchainConfig.orderStreamUrl;
-      orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
-      new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
-        secretId: orderStreamUrlSecret.id,
-        secretString: orderStreamUrl,
+    const orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
+    new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
+      secretId: orderStreamUrlSecret.id,
+      secretString: offchainConfig?.orderStreamUrl,
+    });
+
+    const secretHash = pulumi
+      .all([args.ethRpcUrl, args.privateKey, offchainConfig?.orderStreamUrl])
+      .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl]) => {
+        const hash = crypto.createHash("sha1");
+        hash.update(_ethRpcUrl);
+        hash.update(_privateKey);
+        hash.update(_orderStreamUrl ?? '');
+        return hash.digest("hex");
       });
-    }
 
     const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
       name: serviceName,
@@ -111,6 +118,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         value: args.logLevel,
       },
       { name: 'NO_COLOR', value: '1' },
+      { name: 'SECRET_HASH', value: secretHash },
     ]
 
     var secrets = [
