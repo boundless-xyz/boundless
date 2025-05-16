@@ -183,7 +183,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       dbSubnetGroupName: dbSubnets.name,
       vpcSecurityGroupIds: [rdsSecurityGroup.id],
       storageEncrypted: true,
-    }, { protect: true });
+    }, { /** protect: true **/ }); // TODO: Re-enable protection once deployed and stable.
 
     const auroraWriter = new aws.rds.ClusterInstance(
       `${serviceName}-aurora-writer`, {
@@ -195,7 +195,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
     },
-      { protect: true }
+      { /** protect: true **/ } // TODO: Re-enable protection once deployed and stable.
     );
 
     const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
