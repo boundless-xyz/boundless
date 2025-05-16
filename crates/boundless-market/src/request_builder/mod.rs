@@ -410,7 +410,7 @@ mod tests {
     use super::{
         Layer, OfferLayer, OfferLayerConfig, PreflightLayer, RequestBuilder, RequestId,
         RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequirementsLayer,
-        StandardRequestBuilder, StorageLayer, StorageLayerConfig,
+        StandardRequestBuilder, StorageLayer, StorageLayerConfig, OfferParams
     };
 
     use crate::{
@@ -443,7 +443,7 @@ mod tests {
             .request_id_layer(market)
             .build()?;
 
-        let params = request_builder.params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         println!("built request {request:#?}");
         Ok(())
@@ -470,7 +470,7 @@ mod tests {
             .request_id_layer(market)
             .build()?;
 
-        let params = request_builder.params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         assert_eq!(request.offer.rampUpPeriod, 27);
         Ok(())
@@ -494,7 +494,7 @@ mod tests {
             .build()?;
 
         // Try building the reqeust by providing the program.
-        let params = request_builder.params().with_program(ECHO_ELF).with_env(b"hello!".to_vec());
+        let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let err = request_builder.build(params).await.unwrap_err();
         tracing::debug!("err: {err}");
 
@@ -502,7 +502,7 @@ mod tests {
         let storage = Arc::new(MockStorageProvider::start());
         let program_url = storage.upload_program(ECHO_ELF).await?;
         let params =
-            request_builder.params().with_program_url(program_url).with_env(b"hello!".to_vec());
+            request_builder.params().with_program_url(program_url).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         assert_eq!(
             request.requirements.imageId,
@@ -519,7 +519,7 @@ mod tests {
             Some(storage.clone()),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
-        let env = GuestEnv::from(b"inline_data".to_vec());
+        let env = GuestEnv::from_stdin(b"inline_data");
         let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
 
         // Program should be uploaded and input inline.
@@ -536,7 +536,7 @@ mod tests {
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
 
-        let env = GuestEnv::from(b"inline_data".to_vec());
+        let env = GuestEnv::from_stdin(b"inline_data");
         let request_input = layer.process(&env).await?;
 
         // Program should be uploaded and input inline.
@@ -553,7 +553,7 @@ mod tests {
             Some(storage.clone()),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
-        let env = GuestEnv::from(rand::random_iter().take(2048).collect::<Vec<u8>>());
+        let env = GuestEnv::from_stdin(rand::random_iter().take(2048).collect::<Vec<u8>>());
         let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
 
         // Program and input should be uploaded and input inline.
@@ -571,7 +571,7 @@ mod tests {
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
 
-        let env = GuestEnv::from(rand::random_iter().take(2048).collect::<Vec<u8>>());
+        let env = GuestEnv::from_stdin(rand::random_iter().take(2048).collect::<Vec<u8>>());
         let err = layer.process(&env).await.unwrap_err();
 
         assert!(err
@@ -587,7 +587,7 @@ mod tests {
         let program_url = storage.upload_program(ECHO_ELF).await?;
         let layer = PreflightLayer::default();
         let data = b"hello_zkvm".to_vec();
-        let env = GuestEnv::from(data.clone());
+        let env = GuestEnv::from_stdin(data.clone());
         let input = RequestInput::inline(env.encode()?);
         let session = layer.process((&program_url, &input)).await?;
 
@@ -673,7 +673,8 @@ mod tests {
         let request_id = RequestId::new(test_ctx.customer_signer.address(), 0);
 
         // Zero cycles
-        let offer_zero_mcycles = layer.process((&requirements, &request_id, 0u64)).await?;
+        let offer_params = OfferParams::default();
+        let offer_zero_mcycles = layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
         assert_eq!(offer_zero_mcycles.minPrice, U256::ZERO);
         // Defaults from builder
         assert_eq!(offer_zero_mcycles.rampUpPeriod, 120);
@@ -683,8 +684,19 @@ mod tests {
         assert!(offer_zero_mcycles.maxPrice > U256::ZERO);
 
         // Now create an offer for 100 Mcycles.
-        let offer_more_mcycles = layer.process((&requirements, &request_id, 100u64 << 20)).await?;
+        let offer_more_mcycles = layer.process((&requirements, &request_id, Some(100u64 << 20), &offer_params)).await?;
         assert!(offer_more_mcycles.maxPrice > offer_zero_mcycles.maxPrice);
+
+        // Check that overrides are respected.
+        let min_price = U256::from(1u64);
+        let max_price = U256::from(5u64);
+        let offer_params = OfferParams::builder().max_price(max_price).into();
+        let offer_zero_mcycles = layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
+        assert_eq!(offer_zero_mcycles.maxPrice, max_price);
+        assert_eq!(offer_zero_mcycles.minPrice, min_price);
+        assert_eq!(offer_zero_mcycles.rampUpPeriod, 120);
+        assert_eq!(offer_zero_mcycles.lockTimeout, 600);
+        assert_eq!(offer_zero_mcycles.timeout, 1200);
         Ok(())
     }
 }
