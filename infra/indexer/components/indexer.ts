@@ -206,10 +206,11 @@ export class IndexerInstance extends pulumi.ComponentResource {
     });
 
     const secretHash = pulumi
-      .all([dbUrlSecretValue])
-      .apply(([_dbUrlSecretValue]: any[]) => {
+      .all([dbUrlSecretValue, dbUrlSecretVersion.arn])
+      .apply(([_dbUrlSecretValue, _secretVersionArn]: any[]) => {
         const hash = crypto.createHash("sha1");
         hash.update(_dbUrlSecretValue);
+        hash.update(_secretVersionArn);
         return hash.digest("hex");
       });
 
@@ -435,6 +436,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
     this.dbUrlSecret = dbUrlSecret;
     this.dbUrlSecretVersion = dbUrlSecretVersion;
     this.rdsSecurityGroupId = rdsSecurityGroup.id;
+
 
     this.registerOutputs({
       dbUrlSecret: this.dbUrlSecret,
