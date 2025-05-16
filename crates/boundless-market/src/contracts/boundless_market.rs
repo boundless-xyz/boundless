@@ -293,7 +293,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
-    /// Returns the balance, in Ether, of the given account.
+    /// Returns the balance, in Wei, of the given account.
     pub async fn balance_of(&self, account: Address) -> Result<U256, MarketError> {
         tracing::trace!("Calling balanceOf({account})");
         let balance = self.instance.balanceOf(account).call().await?;

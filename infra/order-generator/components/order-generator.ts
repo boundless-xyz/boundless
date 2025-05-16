@@ -108,7 +108,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       },
     });
 
-    var environment = [
+    let environment = [
       {
         name: 'IPFS_GATEWAY_URL',
         value: args.pinataGateway,
@@ -121,7 +121,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       { name: 'SECRET_HASH', value: secretHash },
     ]
 
-    var secrets = [
+    let secrets = [
       {
         name: 'RPC_URL',
         valueFrom: rpcUrlSecret.arn,
