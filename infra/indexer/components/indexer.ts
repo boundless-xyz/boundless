@@ -9,6 +9,7 @@ const SERVICE_NAME_BASE = 'indexer';
 
 export class IndexerInstance extends pulumi.ComponentResource {
   public readonly dbUrlSecret: aws.secretsmanager.Secret;
+  public readonly dbUrlSecretVersion: aws.secretsmanager.SecretVersion;
   public readonly rdsSecurityGroupId: pulumi.Output<string>;
 
   constructor(
@@ -27,11 +28,12 @@ export class IndexerInstance extends pulumi.ComponentResource {
       ethRpcUrl: pulumi.Output<string>;
       boundlessAlertsTopicArn?: string;
       startBlock: string;
+      serviceMetricsNamespace: string;
       dockerRemoteBuilder?: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
-    super(`${SERVICE_NAME_BASE}-${args.chainId}`, name, opts);
+    super(name, name, opts);
 
     const {
       ciCacheSecret,
@@ -43,11 +45,11 @@ export class IndexerInstance extends pulumi.ComponentResource {
       vpcId,
       rdsPassword,
       ethRpcUrl,
-      startBlock
+      startBlock,
+      serviceMetricsNamespace
     } = args;
 
-    const stackName = pulumi.getStack();
-    const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
+    const serviceName = name;
 
     const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
       lifecyclePolicy: {
@@ -198,16 +200,17 @@ export class IndexerInstance extends pulumi.ComponentResource {
 
     const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
     const dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`);
-    new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
+    const dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
       secretId: dbUrlSecret.id,
       secretString: dbUrlSecretValue,
     });
 
     const secretHash = pulumi
-      .all([dbUrlSecretValue])
-      .apply(([_dbUrlSecretValue]: any[]) => {
+      .all([dbUrlSecretValue, dbUrlSecretVersion.arn])
+      .apply(([_dbUrlSecretValue, _secretVersionArn]: any[]) => {
         const hash = crypto.createHash("sha1");
         hash.update(_dbUrlSecretValue);
+        hash.update(_secretVersionArn);
         return hash.digest("hex");
       });
 
@@ -270,10 +273,10 @@ export class IndexerInstance extends pulumi.ComponentResource {
       name: `${serviceName}-cluster`,
     });
 
-    const serviceLogGroup = `${serviceName}-serv`;
+    const serviceLogGroup = `${serviceName}-service`;
 
-    const service = new awsx.ecs.FargateService(serviceLogGroup, {
-      name: serviceLogGroup,
+    const service = new awsx.ecs.FargateService(`${serviceName}-service`, {
+      name: `${serviceName}-service`,
       cluster: cluster.arn,
       networkConfiguration: {
         securityGroups: [indexerSecGroup.id],
@@ -282,7 +285,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       },
       desiredCount: 1,
       deploymentCircuitBreaker: {
-        enable: true,
+        enable: false,
         rollback: false,
       },
       // forceDelete: true,
@@ -359,7 +362,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       name: `${serviceName}-log-err-filter`,
       logGroupName: serviceLogGroup,
       metricTransformation: {
-        namespace: 'Boundless/Services/Indexer',
+        namespace: serviceMetricsNamespace,
         name: `${serviceName}-log-err`,
         value: '1',
         defaultValue: '0',
@@ -375,7 +378,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
         {
           id: 'm1',
           metric: {
-            namespace: `Boundless/Services/${serviceName}`,
+            namespace: serviceMetricsNamespace,
             metricName: `${serviceName}-log-err`,
             period: 60,
             stat: 'Sum',
@@ -394,11 +397,50 @@ export class IndexerInstance extends pulumi.ComponentResource {
       alarmActions,
     });
 
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
+      name: `${serviceName}-log-fatal-filter`,
+      logGroupName: serviceLogGroup,
+      metricTransformation: {
+        namespace: serviceMetricsNamespace,
+        name: `${serviceName}-log-fatal`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: 'FATAL',
+    }, { dependsOn: [service] });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
+      name: `${serviceName}-log-fatal`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: serviceMetricsNamespace,
+            metricName: `${serviceName}-log-fatal`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Indexer ${name} FATAL (task exited)`,
+      actionsEnabled: true,
+      alarmActions,
+    });
+
     this.dbUrlSecret = dbUrlSecret;
+    this.dbUrlSecretVersion = dbUrlSecretVersion;
     this.rdsSecurityGroupId = rdsSecurityGroup.id;
+
 
     this.registerOutputs({
       dbUrlSecret: this.dbUrlSecret,
+      dbUrlSecretVersion: this.dbUrlSecretVersion,
       rdsSecurityGroupId: this.rdsSecurityGroupId
     });
   }

@@ -33,10 +33,10 @@ impl TxMetadata {
 
 #[derive(Error, Debug)]
 pub enum DbError {
-    #[error("SQL error")]
+    #[error("SQL error {0:?}")]
     SqlErr(#[from] sqlx::Error),
 
-    #[error("SQL Migration error")]
+    #[error("SQL Migration error {0:?}")]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
     #[error("Invalid block number: {0}")]
