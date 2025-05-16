@@ -4,7 +4,7 @@
 
 use alloy::signers::{local::PrivateKeySigner, Signer};
 use anyhow::{Context, Result};
-use boundless_market::order_stream_client::{order_stream, OrderStreamClient as OrderStreamClient};
+use boundless_market::order_stream_client::{order_stream, OrderStreamClient};
 use futures_util::StreamExt;
 
 use crate::{

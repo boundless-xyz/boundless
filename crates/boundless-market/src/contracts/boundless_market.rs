@@ -22,7 +22,7 @@ use alloy::{
     consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
     network::Ethereum,
-    primitives::{Address, Bytes, B256, U256, utils::format_ether},
+    primitives::{utils::format_ether, Address, Bytes, B256, U256},
     providers::{PendingTransactionBuilder, PendingTransactionError, Provider},
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
@@ -323,7 +323,11 @@ impl<P: Provider> BoundlessMarketService<P> {
             .from(self.caller)
             .value(value.into());
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {:x} with request ID {:x}", pending_tx.tx_hash(), request.id);
+        tracing::debug!(
+            "Broadcasting tx {:x} with request ID {:x}",
+            pending_tx.tx_hash(),
+            request.id
+        );
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -344,7 +348,11 @@ impl<P: Provider> BoundlessMarketService<P> {
         let call =
             self.instance.submitRequest(request.clone(), signature.clone()).from(self.caller);
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {:x} with request ID {:x}", pending_tx.tx_hash(), request.id);
+        tracing::debug!(
+            "Broadcasting tx {:x} with request ID {:x}",
+            pending_tx.tx_hash(),
+            request.id
+        );
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 

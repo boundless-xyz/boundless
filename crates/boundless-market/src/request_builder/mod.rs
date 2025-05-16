@@ -26,7 +26,7 @@ use risc0_zkvm::{Digest, Journal};
 use url::Url;
 
 use crate::{
-    contracts::{Input as RequestInput, Offer, ProofRequest, RequestId, Requirements},
+    contracts::{Input as RequestInput, ProofRequest, RequestId, Requirements},
     input::GuestEnv,
     storage::{StandardStorageProvider, StorageProvider},
     util::{NotProvided, StandardRpcProvider},
@@ -43,7 +43,7 @@ pub use request_id_layer::{
     RequestIdLayer, RequestIdLayerConfig, RequestIdLayerConfigBuilder, RequestIdLayerMode,
 };
 mod offer_layer;
-pub use offer_layer::{OfferLayer, OfferLayerConfig, OfferLayerConfigBuilder};
+pub use offer_layer::{OfferLayer, OfferLayerConfig, OfferLayerConfigBuilder, OfferParams, OfferParamsBuilder};
 mod finalizer;
 pub use finalizer::{Finalizer, FinalizerConfig, FinalizerConfigBuilder};
 
@@ -218,8 +218,8 @@ pub struct RequestParams {
     pub journal: Option<Journal>,
     /// [RequestId] to use for the proof request.
     pub request_id: Option<RequestId>,
-    /// [Offer] to send along with the request.
-    pub offer: Option<Offer>,
+    /// [OfferParams] for constructing the [Offer] to send along with the request.
+    pub offer: Option<OfferParams>,
     /// [Requirements] for the resulting proof.
     pub requirements: Option<Requirements>,
 }
@@ -329,11 +329,25 @@ impl RequestParams {
         Self { request_id: Some(value.into()), ..self }
     }
 
-    pub fn require_offer(&self) -> Result<&Offer, MissingFieldError> {
+    pub fn require_offer(&self) -> Result<&OfferParams, MissingFieldError> {
         self.offer.as_ref().ok_or(MissingFieldError::new("offer"))
     }
 
-    pub fn with_offer(self, value: impl Into<Offer>) -> Self {
+    /// Configure the [Offer][crate::Offer] on the [ProofRequest] by either providing a complete
+    /// offer, or a partial offer via [OfferParams].
+    ///
+    /// ```rust
+    /// # use boundless_market::request_builder::{RequestParams, OfferParams};
+    /// use alloy::primitives::utils::parse_units;
+    ///
+    /// RequestParams::new()
+    ///     .with_offer(OfferParams::builder()
+    ///         .max_price(parse_units("0.01", "ether").unwrap())
+    ///         .ramp_up_period(30)
+    ///         .lock_timeout(120)
+    ///         .timeout(240));
+    /// ```
+    pub fn with_offer(self, value: impl Into<OfferParams>) -> Self {
         Self { offer: Some(value.into()), ..self }
     }
 

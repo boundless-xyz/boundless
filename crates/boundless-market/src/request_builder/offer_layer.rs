@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Adapt, Layer, RequestParams};
+use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
     selector::{ProofType, SupportedSelectors},
@@ -26,7 +26,7 @@ use alloy::{
     },
     providers::Provider,
 };
-use anyhow::Context;
+use anyhow::{ensure, Context};
 use derive_builder::Builder;
 
 #[non_exhaustive]
@@ -83,6 +83,77 @@ impl<P: Clone> From<P> for OfferLayer<P> {
     }
 }
 
+#[non_exhaustive]
+#[derive(Clone, Debug, Default, Builder)]
+/// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
+/// defaults set in the [OfferLayerConfig].
+pub struct OfferParams {
+    #[builder(setter(strip_option, into), default)]
+    pub min_price: Option<U256>,
+    #[builder(setter(strip_option, into), default)]
+    pub max_price: Option<U256>,
+    #[builder(setter(strip_option), default)]
+    pub bidding_start: Option<u64>,
+    #[builder(setter(strip_option), default)]
+    pub ramp_up_period: Option<u32>,
+    #[builder(setter(strip_option), default)]
+    pub lock_timeout: Option<u32>,
+    #[builder(setter(strip_option), default)]
+    pub timeout: Option<u32>,
+    #[builder(setter(strip_option, into), default)]
+    pub lock_stake: Option<U256>,
+}
+
+impl From<Offer> for OfferParams {
+    fn from(value: Offer) -> Self {
+        Self {
+            timeout: Some(value.timeout),
+            min_price: Some(value.minPrice),
+            max_price: Some(value.maxPrice),
+            lock_stake: Some(value.lockStake),
+            lock_timeout: Some(value.lockTimeout),
+            bidding_start: Some(value.biddingStart),
+            ramp_up_period: Some(value.rampUpPeriod),
+        }
+    }
+}
+
+impl From<OfferParamsBuilder> for OfferParams {
+    fn from(value: OfferParamsBuilder) -> Self {
+        // Builder should be infallible.
+        value.build().expect("implementation error in OfferParams")
+    }
+}
+
+// Allows for a nicer builder pattern in RequestParams.
+impl From<&mut OfferParamsBuilder> for OfferParams {
+    fn from(value: &mut OfferParamsBuilder) -> Self {
+        value.clone().into()
+    }
+}
+
+impl TryFrom<OfferParams> for Offer {
+    type Error = MissingFieldError;
+
+    fn try_from(value: OfferParams) -> Result<Self, Self::Error> {
+        Ok(Self {
+            timeout: value.timeout.ok_or(MissingFieldError::new("timeout"))?,
+            minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?,
+            maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?,
+            lockStake: value.lock_stake.ok_or(MissingFieldError::new("lock_stake"))?,
+            lockTimeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
+            biddingStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
+            rampUpPeriod: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
+        })
+    }
+}
+
+impl OfferParams {
+    pub fn builder() -> OfferParamsBuilder {
+        Default::default()
+    }
+}
+
 impl<P> OfferLayer<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
@@ -130,7 +201,7 @@ where
     }
 }
 
-impl<P> Layer<(&Requirements, &RequestId, u64)> for OfferLayer<P>
+impl<P> Layer<(&Requirements, &RequestId, Option<u64>, &OfferParams)> for OfferLayer<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -139,31 +210,63 @@ where
 
     async fn process(
         &self,
-        (requirements, request_id, cycle_count): (&Requirements, &RequestId, u64),
+        (requirements, request_id, cycle_count, params): (
+            &Requirements,
+            &RequestId,
+            Option<u64>,
+            &OfferParams,
+        ),
     ) -> Result<Self::Output, Self::Error> {
-        let min_price = self.config.min_price_per_cycle * U256::from(cycle_count);
-        let max_price_cycle = self.config.max_price_per_cycle * U256::from(cycle_count);
+        let min_price = if params.min_price.is_none() {
+            match cycle_count {
+                Some(cycle_count) => self.config.min_price_per_cycle * U256::from(cycle_count),
+                None => {
+                    ensure!(
+                        self.config.min_price_per_cycle == U256::ZERO,
+                        "cycle count required to set min price in OfferLayer"
+                    );
+                    U256::ZERO
+                }
+            }
+        } else {
+            params.min_price.unwrap()
+        };
 
-        let gas_price: u128 = self.provider.get_gas_price().await?;
-        let gas_cost_estimate = self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
+        let max_price = if params.max_price.is_none() {
+            let cycle_count =
+                cycle_count.context("cycle count required to set max price in OfferLayer")?;
+            let max_price_cycle = self.config.max_price_per_cycle * U256::from(cycle_count);
 
-        // Add the gas price plus 10% to the max_price.
-        let max_price = max_price_cycle + (gas_cost_estimate + (gas_cost_estimate / U256::from(10)));
-        tracing::debug!(
-            "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate",
-            format_units(max_price, "ether")?,
-            format_units(max_price_cycle, "ether")?,
-            format_units(gas_cost_estimate, "ether")?,
-        );
+            let gas_price: u128 = self.provider.get_gas_price().await?;
+            let gas_cost_estimate =
+                self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
+
+            // Add the gas price plus 10% to the max_price.
+            let max_price =
+                max_price_cycle + (gas_cost_estimate + (gas_cost_estimate / U256::from(10)));
+            tracing::debug!(
+                "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate",
+                format_units(max_price, "ether")?,
+                format_units(max_price_cycle, "ether")?,
+                format_units(gas_cost_estimate, "ether")?,
+            );
+            max_price
+        } else {
+            params.max_price.unwrap()
+        };
+
+        let bidding_start = params
+            .bidding_start
+            .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
 
         Ok(Offer {
             minPrice: min_price,
             maxPrice: max_price,
-            biddingStart: now_timestamp() + self.config.bidding_start_delay,
-            rampUpPeriod: self.config.ramp_up_period,
-            lockTimeout: self.config.lock_timeout,
-            timeout: self.config.timeout,
-            lockStake: self.config.lock_stake,
+            biddingStart: bidding_start,
+            rampUpPeriod: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
+            lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
+            timeout: params.timeout.unwrap_or(self.config.timeout),
+            lockStake: params.lock_stake.unwrap_or(self.config.lock_stake),
         })
     }
 }
@@ -184,9 +287,9 @@ where
 
         let requirements = self.require_requirements()?;
         let request_id = self.require_request_id()?;
-        let cycles = self.require_cycles()?;
+        let offer_params = self.offer.clone().unwrap_or_default();
 
-        let offer = layer.process((requirements, request_id, cycles)).await?;
+        let offer = layer.process((requirements, request_id, self.cycles, &offer_params)).await?;
         Ok(self.with_offer(offer))
     }
 }

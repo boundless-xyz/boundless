@@ -19,8 +19,8 @@ use std::{fmt::Debug, ops::Deref, path::PathBuf, result::Result::Ok, sync::Arc};
 
 use async_trait::async_trait;
 use clap::{builder::ArgPredicate, Args, ValueEnum};
-use reqwest::Url;
 use derive_builder::Builder;
+use reqwest::Url;
 
 mod fetch;
 mod file;

@@ -116,6 +116,6 @@ impl Adapt<Finalizer> for RequestParams {
             }
         }
 
-        layer.process((program_url, input, requirements, offer, request_id)).await
+        layer.process((program_url, input, requirements, offer.try_into()?, request_id)).await
     }
 }

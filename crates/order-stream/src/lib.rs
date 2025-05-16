@@ -603,7 +603,11 @@ mod tests {
     }
 
     /// Helper to wait for server health with exponential backoff
-    async fn wait_for_server_health(client: &OrderStreamClient, addr: &SocketAddr, max_retries: usize) {
+    async fn wait_for_server_health(
+        client: &OrderStreamClient,
+        addr: &SocketAddr,
+        max_retries: usize,
+    ) {
         let mut retry_delay = tokio::time::Duration::from_millis(50);
 
         let health_url = format!("http://{}{}", addr, HEALTH_CHECK);

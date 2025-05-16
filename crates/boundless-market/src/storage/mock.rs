@@ -16,7 +16,8 @@
 //! accessible to provers.
 
 use std::{
-    fmt, fmt::Debug,
+    fmt,
+    fmt::Debug,
     result::Result::Ok,
     sync::atomic::{AtomicUsize, Ordering},
 };

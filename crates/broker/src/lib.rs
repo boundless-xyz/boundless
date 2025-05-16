@@ -14,7 +14,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
-    order_stream_client::OrderStreamClient as OrderStreamClient,
+    order_stream_client::OrderStreamClient,
     selector::is_groth16_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
