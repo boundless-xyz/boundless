@@ -66,14 +66,8 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
-    run(
-        args.rpc_url,
-        args.deployment,
-        args.storage_config,
-        args.private_key,
-        args.counter_address,
-    )
-    .await?;
+    run(args.rpc_url, args.deployment, args.storage_config, args.private_key, args.counter_address)
+        .await?;
 
     Ok(())
 }

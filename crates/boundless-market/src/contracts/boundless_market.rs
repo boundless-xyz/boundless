@@ -22,7 +22,7 @@ use alloy::{
     consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
     network::Ethereum,
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{Address, Bytes, B256, U256, utils::format_ether},
     providers::{PendingTransactionBuilder, PendingTransactionError, Provider},
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
@@ -307,6 +307,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
         tracing::trace!("Calling submitRequest({:x?})", request);
+        tracing::debug!("Sending request ID {:x}", request.id);
         let client_address = request.client_address();
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()));
@@ -322,7 +323,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .from(self.caller)
             .value(value.into());
         let pending_tx = call.send().await?;
-        tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
+        tracing::debug!("Broadcasting tx {:x} with request ID {:x}", pending_tx.tx_hash(), request.id);
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -339,10 +340,11 @@ impl<P: Provider> BoundlessMarketService<P> {
         signature: &Bytes,
     ) -> Result<U256, MarketError> {
         tracing::trace!("Calling submitRequest({:x?})", request);
+        tracing::debug!("Sending request ID {:x}", request.id);
         let call =
             self.instance.submitRequest(request.clone(), signature.clone()).from(self.caller);
         let pending_tx = call.send().await?;
-        tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
+        tracing::debug!("Broadcasting tx {:x} with request ID {:x}", pending_tx.tx_hash(), request.id);
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -365,6 +367,9 @@ impl<P: Provider> BoundlessMarketService<P> {
             .context("failed to get whether the client balance can cover the offer max price")?;
         let max_price = U256::from(request.offer.maxPrice);
         let value = if balance > max_price { U256::ZERO } else { U256::from(max_price) - balance };
+        if value > U256::ZERO {
+            tracing::debug!("Sending {} ETH with request {:x}", format_ether(value), request.id);
+        }
         self.submit_request_with_value(request, signer, value).await
     }
 

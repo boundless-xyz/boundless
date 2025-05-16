@@ -131,7 +131,7 @@ pub mod token {
 }
 
 /// Status of a proof request
-#[derive(Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub enum RequestStatus {
     /// The request has expired.
     Expired,
@@ -144,6 +144,7 @@ pub enum RequestStatus {
     /// This is used to represent the status of a request
     /// with no evidence in the state. The request may be
     /// open for bidding or it may not exist.
+    #[default]
     Unknown,
 }
 
