@@ -396,10 +396,7 @@ where
             self.db.get_expired_orders(self.block_timestamp(current_block).await?).await?;
 
         for request_id in expired {
-            tracing::debug!(
-                "About to slash expired request: 0x{:x}",
-                request_id
-            );
+            tracing::debug!("About to slash expired request: 0x{:x}", request_id);
             match self.boundless_market.slash(request_id).await {
                 Ok(_) => {
                     tracing::info!("Slashing successful for request 0x{:x}", request_id);
