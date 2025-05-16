@@ -18,7 +18,7 @@ use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
     client::Client,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
-    input::InputBuilder,
+    input::GuestEnvBuilder,
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -183,7 +183,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             }
         };
 
-        let env = InputBuilder::new().write(&(input as u64))?.build_env()?;
+        let env = GuestEnvBuilder::new().write(&(input as u64))?.build_env()?;
         let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
         let journal = session_info.journal;
 

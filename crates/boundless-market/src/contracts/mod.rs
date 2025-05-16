@@ -47,7 +47,7 @@ use risc0_zkvm::sha::Digest;
 pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
 
 #[cfg(not(target_os = "zkvm"))]
-use crate::{input::InputBuilder, util::now_timestamp};
+use crate::{input::GuestEnvBuilder, util::now_timestamp};
 
 #[cfg(not(target_os = "zkvm"))]
 const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
@@ -597,15 +597,15 @@ impl Callback {
 }
 
 impl Input {
-    /// Create a new [InputBuilder] for use in constructing and encoding the guest zkVM environment.
+    /// Create a new [GuestEnvBuilder] for use in constructing and encoding the guest zkVM environment.
     #[cfg(not(target_os = "zkvm"))]
-    pub fn builder() -> InputBuilder {
-        InputBuilder::new()
+    pub fn builder() -> GuestEnvBuilder {
+        GuestEnvBuilder::new()
     }
 
     /// Sets the input type to inline and the data to the given bytes.
     ///
-    /// See [InputBuilder] for more details on how to write input data.
+    /// See [GuestEnvBuilder] for more details on how to write input data.
     ///
     /// # Example
     ///

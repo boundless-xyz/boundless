@@ -558,7 +558,7 @@ mod tests {
             hit_points::default_allowance, Input, InputType, Offer, Predicate, PredicateType,
             ProofRequest, RequestId, Requirements,
         },
-        input::InputBuilder,
+        input::GuestEnvBuilder,
     };
     use boundless_market_test_utils::{
         deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
@@ -684,7 +684,7 @@ mod tests {
             }],
             prover_address: prover_addr,
         };
-        let assessor_stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
+        let assessor_stdin = GuestEnvBuilder::new().write_frame(&assessor_input.encode()).stdin;
 
         let assessor_input = prover.upload_input(assessor_stdin).await.unwrap();
 

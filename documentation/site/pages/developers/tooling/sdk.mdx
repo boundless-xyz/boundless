@@ -146,13 +146,14 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 - Structures: `ProofRequest`, `Offer`, `Fulfillment`.
 
 ### `input`
-- `InputBuilder`: Prepare inputs for RISC Zero guests.
+- `GuestEnv`: Environment for the guest, including input (e.g. `stdin`)
+- `GuestEnvBuilder`: Prepare inputs for the guest by construsting `GuestEnv`.
 
 ### `order_stream_client`
 - `OrderStreamClient`: Submit/fetch orders offchain via WebSocket.
 
 ### `storage`
-- Providers: `S3`, `Pinata`, and `TempFile` for uploading program and input data.
+- Providers: `S3` and `Pinata` for uploading program and input data.
 
 ### `selector`
 - Utilities for tracking/verifying proof types.
@@ -162,10 +163,9 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 ```rust
 use boundless_market::{
   client::Client,
-  contracts::{ProofRequest, RequestId, Requirements, Predicate, Offer},
-  input::InputBuilder,
+  contracts::{ProofRequest, Input, RequestId, Requirements, Predicate, Offer},
   storage::StorageProvider,
-  };
+};
 use alloy::signers::local::LocalSigner;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::primitives::{Address, U256};
@@ -182,7 +182,7 @@ async fn proof_submission(signer: &PrivateKeySigner, rpc_url: Url, market_addres
         .await?;
 
     let program_url = client.upload_program(&std::fs::read("guest.bin")?).await?;
-    let input_url = client.upload_input(&InputBuilder::new().write(&42u32)?.build_vec()?).await?;
+    let input_url = client.upload_input(&Input::builder().write(&42u32)?.build_vec()?).await?;
 
     let request = ProofRequest::new(
         RequestId::new(signer.address(), 0),

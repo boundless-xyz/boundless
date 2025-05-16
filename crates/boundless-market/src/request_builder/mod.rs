@@ -225,6 +225,10 @@ pub struct RequestParams {
 }
 
 impl RequestParams {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn require_program(&self) -> Result<&[u8], MissingFieldError> {
         self.program.as_deref().ok_or(MissingFieldError::new("program"))
     }
@@ -237,8 +241,44 @@ impl RequestParams {
         self.env.as_ref().ok_or(MissingFieldError::new("env"))
     }
 
+    /// Sets the [GuestEnv], providing the guest with input.
+    ///
+    /// Can be constructed with [GuestEnvBuilder][crate::input::GuestEnvBuilder].
+    ///
+    /// ```rust
+    /// # use boundless_market::request_builder::RequestParams;
+    /// # const ECHO_ELF: &[u8] = b"";
+    /// use boundless_market::GuestEnvBuilder;
+    ///
+    /// RequestParams::new()
+    ///     .with_program(ECHO_ELF)
+    ///     .with_env(GuestEnvBuilder::new()
+    ///         .write_frame(b"hello!")
+    ///         .write_frame(b"goodbye."));
+    /// ```
     pub fn with_env(self, value: impl Into<GuestEnv>) -> Self {
         Self { env: Some(value.into()), ..self }
+    }
+
+    /// Sets the [GuestEnv] to be contain the given bytes as `stdin`.
+    ///
+    /// Note that the bytes are passed directly to the guest without encoding. If your guest
+    /// expects the input to be encoded in any way (e.g. `bincode`), the caller must encode the
+    /// data before passing it.
+    ///
+    /// If the [GuestEnv] is already set, this replaces it.
+    ///
+    /// ```rust
+    /// # use boundless_market::request_builder::RequestParams;
+    /// # const ECHO_ELF: &[u8] = b"";
+    /// RequestParams::new()
+    ///     .with_program(ECHO_ELF)
+    ///     .with_stdin(b"hello!");
+    /// ```
+    ///
+    /// See also [Self::with_env] and [GuestEnvBuilder][crate::input::GuestEnvBuilder]
+    pub fn with_stdin(self, value: impl Into<Vec<u8>>) -> Self {
+        Self { env: Some(GuestEnv::from_stdin(value)), ..self }
     }
 
     pub fn require_program_url(&self) -> Result<&Url, MissingFieldError> {

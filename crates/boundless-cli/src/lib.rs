@@ -39,7 +39,7 @@ use boundless_market::{
         AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
         Fulfillment as BoundlessFulfillment, InputType,
     },
-    input::{GuestEnv, InputBuilder},
+    input::{GuestEnv, GuestEnvBuilder},
     order_stream_client::Order,
     selector::{is_groth16_selector, SupportedSelectors},
     storage::fetch_url,
@@ -204,7 +204,7 @@ impl DefaultProver {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
 
-        let stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
+        let stdin = GuestEnvBuilder::new().write_frame(&assessor_input.encode()).stdin;
 
         self.prove(self.assessor_program.clone(), stdin, receipts, ProverOpts::succinct()).await
     }

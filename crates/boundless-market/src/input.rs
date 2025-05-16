@@ -86,7 +86,7 @@ pub struct GuestEnv {
     /// The data here will be provided to the guest without further encoding (e.g. the bytes will
     /// be provided directly). When the guest calls `env::read_slice` these are the bytes that will
     /// be read. If the guest uses `env::read`, this should be encoded using the default RISC Zero
-    /// codec. [InputBuilder::write] will encode the data given using the default codec.
+    /// codec. [GuestEnvBuilder::write] will encode the data given using the default codec.
     pub stdin: Vec<u8>,
 }
 
@@ -110,6 +110,11 @@ impl GuestEnv {
         encoded.extend_from_slice(&rmp_serde::to_vec_named(&self)?);
         Ok(encoded)
     }
+
+    /// Create a [GuestEnv] with `stdin` set to the contents of the given `bytes`.
+    pub fn from_stdin(bytes: impl Into<Vec<u8>>) -> Self {
+        GuestEnv { stdin: bytes.into() }
+    }
 }
 
 impl TryFrom<GuestEnv> for ExecutorEnv<'_> {
@@ -123,45 +128,44 @@ impl TryFrom<GuestEnv> for ExecutorEnv<'_> {
     }
 }
 
-impl From<Vec<u8>> for GuestEnv {
-    /// Create a [GuestEnv] with `stdin` set to the contents of the given `Vec<u8>`.
-    fn from(stdin: Vec<u8>) -> Self {
-        GuestEnv { stdin }
+impl From<GuestEnvBuilder> for GuestEnv {
+    fn from(builder: GuestEnvBuilder) -> Self {
+        builder.build_env()
     }
 }
 
 /// Input builder, used to build the structured input (i.e. env) for execution and proving.
 ///
 /// Boundless provers decode the input provided in a proving request as a [GuestEnv]. This
-/// [InputBuilder] provides methods for constructing and encoding the guest environment.
+/// [GuestEnvBuilder] provides methods for constructing and encoding the guest environment.
 #[derive(Clone, Default, Debug)]
 #[non_exhaustive]
-pub struct InputBuilder {
+pub struct GuestEnvBuilder {
     /// Input data to be provided to the guest as stdin.
     ///
     /// See [GuestEnv::stdin]
     pub stdin: Vec<u8>,
 }
 
-impl InputBuilder {
+impl GuestEnvBuilder {
     /// Create a new input builder.
     pub fn new() -> Self {
         Self { stdin: Vec::new() }
     }
 
     /// Build the [GuestEnv] for inclusion in a proof request.
-    pub fn build_env(self) -> Result<GuestEnv, Error> {
-        Ok(GuestEnv { stdin: self.stdin })
+    pub fn build_env(self) -> GuestEnv {
+        GuestEnv { stdin: self.stdin }
     }
 
     /// Build the and encode [GuestEnv] for inclusion in a proof request.
     pub fn build_vec(self) -> Result<Vec<u8>, Error> {
-        self.build_env()?.encode()
+        self.build_env().encode()
     }
 
     /// Build and encode the [GuestEnv] into an inline [Input] for inclusion in a proof request.
     pub fn build_inline(self) -> Result<Input, Error> {
-        Ok(Input::inline(self.build_env()?.encode()?))
+        Ok(Input::inline(self.build_env().encode()?))
     }
 
     /// Write input data.
@@ -173,7 +177,7 @@ impl InputBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::InputBuilder;
+    /// use boundless_market::input::GuestEnvBuilder;
     /// use serde::Serialize;
     ///
     /// #[derive(Serialize)]
@@ -184,7 +188,7 @@ impl InputBuilder {
     ///
     /// let input1 = Input{ a: 1, b: 2 };
     /// let input2 = Input{ a: 3, b: 4 };
-    /// let input = InputBuilder::new()
+    /// let input = GuestEnvBuilder::new()
     ///     .write(&input1).unwrap()
     ///     .write(&input2).unwrap();
     /// ```
@@ -201,11 +205,11 @@ impl InputBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::InputBuilder;
+    /// use boundless_market::input::GuestEnvBuilder;
     ///
     /// let slice1 = [0, 1, 2, 3];
     /// let slice2 = [3, 2, 1, 0];
-    /// let input = InputBuilder::new()
+    /// let input = GuestEnvBuilder::new()
     ///     .write_slice(&slice1)
     ///     .write_slice(&slice2);
     /// ```
@@ -236,7 +240,7 @@ mod tests {
     #[test]
     fn test_version_parsing() -> Result<(), Error> {
         // Test V1
-        let v1 = InputBuilder::new().write_slice(&[1u8, 2, 3]);
+        let v1 = GuestEnvBuilder::new().write_slice(&[1u8, 2, 3]);
         let bytes = v1.build_vec()?;
         let parsed = GuestEnv::decode(&bytes)?;
         assert_eq!(parsed.stdin, vec![1, 2, 3]);
@@ -257,7 +261,7 @@ mod tests {
     #[test]
     fn test_encode_decode_env() -> Result<(), Error> {
         let timestamp = format! {"{:?}", std::time::SystemTime::now()};
-        let env = InputBuilder::new().write_slice(timestamp.as_bytes()).build_env()?;
+        let env = GuestEnvBuilder::new().write_slice(timestamp.as_bytes()).build_env();
 
         let decoded_env = GuestEnv::decode(&env.encode()?)?;
         assert_eq!(env, decoded_env);

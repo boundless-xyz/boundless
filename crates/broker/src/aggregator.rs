@@ -5,7 +5,7 @@
 use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
-use boundless_market::{contracts::eip712_domain, input::InputBuilder};
+use boundless_market::{contracts::eip712_domain, input::GuestEnvBuilder};
 use chrono::Utc;
 use risc0_aggregation::GuestState;
 use risc0_zkvm::{
@@ -203,7 +203,7 @@ impl AggregatorService {
             domain: eip712_domain(self.market_addr, self.chain_id),
             prover_address: self.prover_addr,
         };
-        let stdin = InputBuilder::new().write_frame(&input.encode()).stdin;
+        let stdin = GuestEnvBuilder::new().write_frame(&input.encode()).stdin;
 
         let input_id =
             self.prover.upload_input(stdin).await.context("Failed to upload assessor input")?;

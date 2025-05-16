@@ -78,7 +78,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
         PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR,
     },
-    input::{GuestEnv, InputBuilder},
+    input::{GuestEnv, GuestEnvBuilder},
     selector::ProofType,
     storage::{fetch_url, StorageProvider, StorageProviderConfig},
 };
@@ -1203,7 +1203,7 @@ where
     };
 
     // Prepare the input environment
-    let input_env = InputBuilder::new();
+    let input_env = GuestEnvBuilder::new();
     let encoded_input = if args.encode_input {
         input_env.write(&input)?.build_vec()?
     } else {

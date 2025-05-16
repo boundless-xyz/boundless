@@ -22,7 +22,7 @@ use boundless_market::{
         hit_points::default_allowance, Input, InputType, Offer, Predicate, PredicateType,
         ProofRequest, RequestId, Requirements,
     },
-    input::InputBuilder,
+    input::GuestEnvBuilder,
 };
 use boundless_market_test_utils::{create_test_ctx_with_rpc_url, TestCtx, ECHO_ELF, ECHO_ID};
 use broker::test_utils::BrokerBuilder;
@@ -85,7 +85,7 @@ async fn request_spawner<P: Provider>(
             program_url,
             Input {
                 inputType: InputType::Inline,
-                data: InputBuilder::new()
+                data: GuestEnvBuilder::new()
                     .write_slice(&vec![0x41u8; r.random_range(1..32)])
                     .build_vec()
                     .unwrap()
