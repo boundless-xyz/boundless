@@ -43,7 +43,9 @@ pub use request_id_layer::{
     RequestIdLayer, RequestIdLayerConfig, RequestIdLayerConfigBuilder, RequestIdLayerMode,
 };
 mod offer_layer;
-pub use offer_layer::{OfferLayer, OfferLayerConfig, OfferLayerConfigBuilder, OfferParams, OfferParamsBuilder};
+pub use offer_layer::{
+    OfferLayer, OfferLayerConfig, OfferLayerConfigBuilder, OfferParams, OfferParamsBuilder,
+};
 mod finalizer;
 pub use finalizer::{Finalizer, FinalizerConfig, FinalizerConfigBuilder};
 
@@ -408,9 +410,9 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::{
-        Layer, OfferLayer, OfferLayerConfig, PreflightLayer, RequestBuilder, RequestId,
-        RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequirementsLayer,
-        StandardRequestBuilder, StorageLayer, StorageLayerConfig, OfferParams
+        Layer, OfferLayer, OfferLayerConfig, OfferParams, PreflightLayer, RequestBuilder,
+        RequestId, RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequirementsLayer,
+        StandardRequestBuilder, StorageLayer, StorageLayerConfig,
     };
 
     use crate::{
@@ -501,8 +503,7 @@ mod tests {
         // Try again after uploading the program first.
         let storage = Arc::new(MockStorageProvider::start());
         let program_url = storage.upload_program(ECHO_ELF).await?;
-        let params =
-            request_builder.params().with_program_url(program_url).with_stdin(b"hello!");
+        let params = request_builder.params().with_program_url(program_url).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         assert_eq!(
             request.requirements.imageId,
@@ -674,27 +675,30 @@ mod tests {
 
         // Zero cycles
         let offer_params = OfferParams::default();
-        let offer_zero_mcycles = layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
+        let offer_zero_mcycles =
+            layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
         assert_eq!(offer_zero_mcycles.minPrice, U256::ZERO);
         // Defaults from builder
-        assert_eq!(offer_zero_mcycles.rampUpPeriod, 120);
+        assert_eq!(offer_zero_mcycles.rampUpPeriod, 60);
         assert_eq!(offer_zero_mcycles.lockTimeout, 600);
         assert_eq!(offer_zero_mcycles.timeout, 1200);
         // Max price should be non-negative, to account for fixed costs.
         assert!(offer_zero_mcycles.maxPrice > U256::ZERO);
 
         // Now create an offer for 100 Mcycles.
-        let offer_more_mcycles = layer.process((&requirements, &request_id, Some(100u64 << 20), &offer_params)).await?;
+        let offer_more_mcycles =
+            layer.process((&requirements, &request_id, Some(100u64 << 20), &offer_params)).await?;
         assert!(offer_more_mcycles.maxPrice > offer_zero_mcycles.maxPrice);
 
         // Check that overrides are respected.
         let min_price = U256::from(1u64);
         let max_price = U256::from(5u64);
-        let offer_params = OfferParams::builder().max_price(max_price).into();
-        let offer_zero_mcycles = layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
+        let offer_params = OfferParams::builder().max_price(max_price).min_price(min_price).into();
+        let offer_zero_mcycles =
+            layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
         assert_eq!(offer_zero_mcycles.maxPrice, max_price);
         assert_eq!(offer_zero_mcycles.minPrice, min_price);
-        assert_eq!(offer_zero_mcycles.rampUpPeriod, 120);
+        assert_eq!(offer_zero_mcycles.rampUpPeriod, 60);
         assert_eq!(offer_zero_mcycles.lockTimeout, 600);
         assert_eq!(offer_zero_mcycles.timeout, 1200);
         Ok(())
