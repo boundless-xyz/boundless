@@ -57,7 +57,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_cli::{convert_timestamp, fetch_url, DefaultProver, OrderFulfilled};
+use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -73,14 +73,14 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use boundless_market::{
-    client::{Client, ClientBuilder},
+    client::Client,
     contracts::{
         boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
         PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR,
     },
-    input::{GuestEnv, InputBuilder},
+    input::{GuestEnv, GuestEnvBuilder},
     selector::ProofType,
-    storage::{StorageProvider, StorageProviderConfig},
+    storage::{fetch_url, StorageProvider, StorageProviderConfig},
 };
 
 shadow!(build);
@@ -173,7 +173,7 @@ enum RequestCommands {
     Submit {
         /// Storage provider to use
         #[clap(flatten)]
-        storage_config: Option<StorageProviderConfig>,
+        storage_config: StorageProviderConfig,
 
         /// Path to a YAML file containing the request
         yaml_request: PathBuf,
@@ -355,7 +355,7 @@ enum ProvingCommands {
 struct SubmitOfferArgs {
     /// Storage provider to use
     #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
+    storage_config: StorageProviderConfig,
 
     /// Path to a YAML file containing the offer
     yaml_offer: PathBuf,
@@ -474,13 +474,6 @@ struct MainArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load environment variables from .env file if it exists
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
-    }
-
     let args = match MainArgs::try_parse() {
         Ok(args) => args,
         Err(err) => {
@@ -657,13 +650,12 @@ where
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-            let client = ClientBuilder::new()
+            let client = Client::builder()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
-                .with_storage_provider_config(offer_args.storage_config.clone())
-                .await?
+                .with_storage_provider_config(&offer_args.storage_config)?
                 .with_order_stream_url(order_stream_url)
                 .with_timeout(args.config.tx_timeout)
                 .build()
@@ -696,14 +688,13 @@ where
                         .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
                 )
                 .transpose()?;
-            let client = ClientBuilder::new()
+            let client = Client::builder()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
                 .with_set_verifier_address(args.config.set_verifier_address)
                 .with_order_stream_url(order_stream_url.clone())
-                .with_storage_provider_config(storage_config.clone())
-                .await?
+                .with_storage_provider_config(storage_config)?
                 .with_timeout(args.config.tx_timeout)
                 .build()
                 .await?;
@@ -786,7 +777,7 @@ where
                 serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
             } else if let Some(request_id) = request_id {
                 tracing::debug!("Loading request from blockchain: 0x{:x}", request_id);
-                let client = ClientBuilder::new()
+                let client = Client::builder()
                     .with_private_key(args.config.private_key.clone())
                     .with_rpc_url(args.config.rpc_url.clone())
                     .with_boundless_market_address(args.config.boundless_market_address)
@@ -845,7 +836,7 @@ where
 
             let prover = DefaultProver::new(set_builder_program, assessor_program, caller, domain)?;
 
-            let client = ClientBuilder::new()
+            let client = Client::builder()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
@@ -924,7 +915,7 @@ where
         }
         ProvingCommands::Lock { request_id, request_digest, tx_hash, order_stream_url } => {
             tracing::info!("Locking proof request 0x{:x}", request_id);
-            let client = ClientBuilder::new()
+            let client = Client::builder()
                 .with_private_key(args.config.private_key.clone())
                 .with_rpc_url(args.config.rpc_url.clone())
                 .with_boundless_market_address(args.config.boundless_market_address)
@@ -1022,7 +1013,7 @@ async fn benchmark(
         );
 
         // Fetch the request from order stream or on-chain
-        let client = ClientBuilder::new()
+        let client = Client::builder()
             .with_private_key(args.config.private_key.clone())
             .with_rpc_url(args.config.rpc_url.clone())
             .with_boundless_market_address(args.config.boundless_market_address)
@@ -1212,7 +1203,7 @@ where
     };
 
     // Prepare the input environment
-    let input_env = InputBuilder::new();
+    let input_env = GuestEnvBuilder::new();
     let encoded_input = if args.encode_input {
         input_env.write(&input)?.build_vec()?
     } else {
@@ -1294,7 +1285,7 @@ where
         client.submit_request_offchain_with_signer(&request, signer).await?
     } else {
         tracing::info!("Submitting request onchain");
-        client.submit_request_with_signer(&request, signer).await?
+        client.submit_request_onchain_with_signer(&request, signer).await?
     };
 
     tracing::info!(
@@ -1418,7 +1409,7 @@ where
         client.submit_request_offchain_with_signer(&request, signer).await?
     } else {
         tracing::info!("Submitting request onchain");
-        client.submit_request_with_signer(&request, signer).await?
+        client.submit_request_onchain_with_signer(&request, signer).await?
     };
 
     tracing::info!(
@@ -1890,7 +1881,7 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: "../../request.yaml".to_string().into(),
                 id: None,
                 wait: false,
@@ -1920,7 +1911,7 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: "../../request.yaml".to_string().into(),
                 id: None,
                 wait: false,
@@ -1949,7 +1940,7 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::SubmitOffer(SubmitOfferArgs {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_offer: "../../offer.yaml".to_string().into(),
                 id: None,
                 wait: false,
@@ -2096,7 +2087,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: request_path,
                 id: None,
                 wait: false,
@@ -2299,7 +2290,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: request_path,
                 id: None,
                 wait: false,
@@ -2354,7 +2345,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: request_path,
                 id: None,
                 wait: false,
@@ -2416,7 +2407,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: StorageProviderConfig::dev_mode(),
                 yaml_request: request_path,
                 id: None,
                 wait: false,

@@ -2127,6 +2127,7 @@ name = "boundless-market"
 version = "0.7.0"
 dependencies = [
  "alloy",
+ "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
@@ -2136,6 +2137,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "derive_builder",
  "futures-util",
  "hex",
  "httpmock",
@@ -3318,7 +3320,6 @@ dependencies = [
  "boundless-market-test-utils",
  "broker",
  "clap",
- "dotenvy",
  "guest-util",
  "risc0-zkvm",
  "test-log",

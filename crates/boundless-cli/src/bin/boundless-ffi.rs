@@ -25,10 +25,11 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{ensure, Context, Result};
-use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled};
+use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_market::{
     contracts::{eip712_domain, ProofRequest},
     order_stream_client::Order,
+    storage::fetch_url,
 };
 use clap::Parser;
 

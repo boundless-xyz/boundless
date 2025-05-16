@@ -16,13 +16,10 @@ use alloy::{
 use anyhow::{bail, Result};
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
-    client::ClientBuilder,
+    client::Client,
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
-    input::InputBuilder,
-    storage::{
-        storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider,
-        StorageProviderConfig,
-    },
+    input::GuestEnvBuilder,
+    storage::StorageProviderConfig,
 };
 use clap::Parser;
 use rand::Rng;
@@ -56,7 +53,7 @@ struct MainArgs {
     interval: u64,
     // Storage provider to use.
     #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
+    storage_config: StorageProviderConfig,
     /// Optional number of requests to submit.
     ///
     /// If unspecified, the loop will run indefinitely.
@@ -125,12 +122,6 @@ async fn main() -> Result<()> {
         .json()
         .init();
 
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
-    }
-
     let args = MainArgs::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
@@ -150,14 +141,9 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let storage_provider = match &args.storage_config {
-        Some(storage_config) => storage_provider_from_config(storage_config).await?,
-        None => storage_provider_from_env().await?,
-    };
-
-    let boundless_client = ClientBuilder::<BuiltinStorageProvider>::new()
+    let boundless_client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
-        .with_storage_provider(Some(storage_provider))
+        .with_storage_provider_config(&args.storage_config)?
         .with_boundless_market_address(args.boundless_market_address)
         .with_set_verifier_address(args.set_verifier_address)
         .with_order_stream_url(args.order_stream_url.clone())
@@ -200,7 +186,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             }
         };
 
-        let env = InputBuilder::new().write(&(input as u64))?.build_env()?;
+        let env = GuestEnvBuilder::new().write(&(input as u64))?.build_env()?;
         let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
         let journal = session_info.journal;
 
@@ -296,7 +282,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         let (request_id, _) = if submit_offchain {
             boundless_client.submit_request_offchain(&request).await?
         } else {
-            boundless_client.submit_request(&request).await?
+            boundless_client.submit_request_onchain(&request).await?
         };
 
         if submit_offchain {
@@ -348,7 +334,7 @@ mod tests {
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             order_stream_url: None,
-            storage_config: Some(StorageProviderConfig::dev_mode()),
+            storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             set_verifier_address: ctx.set_verifier_address,
             boundless_market_address: ctx.boundless_market_address,

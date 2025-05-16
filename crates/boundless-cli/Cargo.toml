@@ -22,7 +22,6 @@ boundless-market = { workspace = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
-dotenvy = { workspace = true }
 futures = { version = "0.3" }
 hex = { workspace = true }
 libc = "0.2.159"

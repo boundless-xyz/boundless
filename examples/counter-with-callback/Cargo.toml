@@ -20,7 +20,6 @@ risc0-zkvm = { version = "2.0.2", default-features = false }
 alloy = { version = "0.15" }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env"] }
-dotenvy = "0.15"
 test-log = { version = "0.2", features = ["trace"] }
 tokio = { version = "1" }
 tracing = "0.1"

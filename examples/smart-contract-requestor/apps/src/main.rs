@@ -14,7 +14,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_market::storage::BuiltinStorageProvider;
 use boundless_market::{
-    client::{Client, ClientBuilder},
+    client::Client,
     contracts::{Input, Offer, Predicate, ProofRequest, RequestId, Requirements},
     storage::{StorageProvider, StorageProviderConfig},
 };
@@ -59,12 +59,6 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
-    }
-
     let args = Args::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
@@ -72,7 +66,7 @@ async fn main() -> Result<()> {
         args.private_key,
         args.rpc_url,
         args.order_stream_url,
-        BuiltinStorageProvider::from_config(&args.storage_config).await?,
+        BuiltinStorageProvider::from_config(&args.storage_config)?,
         args.boundless_market_address,
         args.set_verifier_address,
         args.smart_contract_requestor_address,
@@ -93,7 +87,7 @@ async fn run<P: StorageProvider>(
     smart_contract_requestor_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
-    let boundless_client = ClientBuilder::<P>::default()
+    let boundless_client = Client::builder()
         .with_rpc_url(rpc_url)
         .with_boundless_market_address(boundless_market_address)
         .with_set_verifier_address(set_verifier_address)

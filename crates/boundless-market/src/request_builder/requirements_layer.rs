@@ -1,0 +1,79 @@
+// Copyright 2025 RISC Zero, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use super::{Adapt, Layer, RequestParams};
+use crate::contracts::{Predicate, Requirements};
+use anyhow::Context;
+use derive_builder::Builder;
+use risc0_zkvm::{compute_image_id, Journal};
+use risc0_zkvm::{sha::Digestible, Digest};
+
+#[non_exhaustive]
+#[derive(Clone, Builder, Default)]
+pub struct RequirementsLayer {}
+
+impl RequirementsLayer {
+    pub fn builder() -> RequirementsLayerBuilder {
+        Default::default()
+    }
+}
+
+impl Layer<(&[u8], &Journal)> for RequirementsLayer {
+    type Output = Requirements;
+    type Error = anyhow::Error;
+
+    async fn process(
+        &self,
+        (program, journal): (&[u8], &Journal),
+    ) -> Result<Self::Output, Self::Error> {
+        let image_id =
+            compute_image_id(program).context("failed to compute image ID for program")?;
+        self.process((image_id, journal)).await
+    }
+}
+
+impl Layer<(Digest, &Journal)> for RequirementsLayer {
+    type Output = Requirements;
+    type Error = anyhow::Error;
+
+    async fn process(
+        &self,
+        (image_id, journal): (Digest, &Journal),
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(Requirements::new(image_id, Predicate::digest_match(journal.digest())))
+    }
+}
+
+impl Adapt<RequirementsLayer> for RequestParams {
+    type Output = RequestParams;
+    type Error = anyhow::Error;
+
+    async fn process_with(self, layer: &RequirementsLayer) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with RequirementsLayer");
+
+        if self.requirements.is_some() {
+            return Ok(self);
+        }
+
+        let journal = self.require_journal()?;
+        let requirements = if let Some(image_id) = self.image_id {
+            layer.process((image_id, journal)).await?
+        } else {
+            let program = self.require_program()?;
+            layer.process((program, journal)).await?
+        };
+
+        Ok(self.with_requirements(requirements))
+    }
+}

@@ -101,7 +101,7 @@ Finally, we can use the composed proof to interact with a smart contract:
 
 <StripRustCodeComments>
 ```rust
-# use boundless_market::{client::ClientBuilder, contracts::ProofRequest};
+# use boundless_market::{client::Client, contracts::ProofRequest};
 # use risc0_zkvm::sha::{Digest, Digestible};
 # use alloy::{
 #    network::Ethereum,
@@ -119,7 +119,7 @@ alloy::sol! {
 }
 
 # async fn interact(request: ProofRequest) -> anyhow::Result<()> {
-# let boundless_client = ClientBuilder::new().build().await?;
+# let boundless_client = Client::builder().build().await?;
 # let identity_journal = Vec::<u8>::new();
 # let identity_seal = Bytes::new();
 # let IDENTITY_ID = [0u8; 32];

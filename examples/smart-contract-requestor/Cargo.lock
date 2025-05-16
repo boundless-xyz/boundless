@@ -2136,6 +2136,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "derive_builder",
  "futures-util",
  "hex",
  "httpmock",

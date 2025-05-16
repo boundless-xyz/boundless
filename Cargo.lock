@@ -2542,7 +2542,6 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
- "dotenvy",
  "futures",
  "hex",
  "libc",
@@ -2575,7 +2574,6 @@ dependencies = [
  "boundless-market",
  "boundless-market-test-utils",
  "clap",
- "dotenvy",
  "futures-util",
  "hex",
  "indexer-monitor",
@@ -2595,6 +2593,7 @@ name = "boundless-market"
 version = "0.7.0"
 dependencies = [
  "alloy",
+ "alloy-chains",
  "alloy-primitives 1.1.0",
  "alloy-sol-types",
  "anyhow",
@@ -2605,6 +2604,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "derive_builder",
  "futures-util",
  "hex",
  "httpmock",
@@ -2658,7 +2658,6 @@ dependencies = [
  "boundless-market",
  "boundless-market-test-utils",
  "clap",
- "dotenvy",
  "hex",
  "rand 0.9.1",
  "reqwest",
@@ -2681,7 +2680,6 @@ dependencies = [
  "boundless-market",
  "boundless-market-test-utils",
  "clap",
- "dotenvy",
  "futures-util",
  "hex",
  "risc0-ethereum-contracts",
@@ -8190,9 +8188,9 @@ checksum = "48fd7bd8a6377e15ad9d42a8ec25371b94ddc67abe7c8b9127bec79bebaaae18"
 
 [[package]]
 name = "rust-embed"
-version = "8.7.1"
+version = "8.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60e425e204264b144d4c929d126d0de524b40a961686414bab5040f7465c71be"
+checksum = "025908b8682a26ba8d12f6f2d66b987584a4a87bc024abc5bbc12553a8cd178a"
 dependencies = [
  "rust-embed-impl",
  "rust-embed-utils",
@@ -8201,9 +8199,9 @@ dependencies = [
 
 [[package]]
 name = "rust-embed-impl"
-version = "8.7.0"
+version = "8.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bf418c9a2e3f6663ca38b8a7134cc2c2167c9d69688860e8961e3faa731702e"
+checksum = "6065f1a4392b71819ec1ea1df1120673418bf386f50de1d6f54204d836d4349c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8214,9 +8212,9 @@ dependencies = [
 
 [[package]]
 name = "rust-embed-utils"
-version = "8.7.0"
+version = "8.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d55b95147fe01265d06b3955db798bdaed52e60e2211c41137701b3aba8e21"
+checksum = "f6cc0c81648b20b70c491ff8cce00c1c3b223bb8ed2b5d41f0e54c6c4c0a3594"
 dependencies = [
  "sha2 0.10.9",
  "walkdir",
