@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use anyhow::{Result};
+use anyhow::Result;
 use clap::Parser;
 use order_stream::Args;
 
