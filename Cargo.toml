@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/assessor",
+    "crates/bench",
     "crates/boundless-cli",
     "crates/boundless-market",
     "crates/boundless-market/test-utils",

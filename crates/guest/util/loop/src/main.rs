@@ -6,6 +6,8 @@ use risc0_zkvm::guest::env;
 
 pub fn main() {
     let cycles: u64 = env::read();
+    // The nonce is used to ensure that the input is unique
+    let nonce: u64 = env::read();
     let mut last_cycles = env::cycle_count();
     let mut tot_cycles = last_cycles;
 
@@ -19,5 +21,5 @@ pub fn main() {
         last_cycles = now_cycles;
     }
 
-    env::commit(&cycles);
+    env::commit(&(cycles, nonce));
 }
