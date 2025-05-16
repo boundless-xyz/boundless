@@ -12,7 +12,7 @@ config:
   prover:BROKER_TOML_PATH: broker-staging.toml
   prover:BASE_STACK: organization/bootstrap/services-staging
   prover:ETH_RPC_URL:
-    secure: v1:SF3pAa5PIkvm8rC3:oSzk/8iaHtmqH8F2epOSf1uQeaeiglygGIPwDEoW08m7tNLs56SuHxmsCOBeIKF8sAHxRlBW04g0lCYvVMeJ0pvKSglaszK4knPpDjyCLyWgm7dnPw==
+    secure: v1:bAYClD7XbW9P0Nct:UvKogu9L0Xam53xCdhAvfORvTE7KMcgt+PSAjFthJJRPxSWxxuNIsLCqXRXxwOU5EGf4ACAABAZH9QjMhxbXn47A6RCRgk270AY2z0LqpTjl4XfFJw==
   prover:PRIVATE_KEY:
     secure: v1:XeT00OsvvQdg9y4K:jjqy1PfadM1Zo6XwgwI4Z0NmwDYA4akd3HvpD1BKQFt6YqB2QS8l03uccezLX3uFRy67UecCwDYVlP4bG+Np1ClK2O/Wm0h5n2En5XlaslU=
   prover:BONSAI_API_KEY:
