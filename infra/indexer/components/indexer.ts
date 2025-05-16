@@ -4,7 +4,7 @@ import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { getServiceNameV1 } from '../../util';
-
+import * as crypto from 'crypto';
 const SERVICE_NAME_BASE = 'indexer';
 
 export class IndexerInstance extends pulumi.ComponentResource {
@@ -27,6 +27,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       ethRpcUrl: pulumi.Output<string>;
       boundlessAlertsTopicArn?: string;
       startBlock: string;
+      dockerRemoteBuilder?: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -91,6 +92,9 @@ export class IndexerInstance extends pulumi.ComponentResource {
       dockerfile: {
         location: `${dockerDir}/dockerfiles/indexer.dockerfile`,
       },
+      builder: args.dockerRemoteBuilder ? {
+        name: args.dockerRemoteBuilder,
+      } : undefined,
       buildArgs: {
         S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
       },
@@ -192,11 +196,20 @@ export class IndexerInstance extends pulumi.ComponentResource {
       { protect: true }
     );
 
+    const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
     const dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
       secretId: dbUrlSecret.id,
-      secretString: pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`,
+      secretString: dbUrlSecretValue,
     });
+
+    const secretHash = pulumi
+      .all([dbUrlSecretValue])
+      .apply(([_dbUrlSecretValue]: any[]) => {
+        const hash = crypto.createHash("sha1");
+        hash.update(_dbUrlSecretValue);
+        return hash.digest("hex");
+      });
 
     const dbSecretAccessPolicy = new aws.iam.Policy(`${serviceName}-db-url-policy`, {
       policy: dbUrlSecret.arn.apply((secretArn): aws.iam.PolicyDocument => {
@@ -219,7 +232,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       }),
     });
 
-    ecrRepository.repository.arn.apply(arn => {
+    ecrRepository.repository.arn.apply(_arn => {
       new aws.iam.RolePolicy(`${serviceName}-ecs-execution-pol`, {
         role: executionRole.id,
         policy: {
@@ -331,6 +344,10 @@ export class IndexerInstance extends pulumi.ComponentResource {
               name: 'DB_POOL_SIZE',
               value: '5',
             },
+            {
+              name: 'SECRET_HASH',
+              value: secretHash,
+            }
           ]
         },
       },

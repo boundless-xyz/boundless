@@ -5,6 +5,7 @@ import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { getEnvVar, ChainId, getServiceNameV1, Severity } from "../util";
 import { create } from 'domain';
+import * as crypto from 'crypto';
 
 require('dotenv').config();
 
@@ -62,6 +63,21 @@ export = () => {
     secretId: orderStreamUrlSecret.id,
     secretString: orderStreamUrl,
   });
+
+  // Hash the secret strings. 
+  // This is used to determine if the secrets have changed and trigger a redeployment of the ECS task.
+  // Necessary because the secrets are passed as secret manager arns to the ECS task, and the arn doesnt change,
+  // so Pulumi is unable to tell if the value stored within secret manager has changed at deployment time.
+  const secretHash = pulumi
+    .all([ethRpcUrl, privateKey, orderStreamUrl, bonsaiApiKey])
+    .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl, _bonsaiApiKey]) => {
+      const hash = crypto.createHash("sha1");
+      hash.update(_ethRpcUrl);
+      hash.update(_privateKey);
+      hash.update(_orderStreamUrl);
+      hash.update(_bonsaiApiKey ?? '');
+      return hash.digest("hex");
+    });
 
   const brokerS3Bucket = new aws.s3.Bucket(serviceName, {
     bucketPrefix: serviceName,
@@ -352,7 +368,8 @@ export = () => {
           { name: 'RUST_LOG', value: 'broker=debug,boundless_market=debug' },
           { name: 'RUST_BACKTRACE', value: '1' },
           { name: 'BONSAI_API_URL', value: bonsaiApiUrl },
-          { name: 'BUCKET', value: brokerS3BucketName }
+          { name: 'BUCKET', value: brokerS3BucketName },
+          { name: 'SECRET_HASH', value: secretHash }
         ],
       },
     },

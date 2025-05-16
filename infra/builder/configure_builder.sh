@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+ssh-add ~/.ssh/id_ed25519_dev_docker_builder
+
 INSTANCE_ID=$(aws ec2 describe-instances \
   --filters "Name=tag:Name,Values=builder-local" \
   --query "Reservations[*].Instances[*].InstanceId" \
