@@ -2,7 +2,10 @@
 //
 // All rights reserved.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    str::FromStr,
+    time::{Duration, SystemTime},
+};
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
@@ -10,11 +13,12 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
-use anyhow::{bail, Context, Result};
-use boundless_market::{Client, StorageProviderConfig, Deployment};
+use anyhow::{Context, Result};
+use boundless_market::{Client, Deployment, StorageProviderConfig};
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use risc0_zkvm::sha::{Digest, Digestible};
+use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
 
 /// Timeout for the transaction to be confirmed.
@@ -49,11 +53,12 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize logging.
     tracing_subscriber::registry()
-        .with(fmt::layer())
+        .with(tracing_subscriber::fmt::layer())
         .with(
             EnvFilter::builder()
-                .with_default_directive("info")
+                .with_default_directive(LevelFilter::from_str("info")?.into())
                 .from_env_lossy(),
         )
         .init();
@@ -62,12 +67,10 @@ async fn main() -> Result<()> {
 
     // NOTE: Using a separate `run` function to facilitate testing below.
     run(
-        args.private_key,
         args.rpc_url,
-        args.order_stream_url,
+        args.deployment,
         args.storage_config,
-        args.boundless_market_address,
-        args.set_verifier_address,
+        args.private_key,
         args.counter_address,
     )
     .await?;
@@ -77,20 +80,16 @@ async fn main() -> Result<()> {
 
 /// Main logic which creates the Boundless client, executes the proofs and submits the tx.
 async fn run(
-    private_key: PrivateKeySigner,
     rpc_url: Url,
-    order_stream_url: Option<Url>,
+    deployment: Option<Deployment>,
     storage_config: StorageProviderConfig,
-    boundless_market_address: Address,
-    set_verifier_address: Address,
+    private_key: PrivateKeySigner,
     counter_address: Address,
 ) -> Result<()> {
     // Create a Boundless client from the provided parameters.
     let client = Client::builder()
         .with_rpc_url(rpc_url)
-        .with_boundless_market_address(boundless_market_address)
-        .with_set_verifier_address(set_verifier_address)
-        .with_order_stream_url(order_stream_url)
+        .with_deployment(deployment)
         .with_storage_provider_config(&storage_config)?
         .with_private_key(private_key)
         .build()

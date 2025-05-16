@@ -95,7 +95,7 @@ pub const SEPOLIA: Deployment = Deployment {
     chain_id: Some(NamedChain::Sepolia as u64),
     boundless_market_address: address!("0x006b92674E2A8d397884e293969f8eCD9f615f4C"),
     verifier_router_address: Some(address!("0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187")),
-    set_verifier_address: Some(address!("0xad2c6335191EA71Ffe2045A8d54b93A851ceca77")),
+    set_verifier_address: address!("0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"),
     stake_token_address: Some(address!("0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9")),
     order_stream_url: Some(Cow::Borrowed("https://eth-sepolia.beboundless.xyz")),
 };

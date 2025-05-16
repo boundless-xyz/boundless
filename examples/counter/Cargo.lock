@@ -3320,7 +3320,6 @@ dependencies = [
  "boundless-market-test-utils",
  "broker",
  "clap",
- "dotenvy",
  "guest-util",
  "risc0-zkvm",
  "test-log",

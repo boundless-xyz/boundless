@@ -186,8 +186,10 @@ impl<St, Si> ClientBuilder<St, Si> {
     }
 
     /// Set the [Deployment] of the Boundless Market that this client will use.
-    pub fn with_deployment(self, deployment: Deployment) -> Self {
-        Self { deployment: Some(deployment), ..self }
+    ///
+    /// If `None`, the builder will attempty to infer the deployment from the chain ID.
+    pub fn with_deployment(self, deployment: impl Into<Option<Deployment>>) -> Self {
+        Self { deployment: deployment.into(), ..self }
     }
 
     /// Set the RPC URL
@@ -198,12 +200,13 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the private key
     pub fn with_private_key(
         self,
-        private_key: PrivateKeySigner,
+        private_key: impl Into<PrivateKeySigner>,
     ) -> ClientBuilder<St, PrivateKeySigner> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
+        let private_key_signer = private_key.into();
         ClientBuilder {
-            wallet: Some(EthereumWallet::from(private_key.clone())),
-            signer: Some(private_key),
+            wallet: Some(EthereumWallet::from(private_key_signer.clone())),
+            signer: Some(private_key_signer),
             deployment: self.deployment,
             storage_provider: self.storage_provider,
             rpc_url: self.rpc_url,
@@ -217,18 +220,18 @@ impl<St, Si> ClientBuilder<St, Si> {
     }
 
     /// Set the wallet
-    pub fn with_wallet(self, wallet: EthereumWallet) -> Self {
-        Self { wallet: Some(wallet), ..self }
+    pub fn with_wallet(self, wallet: impl Into<Option<EthereumWallet>>) -> Self {
+        Self { wallet: wallet.into(), ..self }
     }
 
     /// Set the transaction timeout in seconds
-    pub fn with_timeout(self, tx_timeout: Option<Duration>) -> Self {
-        Self { tx_timeout, ..self }
+    pub fn with_timeout(self, tx_timeout: impl Into<Option<Duration>>) -> Self {
+        Self { tx_timeout: tx_timeout.into(), ..self }
     }
 
     /// Set the balance alerts configuration
-    pub fn with_balance_alerts(self, config: BalanceAlertConfig) -> Self {
-        Self { balance_alerts: Some(config), ..self }
+    pub fn with_balance_alerts(self, config: impl Into<Option<BalanceAlertConfig>>) -> Self {
+        Self { balance_alerts: config.into(), ..self }
     }
 
     /// Set the storage provider.
@@ -384,6 +387,13 @@ pub enum ClientError {
     Error(#[from] anyhow::Error),
 }
 
+impl Client<NotProvided, NotProvided, NotProvided, NotProvided> {
+    /// Create a [ClientBuilder] to construct a [Client].
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
+    }
+}
+
 impl<P> Client<P, NotProvided, NotProvided, NotProvided>
 where
     P: Provider<Ethereum> + 'static + Clone,
@@ -403,11 +413,6 @@ where
             signer: None,
             request_builder: None,
         }
-    }
-
-    /// Create a [ClientBuilder] to construct a [Client].
-    pub fn builder() -> ClientBuilder {
-        ClientBuilder::new()
     }
 }
 
