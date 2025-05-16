@@ -529,7 +529,9 @@ where
         let signer = self.signer.as_ref().context("signer is set on Client")?;
         let request_builder =
             self.request_builder.as_ref().context("request_builder is not set on Client")?;
+        tracing::debug!("Building request in Client::submit_onchain");
         let request = request_builder.build(params).await.map_err(Into::into)?;
+        tracing::debug!("Built request with id {}", request.id);
         self.submit_request_onchain_with_signer(&request, signer).await
     }
 
@@ -604,7 +606,9 @@ where
         let signer = self.signer.as_ref().context("signer is set on Client")?;
         let request_builder =
             self.request_builder.as_ref().context("request_builder is not set on Client")?;
+        tracing::debug!("Building request in Client::submit_offchain");
         let request = request_builder.build(params).await.map_err(Into::into)?;
+        tracing::debug!("Built request with id {}", request.id);
         self.submit_request_offchain_with_signer(&request, signer).await
     }
 

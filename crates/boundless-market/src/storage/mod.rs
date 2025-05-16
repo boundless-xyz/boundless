@@ -18,7 +18,7 @@
 use std::{fmt::Debug, ops::Deref, path::PathBuf, result::Result::Ok, sync::Arc};
 
 use async_trait::async_trait;
-use clap::{builder::ArgPredicate, Parser, ValueEnum};
+use clap::{builder::ArgPredicate, Args, ValueEnum};
 use reqwest::Url;
 
 mod fetch;
@@ -126,7 +126,7 @@ pub enum StorageProviderType {
     None,
 }
 
-#[derive(Clone, Debug, Parser)]
+#[derive(Clone, Debug, Args)]
 /// Configuration for the storage provider.
 pub struct StorageProviderConfig {
     /// Storage provider to use [possible values: s3, pinata, file]
@@ -136,7 +136,7 @@ pub struct StorageProviderConfig {
     /// - For 'pinata', the following option is required:
     ///   --pinata-jwt (optionally, you can specify --pinata-api-url, --ipfs-gateway-url)
     /// - For 'file', no additional options are required (optionally, you can specify --file-path)    
-    #[arg(long, env, value_enum, default_value_ifs = [
+    #[arg(long, env, value_enum, default_value = "none", default_value_ifs = [
         ("s3_access_key", ArgPredicate::IsPresent, "s3"),
         ("pinata_jwt", ArgPredicate::IsPresent, "pinata"),
         ("file_path", ArgPredicate::IsPresent, "file")

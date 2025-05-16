@@ -706,8 +706,8 @@ pub mod test_utils {
             let args = Args {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
-                boundless_market_address: ctx.boundless_market_address,
-                set_verifier_address: ctx.set_verifier_address,
+                boundless_market_address: ctx.deployment.boundless_market_address,
+                set_verifier_address: ctx.deployment.set_verifier_address,
                 rpc_url,
                 order_stream_url: None,
                 private_key: ctx.prover_signer.clone(),

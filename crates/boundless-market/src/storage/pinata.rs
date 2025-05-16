@@ -132,6 +132,7 @@ impl PinataStorageProvider {
         filename: impl Into<String>,
     ) -> Result<Url, PinataStorageProviderError> {
         // https://docs.pinata.cloud/api-reference/endpoint/pin-file-to-ipfs
+        // TODO: This endpoint is deprecated
         let url = self.pinata_api_url.join("/pinning/pinFileToIPFS")?;
         let form = Form::new().part(
             "file",
@@ -147,11 +148,14 @@ impl PinataStorageProvider {
             .multipart(form)
             .build()?;
 
-        tracing::debug!("Sending upload HTTP request: {:#?}", request);
+        tracing::debug!("Sending upload HTTP request: {}", request.url());
+        tracing::trace!("{:#?}", request);
 
         let response = self.client.execute(request).await?;
 
-        tracing::debug!("Received HTTP response: {:#?}", response);
+        tracing::debug!("Received HTTP response: status {}", response.status());
+        tracing::trace!("{:#?}", response);
+
         let response = response.error_for_status()?;
 
         let json_value: serde_json::Value = response.json().await?;

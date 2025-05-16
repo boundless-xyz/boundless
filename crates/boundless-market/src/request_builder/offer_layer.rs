@@ -38,7 +38,7 @@ pub struct OfferLayerConfig {
     pub max_price_per_cycle: U256,
     #[builder(default = "15")]
     pub bidding_start_delay: u64,
-    #[builder(default = "120")]
+    #[builder(default = "60")]
     pub ramp_up_period: u32,
     #[builder(default = "600")]
     pub lock_timeout: u32,

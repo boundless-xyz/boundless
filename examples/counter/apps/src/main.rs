@@ -38,17 +38,17 @@ struct Args {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     rpc_url: Url,
-    /// Configuration for the StorageProvider to use for uploading programs and inputs.
-    #[clap(flatten)]
-    storage_config: StorageProviderConfig,
-    #[clap(flatten)]
-    deployment: Option<Deployment>,
-    /// Private key used to interact with the Counter contract.
+    /// Private key used to interact with the Counter contract and the Boundless Market.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
     /// Address of the Counter contract.
     #[clap(short, long, env)]
     counter_address: Address,
+    /// Configuration for the StorageProvider to use for uploading programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    storage_config: StorageProviderConfig,
+    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    deployment: Option<Deployment>,
 }
 
 #[tokio::main]

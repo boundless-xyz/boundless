@@ -15,14 +15,16 @@
 use std::borrow::Cow;
 
 use alloy::primitives::{address, Address};
-use clap::Parser;
+use clap::Args;
 use derive_builder::Builder;
 
 pub use alloy_chains::NamedChain;
 
 /// Configuration for a deployment of the Boundless Market.
+// NOTE: See https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717 about clap usage.
 #[non_exhaustive]
-#[derive(Clone, Debug, Builder, Parser)]
+#[derive(Clone, Debug, Builder, Args)]
+#[group(requires = "boundless_market_address", requires = "set_verifier_address")]
 pub struct Deployment {
     /// EIP-155 chain ID of the network.
     #[clap(long, env)]
@@ -32,7 +34,7 @@ pub struct Deployment {
     /// Address of the [BoundlessMarket] contract.
     ///
     /// [BoundlessMarket]: crate::contracts::boundless_market_contract
-    #[clap(long, env)]
+    #[clap(long, env, required = false, long_help = "Address of the BoundlessMarket contract")]
     pub boundless_market_address: Address,
 
     /// Address of the [RiscZeroVerifierRouter] contract.
@@ -44,14 +46,14 @@ pub struct Deployment {
     /// [RiscZeroVerifierRouter]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroVerifierRouter.sol
     /// [IRiscZeroVerifier]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/IRiscZeroVerifier.sol
     /// [Boundless docs for more details]: https://docs.beboundless.xyz/developers/smart-contracts/verifier-contracts
-    #[clap(long, env)]
+    #[clap(long, env, long_help = "Address of the RiscZeroVerifierRouter contract")]
     #[builder(setter(strip_option), default)]
     pub verifier_router_address: Option<Address>,
 
     /// Address of the [RiscZeroSetVerifier] contract.
     ///
     /// [RiscZeroSetVerifier]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroSetVerifier.sol
-    #[clap(long, env)]
+    #[clap(long, env, required = false, long_help = "Address of the RiscZeroSetVerifier contract")]
     pub set_verifier_address: Address,
 
     /// Address of the stake token contract. The staking token is an ERC-20.
@@ -62,7 +64,7 @@ pub struct Deployment {
     /// URL for the offchain [order stream service].
     ///
     /// [order stream service]: crate::order_stream_client
-    #[clap(long, env)]
+    #[clap(long, env, long_help = "URL for the offchain order stream service")]
     #[builder(setter(into, strip_option), default)]
     pub order_stream_url: Option<Cow<'static, str>>,
 }
