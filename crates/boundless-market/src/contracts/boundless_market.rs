@@ -408,10 +408,13 @@ impl<P: Provider> BoundlessMarketService<P> {
                 .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
         }
 
-        tracing::trace!("Sending tx {}", format!("{:?}", call));
+        let est = call.estimate_gas().await?;
+        // Add 20% of buffer
+        let est_with_buffer = est + est / 5u64;
 
-        let pending_tx = call.send().await?;
+        tracing::trace!("Sending tx {} with est gas {est_with_buffer}", format!("{:?}", call));
 
+        let pending_tx = call.gas(est_with_buffer).send().await?;
         let tx_hash = *pending_tx.tx_hash();
         tracing::trace!("Broadcasting lock request tx {}", tx_hash);
 

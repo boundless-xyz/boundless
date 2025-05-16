@@ -3,18 +3,13 @@
 // All rights reserved.
 
 use anyhow::{bail, Result};
-use clap::Parser;
-use tracing_subscriber::fmt::format::FmtSpan;
-
 use boundless_bench::{run, MainArgs};
+use clap::Parser;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_ansi(false)
-        .with_span_events(FmtSpan::CLOSE)
-        .json()
         .init();
 
     match dotenvy::dotenv() {

@@ -30,7 +30,7 @@ use clap::Parser;
 use futures::future::try_join_all;
 use risc0_zkvm::{compute_image_id, default_executor, serde::to_vec, sha::Digestible, Journal};
 use tempfile::NamedTempFile;
-use tokio::{task::JoinHandle, time::Instant};
+use tokio::{signal, task::JoinHandle, time::Instant};
 use url::Url;
 
 mod bench;
@@ -103,11 +103,6 @@ pub struct MainArgs {
     /// Balance threshold at which to log an error.
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
     pub error_balance_below: Option<U256>,
-    /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
-    ///
-    /// This parameter can only be set if order_stream_url is provided.
-    #[clap(long, env, value_parser = parse_ether, requires = "order_stream_url")]
-    pub auto_deposit: Option<U256>,
     /// The path to the benchmark config file.
     #[clap(long)]
     pub bench: PathBuf,
@@ -228,7 +223,6 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     let lockin_stake = args.lockin_stake;
     let ramp_up = args.ramp_up;
     let order_stream = args.order_stream_url.clone();
-    let auto_deposit = args.auto_deposit;
     let boundless_market_address = args.boundless_market_address;
 
     // Spawn one task per client
@@ -244,8 +238,8 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         let gas_price: u128 = client.provider().get_gas_price().await?;
         let gas_cost_estimate = (gas_price + gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
         let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
-        let n = clients.len();
-        let value = max_price * U256::from(n as u64);
+        let n = bench.requests_count / clients.len() as u32;
+        let value = max_price * U256::from(n);
         let current_balance = client.boundless_market.balance_of(client.caller()).await?;
         if current_balance < value {
             let amount = value - current_balance;
@@ -297,33 +291,6 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                     )
                     .build()?;
                 tracing::debug!("Request: {:?}", request);
-
-                if order_stream.is_some() {
-                    if let Some(thresh) = auto_deposit {
-                        let market = client.boundless_market.clone();
-                        let caller = client.caller();
-                        let bal = market.balance_of(caller).await?;
-                        tracing::info!(
-                            "Caller {} has balance {} ETH on market {}",
-                            caller,
-                            format_units(bal, "ether")?,
-                            boundless_market_address
-                        );
-                        if bal < thresh {
-                            tracing::info!(
-                                "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
-                                format_units(bal, "ether")?,
-                                format_units(thresh, "ether")?
-                            );
-                            market.deposit(thresh).await?;
-                            tracing::info!(
-                                "Successfully deposited {} ETH from {}",
-                                format_units(thresh, "ether")?,
-                                caller
-                            );
-                        }
-                    }
-                }
 
                 let (request_id, expires_at) = if order_stream.is_some() {
                     client.submit_request_offchain(&request).await?
@@ -394,7 +361,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
 async fn wait(rows: &[BenchRow], db_url: &str, timeout_secs: u32) -> Result<()> {
     let db = db::Monitor::new(db_url).await?;
     let mut pending: HashSet<String> = rows.iter().map(|r| r.request_digest.clone()).collect();
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs.into());
+    let deadline = Instant::now() + Duration::from_secs((timeout_secs).into());
 
     while !pending.is_empty() && Instant::now() < deadline {
         let mut just_fulfilled = Vec::new();
@@ -413,7 +380,14 @@ async fn wait(rows: &[BenchRow], db_url: &str, timeout_secs: u32) -> Result<()> 
         }
 
         tracing::info!("Still waiting on {} requests...", pending.len());
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::select! {
+                    _ = signal::ctrl_c() => {
+                         tracing::info!("Ctrl-C received, aborting wait early");
+                         return Ok(());
+                    }
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                     }
+        }
     }
 
     if !pending.is_empty() {
@@ -595,7 +569,6 @@ mod tests {
             program: is_dev_mode().then(|| PathBuf::from(LOOP_PATH)),
             warn_balance_below: None,
             error_balance_below: None,
-            auto_deposit: None,
             indexer_url: None,
             sqlite_path: None,
             bench: bench_path,
