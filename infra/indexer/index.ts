@@ -9,6 +9,7 @@ export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
+  const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
@@ -53,6 +54,7 @@ export = () => {
     boundlessAlertsTopicArn,
     startBlock,
     serviceMetricsNamespace,
+    dockerRemoteBuilder,
   });
 
   new MonitorLambda(monitorServiceName, {
