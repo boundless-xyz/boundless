@@ -37,6 +37,7 @@ export = () => {
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
   const secondsPerMCycle = baseConfig.require('SECONDS_PER_MCYCLE');
+  const txTimeout = baseConfig.require('TX_TIMEOUT');
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
   const repo = new awsx.ecr.Repository(`${imageName}-repo`, {
@@ -133,6 +134,7 @@ export = () => {
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArn,
+    txTimeout,
   });
 
   const onchainConfig = new pulumi.Config("order-generator-onchain");
@@ -157,5 +159,6 @@ export = () => {
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArn,
+    txTimeout,
   });
 };

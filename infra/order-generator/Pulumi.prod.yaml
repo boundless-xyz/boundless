@@ -26,8 +26,10 @@ config:
   order-generator-base:ORDER_STREAM_URL: https://eth-sepolia.beboundless.xyz
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:i+l18LS63TZDaTEk:DwR3R7w8tTJCqDQMZpOPF7Ih1xm+xszYALdKhiM+xvSJcPzPhY15QAtamb6RaHjj0g/eOWkHeueQmJY0lmTUNJ9TEte8N4YLfWomNAXJxKKCiXZc7P+S7yy1Gw+f+ljyOXEFDIpQGTO19ZVJ0g==
+  order-generator-base:TX_TIMEOUT: "90"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:9iJ6gE5+gp4aipMW:lZlt7k89kafxnLvr8Qe0sStef/3gNEOcr67breAfH/sSrlgL4m6k081WHMUpaU2doI683Sd0TQ+kSnbLKINXfxvqiw/EFfhz4SxOks6d9UI=
   order-generator-offchain:AUTO_DEPOSIT: "20"
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:X0x504eGSlReaNWU:HHKOYSpWFvByYG23SRcGA2/uvj0i5S09Jfof+tNB/S1ooLrm8vmZ+QXhS3+8loVt8dIKS3H9U4svS5CrV5FHZNQXlAa74cQ3McoDQsIIQ84=
+  

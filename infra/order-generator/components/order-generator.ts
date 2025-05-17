@@ -29,6 +29,7 @@ interface OrderGeneratorArgs {
     autoDeposit: string;
     orderStreamUrl: pulumi.Output<string>;
   };
+  txTimeout: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -172,7 +173,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
-              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle}`,
+              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle} --tx-timeout ${args.txTimeout}`,
             ],
             environment,
             secrets,
@@ -208,7 +209,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
     const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
 
-    // 2 errors within 1 hour in the order generator triggers a SEV2 alarm.
+    // 5 errors within 1 hour in the order generator triggers a SEV2 alarm.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
       name: `${serviceName}-log-err`,
       metricQueries: [
@@ -226,13 +227,15 @@ export class OrderGenerator extends pulumi.ComponentResource {
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
       evaluationPeriods: 60,
-      datapointsToAlarm: 2,
+      datapointsToAlarm: 5,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} log ERROR level`,
       actionsEnabled: true,
       alarmActions,
     });
 
+    // A single error in the order generator causes the process to exit.
+    // Alarm if we see 2 errors in 30 mins.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
       name: `${serviceName}-log-fatal`,
       metricQueries: [
@@ -249,8 +252,8 @@ export class OrderGenerator extends pulumi.ComponentResource {
       ],
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 1,
-      datapointsToAlarm: 1,
+      evaluationPeriods: 30,
+      datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} FATAL (task exited)`,
       actionsEnabled: true,

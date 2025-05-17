@@ -110,6 +110,9 @@ struct MainArgs {
     /// This parameter can only be set if order_stream_url is provided.
     #[clap(long, env, value_parser = parse_ether, requires = "order_stream_url")]
     auto_deposit: Option<U256>,
+    /// Transaction timeout in seconds.
+    #[clap(long, default_value = "45")]
+    tx_timeout: u64,
 }
 
 /// An estimated upper bound on the cost of locking and fulfilling a request.
@@ -164,6 +167,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_private_key(args.private_key.clone())
         .with_bidding_start_delay(args.bidding_start_delay)
         .with_balance_alerts(balance_alerts)
+        .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
         .build()
         .await?;
 
@@ -367,6 +371,7 @@ mod tests {
             warn_balance_below: None,
             error_balance_below: None,
             auto_deposit: None,
+            tx_timeout: 45,
         };
 
         run(&args).await.unwrap();
