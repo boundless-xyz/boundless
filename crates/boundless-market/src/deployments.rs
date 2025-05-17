@@ -90,8 +90,7 @@ impl Deployment {
     }
 }
 
-// TODO: would it be possible to have a single source of truth here relative to the
-// deployment.toml?
+// TODO(#654): Ensure consistency with deployment.toml and with docs
 /// [Deployment] for the Sepolia testnet.
 pub const SEPOLIA: Deployment = Deployment {
     chain_id: Some(NamedChain::Sepolia as u64),

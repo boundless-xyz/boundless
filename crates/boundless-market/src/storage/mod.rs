@@ -258,8 +258,6 @@ impl StorageProvider for StandardStorageProvider {
 /// Otherwise, the following environment variables are checked in order:
 /// - `PINATA_JWT`, `PINATA_API_URL`, `IPFS_GATEWAY_URL`: Pinata storage provider;
 /// - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
-// TODO: Consoplidate the from env implementation to use the clap parsing to reduce potential
-// issues from duplication.
 pub fn storage_provider_from_env() -> Result<StandardStorageProvider, StandardStorageProviderError>
 {
     if risc0_zkvm::is_dev_mode() {

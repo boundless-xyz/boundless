@@ -15,9 +15,6 @@
 #![allow(missing_docs)] // DO NOT MERGE: That would be too lazy
 #![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
 
-// TODO: Add debug and trace logging to the layers.
-// TODO: Create a test and an example of adding a layer.
-
 use std::{borrow::Cow, fmt, fmt::Debug};
 
 use alloy::{network::Ethereum, providers::Provider};
@@ -405,7 +402,10 @@ impl MissingFieldError {
 mod tests {
     use std::sync::Arc;
 
-    use alloy::node_bindings::Anvil;
+    use alloy::{
+        network::TransactionBuilder, node_bindings::Anvil, primitives::Address,
+        rpc::types::TransactionRequest,
+    };
     use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
     use tracing_test::traced_test;
 
@@ -655,7 +655,20 @@ mod tests {
         // The customer address has sent no transactions.
         assert_eq!(id.index, 0);
         assert!(!id.smart_contract_signed);
-        // TODO: Send a tx then check that the index increments.
+
+        // Send a tx then check that the index increments.
+        let tx = TransactionRequest::default()
+            .with_from(test_ctx.customer_signer.address())
+            .with_to(Address::ZERO)
+            .with_value(U256::from(1));
+        test_ctx.customer_provider.send_transaction(tx).await?.watch().await?;
+
+        let id = layer.process(()).await?;
+        assert_eq!(id.addr, test_ctx.customer_signer.address());
+        // The customer address has sent one transaction.
+        assert_eq!(id.index, 1);
+        assert!(!id.smart_contract_signed);
+
         Ok(())
     }
 

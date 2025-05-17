@@ -89,7 +89,7 @@ async fn run(args: Args) -> Result<()> {
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
-    tracing::info!("Waiting for request {} to be fulfilled", request_id);
+    tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
     let (journal, seal) = client
         .wait_for_request_fulfillment(
             request_id,
@@ -97,7 +97,7 @@ async fn run(args: Args) -> Result<()> {
             expires_at,
         )
         .await?;
-    tracing::info!("Request {} fulfilled", request_id);
+    tracing::info!("Request {:x} fulfilled", request_id);
 
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.

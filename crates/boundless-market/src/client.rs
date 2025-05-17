@@ -462,8 +462,17 @@ where
         }
     }
 
-    /// Set the signer
-    // TODO: Add an example of providing a local signer.
+    /// Set the signer that will be used for signing [ProofRequest].
+    /// ```rust
+    /// # use boundless_market::Client;
+    /// # |client: Client| {
+    /// use alloy::signers::local::PrivateKeySigner;
+    ///
+    /// client.with_signer(PrivateKeySigner::from_str(
+    ///     "0x1cee2499e12204c2ed600d780a22a67b3c5fff3310d984cca1f24983d565265c")
+    ///     .unwrap());
+    /// # };
+    /// ```
     pub fn with_signer<Zi>(self, signer: Zi) -> Client<P, St, R, Zi> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         Client {
@@ -678,11 +687,11 @@ where
             .await?)
     }
 
-    // TODO: How is this being used? Are the example sending the receipt with Groth16 root?
     /// Get the [SetInclusionReceipt] for a request.
     ///
-    /// Example:
-    /// ```
+    /// # Examples
+    ///
+    /// ```rust
     /// use anyhow::Result;
     /// use alloy::primitives::{B256, Bytes, U256};
     /// use boundless_market::client::ClientBuilder;
@@ -695,7 +704,6 @@ where
     ///     Ok((journal, receipt))
     /// }
     /// ```
-    ///
     pub async fn fetch_set_inclusion_receipt(
         &self,
         request_id: U256,
