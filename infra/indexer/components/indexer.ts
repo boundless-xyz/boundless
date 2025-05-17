@@ -275,6 +275,18 @@ export class IndexerInstance extends pulumi.ComponentResource {
 
     const serviceLogGroup = `${serviceName}-service`;
 
+    const taskRole = new aws.iam.Role(`${serviceName}-task`, {
+      assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+        Service: 'ecs-tasks.amazonaws.com',
+      }),
+      managedPolicyArns: [aws.iam.ManagedPolicy.AmazonECSTaskExecutionRolePolicy],
+    });
+
+    const taskRolePolicy = new aws.iam.RolePolicyAttachment(`${serviceName}-task-policy`, {
+      role: taskRole.id,
+      policyArn: dbSecretAccessPolicy.arn,
+    });
+
     const service = new awsx.ecs.FargateService(`${serviceName}-service`, {
       name: `${serviceName}-service`,
       cluster: cluster.arn,
@@ -300,13 +312,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
           },
         },
         executionRole: { roleArn: executionRole.arn },
-        taskRole: {
-          args: {
-            name: `${serviceName}-task`,
-            description: 'indexer ECS task role with db secret access',
-            managedPolicyArns: [dbSecretAccessPolicy.arn],
-          },
-        },
+        taskRole: { roleArn: taskRole.arn },
         container: {
           name: `${serviceName}`,
           image: image.ref,
@@ -354,7 +360,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
           ]
         },
       },
-    });
+    }, { dependsOn: [taskRole, taskRolePolicy] });
 
     const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
 
