@@ -110,6 +110,9 @@ struct MainArgs {
     /// This parameter can only be set if order_stream_url is provided.
     #[clap(long, env, value_parser = parse_ether, requires = "order_stream_url")]
     auto_deposit: Option<U256>,
+    /// Transaction timeout in seconds.
+    #[clap(long, default_value = "45")]
+    tx_timeout: u64,
 }
 
 /// An estimated upper bound on the cost of locking and fulfilling a request.
@@ -134,7 +137,10 @@ async fn main() -> Result<()> {
     let args = MainArgs::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
-    run(&args).await?;
+    let result = run(&args).await;
+    if let Err(e) = result {
+        tracing::error!("FATAL: {:?}", e);
+    }
 
     Ok(())
 }
@@ -161,6 +167,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_private_key(args.private_key.clone())
         .with_bidding_start_delay(args.bidding_start_delay)
         .with_balance_alerts(balance_alerts)
+        .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
         .build()
         .await?;
 
@@ -269,10 +276,11 @@ async fn run(args: &MainArgs) -> Result<()> {
                 let caller = boundless_client.caller();
                 let balance = market.balance_of(caller).await?;
                 tracing::info!(
-                    "Caller {} has balance {} ETH on market {}",
+                    "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
                     caller,
                     format_units(balance, "ether")?,
-                    args.boundless_market_address
+                    args.boundless_market_address,
+                    format_units(auto_deposit, "ether")?
                 );
                 if balance < auto_deposit {
                     tracing::info!(
@@ -363,6 +371,7 @@ mod tests {
             warn_balance_below: None,
             error_balance_below: None,
             auto_deposit: None,
+            tx_timeout: 45,
         };
 
         run(&args).await.unwrap();

@@ -1,17 +1,11 @@
-import * as fs from 'fs';
-import * as aws from '@pulumi/aws';
-import * as awsx from '@pulumi/awsx';
-import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { getEnvVar, ChainId, getServiceNameV1, Severity } from "../util";
+import { getEnvVar, ChainId, getServiceNameV1 } from "../util";
 import { BentoEC2Broker } from "./components/bentoBroker";
 import { BonsaiECSBroker } from "./components/bonsaiBroker";
 require('dotenv').config();
 
 export = () => {
   // Read config
-  const config = new pulumi.Config();
-
   const baseConfig = new pulumi.Config("base-prover");
   const bonsaiConfig = new pulumi.Config("bonsai-prover");
   const bentoConfig = new pulumi.Config("bento-prover");

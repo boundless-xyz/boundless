@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
     .await?;
 
     if let Err(err) = slash_service.run(args.start_block).await {
-        bail!("Error running the slasher: {err}");
+        bail!("FATAL: Error running the slasher: {err}");
     }
 
     Ok(())

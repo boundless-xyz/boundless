@@ -34,6 +34,8 @@ use url::Url;
 mod db;
 pub mod test_utils;
 
+const MAX_BATCH_SIZE: u64 = 500;
+
 type ProviderWallet = FillProvider<
     JoinFill<
         JoinFill<
@@ -112,9 +114,9 @@ where
 {
     pub async fn run(&mut self, starting_block: Option<u64>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
-        let current_block = self.current_block().await?;
-        let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
-        let mut from_block = min(starting_block.unwrap_or(last_processed_block), current_block);
+
+        let mut from_block: u64 = self.starting_block(starting_block).await?;
+        tracing::info!("Starting indexer at block {}", from_block);
 
         let mut attempt = 0;
         loop {
@@ -126,12 +128,15 @@ where
                         continue;
                     }
 
-                    tracing::info!("Processing blocks from {} to {}", from_block, to_block);
+                    // cap to at most 500 blocks per batch
+                    let batch_end = min(to_block, from_block.saturating_add(MAX_BATCH_SIZE));
 
-                    match self.process_blocks(from_block, to_block).await {
+                    tracing::info!("Processing blocks from {} to {}", from_block, batch_end);
+
+                    match self.process_blocks(from_block, batch_end).await {
                         Ok(_) => {
                             attempt = 0;
-                            from_block = to_block + 1;
+                            from_block = batch_end + 1;
                         }
                         Err(e) => match e {
                             // Irrecoverable errors
@@ -142,7 +147,7 @@ where
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
-                                    to_block,
+                                    batch_end,
                                     e
                                 );
                                 return Err(e);
@@ -158,7 +163,7 @@ where
                                 tracing::warn!(
                                     "Failed to process blocks from {} to {}: {:?}, attempt number {}, retrying in {}s",
                                     from_block,
-                                    to_block,
+                                    batch_end,
                                     e,
                                     attempt,
                                     delay.as_secs()
@@ -274,7 +279,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} locked events from block {} to block {}",
             logs.len(),
             from_block,
@@ -322,7 +327,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} proof delivered events from block {} to block {}",
             logs.len(),
             from_block,
@@ -361,7 +366,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} fulfilled events from block {} to block {}",
             logs.len(),
             from_block,
@@ -398,7 +403,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} slashed events from block {} to block {}",
             logs.len(),
             from_block,
@@ -436,7 +441,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} deposit events from block {} to block {}",
             logs.len(),
             from_block,
@@ -466,7 +471,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
@@ -496,7 +501,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} stake deposit events from block {} to block {}",
             logs.len(),
             from_block,
@@ -526,7 +531,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} stake withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
@@ -556,7 +561,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} callback failed events from block {} to block {}",
             logs.len(),
             from_block,
@@ -585,15 +590,25 @@ where
     }
 
     async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
-        Ok(self
-            .boundless_market
-            .instance()
-            .provider()
-            .get_block_by_number(BlockNumberOrTag::Number(block_number))
-            .await?
-            .context(anyhow!("Failed to get block by number: {}", block_number))?
-            .header
-            .timestamp)
+        let timestamp = self.db.get_block_timestamp(block_number).await?;
+        let ts = match timestamp {
+            Some(ts) => ts,
+            None => {
+                tracing::debug!("Block timestamp not found in DB for block {}", block_number);
+                let ts = self
+                    .boundless_market
+                    .instance()
+                    .provider()
+                    .get_block_by_number(BlockNumberOrTag::Number(block_number))
+                    .await?
+                    .context(anyhow!("Failed to get block by number: {}", block_number))?
+                    .header
+                    .timestamp;
+                self.db.add_block(block_number, ts).await?;
+                ts
+            }
+        };
+        Ok(ts)
     }
 
     fn clear_cache(&mut self) {
@@ -625,5 +640,82 @@ where
         let input = tx.input().clone();
         self.cache.insert(tx_hash, (meta.clone(), input.clone()));
         Ok((meta, input))
+    }
+
+    // Return the last processed block from the DB is > 0;
+    // otherwise, return the starting_block if set and <= current_block;
+    // otherwise, return the current_block.
+    async fn starting_block(&self, starting_block: Option<u64>) -> Result<u64, ServiceError> {
+        let last_processed = self.get_last_processed_block().await?;
+        let current_block = self.current_block().await?;
+        Ok(find_starting_block(starting_block, last_processed, current_block))
+    }
+}
+
+fn find_starting_block(
+    starting_block: Option<u64>,
+    last_processed: Option<u64>,
+    current_block: u64,
+) -> u64 {
+    if let Some(last) = last_processed.filter(|&b| b > 0) {
+        tracing::debug!("Using last processed block {} as starting block", last);
+        return last;
+    }
+
+    let from = starting_block.unwrap_or(current_block);
+    if from > current_block {
+        tracing::warn!(
+            "Starting block {} is greater than current block {}, defaulting to current block",
+            from,
+            current_block
+        );
+        current_block
+    } else {
+        tracing::debug!("Using {} as starting block", from);
+        from
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_find_starting_block() {
+        let starting_block = Some(100);
+        let last_processed = Some(50);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 50);
+
+        let starting_block = None;
+        let last_processed = Some(50);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 50);
+
+        let starting_block = None;
+        let last_processed = None;
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 200);
+
+        let starting_block = None;
+        let last_processed = Some(0);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 200);
+
+        let starting_block = Some(200);
+        let last_processed = None;
+        let current_block = 100;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 100);
+
+        let starting_block = Some(200);
+        let last_processed = Some(10);
+        let current_block = 100;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 10);
     }
 }

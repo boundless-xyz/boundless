@@ -37,6 +37,7 @@ export = () => {
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
   const secondsPerMCycle = baseConfig.require('SECONDS_PER_MCYCLE');
+  const txTimeout = baseConfig.require('TX_TIMEOUT');
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
   const repo = new awsx.ecr.Repository(`${imageName}-repo`, {
@@ -107,6 +108,7 @@ export = () => {
   });
 
   const offchainConfig = new pulumi.Config("order-generator-offchain");
+  const autoDeposit = offchainConfig.require('AUTO_DEPOSIT');
   const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
   new OrderGenerator('offchain', {
     chainId,
@@ -114,7 +116,10 @@ export = () => {
     privateKey: offchainPrivateKey,
     pinataJWT,
     ethRpcUrl,
-    orderStreamUrl,
+    offchainConfig: {
+      autoDeposit,
+      orderStreamUrl,
+    },
     image,
     logLevel,
     setVerifierAddr,
@@ -129,6 +134,7 @@ export = () => {
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArn,
+    txTimeout,
   });
 
   const onchainConfig = new pulumi.Config("order-generator-onchain");
@@ -139,7 +145,6 @@ export = () => {
     privateKey: onchainPrivateKey,
     pinataJWT,
     ethRpcUrl,
-    orderStreamUrl,
     image,
     logLevel,
     setVerifierAddr,
@@ -154,5 +159,6 @@ export = () => {
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArn,
+    txTimeout,
   });
 };
