@@ -42,7 +42,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             treatMissingData: 'notBreaching',
-            alarmDescription: `${severity} ${metricFullName} ${description}`,
+            alarmDescription: `${severity}: ${description}`,
             actionsEnabled: true,
             alarmActions,
             ...alarmConfig
@@ -97,7 +97,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             evaluationPeriods: 12,
             datapointsToAlarm: 1,
             treatMissingData: 'notBreaching',
-            alarmDescription: `${severity} ${metricName} ${description}`,
+            alarmDescription: `${severity}: ${description}`,
             actionsEnabled: true,
             alarmActions,
             ...alarmConfig

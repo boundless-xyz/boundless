@@ -51,7 +51,7 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3",
           submissionRate: [
             {
-              description: "less than 1 submitted orders in 30 minutes",
+              description: "no submitted orders in 30 minutes",
               severity: Severity.SEV1,
               metricConfig: {
                 period: 1800
@@ -65,7 +65,7 @@ export const alarmConfig: ChainStageAlarms = {
               }
             },
             {
-              description: "less than 1 submitted orders in 15 minutes",
+              description: "no submitted orders in 15 minutes",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 900
@@ -115,23 +115,31 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0x8934790e351cbcadd11fc6f9729257cd64f860bf",
           submissionRate: [
             {
+              description: "no submitted orders in 30 minutes",
               severity: Severity.SEV1,
               metricConfig: {
-                period: 600
+                period: 1800
               },
               alarmConfig: {
-                evaluationPeriods: 6,
-                datapointsToAlarm: 2
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
               }
             },
             {
+              description: "no submitted orders in 15 minutes",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 600
+                period: 900
               },
               alarmConfig: {
-                evaluationPeriods: 6,
-                datapointsToAlarm: 1
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
               }
             }
           ],
@@ -271,7 +279,7 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0x2546c553d857d20658ece248f7c7d0861a240681",
           submissionRate: [
             {
-              description: "less than 1 submitted orders in 30 minutes",
+              description: "no submitted orders in 30 minutes",
               severity: Severity.SEV1,
               metricConfig: {
                 period: 1800
@@ -285,7 +293,7 @@ export const alarmConfig: ChainStageAlarms = {
               }
             },
             {
-              description: "less than 1 submitted orders in 15 minutes",
+              description: "no submitted orders in 15 minutes",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 900
@@ -335,7 +343,7 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db0",
           submissionRate: [
             {
-              description: "less than 1 submitted orders in 30 minutes",
+              description: "no submitted orders in 30 minutes",
               severity: Severity.SEV1,
               metricConfig: {
                 period: 1800
@@ -349,7 +357,7 @@ export const alarmConfig: ChainStageAlarms = {
               }
             },
             {
-              description: "less than 1 submitted orders in 15 minutes",
+              description: "no submitted orders in 15 minutes",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 900
