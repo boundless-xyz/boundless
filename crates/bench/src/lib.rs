@@ -38,7 +38,7 @@ pub mod db;
 
 pub use bench::{Bench, BenchRow, BenchRows};
 
-const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 10_000_000;
+const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 100_000_000;
 
 /// Arguments of the benchmark.
 #[derive(Parser, Debug)]
@@ -284,11 +284,16 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                     .build()?;
                 tracing::debug!("Request: {:?}", request);
 
-                let (request_id, expires_at) = if order_stream.is_some() {
-                    client.submit_request_offchain(&request).await?
+                let res = if order_stream.is_some() {
+                    client.submit_request_offchain(&request).await
                 } else {
-                    client.submit_request(&request).await?
+                    client.submit_request(&request).await
                 };
+                if let Err(e) = res {
+                    tracing::error!("Error submitting request: {}", e);
+                    continue;
+                }
+                let (request_id, expires_at) = res.unwrap();
                 request.id = request_id;
 
                 let digest = request.eip712_signing_hash(&domain.alloy_struct());
