@@ -6,36 +6,36 @@ To run a benchmark against a local devnet:
 
 1. Start a local devnet:
 
-    ```bash
-    just localnet up
-    ```
+   ```bash
+   just localnet up
+   ```
 
 2. Export the env variables:
 
-    ```bash
-    source <(just env localnet)
-    ```
+   ```bash
+   source <(just env localnet)
+   ```
 
-    > *Note*: Before exporting, you may need to copy and paste the generated `SET_VERIFIER_ADDRESS` to the `VERIFIER_ADDRESS` as in dev mode only the `SET_VERIFIER_ADDRESS` gets deployed.
-    > You may also want to unset the `ORDER_STREAM_URL` if you wish to submit benchmark request onchain.
+   > _Note_: Before exporting, you may need to copy and paste the generated `SET_VERIFIER_ADDRESS` to the `VERIFIER_ADDRESS` as in dev mode only the `SET_VERIFIER_ADDRESS` gets deployed.
+   > You may also want to unset the `ORDER_STREAM_URL` if you wish to submit benchmark request onchain.
 
 3. Define your Benchmark config file. You can find an example in the [data folder](./data/small_test.json).
 4. Estimate the benchmark cost (Optional)
 
-    ```bash
-    RUST_LOG=boundless_bench=info cargo run --bin boundless-bench -- --bench crates/bench/data/small_test.json --estimate
-    ```
+   ```bash
+   RUST_LOG=boundless_bench=info cargo run --bin boundless-bench -- --bench crates/bench/data/small_test.json --estimate
+   ```
 
 5. Run your benchmark:
 
-    ```bash
-    RUST_LOG=boundless_bench=info cargo run --bin boundless-bench -- --bench crates/bench/data/small_test.json
-    ```
+   ```bash
+   RUST_LOG=boundless_bench=info cargo run --bin boundless-bench -- --bench crates/bench/data/small_test.json
+   ```
 
 6. Process the results:
 
    ```bash
-   python ./crates/bench/scripts/process.py ./out/bench_1747653790.csv   
+   python ./crates/bench/scripts/process.py ./out/bench_1747653790.csv
    ```
 
 ## Testnet
