@@ -27,6 +27,18 @@ pub struct Bench {
     pub timeout: u32,
     /// The lock timeout for each request in seconds
     pub lock_timeout: u32,
+    /// Minimum price per mcycle in ether.
+    pub min_price_per_mcycle: String,
+    /// Maximum price per mcycle in ether.
+    pub max_price_per_mcycle: String,
+    /// Lockin stake amount in ether.
+    pub lockin_stake: String,
+    /// Ramp-up period in seconds.
+    ///
+    /// The bid price will increase linearly from `min_price` to `max_price` over this period.
+    pub ramp_up: u32,
+    /// How many threads to use for the benchmark.
+    pub threads: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

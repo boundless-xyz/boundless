@@ -3,5 +3,10 @@
   "requests_count": 400,
   "interval": 0,
   "timeout": 1200,
-  "lock_timeout": 900
+  "lock_timeout": 900,
+  "min_price_per_mcycle": "0.0",
+  "max_price_per_mcycle": "0.00001",
+  "lockin_stake": "0.0",
+  "ramp_up": 100,
+  "threads": 4
 }

@@ -38,7 +38,7 @@ pub mod db;
 
 pub use bench::{Bench, BenchRow, BenchRows};
 
-const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 100_000_000; // 100M gas
+const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 10_000_000;
 
 /// Arguments of the benchmark.
 #[derive(Parser, Debug)]
@@ -77,23 +77,9 @@ pub struct MainArgs {
     /// If not set, a new temporary sqlite file is used.
     #[clap(long, env, conflicts_with = "indexer_url")]
     pub sqlite_path: Option<PathBuf>,
-    /// Minimum price per mcycle in ether.
-    #[clap(long = "min", value_parser = parse_ether, default_value = "0")]
-    pub min_price_per_mcycle: U256,
-    /// Maximum price per mcycle in ether.
-    #[clap(long = "max", value_parser = parse_ether, default_value = "0.01")]
-    pub max_price_per_mcycle: U256,
-    /// Lockin stake amount in ether.
-    #[clap(short, long, value_parser = parse_ether, default_value = "0.0")]
-    pub lockin_stake: U256,
-    /// Ramp-up period in seconds.
-    ///
-    /// The bid price will increase linearly from `min_price` to `max_price` over this period.
-    #[clap(long, default_value = "240")] // 240s = ~20 Sepolia blocks
-    pub ramp_up: u32,
     /// Program binary file to use as the guest image, given as a path.
     ///
-    /// If unspecified, defaults to the included echo guest.
+    /// If unspecified, defaults to the included loop guest.
     #[clap(long)]
     pub program: Option<PathBuf>,
     /// Balance threshold at which to log a warning.
@@ -111,9 +97,12 @@ pub struct MainArgs {
     /// Use json format for the output file.
     #[clap(long)]
     pub json: bool,
-    /// How many threads to use for the benchmark.
-    #[clap(long, short, default_value = "1")]
-    pub threads: usize,
+    /// Estimate the cost for running the benchmark.
+    ///
+    /// If set, the benchmark will not be run, but the cost will be estimated.
+    /// This is useful for testing the cost of a benchmark without actually running it.
+    #[clap(long)]
+    pub estimate: bool,
 }
 
 pub async fn run(args: &MainArgs) -> Result<()> {
@@ -161,17 +150,16 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
 
     let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
-    let min_price = args
-        .min_price_per_mcycle
+    let min_price = parse_ether(&bench.min_price_per_mcycle)?
         .checked_mul(U256::from(cycles_count))
         .unwrap()
         .div_ceil(U256::from(1_000_000));
-    let mcycle_max_price = args
-        .max_price_per_mcycle
+    let mcycle_max_price = parse_ether(&bench.max_price_per_mcycle)?
         .checked_mul(U256::from(cycles_count))
         .unwrap()
         .div_ceil(U256::from(1_000_000));
 
+    // start the indexer
     let temp_db = NamedTempFile::new().unwrap();
     let domain = boundless_client.boundless_market.eip712_domain().await?;
     let db_file_path: PathBuf =
@@ -210,33 +198,54 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
     let gas_cost_estimate = (gas_price + gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
     let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
-    let value = max_price * U256::from(bench.requests_count);
+    let amount: alloy::primitives::Uint<256, 4> = max_price * U256::from(bench.requests_count);
     let current_balance =
         boundless_client.boundless_market.balance_of(boundless_client.caller()).await?;
-    if current_balance < value {
-        let amount = value - current_balance;
+    let deposit_value =
+        if current_balance < amount { amount - current_balance } else { U256::ZERO };
+
+    if args.estimate {
         tracing::info!(
-            "Caller {} balance {} ETH is below target {} ETH, depositing {} ETH...",
-            boundless_client.caller(),
-            format_units(current_balance, "ether")?,
-            format_units(value, "ether")?,
+            "Estimated cost for {} requests: {} ETH",
+            bench.requests_count,
             format_units(amount, "ether")?
         );
-        boundless_client.boundless_market.deposit(amount).await.expect("Failed to deposit");
+        tracing::info!("Current balance: {} ETH", format_units(current_balance, "ether")?);
+        tracing::info!("Deposit required: {} ETH", format_units(deposit_value, "ether")?);
+        return Ok(());
     }
+
+    if deposit_value > U256::ZERO {
+        tracing::info!(
+            "Caller {} balance {} ETH is below estimated target {} ETH, depositing {} ETH...",
+            boundless_client.caller(),
+            format_units(current_balance, "ether")?,
+            format_units(amount, "ether")?,
+            format_units(deposit_value, "ether")?
+        );
+        boundless_client.boundless_market.deposit(deposit_value).await.expect("Failed to deposit");
+    }
+
+    let balance_before =
+        boundless_client.boundless_market.balance_of(boundless_client.caller()).await?;
+    tracing::info!(
+        "Caller {} balance before bench: {} ETH",
+        boundless_client.caller(),
+        format_units(balance_before, "ether")?
+    );
 
     let timeout = bench.timeout;
     let lock_timeout = bench.lock_timeout;
     let interval = bench.interval;
-    let lockin_stake = args.lockin_stake;
-    let ramp_up = args.ramp_up;
+    let lockin_stake = parse_ether(&bench.lockin_stake)?;
+    let ramp_up = bench.ramp_up;
+    let threads = bench.threads as usize;
     let boundless_market_address = args.boundless_market_address;
-    let threads = args.threads;
 
     // Spawn one task per thread
     // Each task will handle its own requests
     let mut tasks: Vec<JoinHandle<anyhow::Result<Vec<BenchRow>>>> = Vec::with_capacity(threads);
-    for i in 0..args.threads {
+    for i in 0..threads {
         // Pre-clone everything each task will need
         let client = boundless_client.clone();
         let program_url = program_url.clone();
@@ -247,10 +256,6 @@ pub async fn run(args: &MainArgs) -> Result<()> {
             let mut rows: Vec<BenchRow> = Vec::new();
 
             for i in (i..bench.requests_count as usize).step_by(threads) {
-                let gas_price: u128 = client.provider().get_gas_price().await?;
-                let gas_cost_estimate = (gas_price + gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
-                let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
-
                 let bidding_start = now_timestamp() + 10;
                 let env =
                     InputBuilder::new().write(&(i as u64))?.write(&bidding_start)?.build_env()?;
@@ -335,7 +340,16 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     wait(&bench_rows, &indexer_url, bench.timeout).await?;
 
     let processed = process(&bench_rows, &indexer_url).await?;
-    tracing::info!("Bench complete; writing results…");
+    tracing::info!("Bench complete");
+    let balance_after =
+        boundless_client.boundless_market.balance_of(boundless_client.caller()).await?;
+    tracing::info!(
+        "Caller {} balance after bench: {} ETH (change: -{})",
+        boundless_client.caller(),
+        format_units(balance_after, "ether")?,
+        format_units(balance_before - balance_after, "ether")?
+    );
+    tracing::info!("Writing results to file...");
     processed.dump(args.output.clone(), args.json)?;
 
     if let Some(handle) = indexer_handle {
@@ -528,6 +542,11 @@ mod tests {
             interval: 0,
             timeout: 45,
             lock_timeout: 45,
+            min_price_per_mcycle: "0".to_string(),
+            max_price_per_mcycle: "0.001".to_string(),
+            lockin_stake: "0.0".to_string(),
+            ramp_up: 0,
+            threads: 1,
         };
         let bench_path = PathBuf::from("out/bench.json");
         if let Some(dir) = bench_path.parent() {
@@ -549,10 +568,6 @@ mod tests {
             private_key: ctx.customer_signer.clone(),
             set_verifier_address: ctx.set_verifier_address,
             boundless_market_address: ctx.boundless_market_address,
-            min_price_per_mcycle: parse_ether("0.001").unwrap(),
-            max_price_per_mcycle: parse_ether("0.002").unwrap(),
-            lockin_stake: parse_ether("0.0").unwrap(),
-            ramp_up: 0,
             program: is_dev_mode().then(|| PathBuf::from(LOOP_PATH)),
             warn_balance_below: None,
             error_balance_below: None,
@@ -561,7 +576,7 @@ mod tests {
             bench: bench_path,
             output: Some(output_path.clone()),
             json: false,
-            threads: 1,
+            estimate: false,
         };
 
         run(&args).await.unwrap();
