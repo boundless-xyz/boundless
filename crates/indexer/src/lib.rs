@@ -289,14 +289,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, input) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing request locked event for request: 0x{:x} [block: {}, timestamp: {}]",
                 log.requestId,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, input) = self.fetch_tx(log_data).await?;
-
             let request = IBoundlessMarket::lockRequestCall::abi_decode(&input)
                 .context(anyhow!(
                     "abi decode failure for request locked event of tx: {}",
@@ -348,13 +347,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, input) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing proof delivered event for request: 0x{:x} [block: {}, timestamp: {}]",
                 log.requestId,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, input) = self.fetch_tx(log_data).await?;
             let (fills, assessor_receipt) = decode_calldata(&input).context(anyhow!(
                 "abi decode failure for proof delivered event of tx: {}",
                 hex::encode(metadata.tx_hash)
@@ -392,13 +391,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, input) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing fulfilled event for request: 0x{:x} [block: {}, timestamp: {}]",
                 log.requestId,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, input) = self.fetch_tx(log_data).await?;
 
             let (fills, _) = decode_calldata(&input).context(anyhow!(
                 "abi decode failure for fulfilled event of tx: {}",
@@ -434,13 +433,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing slashed event for request: 0x{:x} [block: {}, timestamp: {}]",
                 log.requestId,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db
                 .add_prover_slashed_event(
                     log.requestId,
@@ -477,13 +476,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
                 log.account,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db.add_deposit_event(log.account, log.value, &metadata).await?;
         }
 
@@ -512,13 +511,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
                 log.account,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db.add_withdrawal_event(log.account, log.value, &metadata).await?;
         }
 
@@ -547,13 +546,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing stake deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
                 log.account,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db.add_stake_deposit_event(log.account, log.value, &metadata).await?;
         }
 
@@ -582,13 +581,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing stake withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
                 log.account,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, _) = self.fetch_tx(log_data).await?;
             self.db.add_stake_withdrawal_event(log.account, log.value, &metadata).await?;
         }
 
@@ -617,13 +616,13 @@ where
         );
 
         for (log, log_data) in logs {
+            let (metadata, _) = self.fetch_tx(log_data).await?;
             tracing::debug!(
                 "Processing callback failed event for request: 0x{:x} [block: {}, timestamp: {}]",
                 log.requestId,
-                log.blockNumber,
-                log.blockTimestamp
+                metadata.block_number,
+                metadata.block_timestamp
             );
-            let (metadata, _tx_input) = self.fetch_tx(log_data).await?;
 
             self.db
                 .add_callback_failed_event(
