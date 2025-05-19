@@ -302,40 +302,46 @@ where
     }
 
     async fn lock_orders(&self, current_block: u64, orders: Vec<Order>) -> Result<u64> {
-        let mut order_count = 0;
-        for order in orders.iter() {
-            let order_id = order.id();
-            let request_id = order.request.id;
-            match self.lock_order(order).await {
-                Ok(_) => tracing::info!("Locked request: 0x{request_id:x}"),
-                Err(ref err) => {
-                    match err {
-                        OrderMonitorErr::UnexpectedError(inner) => {
+        let order_count = orders.len() as u64;
+
+        let lock_jobs = orders.into_iter().map(|order| {
+            let order_monitor = self;
+            async move {
+                let order_id = order.id();
+                let request_id = order.request.id;
+                match order_monitor.lock_order(&order).await {
+                    Ok(_) => tracing::info!("Locked request: {request_id}"),
+                    Err(ref err) => {
+                        match err {
+                            OrderMonitorErr::UnexpectedError(inner) => {
+                                tracing::error!(
+                                    "Failed to lock order: {order_id} - {} - {inner:?}",
+                                    err.code()
+                                );
+                            }
+                            // Only warn on known / classified errors
+                            _ => {
+                                tracing::warn!(
+                                    "Soft failed to lock request: {request_id} - {} - {err:?}",
+                                    err.code()
+                                );
+                            }
+                        }
+                        if let Err(err) =
+                            order_monitor.db.set_order_failure(&order_id, format!("{err:?}")).await
+                        {
                             tracing::error!(
-                                "Failed to lock order: {order_id} - {} - {inner:?}",
-                                err.code()
+                                "Failed to set DB failure state for order: {order_id} - {err:?}",
                             );
                         }
-                        // Only warn on known / classified errors
-                        _ => {
-                            tracing::warn!(
-                                "Soft failed to lock request: 0x{request_id:x} - {} - {err:?}",
-                                err.code()
-                            );
-                        }
-                    }
-                    if let Err(err) = self.db.set_order_failure(&order_id, format!("{err:?}")).await
-                    {
-                        tracing::error!(
-                            "Failed to set DB failure state for order: {order_id} - {err:?}",
-                        );
                     }
                 }
             }
-            order_count += 1;
-        }
+        });
 
-        if !orders.is_empty() {
+        futures::future::join_all(lock_jobs).await;
+
+        if order_count > 0 {
             self.db.set_last_block(current_block).await?;
         }
 
