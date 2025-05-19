@@ -16,8 +16,7 @@ To run a benchmark against a local devnet:
    source <(just env localnet)
    ```
 
-   > _Note_: Before exporting, you may need to copy and paste the generated `SET_VERIFIER_ADDRESS` to the `VERIFIER_ADDRESS` as in dev mode only the `SET_VERIFIER_ADDRESS` gets deployed.
-   > You may also want to unset the `ORDER_STREAM_URL` if you wish to submit benchmark request onchain.
+   > _Note_: After sourcing, you may want to unset the `ORDER_STREAM_URL` if you wish to submit benchmark request onchain.
 
 3. Define your Benchmark config file. You can find an example in the [data folder](./data/small_test.json).
 4. Estimate the benchmark cost (Optional)
