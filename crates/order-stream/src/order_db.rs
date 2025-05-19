@@ -21,22 +21,22 @@ pub enum OrderDbErr {
     #[error("Missing env var {0}")]
     MissingEnv(&'static str),
 
-    #[error("Invalid DB_POOL_SIZE")]
+    #[error("Invalid DB_POOL_SIZE {0}")]
     InvalidPoolSize(#[from] std::num::ParseIntError),
 
     #[error("Address not found: {0}")]
     AddrNotFound(Address),
 
-    #[error("Migrations failed")]
+    #[error("Migrations failed {0}")]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
-    #[error("sqlx error")]
+    #[error("sqlx error {0}")]
     SqlErr(#[from] sqlx::Error),
 
     #[error("No rows effected when expected: {0}")]
     NoRows(&'static str),
 
-    #[error("Json serialization error")]
+    #[error("Json serialization error {0}")]
     JsonErr(#[from] serde_json::Error),
 }
 

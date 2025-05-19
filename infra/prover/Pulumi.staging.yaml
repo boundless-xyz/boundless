@@ -2,21 +2,24 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGwxtZQaXmuKc6n1fmY5HZ8AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMaSgh27uH+NWc6zZTAgEQgDuYJdzIX0aniEtenDAzlCg46nfYlD+jVLRRzyyZZvWx0rBtMq5pl2pV8lLlq3ZG/GkWsPDNHhzak06DjQ==
 config:
   aws:region: us-west-2
-  prover:DOCKER_DIR: "../../"
-  prover:SET_VERIFIER_ADDR: 0xad2c6335191EA71Ffe2045A8d54b93A851ceca77
-  prover:PROOF_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
-  prover:BONSAI_API_URL: https://api.bonsai.xyz/
-  prover:ORDER_STREAM_URL:
+  base-prover:DOCKER_DIR: "../../"
+  base-prover:SET_VERIFIER_ADDR: 0xad2c6335191EA71Ffe2045A8d54b93A851ceca77
+  base-prover:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
+  base-prover:ORDER_STREAM_URL:
     secure: v1:vFbwPj9LyBtHmeEa:QUPhb7T6oHXwEhydaXIOIw/dttiHus9nlpl2HarpY08/kPTM7APec8dnCWrSLJqmiUC/URv5swvFuoKg38nVQwNGR9N16uAHkZIODjadW1uKchEysg==
-  prover:DOCKER_TAG: latest
-  prover:BROKER_TOML_PATH: broker-staging.toml
-  prover:BASE_STACK: organization/bootstrap/services-staging
-  prover:ETH_RPC_URL:
-    secure: v1:SF3pAa5PIkvm8rC3:oSzk/8iaHtmqH8F2epOSf1uQeaeiglygGIPwDEoW08m7tNLs56SuHxmsCOBeIKF8sAHxRlBW04g0lCYvVMeJ0pvKSglaszK4knPpDjyCLyWgm7dnPw==
-  prover:PRIVATE_KEY:
-    secure: v1:XeT00OsvvQdg9y4K:jjqy1PfadM1Zo6XwgwI4Z0NmwDYA4akd3HvpD1BKQFt6YqB2QS8l03uccezLX3uFRy67UecCwDYVlP4bG+Np1ClK2O/Wm0h5n2En5XlaslU=
-  prover:BONSAI_API_KEY:
-    secure: v1:R52O8izvZ2+jGU85:MXZSycsixFnVqErtbAvq5giYtIl5z8BOVwyDPgYHXAtuWzx3vqJ0gLYtR8fDiZDdqt2zvnroPfc=
-  prover:GH_TOKEN_SECRET:
+  base-prover:DOCKER_TAG: latest
+  base-prover:BROKER_TOML_PATH: broker-staging.toml
+  base-prover:BASE_STACK: organization/bootstrap/services-staging
+  base-prover:ETH_RPC_URL:
+    secure: v1:bAYClD7XbW9P0Nct:UvKogu9L0Xam53xCdhAvfORvTE7KMcgt+PSAjFthJJRPxSWxxuNIsLCqXRXxwOU5EGf4ACAABAZH9QjMhxbXn47A6RCRgk270AY2z0LqpTjl4XfFJw==
+  base-prover:GH_TOKEN_SECRET:
     secure: v1:uKW8SunjoJPWAf4l:GS38MomZJucbvxMfnp4PqigyTT4X7W9inHFdb53FOAXzhlpwIgL5fMURRviScfJaxE2l8chc+VALgMIywDoNFsc7kEvU8G/QerwZ1SWYhlLuu4w1IRi9sgrWGDhQmz62fSMYeNuNaaZG2LdZew==
-  prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  bonsai-prover:PRIVATE_KEY:
+    secure: v1:XeT00OsvvQdg9y4K:jjqy1PfadM1Zo6XwgwI4Z0NmwDYA4akd3HvpD1BKQFt6YqB2QS8l03uccezLX3uFRy67UecCwDYVlP4bG+Np1ClK2O/Wm0h5n2En5XlaslU=
+  bonsai-prover:BONSAI_API_KEY:
+    secure: v1:R52O8izvZ2+jGU85:MXZSycsixFnVqErtbAvq5giYtIl5z8BOVwyDPgYHXAtuWzx3vqJ0gLYtR8fDiZDdqt2zvnroPfc=
+  bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
+  bento-prover:SEGMENT_SIZE: "19"
+  bento-prover:PRIVATE_KEY:
+    secure: v1:AahxbrDObsEuAjpx:YDw8lqLxNq1CDhvIn4DEDvNn2JVoH79A0nFbTXbPeJb24omW13zK0u13GeCEH7XYEqdKfeRnv1rVkEVB7anoeUzXvhdSp3z5frKi14D1YJo=

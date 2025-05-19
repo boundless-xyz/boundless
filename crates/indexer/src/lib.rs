@@ -2,11 +2,7 @@
 //
 // All rights reserved.
 
-use std::{
-    cmp::{max, min},
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{cmp::min, collections::HashMap, sync::Arc};
 
 use alloy::{
     consensus::Transaction,
@@ -118,17 +114,9 @@ where
 {
     pub async fn run(&mut self, starting_block: Option<u64>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
-        let current_block = self.current_block().await?;
-        let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
-        // If the starting block is set, use the maximum of the starting block and the last processed block
-        // Otherwise, use the last processed block if it is greater than 0, or the current block
-        // if the last processed block is 0.
-        // This is to ensure that we don't process blocks that have already been processed and
-        // to avoid processing blocks that are in the future.
-        let mut from_block: u64 = starting_block.map_or(
-            if last_processed_block == 0 { current_block } else { last_processed_block },
-            |from_block| max(min(from_block, current_block), last_processed_block),
-        );
+
+        let mut from_block: u64 = self.starting_block(starting_block).await?;
+        tracing::info!("Starting indexer at block {}", from_block);
 
         let mut attempt = 0;
         loop {
@@ -652,5 +640,82 @@ where
         let input = tx.input().clone();
         self.cache.insert(tx_hash, (meta.clone(), input.clone()));
         Ok((meta, input))
+    }
+
+    // Return the last processed block from the DB is > 0;
+    // otherwise, return the starting_block if set and <= current_block;
+    // otherwise, return the current_block.
+    async fn starting_block(&self, starting_block: Option<u64>) -> Result<u64, ServiceError> {
+        let last_processed = self.get_last_processed_block().await?;
+        let current_block = self.current_block().await?;
+        Ok(find_starting_block(starting_block, last_processed, current_block))
+    }
+}
+
+fn find_starting_block(
+    starting_block: Option<u64>,
+    last_processed: Option<u64>,
+    current_block: u64,
+) -> u64 {
+    if let Some(last) = last_processed.filter(|&b| b > 0) {
+        tracing::debug!("Using last processed block {} as starting block", last);
+        return last;
+    }
+
+    let from = starting_block.unwrap_or(current_block);
+    if from > current_block {
+        tracing::warn!(
+            "Starting block {} is greater than current block {}, defaulting to current block",
+            from,
+            current_block
+        );
+        current_block
+    } else {
+        tracing::debug!("Using {} as starting block", from);
+        from
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_find_starting_block() {
+        let starting_block = Some(100);
+        let last_processed = Some(50);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 50);
+
+        let starting_block = None;
+        let last_processed = Some(50);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 50);
+
+        let starting_block = None;
+        let last_processed = None;
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 200);
+
+        let starting_block = None;
+        let last_processed = Some(0);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 200);
+
+        let starting_block = Some(200);
+        let last_processed = None;
+        let current_block = 100;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 100);
+
+        let starting_block = Some(200);
+        let last_processed = Some(10);
+        let current_block = 100;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 10);
     }
 }

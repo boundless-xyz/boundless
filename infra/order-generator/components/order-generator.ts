@@ -3,6 +3,7 @@ import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import { Image } from '@pulumi/docker-build';
 import { getServiceNameV1 } from '../../util';
+import * as crypto from 'crypto';
 
 interface OrderGeneratorArgs {
   chainId: string;
@@ -28,6 +29,7 @@ interface OrderGeneratorArgs {
     autoDeposit: string;
     orderStreamUrl: pulumi.Output<string>;
   };
+  txTimeout: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -56,15 +58,21 @@ export class OrderGenerator extends pulumi.ComponentResource {
       secretString: args.ethRpcUrl,
     });
 
-    let orderStreamUrlSecret: aws.secretsmanager.Secret | undefined;
-    if (offchainConfig) {
-      const orderStreamUrl = offchainConfig.orderStreamUrl;
-      orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
-      new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
-        secretId: orderStreamUrlSecret.id,
-        secretString: orderStreamUrl,
+    const orderStreamUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-order-stream-url`);
+    new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
+      secretId: orderStreamUrlSecret.id,
+      secretString: offchainConfig?.orderStreamUrl ?? 'none',
+    });
+
+    const secretHash = pulumi
+      .all([args.ethRpcUrl, args.privateKey, offchainConfig?.orderStreamUrl])
+      .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl]) => {
+        const hash = crypto.createHash("sha1");
+        hash.update(_ethRpcUrl);
+        hash.update(_privateKey);
+        hash.update(_orderStreamUrl ?? '');
+        return hash.digest("hex");
       });
-    }
 
     const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
       name: serviceName,
@@ -101,7 +109,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       },
     });
 
-    var environment = [
+    let environment = [
       {
         name: 'IPFS_GATEWAY_URL',
         value: args.pinataGateway,
@@ -111,9 +119,10 @@ export class OrderGenerator extends pulumi.ComponentResource {
         value: args.logLevel,
       },
       { name: 'NO_COLOR', value: '1' },
+      { name: 'SECRET_HASH', value: secretHash },
     ]
 
-    var secrets = [
+    let secrets = [
       {
         name: 'RPC_URL',
         valueFrom: rpcUrlSecret.arn,
@@ -164,7 +173,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
-              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle}`,
+              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle} --tx-timeout ${args.txTimeout}`,
             ],
             environment,
             secrets,
@@ -200,7 +209,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
     const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
 
-    // 2 errors within 1 hour in the order generator triggers a SEV2 alarm.
+    // 5 errors within 1 hour in the order generator triggers a SEV2 alarm.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
       name: `${serviceName}-log-err`,
       metricQueries: [
@@ -218,13 +227,15 @@ export class OrderGenerator extends pulumi.ComponentResource {
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
       evaluationPeriods: 60,
-      datapointsToAlarm: 2,
+      datapointsToAlarm: 5,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} log ERROR level`,
       actionsEnabled: true,
       alarmActions,
     });
 
+    // A single error in the order generator causes the process to exit.
+    // Alarm if we see 2 errors in 30 mins.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
       name: `${serviceName}-log-fatal`,
       metricQueries: [
@@ -241,8 +252,8 @@ export class OrderGenerator extends pulumi.ComponentResource {
       ],
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 1,
-      datapointsToAlarm: 1,
+      evaluationPeriods: 30,
+      datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} FATAL (task exited)`,
       actionsEnabled: true,
