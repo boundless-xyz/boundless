@@ -51,10 +51,10 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3",
           submissionRate: [
             {
-              description: "no submitted orders in 15 minutes from og_offchain",
+              description: "no submitted orders in 30 minutes from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 900
+                period: 1800
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -68,7 +68,7 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes",
+              description: "less than 90% success rate in 60 minutes for og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
