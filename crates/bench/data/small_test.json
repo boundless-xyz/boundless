@@ -1,5 +1,5 @@
 {
-  "cycle_count_per_request": 1000,
+  "cycle_count_per_request": 1000000,
   "requests_count": 400,
   "interval": 0,
   "timeout": 1200,
