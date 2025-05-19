@@ -143,7 +143,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
 
     const rdsUser = 'indexer';
     const rdsPort = 5432;
-    const rdsDbName = 'indexer';
+    const rdsDbName = 'indexerV1';
 
     const dbSubnets = new aws.rds.SubnetGroup(`${serviceName}-dbsubnets`, {
       subnetIds: privSubNetIds,
@@ -170,10 +170,10 @@ export class IndexerInstance extends pulumi.ComponentResource {
       ],
     });
 
-    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora`, {
+    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v1`, {
       engine: "aurora-postgresql",
       engineVersion: "17.4",
-      clusterIdentifier: `${serviceName}-aurora`,
+      clusterIdentifier: `${serviceName}-aurora-v1`,
       databaseName: rdsDbName,
       masterUsername: rdsUser,
       masterPassword: rdsPassword,
@@ -185,13 +185,12 @@ export class IndexerInstance extends pulumi.ComponentResource {
       storageEncrypted: true,
     }, { /** protect: true **/ }); // TODO: Re-enable protection once deployed and stable.
 
-    const auroraWriter = new aws.rds.ClusterInstance(
-      `${serviceName}-aurora-writer`, {
+    const auroraWriter = new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-1`, {
       clusterIdentifier: auroraCluster.id,
       engine: "aurora-postgresql",
       engineVersion: "17.4",
       instanceClass: "db.t4g.medium",
-      identifier: `${serviceName}-aurora-writer`,
+      identifier: `${serviceName}-aurora-writer-v1`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
     },

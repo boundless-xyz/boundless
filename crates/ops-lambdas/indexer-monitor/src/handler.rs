@@ -75,7 +75,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 
     let mut metrics = vec![];
 
-    debug!(start_time, now, "Fetching metrics");
+    debug!(start_time, now, "Fetching metrics from {start_time} to {now}");
 
     let expired = monitor
         .fetch_requests_expired(start_time, now)
@@ -93,7 +93,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .context("Failed to fetch requests number")
         .map_err(|e| Error::from(e.to_string()))?;
     let requests_count = requests.len();
-    debug!(count = requests_count, requests = ?requests, "Fetched requests");
+    debug!(count = requests_count, requests = ?requests, "Found requests");
     metrics.push(new_metric("requests_number", requests_count as f64, now));
 
     let fulfillments = monitor
@@ -102,7 +102,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .context("Failed to fetch fulfilled requests number")
         .map_err(|e| Error::from(e.to_string()))?;
     let fulfillment_count = fulfillments.len();
-    debug!(count = fulfillment_count, fulfillments = ?fulfillments, "Fetched fulfilled requests");
+    debug!(count = fulfillment_count, fulfillments = ?fulfillments, "Found fulfilled requests");
     metrics.push(new_metric("fulfilled_requests_number", fulfillment_count as f64, now));
 
     let slashed = monitor
@@ -111,7 +111,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .context("Failed to fetch slashed requests number")
         .map_err(|e| Error::from(e.to_string()))?;
     let slashed_count = slashed.len();
-    debug!(count = slashed_count, slashed = ?slashed, "Fetched slashed requests");
+    debug!(count = slashed_count, slashed = ?slashed, "Found slashed requests");
     metrics.push(new_metric("slashed_requests_number", slashed_count as f64, now));
 
     for client in event.clients {
@@ -126,7 +126,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .context("Failed to fetch expired requests for client {client}")
             .map_err(|e| Error::from(e.to_string()))?;
         let expired_count = expired_requests.len();
-        debug!(count = expired_count, expired = ?expired_requests, "Fetched expired requests for client {client}");
+        debug!(count = expired_count, expired = ?expired_requests, "Found expired requests for client {client}");
         metrics.push(new_metric(
             &format!("expired_requests_number_from_{client}"),
             expired_count as f64,
@@ -139,7 +139,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .context("Failed to fetch requests number for client {client}")
             .map_err(|e| Error::from(e.to_string()))?;
         let requests_count = requests.len();
-        debug!(count = requests_count, requests = ?requests, "Fetched requests for client {client}");
+        debug!(count = requests_count, requests = ?requests, "Found requests for client {client}");
         metrics.push(new_metric(
             &format!("requests_number_from_{client}"),
             requests_count as f64,
@@ -152,7 +152,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .context("Failed to fetch fulfilled requests number for client {client}")
             .map_err(|e| Error::from(e.to_string()))?;
         let fulfilled_count = fulfilled.len();
-        debug!(count = fulfilled_count, fulfillments = ?fulfilled, "Fetched fulfilled requests for client {client}");
+        debug!(count = fulfilled_count, fulfillments = ?fulfilled, "Found fulfilled requests for client {client}");
         metrics.push(new_metric(
             &format!("fulfilled_requests_number_from_{client}"),
             fulfilled_count as f64,
@@ -173,7 +173,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .context("Failed to fetch fulfilled requests number by prover {prover}")
             .map_err(|e| Error::from(e.to_string()))?;
         let fulfilled_count = fulfilled.len();
-        debug!(count = fulfilled_count, fulfillments = ?fulfilled, "Fetched fulfilled requests for prover {prover}");
+        debug!(count = fulfilled_count, fulfillments = ?fulfilled, "Found fulfilled requests for prover {prover}");
         metrics.push(new_metric(
             &format!("fulfilled_requests_number_by_{prover}"),
             fulfilled_count as f64,
@@ -186,7 +186,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .context("Failed to fetch locked requests number by prover {prover}")
             .map_err(|e| Error::from(e.to_string()))?;
         let locked_count = locked.len();
-        debug!(count = locked_count, locked = ?locked, "Fetched locked requests for prover {prover}");
+        debug!(count = locked_count, locked = ?locked, "Found locked requests for prover {prover}");
         metrics.push(new_metric(
             &format!("locked_requests_number_by_{prover}"),
             locked_count as f64,
@@ -199,7 +199,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .context("Failed to fetch slashed requests number by prover {prover}")
             .map_err(|e| Error::from(e.to_string()))?;
         let slashed_count = slashed.len();
-        debug!(count = slashed_count, slashed = ?slashed, "Fetched slashed requests for prover {prover}");
+        debug!(count = slashed_count, slashed = ?slashed, "Found slashed requests for prover {prover}");
         metrics.push(new_metric(
             &format!("slashed_requests_number_by_{prover}"),
             slashed_count as f64,
