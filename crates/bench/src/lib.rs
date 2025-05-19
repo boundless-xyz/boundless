@@ -538,6 +538,7 @@ mod tests {
             anvil.endpoint_url(),
             ctx.prover_signer,
         );
+
         let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
         let broker_task = tokio::spawn(async move { broker.start_service().await });
 
@@ -545,8 +546,8 @@ mod tests {
             cycle_count_per_request: 1000,
             requests_count: 2,
             interval: 0,
-            timeout: 120,
-            lock_timeout: 120,
+            timeout: 45,
+            lock_timeout: 45,
             min_price_per_mcycle: "0".to_string(),
             max_price_per_mcycle: "0.001".to_string(),
             lockin_stake: "0.0".to_string(),
