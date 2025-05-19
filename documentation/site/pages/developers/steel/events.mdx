@@ -64,7 +64,7 @@ This allows Steel in the host `preflight` call to populate the EVM environment, 
 The guest program requires the usual Steel workflow:
 
 1. Read the input from the host environment: `let input: EthEvmInput = env::read();`
-2. Convert the input into an `EvmEnv` for execution, with the correct chain configuration: `let env = input.into_env().with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);`
+2. Convert the input into an `EvmEnv` for execution, with the correct chain configuration: `let env = input.into_env(&ETH_SEPOLIA_CHAIN_SPEC);`
 3. Save the blockhash for the block where we are querying the event: `let event_block_hash = env.header().seal();`
 
 After which, we are ready to query all `Transfer` events in a single block for the specified `CONTRACT`:

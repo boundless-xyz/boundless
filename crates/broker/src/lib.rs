@@ -420,9 +420,9 @@ where
             let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
                 .await
                 .context("Failed to parse image URI")?;
-            tracing::debug!("Downloading assessor image from: {image_uri}");
+            tracing::debug!("Downloading image from: {image_uri}");
 
-            image_uri.fetch().await.context("Failed to download assessor image")?
+            image_uri.fetch().await.context("Failed to download image")?
         };
 
         prover
@@ -558,6 +558,7 @@ where
             chain_monitor.clone(),
             config.clone(),
             block_times,
+            self.args.private_key.address(),
             self.args.boundless_market_address,
         )?);
         let cloned_config = config.clone();

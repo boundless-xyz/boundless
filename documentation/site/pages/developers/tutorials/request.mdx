@@ -81,6 +81,13 @@ let program_url = boundless_client.upload_program(PROGRAM).await?;
 
 ### 3. Upload the Input of Your Program to IPFS
 
+:::tip[*Rather not have inputs publicly available?**]
+When working with trusted provers, you can store inputs in *Amazon S3* and restrict access with a bucket policy (plus an optional *KMS key policy* if you enable server-side encryption).
+Only provers whose IAM role appears in those policies can download the inputs.
+
+See [Sensitive Inputs](/developers/tutorials/sensitive-inputs) for more information.
+:::
+
 To execute and run proving, the prover requires the inputs of the program.
 Similar to the program executable, the program inputs are uploaded to a public HTTP server, and the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html) can help with that.
 
@@ -272,6 +279,12 @@ You'll need to [install Rust](https://doc.rust-lang.org/cargo/getting-started/in
 
 ```sh [Terminal]
 cargo install --locked boundless-cli
+```
+
+You can also install the CLI from source with the following command:
+
+```sh [Terminal]
+cargo install --path ./crates/boundless-cli --bin boundless-cli
 ```
 
 ### Boundless CLI

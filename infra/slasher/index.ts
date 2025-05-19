@@ -3,7 +3,7 @@ import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
 import { ChainId, getServiceNameV1, getEnvVar } from '../util';
-
+import * as crypto from 'crypto';
 require('dotenv').config();
 
 export = () => {
@@ -11,7 +11,7 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
   const serviceName = getServiceNameV1(stackName, "order-slasher", ChainId.SEPOLIA);
-  
+
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
@@ -20,7 +20,8 @@ export = () => {
   const dockerDir = config.require('DOCKER_DIR');
   const dockerTag = config.require('DOCKER_TAG');
   const boundlessMarketAddr = config.require('BOUNDLESS_MARKET_ADDR');
-  
+
+  const githubTokenSecret = config.get('GH_TOKEN_SECRET');
   const interval = config.require('INTERVAL');
   const retries = config.require('RETRIES');
   const skipAddresses = config.get('SKIP_ADDRESSES');
@@ -44,6 +45,15 @@ export = () => {
     secretString: ethRpcUrl,
   });
 
+  const secretHash = pulumi
+    .all([ethRpcUrl, privateKey])
+    .apply(([_ethRpcUrl, _privateKey]) => {
+      const hash = crypto.createHash("sha1");
+      hash.update(_ethRpcUrl);
+      hash.update(_privateKey);
+      return hash.digest("hex");
+    });
+
   const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
     forceDelete: true,
     lifecyclePolicy: {
@@ -60,8 +70,16 @@ export = () => {
   const authToken = aws.ecr.getAuthorizationTokenOutput({
     registryId: repo.repository.registryId,
   });
-  
+
   const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+  // Optionally add in the gh token secret and sccache s3 creds to the build ctx
+  let buildSecrets = {};
+  if (githubTokenSecret !== undefined) {
+    buildSecrets = {
+      githubTokenSecret
+    }
+  }
 
   const image = new docker_build.Image(`${serviceName}-image`, {
     tags: [dockerTagPath],
@@ -71,6 +89,7 @@ export = () => {
     // Due to limitations with cargo-chef, we need to build for amd64, even though slasher doesn't
     // strictly need r0vm. See `dockerfiles/slasher.dockerfile` for more details.
     platforms: ['linux/amd64'],
+    secrets: buildSecrets,
     push: true,
     builder: dockerRemoteBuilder ? {
       name: dockerRemoteBuilder,
@@ -177,6 +196,10 @@ export = () => {
               name: 'BOUNDLESS_MARKET_ADDRESS',
               value: boundlessMarketAddr,
             },
+            {
+              name: 'SECRET_HASH',
+              value: secretHash,
+            },
           ],
           secrets: [
             {
@@ -203,7 +226,7 @@ export = () => {
       value: '1',
       defaultValue: '0',
     },
-    pattern: '?ERROR ?error ?Error',
+    pattern: 'ERROR',
   }, { dependsOn: [service] });
 
   const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
@@ -228,7 +251,43 @@ export = () => {
     evaluationPeriods: 60,
     datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
-    alarmDescription: 'Order generator log ERROR level',
+    alarmDescription: 'Order slasher log ERROR level',
+    actionsEnabled: true,
+    alarmActions,
+  });
+
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
+    name: `${serviceName}-log-fatal-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-fatal`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: 'FATAL',
+  }, { dependsOn: [service] });
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
+    name: `${serviceName}-log-fatal`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-fatal`,
+          period: 60,
+          stat: 'Sum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    treatMissingData: 'notBreaching',
+    alarmDescription: `Order slasher FATAL (task exited)`,
     actionsEnabled: true,
     alarmActions,
   });

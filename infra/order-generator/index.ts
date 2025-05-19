@@ -1,7 +1,9 @@
 import * as pulumi from '@pulumi/pulumi';
-import { ChainId, getEnvVar } from '../util';
-import { SimpleGenerator } from './components/simple-generator';
-import { ZethGenerator } from './components/zeth-generator';
+import * as aws from '@pulumi/aws';
+import * as awsx from '@pulumi/awsx';
+import * as docker_build from '@pulumi/docker-build';
+import { getEnvVar, getServiceNameV1 } from '../util';
+import { OrderGenerator } from './components/order-generator';
 
 require('dotenv').config();
 
@@ -13,8 +15,8 @@ export = () => {
   const chainId = baseConfig.require('CHAIN_ID');
   const pinataJWT = isDev ? pulumi.output(getEnvVar("PINATA_JWT")) : baseConfig.requireSecret('PINATA_JWT');
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : baseConfig.requireSecret('ETH_RPC_URL');
-  const orderStreamUrl = isDev 
-    ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) 
+  const orderStreamUrl = isDev
+    ? pulumi.output(getEnvVar("ORDER_STREAM_URL"))
     : (baseConfig.getSecret('ORDER_STREAM_URL') || pulumi.output(""));
   const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
   const logLevel = baseConfig.require('LOG_LEVEL');
@@ -29,80 +31,134 @@ export = () => {
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
   const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
-  
-  const simpleConfig = new pulumi.Config("order-generator-simple");
-  const simplePrivateKey = isDev ? pulumi.output(getEnvVar("SIMPLE_PRIVATE_KEY")) : simpleConfig.requireSecret('PRIVATE_KEY');
-  const simpleInterval = simpleConfig.require('INTERVAL');
-  const simpleLockStake = simpleConfig.require('LOCK_STAKE');
-  const simpleRampUp = simpleConfig.require('RAMP_UP');
-  const simpleMinPricePerMCycle = simpleConfig.require('MIN_PRICE_PER_MCYCLE');
-  const simpleMaxPricePerMCycle = simpleConfig.require('MAX_PRICE_PER_MCYCLE');
-  
-  new SimpleGenerator('order-generator', {
-    chainId,
-    stackName,
-    privateKey: simplePrivateKey,
-    pinataJWT,
-    ethRpcUrl,
-    orderStreamUrl,
-    githubTokenSecret,
-    logLevel,
-    dockerDir,
-    dockerTag,
-    dockerRemoteBuilder,
-    setVerifierAddr,
-    boundlessMarketAddr,
-    pinataGateway,
-    interval: simpleInterval,
-    lockStake: simpleLockStake,
-    rampUp: simpleRampUp,
-    minPricePerMCycle: simpleMinPricePerMCycle,
-    maxPricePerMCycle: simpleMaxPricePerMCycle,
-    vpcId,
-    privateSubnetIds,
-    boundlessAlertsTopicArn,
+  const interval = baseConfig.require('INTERVAL');
+  const lockStake = baseConfig.require('LOCK_STAKE');
+  const rampUp = baseConfig.require('RAMP_UP');
+  const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
+  const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
+  const secondsPerMCycle = baseConfig.require('SECONDS_PER_MCYCLE');
+  const txTimeout = baseConfig.require('TX_TIMEOUT');
+
+  const imageName = getServiceNameV1(stackName, `order-generator`);
+  const repo = new awsx.ecr.Repository(`${imageName}-repo`, {
+    forceDelete: true,
+    lifecyclePolicy: {
+      rules: [
+        {
+          description: 'Delete untagged images after N days',
+          tagStatus: 'untagged',
+          maximumAgeLimit: 7,
+        },
+      ],
+    },
   });
 
-  const zethConfig = new pulumi.Config("order-generator-zeth");
-  const zethPrivateKey = isDev ? pulumi.output(getEnvVar("ZETH_PRIVATE_KEY")) : zethConfig.requireSecret('PRIVATE_KEY');
-  const zethRpcUrl = isDev ? pulumi.output(getEnvVar("ZETH_RPC_URL")) : zethConfig.requireSecret('ZETH_RPC_URL');
-  const zethBoundlessRpcUrl = isDev ? pulumi.output(getEnvVar("BOUNDLESS_RPC_URL")) : zethConfig.requireSecret('BOUNDLESS_RPC_URL');
-  const zethScheduleMinutes = zethConfig.require('SCHEDULE_MINUTES');
-  const zethRetries = zethConfig.require('RETRIES');
-  const zethInterval = zethConfig.require('INTERVAL');
-  const zethLockStake = zethConfig.require('LOCK_STAKE');
-  const zethRampUp = zethConfig.require('RAMP_UP');
-  const zethMinPricePerMCycle = zethConfig.require('MIN_PRICE_PER_MCYCLE');
-  const zethMaxPricePerMCycle = zethConfig.require('MAX_PRICE_PER_MCYCLE');
-  const zethTimeout = zethConfig.require('TIMEOUT');
-  const zethLockTimeout = zethConfig.require('LOCK_TIMEOUT');
-  new ZethGenerator('order-generator-zeth', {
+  const authToken = aws.ecr.getAuthorizationTokenOutput({
+    registryId: repo.repository.registryId,
+  });
+
+  let buildSecrets = {};
+  if (githubTokenSecret !== undefined) {
+    buildSecrets = {
+      ...buildSecrets,
+      githubTokenSecret
+    }
+  }
+
+  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+  const image = new docker_build.Image(`${imageName}-image`, {
+    tags: [dockerTagPath],
+    context: {
+      location: dockerDir,
+    },
+    builder: dockerRemoteBuilder ? {
+      name: dockerRemoteBuilder,
+    } : undefined,
+    platforms: ['linux/amd64'],
+    push: true,
+    dockerfile: {
+      location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
+    },
+    secrets: buildSecrets,
+    cacheFrom: [
+      {
+        registry: {
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    cacheTo: [
+      {
+        registry: {
+          mode: docker_build.CacheMode.Max,
+          imageManifest: true,
+          ociMediaTypes: true,
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    registries: [
+      {
+        address: repo.repository.repositoryUrl,
+        password: authToken.password,
+        username: authToken.userName,
+      },
+    ],
+  });
+
+  const offchainConfig = new pulumi.Config("order-generator-offchain");
+  const autoDeposit = offchainConfig.require('AUTO_DEPOSIT');
+  const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
+  new OrderGenerator('offchain', {
     chainId,
     stackName,
-    privateKey: zethPrivateKey,
+    privateKey: offchainPrivateKey,
     pinataJWT,
-    zethRpcUrl,
-    boundlessRpcUrl: zethBoundlessRpcUrl,
-    orderStreamUrl,
-    githubTokenSecret,
+    ethRpcUrl,
+    offchainConfig: {
+      autoDeposit,
+      orderStreamUrl,
+    },
+    image,
     logLevel,
-    dockerDir,
-    dockerTag,
-    dockerRemoteBuilder,
     setVerifierAddr,
     boundlessMarketAddr,
     pinataGateway,
-    interval: zethInterval,
-    lockStake: zethLockStake,
-    rampUp: zethRampUp,
-    minPricePerMCycle: zethMinPricePerMCycle,
-    maxPricePerMCycle: zethMaxPricePerMCycle,
+    interval,
+    lockStake,
+    rampUp,
+    minPricePerMCycle,
+    maxPricePerMCycle,
+    secondsPerMCycle,
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArn,
-    retries: zethRetries,
-    scheduleMinutes: zethScheduleMinutes,
-    timeout: zethTimeout,
-    lockTimeout: zethLockTimeout,
+    txTimeout,
+  });
+
+  const onchainConfig = new pulumi.Config("order-generator-onchain");
+  const onchainPrivateKey = isDev ? pulumi.output(getEnvVar("ONCHAIN_PRIVATE_KEY")) : onchainConfig.requireSecret('PRIVATE_KEY');
+  new OrderGenerator('onchain', {
+    chainId,
+    stackName,
+    privateKey: onchainPrivateKey,
+    pinataJWT,
+    ethRpcUrl,
+    image,
+    logLevel,
+    setVerifierAddr,
+    boundlessMarketAddr,
+    pinataGateway,
+    interval,
+    lockStake,
+    rampUp,
+    minPricePerMCycle,
+    maxPricePerMCycle,
+    secondsPerMCycle,
+    vpcId,
+    privateSubnetIds,
+    boundlessAlertsTopicArn,
+    txTimeout,
   });
 };

@@ -4,6 +4,7 @@ import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { getServiceNameV1 } from '../../util';
+import * as crypto from 'crypto';
 
 const SERVICE_NAME_BASE = 'order-stream';
 const HEALTH_CHECK_PATH = '/api/v1/health';
@@ -316,10 +317,19 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     });
 
     const dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`);
+    const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${rds.address}:${rdsPort}/${rdsDbName}?sslmode=require`;
     new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
       secretId: dbUrlSecret.id,
-      secretString: pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${rds.address}:${rdsPort}/${rdsDbName}?sslmode=require`,
+      secretString: dbUrlSecretValue
     });
+
+    const secretHash = pulumi
+      .all([dbUrlSecretValue])
+      .apply(([_dbUrlSecretValue]: any[]) => {
+        const hash = crypto.createHash("sha1");
+        hash.update(_dbUrlSecretValue);
+        return hash.digest("hex");
+      });
 
     const dbSecretAccessPolicy = new aws.iam.Policy(`${serviceName}-db-url-policy`, {
       policy: dbUrlSecret.arn.apply((secretArn): aws.iam.PolicyDocument => {
@@ -544,6 +554,42 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       statistic: 'Sum',
       threshold: 1,
       alarmDescription: 'Order stream health check alarm',
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
+      name: `${serviceName}-log-fatal-filter`,
+      logGroupName: serviceName,
+      metricTransformation: {
+        namespace: `Boundless/Services/${serviceName}`,
+        name: `${serviceName}-log-fatal`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: 'FATAL',
+    }, { dependsOn: [service] });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
+      name: `${serviceName}-log-fatal`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-fatal`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Order stream FATAL (task exited)`,
       actionsEnabled: true,
       alarmActions,
     });

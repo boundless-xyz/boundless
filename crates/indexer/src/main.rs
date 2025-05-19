@@ -26,7 +26,7 @@ struct MainArgs {
     /// Starting block number.
     #[clap(long)]
     start_block: Option<u64>,
-    /// Interval in seconds between checking for expired requests.
+    /// Interval in seconds between checking for new events.
     #[clap(long, default_value = "5")]
     interval: u64,
     /// Number of retries before quitting after an error.
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
     .await?;
 
     if let Err(err) = indexer_service.run(args.start_block).await {
-        bail!("Error running the indexer: {err}");
+        bail!("FATAL: Error running the indexer: {err}");
     }
 
     Ok(())

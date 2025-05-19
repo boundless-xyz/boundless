@@ -68,6 +68,7 @@ struct OrderInput {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .json()
         .init();
 
     match dotenvy::dotenv() {
@@ -94,7 +95,7 @@ async fn main() -> Result<()> {
     .await?;
 
     if let Err(err) = slash_service.run(args.start_block).await {
-        bail!("Error running the slasher: {err}");
+        bail!("FATAL: Error running the slasher: {err}");
     }
 
     Ok(())
