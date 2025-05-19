@@ -23,7 +23,7 @@ export = () => {
   const baseStackName = config.require('BASE_STACK');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const startBlock = config.require('START_BLOCK');
-  const rustLogLevel = config.get('RUST_LOG_LEVEL') || 'info';
+  const rustLogLevel = config.get('RUST_LOG') || 'info';
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;

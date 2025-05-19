@@ -136,25 +136,28 @@ impl Monitor {
         Ok(row.get::<i64, _>(0))
     }
 
-    /// Fetch the number of requests that have been submitted within the given range.
+    /// Fetch the requests that have been submitted within the given range.
+    /// NOTE: This function queries the `proof_requests` table, not the `request_submitted_events` table,
+    ///       because the `request_submitted_events` table is not updated when a request is submitted offchain.
+    ///       This is therefore an approximation of when requests were submitted.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
-    pub async fn fetch_requests_number(&self, from: i64, to: i64) -> Result<i64> {
-        let row = sqlx::query(
+    pub async fn fetch_requests(&self, from: i64, to: i64) -> Result<Vec<String>> {
+        let rows = sqlx::query(
             r#"
-            SELECT COUNT(*)
+            SELECT request_id
             FROM proof_requests
-            WHERE bidding_start >= $1
-            AND bidding_start < $2
+            WHERE block_timestamp >= $1
+            AND block_timestamp < $2
             "#,
         )
         .bind(from)
         .bind(to)
-        .fetch_one(&self.db)
+        .fetch_all(&self.db)
         .await?;
 
-        Ok(row.get::<i64, _>(0))
+        Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
     /// Total number of submitted requests.
@@ -164,33 +167,36 @@ impl Monitor {
         Ok(row.get::<i64, _>(0))
     }
 
-    /// Fetch the number of requests that have been submitted within the given range from a specific client address.
+    /// Fetch the requests that have been submitted within the given range from a specific client address.
+    /// NOTE: This function queries the `proof_requests` table, not the `request_submitted_events` table,
+    ///       because the `request_submitted_events` table is not updated when a request is submitted offchain.
+    ///       This is therefore an approximation of when requests were submitted.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// address: The client address to filter requests by.
-    pub async fn fetch_requests_number_from_client(
+    pub async fn fetch_requests_from_client(
         &self,
         from: i64,
         to: i64,
         address: Address,
-    ) -> Result<i64> {
-        let row = sqlx::query(
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query(
             r#"
-            SELECT COUNT(*)
+            SELECT request_id
             FROM proof_requests
-            WHERE bidding_start >= $1
-            AND bidding_start < $2
+            WHERE block_timestamp >= $1
+            AND block_timestamp < $2
             AND client_address = $3
             "#,
         )
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", address))
-        .fetch_one(&self.db)
+        .fetch_all(&self.db)
         .await?;
 
-        Ok(row.get::<i64, _>(0))
+        Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
     /// Total number of submitted requests from a specific client address.
@@ -203,25 +209,26 @@ impl Monitor {
         Ok(row.get::<i64, _>(0))
     }
 
-    /// Fetch the number of fulfilled requests within the given range.
+    /// Fetch the fulfilled requests within the given range.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
-    pub async fn fetch_fulfillments_number(&self, from: i64, to: i64) -> Result<i64> {
-        let row = sqlx::query(
+    pub async fn fetch_fulfillments(&self, from: i64, to: i64) -> Result<Vec<String>> {
+        let rows = sqlx::query(
             r#"
-            SELECT COUNT(*)
-            FROM fulfillments
-            WHERE block_timestamp >= $1
-            AND block_timestamp < $2
+            SELECT pr.request_id
+            FROM fulfillments f
+            JOIN proof_requests pr ON f.request_digest = pr.request_digest
+            WHERE f.block_timestamp >= $1
+            AND f.block_timestamp < $2
             "#,
         )
         .bind(from)
         .bind(to)
-        .fetch_one(&self.db)
+        .fetch_all(&self.db)
         .await?;
 
-        Ok(row.get::<i64, _>(0))
+        Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
     /// Total number of fulfilled requests.
@@ -233,35 +240,35 @@ impl Monitor {
         Ok(row.get::<i64, _>(0))
     }
 
-    /// Fetch the number of fulfilled requests within the given range from a specific client address.
+    /// Fetch the fulfilled requests within the given range from a specific client address.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// address: The client address to filter requests by.
-    pub async fn fetch_fulfillments_number_from_client(
+    pub async fn fetch_fulfillments_from_client(
         &self,
         from: i64,
         to: i64,
         address: Address,
-    ) -> Result<i64> {
-        let row = sqlx::query(
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query(
             r#"
             SELECT COUNT(*)
             FROM request_fulfilled_events rfe
             JOIN proof_requests pr
               ON rfe.request_digest = pr.request_digest
-            WHERE pr.bidding_start >= $1
-            AND pr.bidding_start < $2
+            WHERE pr.block_timestamp >= $1
+            AND pr.block_timestamp < $2
             AND pr.client_address = $3
             "#,
         )
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", address))
-        .fetch_one(&self.db)
+        .fetch_all(&self.db)
         .await?;
 
-        Ok(row.get::<i64, _>(0))
+        Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
     /// Total number of fulfilled requests from a specific client address.
@@ -282,23 +289,25 @@ impl Monitor {
         Ok(row.get::<i64, _>(0))
     }
 
-    /// Fetch the number of fulfilled requests within the given range by a specific prover address.
+    /// Fetch the fulfilled requests within the given range by a specific prover address.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// prover: The prover address to filter requests by.
-    pub async fn fetch_fulfillments_number_by_prover(
+    pub async fn fetch_fulfillments_by_prover(
         &self,
         from: i64,
         to: i64,
         prover: Address,
-    ) -> Result<i64> {
-        let row = sqlx::query(
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query(
             r#"
-            SELECT COUNT(*)
+            SELECT pr.request_id
             FROM request_fulfilled_events rfe
             JOIN fulfillments f
               ON rfe.request_digest = f.request_digest
+            JOIN proof_requests pr
+              ON f.request_digest = pr.request_digest
             WHERE f.block_timestamp >= $1
             AND f.block_timestamp < $2
             AND f.prover_address = $3
@@ -307,10 +316,10 @@ impl Monitor {
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", prover))
-        .fetch_one(&self.db)
+        .fetch_all(&self.db)
         .await?;
 
-        Ok(row.get::<i64, _>(0))
+        Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
     /// Total number of fulfilled requests by a specific prover address.
@@ -333,33 +342,35 @@ impl Monitor {
         Ok(row.get::<i64, _>(0))
     }
 
-    /// Fetch the number of locked requests by a prover within the given range.
+    /// Fetch the locked requests by a prover within the given range.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// prover: The prover address to filter requests by.
-    pub async fn fetch_locked_number_by_prover(
+    pub async fn fetch_locked_by_prover(
         &self,
         from: i64,
         to: i64,
         prover: Address,
-    ) -> Result<i64> {
-        let row = sqlx::query(
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query(
             r#"
-            SELECT COUNT(*)
-            FROM request_locked_events
-            WHERE block_timestamp >= $1
-            AND block_timestamp < $2
-            AND prover_address = $3
+            SELECT pr.request_id
+            FROM request_locked_events rle
+            JOIN proof_requests pr
+              ON rle.request_digest = pr.request_digest
+            WHERE rle.block_timestamp >= $1
+            AND rle.block_timestamp < $2
+            AND rle.prover_address = $3
             "#,
         )
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", prover))
-        .fetch_one(&self.db)
+        .fetch_all(&self.db)
         .await?;
 
-        Ok(row.get::<i64, _>(0))
+        Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
     /// Total number of locked requests by a specific prover address.
@@ -380,25 +391,27 @@ impl Monitor {
         Ok(row.get::<i64, _>(0))
     }
 
-    /// Fetch the number of slashed requests within the given range.
+    /// Fetch the slashed requests within the given range.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
-    pub async fn fetch_slashed_number(&self, from: i64, to: i64) -> Result<i64> {
-        let row = sqlx::query(
+    pub async fn fetch_slashed(&self, from: i64, to: i64) -> Result<Vec<String>> {
+        let rows = sqlx::query(
             r#"
-            SELECT COUNT(*)
-            FROM prover_slashed_events
-            WHERE block_timestamp >= $1
-            AND block_timestamp < $2
+            SELECT pr.request_id
+            FROM prover_slashed_events pse
+            JOIN proof_requests pr
+              ON pse.request_digest = pr.request_digest
+            WHERE pse.block_timestamp >= $1
+            AND pse.block_timestamp < $2
             "#,
         )
         .bind(from)
         .bind(to)
-        .fetch_one(&self.db)
+        .fetch_all(&self.db)
         .await?;
 
-        Ok(row.get::<i64, _>(0))
+        Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
     /// Total number of slashed requests.
@@ -409,33 +422,35 @@ impl Monitor {
         Ok(row.get::<i64, _>(0))
     }
 
-    /// Fetch the number of slashed requests within the given range by a specific prover address.
+    /// Fetch the slashed requests within the given range by a specific prover address.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// prover: The prover address to filter requests by.
-    pub async fn fetch_slashed_number_by_prover(
+    pub async fn fetch_slashed_by_prover(
         &self,
         from: i64,
         to: i64,
         prover: Address,
-    ) -> Result<i64> {
-        let row = sqlx::query(
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query(
             r#"
-            SELECT COUNT(*)
-            FROM prover_slashed_events
-            WHERE block_timestamp >= $1
-            AND block_timestamp < $2
-            AND prover_address = $3
+            SELECT pr.request_id
+            FROM prover_slashed_events pse
+            JOIN proof_requests pr
+              ON pse.request_digest = pr.request_digest
+            WHERE pse.block_timestamp >= $1
+            AND pse.block_timestamp < $2
+            AND pse.prover_address = $3
             "#,
         )
         .bind(from)
         .bind(to)
         .bind(format!("{:x}", prover))
-        .fetch_one(&self.db)
+        .fetch_all(&self.db)
         .await?;
 
-        Ok(row.get::<i64, _>(0))
+        Ok(rows.into_iter().map(|row| row.get::<String, _>("request_id")).collect())
     }
 
     /// Total number of slashed requests by a specific prover address.
@@ -469,14 +484,14 @@ impl Monitor {
         to: i64,
         prover: Address,
     ) -> Result<Option<f64>> {
-        let fulfilled = self.fetch_fulfillments_number_by_prover(from, to, prover).await?;
-        let locked: i64 = self.fetch_locked_number_by_prover(from, to, prover).await?;
+        let fulfilled = self.fetch_fulfillments_by_prover(from, to, prover).await?;
+        let locked = self.fetch_locked_by_prover(from, to, prover).await?;
 
-        if locked == 0 {
+        if locked.is_empty() {
             return Ok(None);
         }
 
-        Ok(Some(fulfilled as f64 / locked as f64))
+        Ok(Some(fulfilled.len() as f64 / locked.len() as f64))
     }
 
     /// Total success rate of fulfilled requests by a specific prover address.
@@ -508,14 +523,14 @@ impl Monitor {
         to: i64,
         address: Address,
     ) -> Result<Option<f64>> {
-        let fulfilled = self.fetch_fulfillments_number_from_client(from, to, address).await?;
-        let expired: i64 = self.fetch_requests_expired_from(from, to, address).await?.len() as i64;
+        let fulfilled = self.fetch_fulfillments_from_client(from, to, address).await?;
+        let expired = self.fetch_requests_expired_from(from, to, address).await?;
 
-        if (fulfilled + expired) == 0 {
+        if (fulfilled.len() + expired.len()) == 0 {
             return Ok(None);
         }
 
-        Ok(Some(fulfilled as f64 / (fulfilled + expired) as f64))
+        Ok(Some(fulfilled.len() as f64 / (fulfilled.len() + expired.len()) as f64))
     }
 
     /// Total success rate of fulfilled requests from a specific client address.

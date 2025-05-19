@@ -63,7 +63,10 @@ pub trait IndexerDb {
         &self,
         request_digest: B256,
         request: ProofRequest,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
+
+    async fn has_proof_request(&self, request_digest: B256) -> Result<bool, DbError>;
 
     async fn add_assessor_receipt(
         &self,
@@ -264,10 +267,20 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
+    async fn has_proof_request(&self, request_digest: B256) -> Result<bool, DbError> {
+        let result = sqlx::query("SELECT 1 FROM proof_requests WHERE request_digest = $1")
+            .bind(format!("{:x}", request_digest))
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(result.is_some())
+    }
+
     async fn add_proof_request(
         &self,
         request_digest: B256,
         request: ProofRequest,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         let predicate_type = match request.requirements.predicate.predicateType {
             PredicateType::DigestMatch => "DigestMatch",
@@ -299,8 +312,11 @@ impl IndexerDb for AnyDb {
                 bidding_start,
                 expires_at,
                 lock_end,
-                ramp_up_period
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                ramp_up_period,
+                tx_hash,
+                block_number,
+                block_timestamp
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             ON CONFLICT (request_digest) DO NOTHING",
         )
         .bind(format!("{:x}", request_digest))
@@ -321,6 +337,9 @@ impl IndexerDb for AnyDb {
         .bind((request.offer.biddingStart + request.offer.timeout as u64)  as i64)
         .bind((request.offer.biddingStart + request.offer.lockTimeout as u64)  as i64)
         .bind(request.offer.rampUpPeriod as i64)
+        .bind(format!("{:x}", metadata.tx_hash))
+        .bind(metadata.block_number as i64)
+        .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -773,8 +792,8 @@ mod tests {
 
         let request_digest = B256::ZERO;
         let request = generate_request(0, &Address::ZERO);
-
-        db.add_proof_request(request_digest, request.clone()).await.unwrap();
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        db.add_proof_request(request_digest, request.clone(), &metadata).await.unwrap();
 
         // Verify proof request was added
         let result = sqlx::query("SELECT * FROM proof_requests WHERE request_digest = $1")
@@ -783,6 +802,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", request.id));
+    }
+
+    #[tokio::test]
+    async fn test_has_proof_request() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let request_digest = B256::ZERO;
+        let non_existent_digest = B256::from([1; 32]);
+        let request = generate_request(0, &Address::ZERO);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        // Initially, both digests should not exist
+        assert!(!db.has_proof_request(request_digest).await.unwrap());
+        assert!(!db.has_proof_request(non_existent_digest).await.unwrap());
+
+        // Add a proof request
+        db.add_proof_request(request_digest, request, &metadata).await.unwrap();
+
+        // Now the added request should exist, but the non-existent one should not
+        assert!(db.has_proof_request(request_digest).await.unwrap());
+        assert!(!db.has_proof_request(non_existent_digest).await.unwrap());
     }
 
     #[tokio::test]
