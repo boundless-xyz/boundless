@@ -530,7 +530,7 @@ mod tests {
             .unwrap();
 
         // Start a broker
-        let config = new_config_with_min_deadline(2, 30).await;
+        let config = new_config_with_min_deadline(2, 10).await;
         let args = broker_args(
             config.path().to_path_buf(),
             ctx.boundless_market_address,
@@ -545,8 +545,8 @@ mod tests {
             cycle_count_per_request: 1000,
             requests_count: 2,
             interval: 0,
-            timeout: 60,
-            lock_timeout: 60,
+            timeout: 120,
+            lock_timeout: 120,
             min_price_per_mcycle: "0".to_string(),
             max_price_per_mcycle: "0.001".to_string(),
             lockin_stake: "0.0".to_string(),
