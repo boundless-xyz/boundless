@@ -290,13 +290,11 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
         return new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
           name: existing.name,
           retentionInDays: existing.retentionInDays,
-          skipDestroy: true,
         }, { parent: this, import: existing.id });
       }
       return new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
         name: serviceName,
         retentionInDays: 0,
-        skipDestroy: true,
       }, { parent: this });
     });
 
